@@ -8,3 +8,5 @@ Usage:
 - python src/cli.py --url https://example.com
 
 Design: modular interfaces for Scraper, Agent, PRDGenerator. Swap implementations by changing imports or wiring in CLI.
+
+IMPORTANT: the way in which the agent understands the page is by running: "console.table($$('a'), ['innerHTML', 'href']);". 

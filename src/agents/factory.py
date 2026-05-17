@@ -8,6 +8,7 @@ from typing import Optional
 
 from ..interfaces import Agent
 from .mock_agent import MockAgent
+from .local_agent import LocalAgent
 
 try:
     from .gemini_agent import GeminiAgent
@@ -45,6 +46,8 @@ class AgentFactory:
                 return AgentFactory._create_gemini_agent()
             if provider == "openai":
                 return AgentFactory._create_openai_agent()
+            if provider == "local":
+                return LocalAgent()
             if provider == "mock":
                 return MockAgent()
         except Exception as exc:

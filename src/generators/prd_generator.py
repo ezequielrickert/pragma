@@ -24,6 +24,11 @@ class SimplePRDGenerator(PRDGenerator):
         # Load specialized skills
         self.archeologist_skill = self._load_skill("archeologist-skill")
         self.dom_mapper_skill = self._load_skill("dom-mapper-skill")
+        self.progress_skill = self._load_skill("archaeology-progress-tracker")
+        
+        # Track discovery state
+        self.routes: Dict[str, Dict[str, Any]] = {}
+        self.base_domain: Optional[str] = None
 
     def _load_skill(self, skill_name: str) -> Optional[str]:
         """Load a specific skill from the .gemini/skills directory."""
@@ -37,6 +42,11 @@ class SimplePRDGenerator(PRDGenerator):
         """Execute a deep research loop and synthesize the final tree map."""
         print(f"Phase 1/4: Deep Discovery on {url}")
         state = self.scraper.navigate(url)
+        
+        # Initialize discovery tracking
+        self.base_domain = self._get_domain(url)
+        self._add_route(url, status="Finished", components=len(state.get("components", [])), context="Root")
+        self._update_discovered_routes(state.get("links", []), source=url)
 
         print("Phase 2/4: Planning Exhaustive Research Strategy")
         plan = self._create_plan(state)
@@ -48,44 +58,78 @@ class SimplePRDGenerator(PRDGenerator):
         print("Phase 4/4: Synthesizing Hierarchical System Mind-Map")
         return self._synthesize_tree_report()
 
+    def _get_domain(self, url: str) -> str:
+        """Extract domain from URL for filtering."""
+        from urllib.parse import urlparse
+        return urlparse(url).netloc
+
+    def _add_route(self, url: str, status: str = "Pending", components: int = 0, context: str = "", label: str = "") -> None:
+        """Add or update a route in the tracking map."""
+        clean_url = url.split("#")[0].rstrip("/")
+        if clean_url not in self.routes or status != "Pending":
+            self.routes[clean_url] = {
+                "status": status,
+                "components": components,
+                "visited": "2026-05-17" if status == "Finished" else "-",
+                "context": context or self.routes.get(clean_url, {}).get("context", "-"),
+                "label": label or self.routes.get(clean_url, {}).get("label", "-")
+            }
+
+    def _update_discovered_routes(self, links: list[Dict[str, str]], source: str) -> None:
+        """Add new same-domain links to discovery list."""
+        for link in links:
+            href = link.get("href", "")
+            if href and self._get_domain(href) == self.base_domain:
+                self._add_route(href, context=source, label=link.get("text", ""))
+
     def _create_plan(self, state: Dict[str, Any]) -> str:
         """Create a step-by-step research plan for deep excavation."""
+        pending = [u for u, d in self.routes.items() if d["status"] == "Pending"]
         prompt = (
             f"High-Fidelity Observation of {state['url']}\n"
             f"Title: {state['title']}\n"
             f"Detected Components: {len(state['components'])}\n"
-            "Create a plan to exhaustively map this system's tree structure."
+            f"Initial Discovered Routes: {json.dumps(pending[:20])}\n"
+            "Create a plan to exhaustively map this system's tree structure. "
+            "You MUST explore all discovered routes to complete the map."
         )
-        # Use Archeologist skill for planning
         return self.agent.generate(prompt, system_instruction=self.archeologist_skill)
 
     def _update_progress(self, stage: str, details: str) -> None:
-        """Maintain a persistent progress file tracking the agent's work."""
-        content = f"# Research Progress: {stage}\n\n{details}\n\n---\n"
-        current = ""
-        path = pathlib.Path(self.progress_file)
-        if path.exists():
-            current = path.read_text(encoding="utf-8")
-        write_output(self.progress_file, current + content)
+        """Maintain a persistent progress file with compact metrics."""
+        visited = [u for u, d in self.routes.items() if d["status"] == "Finished"]
+        
+        total = len(self.routes)
+        perc = (len(visited) / total * 100) if total > 0 else 0
+        
+        header = (
+            f"# Archaeology Progress: {self.base_domain}\n\n"
+            f"## Status: {len(visited)}/{total} ({perc:.1f}%)\n\n"
+        )
+        
+        table = self._build_progress_table()
+        content = f"{header}{table}\n\n## Log: {stage}\n\n{details}\n\n---\n"
+        write_output(self.progress_file, content)
+
+    def _build_progress_table(self) -> str:
+        """Build a compact markdown table for route discovery progress."""
+        table = "## Route Map\n\n| Route | Status | Label |\n|-------|--------|-------|\n"
+        
+        # Show all finished and first 10 pending to keep it very lean
+        rows = sorted(self.routes.items(), key=lambda x: (x[1]["status"] != "Finished", x[0]))
+        for url, data in rows[:50]: # Limit to top 50 rows for context safety
+            table += f"| {url} | {data['status']} | {data['label']} |\n"
+        return table
 
     def _execute_loop(self, state: Dict[str, Any]) -> None:
         """The core iteration loop for deep component discovery."""
         current_state = state
-        for i in range(8):
+        for i in range(12):
             print(f"Research Iteration {i+1}...")
-
-            path = pathlib.Path(self.progress_file)
-            progress_context = path.read_text(encoding="utf-8")[-3000:] if path.exists() else ""
-
-            prompt = (
-                f"Current Progress: {progress_context}\n\n"
-                f"Current Page: {current_state['url']}\n"
-                f"Page Components (DNA): {json.dumps(current_state['components'][:30])}\n"
-                "Decide your next action. Commands: GOTO <url>, CLICK <text/path>, or FINISH."
-            )
-
-            # Use Archeologist skill for interaction
-            decision = self.agent.generate(prompt, system_instruction=self.archeologist_skill).strip()
+            
+            prompt = self._build_iteration_prompt(current_state)
+            system_instruction = f"{self.archeologist_skill}\n\n{self.progress_skill}"
+            decision = self.agent.generate(prompt, system_instruction=system_instruction).strip()
             print(f"Action: {decision}")
 
             if decision.startswith("FINISH"):
@@ -93,15 +137,43 @@ class SimplePRDGenerator(PRDGenerator):
                 break
 
             next_state = self._execute_action(decision)
-            if next_state:
-                current_state = next_state
-                self._update_progress(
-                    f"ITERATION {i+1}",
-                    f"Action: {decision}\nNow at: {current_state['url']}\n"
-                    f"Components found: {len(current_state['components'])}",
-                )
-            else:
+            if not next_state:
                 break
+                
+            current_state = next_state
+            self._handle_iteration_result(i + 1, decision, current_state)
+
+    def _build_iteration_prompt(self, state: Dict[str, Any]) -> str:
+        """Build a lean prompt for a single discovery iteration."""
+        pending = sorted([u for u, d in self.routes.items() if d["status"] == "Pending"])
+        
+        # Only send essential component data to save tokens
+        lean_components = []
+        for c in state['components'][:8]:
+            lean_components.append({
+                "t": c.get("tag"),
+                "txt": c.get("text")[:30], # Truncate text
+                "p": c.get("path")[-50:] # Keep only the last 50 chars of the path
+            })
+
+        return (
+            f"URL: {state['url']}\n"
+            f"Pending: {json.dumps(pending[:5])}\n"
+            f"DNA: {json.dumps(lean_components)}\n\n"
+            "Action: GOTO <url>, CLICK <path>, or FINISH."
+        )
+
+    def _handle_iteration_result(self, iter_num: int, action: str, state: Dict[str, Any]) -> None:
+        """Update state and progress after an iteration."""
+        url = state['url'].split("#")[0].rstrip("/")
+        self._add_route(url, status="Finished", components=len(state['components']))
+        self._update_discovered_routes(state.get("links", []), source=url)
+        
+        self._update_progress(
+            f"ITERATION {iter_num}",
+            f"Action: {action}\nNow at: {state['url']}\n"
+            f"Components found: {len(state['components'])}",
+        )
 
     def _execute_action(self, decision: str) -> Optional[Dict[str, Any]]:
         """Execute the agent's chosen action."""
@@ -123,17 +195,14 @@ class SimplePRDGenerator(PRDGenerator):
         try:
             path = pathlib.Path(self.progress_file)
             progress = path.read_text(encoding="utf-8")
-            
-            # Truncate to last 15,000 characters to stay within safety limits for large explorations
-            if len(progress) > 15000:
-                progress = "...(truncated)...\n" + progress[-15000:]
+            # Aggressive truncation for context window safety (8k chars ~ 2k tokens)
+            if len(progress) > 8000:
+                progress = "...(truncated)...\n" + progress[-8000:]
 
             prompt = (
                 f"Full Research Log:\n{progress}\n\n"
-                "Based on the discovery data, generate a final Hierarchical System Mind-Map. "
-                "Show all branches from the root page down to the leaf components and routes."
+                "Generate a Hierarchical System Mind-Map from this data."
             )
-            report = self.agent.generate(prompt, system_instruction=self.dom_mapper_skill)
-            return report
+            return self.agent.generate(prompt, system_instruction=self.dom_mapper_skill)
         finally:
             self.scraper.close()
