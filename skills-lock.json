@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "generating-python-code": {
+      "source": "josemartinrodriguezmortaloni/opencode-config",
+      "sourceType": "github",
+      "skillPath": "skill/generating-python-code/SKILL.md",
+      "computedHash": "a7f50627509d141bbb1e7019ad3939f0d31c4f1eb50798dd43c0b926f3ed576d"
+    }
+  }
+}

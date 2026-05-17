@@ -1,81 +1,79 @@
-import sys
-import os
+"""
+Command-line interface for Pragma.
+"""
+from __future__ import annotations
+
 import argparse
+import os
 import pathlib
+import sys
 from datetime import datetime
-# Ensure project root on sys.path so script can be run directly
+
+from dotenv import load_dotenv
+
+# Path setup to allow running from project root
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-# Load .env if present
-from dotenv import load_dotenv
+
 load_dotenv(override=True)
 
-from src.scrapers.playwright_scraper import PlaywrightScraper
-from src.agents.openai_agent import OpenAIAgent
+from src.agents.factory import AgentFactory
 from src.generators.prd_generator import SimplePRDGenerator
+from src.scrapers.playwright_scraper import PlaywrightScraper
 from src.utils.io import write_output
 
-def main():
-    parser = argparse.ArgumentParser(description='POC: scrape URL and generate PRD')
-    parser.add_argument('--url', '-u', help='URL to scrape', default=os.getenv('URL'))
-    parser.add_argument('--out', '-o', help='Output folder', default='docs')
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Pragma: Autonomous Web-App Archaeology")
+    parser.add_argument("--url", "-u", help="URL to explore", default=os.getenv("URL"))
+    parser.add_argument("--out", "-o", help="Output folder for PRDs", default="docs")
+    parser.add_argument("--logs", "-l", help="Folder for research logs", default="research_logs")
+    parser.add_argument("--provider", "-p", help="Agent provider (gemini/openai/mock)")
     args = parser.parse_args()
+
     if not args.url:
-        parser.error('URL must be provided via --url or URL env var')
+        parser.error("URL must be provided via --url or URL env var")
+    return args
+
+
+def generate_timestamp() -> str:
+    """Generate a standard timestamp string."""
+    return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+
+def slugify(url: str) -> str:
+    """Turn URL into a filesystem-safe slug."""
+    return url.replace("https://", "").replace("http://", "").replace("/", "_")
+
+
+def main() -> None:
+    """Main execution entry point."""
+    args = parse_args()
+    timestamp = generate_timestamp()
+    slug = slugify(args.url)
+
+    # Prepare paths
+    prd_path = f"{args.out}/{slug}_prd_{timestamp}.md"
+    log_path = f"{args.logs}/{slug}_research_{timestamp}.md"
 
     scraper = PlaywrightScraper(headless=True)
-    scraped = scraper.scrape(args.url)
+    agent = AgentFactory.create_agent(args.provider)
+    prd_gen = SimplePRDGenerator(agent, scraper, progress_file=log_path)
 
-    # Choose agent provider: 'openai' (default) or 'gemini'.
-    provider = os.getenv('AGENT_PROVIDER', 'openai').lower()
-    from src.run_sample import MockAgent
-
-    if provider == 'gemini':
-        try:
-            # Prefer OAuth service-account flow if credentials file is present
-            if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-                from src.agents.gemini_oauth_agent import GeminiOAuthAgent
-                agent = GeminiOAuthAgent(creds_file=os.getenv('GOOGLE_APPLICATION_CREDENTIALS'), model=os.getenv('GEMINI_MODEL'))
-            else:
-                from src.agents.gemini_agent import GeminiAgent
-                gemini_key = os.getenv('GEMINI_API_KEY') or os.getenv('OPENAI_API_KEY')
-                agent = GeminiAgent(api_key=gemini_key, model=os.getenv('GEMINI_MODEL'))
-        except Exception as e:
-            print('Failed to initialize Gemini agent:', e)
-            agent = MockAgent()
-    elif provider == 'openai':
-        if os.getenv('OPENAI_API_KEY'):
-            try:
-                agent = OpenAIAgent()
-            except Exception as e:
-                print('Failed to initialize OpenAIAgent:', e)
-                agent = MockAgent()
-        else:
-            agent = MockAgent()
-    else:
-        print(f'Unknown AGENT_PROVIDER "{provider}", falling back to MockAgent')
-        agent = MockAgent()
-
-    prd_gen = SimplePRDGenerator(agent)
     try:
-        prd = prd_gen.generate_prd(scraped)
-    except Exception as e:
-        print('Agent generation failed:', e)
-        # Provide actionable guidance for common Gemini errors
-        err_text = str(e).lower()
-        if '404' in err_text or 'not found' in err_text:
-            print('\nGemini API returned 404. This usually means the API key is not linked to a Google Cloud project with the Generative Language API enabled, or the chosen model is not available to the key.')
-            print("Recommendations:\n - Ensure the Generative Language API is enabled in the GCP project that owns the API key.\n - Use a model available to your key (e.g., models/gemini-flash-latest) or use OAuth (service account).\n - To use OAuth, set the GOOGLE_APPLICATION_CREDENTIALS env var pointing to a service account JSON and retry.")
-        elif '403' in err_text or 'permission' in err_text or 'forbidden' in err_text:
-            print('\nGemini API returned a permission error. Ensure the API key has access and is not IP- or ref-restricted, or use a service account with proper roles.')
-        from src.run_sample import MockAgent
-        prd = SimplePRDGenerator(MockAgent()).generate_prd(scraped)
+        print(f"Starting autonomous archaeology for: {args.url}")
+        prd = prd_gen.generate_prd(args.url)
 
-    slug = args.url.replace('https://','').replace('http://','').replace('/','_')
-    filename = f"{args.out}/{slug}_prd_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.md"
-    write_output(filename, prd)
-    print('PRD written to', filename)
+        write_output(prd_path, prd)
+        print(f"Successfully generated PRD: {prd_path}")
+        print(f"Detailed research log saved to: {log_path}")
 
-if __name__ == '__main__':
+    except Exception as exc:
+        print(f"Critical error during exploration: {exc}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
     main()
