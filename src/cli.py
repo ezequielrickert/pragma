@@ -17,16 +17,23 @@ if str(ROOT) not in sys.path:
 load_dotenv(override=True)
 
 from src.core import bootstrap  # noqa: F401  -- populates the plugin registries
+from src.core import prompts
+from src.core.app import run_app
 from src.core.config import PragmaConfig
 from src.core.engine import Engine
 from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, SCRAPER_REGISTRY
+from src.core.wizard import run_config_wizard
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Pragma: Autonomous Web-App Archaeology")
-    parser.add_argument("--url", "-u", help="URL to explore")
-    parser.add_argument("--config", "-c", help="Path to a pragma YAML config file")
+def parse_args(argv: list) -> argparse.Namespace:
+    """Parse command line arguments for a run (analysis) invocation."""
+    parser = argparse.ArgumentParser(
+        description="Pragma: Autonomous Web-App Archaeology",
+        epilog="Run `python3 src/cli.py config` once to set up your provider/model/api key.",
+    )
+    parser.add_argument("url", nargs="?", help="URL to explore")
+    parser.add_argument("--url", "-u", dest="url_flag", help="URL to explore (same as positional)")
+    parser.add_argument("--config", "-c", dest="config_path", help="Path to a pragma YAML config file")
     parser.add_argument(
         "--scraper", help=f"Scraper plugin ({', '.join(SCRAPER_REGISTRY.names())})"
     )
@@ -44,20 +51,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
     parser.add_argument("--max-iterations", type=int, dest="max_iterations")
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
-    """Main execution entry point."""
-    args = parse_args()
-    overrides = {k: v for k, v in vars(args).items() if k != "config"}
+    """Main execution entry point.
+
+    Bare `python3 src/cli.py` from a real terminal launches the interactive menu
+    app (navigate between analyzing a URL and configuring the pipeline, no flags
+    needed). `python3 src/cli.py config` jumps straight to the setup wizard. Any
+    other invocation (flags/positional URL) runs a single analysis directly, for
+    scripting/automation.
+    """
+    argv = sys.argv[1:]
+    if argv and argv[0] == "config":
+        run_config_wizard()
+        return
+
+    if not argv:
+        if sys.stdin.isatty():
+            run_app()
+            return
+        print("Error: URL must be provided (positional arg, --url, YAML config, or URL env var)")
+        sys.exit(2)
+
+    args = parse_args(argv)
+    url = args.url_flag or args.url
+    overrides = {
+        k: v
+        for k, v in vars(args).items()
+        if k not in ("url", "url_flag", "config_path")
+    }
     if overrides.pop("headed", False):
         overrides["headless"] = False
-    config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config)
+    overrides["url"] = url
+
+    config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
 
     if not config.url:
-        print("Error: URL must be provided via --url, YAML config, or URL env var")
-        sys.exit(2)
+        if sys.stdin.isatty():
+            config.url = prompts.text("URL to analyze")
+        if not config.url:
+            print(
+                "Error: URL must be provided (positional arg, --url, YAML config, or URL env var)"
+            )
+            sys.exit(2)
 
     try:
         print(f"Starting autonomous archaeology for: {config.url}")

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional
 
@@ -11,7 +11,15 @@ import yaml
 
 @dataclass
 class PragmaConfig:
-    """Wiring configuration for the Engine (which plugins, and pipeline settings)."""
+    """Wiring configuration for the Engine (which plugins, and pipeline settings).
+
+    `agents` holds optional per-provider settings (model, endpoint, etc.), keyed by
+    provider name, e.g. {"gemini": {"model": "..."}}. Secrets should stay in env
+    vars / .env; `agents` is meant for non-secret, provider-specific overrides that
+    would otherwise clutter a single flat .env as more providers are added. Each
+    provider is still free to fall back to its own env vars when a key is omitted
+    here - see the Config dataclasses colocated with each Agent implementation.
+    """
 
     url: Optional[str] = None
     scraper: str = "playwright"
@@ -21,6 +29,7 @@ class PragmaConfig:
     logs_dir: str = "research_logs"
     headless: bool = True
     max_iterations: int = 12
+    agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     _ENV_MAP: ClassVar[Dict[str, str]] = {
         "url": "URL",

@@ -1,4 +1,9 @@
-# Pragma pipeline wiring. Copy to pragma.yaml (auto-loaded) or pass --config <path>.
+# Pragma pipeline wiring. Normally you don't hand-edit this file - run
+# `python3 src/cli.py config` for an interactive wizard that writes it (and
+# saves API keys to .env) for you. This file is just a reference/starting
+# point, and a place to look if you want to edit a setting by hand.
+#
+# Copy to pragma.yaml (auto-loaded) or pass --config <path>.
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
 scraper: playwright
@@ -8,3 +13,20 @@ out_dir: docs
 logs_dir: research_logs
 headless: true
 max_iterations: 12
+
+# Optional: non-secret, per-provider settings. Only the block matching `agent`
+# above (or --agent on the CLI) is used. Anything you omit here falls back to
+# that provider's own environment variables (see .env.example) - so you never
+# need to touch this file for providers you're not using, and this file keeps
+# growing per-provider instead of piling more prefixed vars into .env.
+#
+# Keep API keys and credential file paths in .env, not here, since this file
+# may be committed to version control.
+agents:
+  gemini:
+    model: models/gemini-1.5-flash-latest
+  openai:
+    model: gpt-4o-mini
+  local:
+    base_url: http://localhost:1234/v1/chat/completions
+    model: my-local-model

@@ -85,6 +85,42 @@ internal shape.
 
 ---
 
+## Per-Provider Config Encapsulation
+
+As more AI providers get added, their env vars, credentials, and model settings must not pile
+up into one flat, ever-growing `.env`. Each agent module owns a small `Config` dataclass
+colocated with its implementation, with a `from_env()` classmethod that is the *only* place that
+reads that provider's env vars:
+
+- `GeminiConfig` (`src/agents/gemini_agent.py`): `GEMINI_API_KEY`, `GEMINI_MODEL`.
+- `GeminiOAuthConfig` (`src/agents/gemini_oauth_agent.py`): `GOOGLE_APPLICATION_CREDENTIALS`,
+  `GEMINI_MODEL`.
+- `OpenAIConfig` (`src/agents/openai_agent.py`): `OPENAI_API_KEY`, `OPENAI_MODEL`.
+- `LocalConfig` (`src/agents/local_agent.py`): `LOCAL_API_URL`, `LOCAL_MODEL`.
+
+`src/agents/providers.py` (the `gemini`/`openai` registry builders) only decides *which* class to
+instantiate and applies optional overrides on top of each `Config.from_env()` — it never reads a
+provider's env vars itself. Those overrides come from `PragmaConfig.agents`, an optional nested
+`agents:` block in `pragma.yaml` keyed by provider name (see `pragma.example.yaml`), letting
+non-secret settings (model name, base URL) live in version-controllable config scoped per
+provider instead of more prefixed globals in `.env`. Secrets (API keys, credential paths) stay in
+`.env` only.
+
+`python3 src/cli.py config` (`src/core/wizard.py`) is the interactive front door to all of this:
+an arrow-key menu (via `questionary`, with a plain-`input()` fallback when there's no TTY) walks
+through scraper/agent/generator selection and that provider's `PROVIDER_FIELDS`, then writes
+non-secret answers to `pragma.yaml` and secret answers to `.env` via `upsert_env_vars()`
+(`src/utils/io.py`), which patches just the changed keys in place. Existing values are shown as
+editable defaults, so re-running the wizard to tweak one setting never clobbers the rest.
+
+Consequences: switching `--agent` never requires knowing another provider's variables, and
+adding a new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent`
+subclass + `AnthropicConfig.from_env()`, register a builder in `providers.py` (or decorate the
+class directly if it needs no OAuth-vs-REST branching), and add one import to
+`src/core/bootstrap.py`. No other file changes.
+
+---
+
 ## Directory Roles
 
 - **`src/core/`**: The Kernel — `Engine`, plugin registries, shared interfaces/contracts

@@ -4,12 +4,30 @@ Local agent implementation for Pragma, connecting to a local model API.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import requests
 
 from ..core.interfaces import Agent
 from ..core.registry import AGENT_REGISTRY
+
+
+@dataclass
+class LocalConfig:
+    """Every setting the local agent needs, and where it comes from.
+
+    This is the single place that knows about LOCAL_API_URL/LOCAL_MODEL -
+    no other module should read those env vars directly.
+    """
+
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    timeout: int = 120
+
+    @classmethod
+    def from_env(cls) -> "LocalConfig":
+        return cls(base_url=os.getenv("LOCAL_API_URL"), model=os.getenv("LOCAL_MODEL"))
 
 
 @AGENT_REGISTRY.register("local")
@@ -20,16 +38,13 @@ class LocalAgent(Agent):
         self,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: int = 120,
+        timeout: Optional[int] = None,
     ) -> None:
-        """Initialize LocalAgent."""
-        self.base_url = (
-            base_url
-            or os.getenv("LOCAL_API_URL")
-            or "http://192.168.68.76:1234/v1/chat/completions"
-        )
-        self.model = model or os.getenv("LOCAL_MODEL", "google/gemma-4-e2b")
-        self.timeout = timeout
+        """Initialize LocalAgent, falling back to LocalConfig.from_env()."""
+        config = LocalConfig.from_env()
+        self.base_url = base_url or config.base_url or "http://192.168.68.76:1234/v1/chat/completions"
+        self.model = model or config.model or "google/gemma-4-e2b"
+        self.timeout = timeout or config.timeout
 
     def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         """Generate content using the local API with fallback for system role."""

@@ -38,8 +38,9 @@ class Engine:
 
         scraper = SCRAPER_REGISTRY.create(config.scraper, headless=config.headless)
 
+        provider_options = config.agents.get(config.agent, {})
         try:
-            agent = AGENT_REGISTRY.create(config.agent)
+            agent = AGENT_REGISTRY.create(config.agent, **provider_options)
         except Exception as exc:
             print(f"Failed to initialize {config.agent} agent: {exc}; falling back to mock")
             agent = AGENT_REGISTRY.create("mock")

@@ -4,11 +4,31 @@ Gemini agent implementation for Pragma.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import requests
 
 from ..core.interfaces import Agent
+
+
+@dataclass
+class GeminiConfig:
+    """Every setting the Gemini REST agent needs, and where it comes from.
+
+    This is the single place that knows about GEMINI_API_KEY/GEMINI_MODEL -
+    no other module should read those env vars directly.
+    """
+
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+    @classmethod
+    def from_env(cls) -> "GeminiConfig":
+        return cls(
+            api_key=os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY"),
+            model=os.getenv("GEMINI_MODEL"),
+        )
 
 
 def _find_text_in_common_fields(j: dict[str, Any]) -> str:
@@ -46,13 +66,14 @@ class GeminiAgent(Agent):
     """Gemini agent supporting API-key and OAuth flows."""
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
-        """Initialize Gemini agent with API key and model."""
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        """Initialize Gemini agent with API key and model, falling back to GeminiConfig.from_env()."""
+        config = GeminiConfig.from_env()
+        self.api_key = api_key or config.api_key
         if not self.api_key:
             raise RuntimeError("No Gemini API key found in environment")
-        
+
         # Ensure model has 'models/' prefix if not present
-        raw_model = model or os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+        raw_model = model or config.model or "gemini-1.5-flash-latest"
         self.model = raw_model if raw_model.startswith("models/") else f"models/{raw_model}"
 
         # (version, method_name, use_header_key)
