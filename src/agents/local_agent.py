@@ -8,9 +8,11 @@ from typing import Any, Optional
 
 import requests
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
+from ..core.registry import AGENT_REGISTRY
 
 
+@AGENT_REGISTRY.register("local")
 class LocalAgent(Agent):
     """Agent that communicates with a local model API (e.g., LM Studio)."""
 

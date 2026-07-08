@@ -4,10 +4,8 @@ Command-line interface for Pragma.
 from __future__ import annotations
 
 import argparse
-import os
 import pathlib
 import sys
-from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -18,57 +16,58 @@ if str(ROOT) not in sys.path:
 
 load_dotenv(override=True)
 
-from src.agents.factory import AgentFactory
-from src.generators.prd_generator import SimplePRDGenerator
-from src.scrapers.playwright_scraper import PlaywrightScraper
-from src.utils.io import write_output
+from src.core import bootstrap  # noqa: F401  -- populates the plugin registries
+from src.core.config import PragmaConfig
+from src.core.engine import Engine
+from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, SCRAPER_REGISTRY
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Pragma: Autonomous Web-App Archaeology")
-    parser.add_argument("--url", "-u", help="URL to explore", default=os.getenv("URL"))
-    parser.add_argument("--out", "-o", help="Output folder for PRDs", default="docs")
-    parser.add_argument("--logs", "-l", help="Folder for research logs", default="research_logs")
-    parser.add_argument("--provider", "-p", help="Agent provider (gemini/openai/mock)")
-    args = parser.parse_args()
-
-    if not args.url:
-        parser.error("URL must be provided via --url or URL env var")
-    return args
-
-
-def generate_timestamp() -> str:
-    """Generate a standard timestamp string."""
-    return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
-
-def slugify(url: str) -> str:
-    """Turn URL into a filesystem-safe slug."""
-    return url.replace("https://", "").replace("http://", "").replace("/", "_")
+    parser.add_argument("--url", "-u", help="URL to explore")
+    parser.add_argument("--config", "-c", help="Path to a pragma YAML config file")
+    parser.add_argument(
+        "--scraper", help=f"Scraper plugin ({', '.join(SCRAPER_REGISTRY.names())})"
+    )
+    parser.add_argument(
+        "--agent",
+        "--provider",
+        "-p",
+        dest="agent",
+        help=f"Agent plugin ({', '.join(AGENT_REGISTRY.names())})",
+    )
+    parser.add_argument(
+        "--generator", "-g", help=f"Generator strategy ({', '.join(GENERATOR_REGISTRY.names())})"
+    )
+    parser.add_argument("--out", "-o", dest="out_dir", help="Output folder for PRDs")
+    parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
+    parser.add_argument("--max-iterations", type=int, dest="max_iterations")
+    parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
+    return parser.parse_args()
 
 
 def main() -> None:
     """Main execution entry point."""
     args = parse_args()
-    timestamp = generate_timestamp()
-    slug = slugify(args.url)
+    overrides = {k: v for k, v in vars(args).items() if k != "config"}
+    if overrides.pop("headed", False):
+        overrides["headless"] = False
+    config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config)
 
-    # Prepare paths
-    prd_path = f"{args.out}/{slug}_prd_{timestamp}.md"
-    log_path = f"{args.logs}/{slug}_research_{timestamp}.md"
-
-    scraper = PlaywrightScraper(headless=True)
-    agent = AgentFactory.create_agent(args.provider)
-    prd_gen = SimplePRDGenerator(agent, scraper, progress_file=log_path)
+    if not config.url:
+        print("Error: URL must be provided via --url, YAML config, or URL env var")
+        sys.exit(2)
 
     try:
-        print(f"Starting autonomous archaeology for: {args.url}")
-        prd = prd_gen.generate_prd(args.url)
-
-        write_output(prd_path, prd)
+        print(f"Starting autonomous archaeology for: {config.url}")
+        print(
+            f"Wiring: scraper={config.scraper} agent={config.agent} "
+            f"generator={config.generator}"
+        )
+        engine = Engine.from_config(config)
+        prd_path = engine.run(config.url)
         print(f"Successfully generated PRD: {prd_path}")
-        print(f"Detailed research log saved to: {log_path}")
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

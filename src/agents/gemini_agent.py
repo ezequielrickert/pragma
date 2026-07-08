@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import requests
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
 
 
 def _find_text_in_common_fields(j: dict[str, Any]) -> str:

@@ -1,0 +1,10 @@
+# Pragma pipeline wiring. Copy to pragma.yaml (auto-loaded) or pass --config <path>.
+# Any value here can be overridden by a CLI flag.
+# url: https://example.com
+scraper: playwright
+agent: gemini        # gemini | openai | local | mock
+generator: simple
+out_dir: docs
+logs_dir: research_logs
+headless: true
+max_iterations: 12

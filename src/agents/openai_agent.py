@@ -8,7 +8,7 @@ from typing import Optional
 
 import openai
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
 
 
 class OpenAIAgent(Agent):

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
+from ..core.registry import AGENT_REGISTRY
 
 
+@AGENT_REGISTRY.register("mock")
 class MockAgent(Agent):
     """A heuristic mock agent that returns static PRD structures."""
 

@@ -1,45 +1,84 @@
 """
-Core interfaces for the Pragma project.
+Core interfaces and data contracts for the Pragma micro-kernel.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class PageState:
+    """Normalized snapshot of a scraped page (the Scraper -> Generator contract)."""
+
+    url: str
+    title: str = ""
+    metadata: Dict[str, str] = field(default_factory=dict)
+    components: List[Dict[str, Any]] = field(default_factory=list)
+    links: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class Action:
+    """A parsed agent decision."""
+
+    kind: str
+    target: str = ""
+
+
+def parse_action(text: str) -> Action:
+    """Parse the agent's raw decision text into an Action.
+
+    Args:
+        text: Raw agent output, expected to start with GOTO, CLICK, or FINISH.
+
+    Returns:
+        An Action with kind one of "goto", "click", "finish", "unknown".
+    """
+    decision = (text or "").strip()
+    if decision.upper().startswith("FINISH"):
+        return Action("finish")
+    if decision.upper().startswith("GOTO"):
+        return Action("goto", decision[4:].strip())
+    if decision.upper().startswith("CLICK"):
+        return Action("click", decision[5:].strip())
+    return Action("unknown", decision)
 
 
 class Scraper(ABC):
     """Interface for web scrapers."""
 
     @abstractmethod
-    def navigate(self, url: str) -> Dict[str, Any]:
+    def navigate(self, url: str) -> PageState:
         """Navigate to a URL and return the page state.
 
         Args:
             url: The target URL to navigate to.
 
         Returns:
-            A dictionary containing the page state.
+            A PageState describing the resulting page.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def click(self, selector: str) -> Dict[str, Any]:
+    def click(self, selector: str) -> PageState:
         """Click an element and return the new page state.
 
         Args:
             selector: CSS selector or text description of the element.
 
         Returns:
-            A dictionary containing the new page state.
+            A PageState describing the resulting page.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> PageState:
         """Return the current state of the page.
 
         Returns:
-            A dictionary with keys like 'html', 'url', 'links', and 'interactive_elements'.
+            A PageState describing the current page.
         """
         raise NotImplementedError
 
@@ -67,7 +106,7 @@ class Agent(ABC):
 
 
 class PRDGenerator(ABC):
-    """Interface for PRD generation orchestration."""
+    """Interface for PRD generation orchestration strategies."""
 
     @abstractmethod
     def generate_prd(self, url: str) -> str:

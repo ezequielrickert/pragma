@@ -10,7 +10,7 @@ import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
 
 
 class GeminiOAuthAgent(Agent):

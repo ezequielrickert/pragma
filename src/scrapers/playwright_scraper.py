@@ -8,9 +8,11 @@ from typing import Any, Dict, List, Optional
 
 from playwright.sync_api import sync_playwright, ElementHandle
 
-from ..interfaces import Scraper
+from ..core.interfaces import PageState, Scraper
+from ..core.registry import SCRAPER_REGISTRY
 
 
+@SCRAPER_REGISTRY.register("playwright")
 class PlaywrightScraper(Scraper):
     """A high-fidelity scraper that maintains a browser session."""
 
@@ -28,14 +30,14 @@ class PlaywrightScraper(Scraper):
             self._browser = self._playwright.chromium.launch(headless=self.headless)
             self._page = self._browser.new_page()
 
-    def navigate(self, url: str) -> Dict[str, Any]:
+    def navigate(self, url: str) -> PageState:
         """Navigate to a URL and capture deep state."""
         self._ensure_browser()
         self._page.goto(url, wait_until="networkidle")
         time.sleep(1)
         return self.get_state()
 
-    def click(self, selector: str) -> Dict[str, Any]:
+    def click(self, selector: str) -> PageState:
         """Click an element and capture new deep state."""
         self._ensure_browser()
         try:
@@ -43,19 +45,19 @@ class PlaywrightScraper(Scraper):
             self._page.wait_for_load_state("networkidle", timeout=5000)
         except Exception as exc:
             print(f"Warning: Interaction failed on {selector}: {exc}")
-        
+
         return self.get_state()
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> PageState:
         """Extract current page structure and interactive DNA."""
         self._ensure_browser()
-        return {
-            "url": self._page.url,
-            "title": self._page.title(),
-            "metadata": self._extract_metadata(),
-            "components": self._discover_components(),
-            "links": self._extract_links(),
-        }
+        return PageState(
+            url=self._page.url,
+            title=self._page.title(),
+            metadata=self._extract_metadata(),
+            components=self._discover_components(),
+            links=self._extract_links(),
+        )
 
     def _extract_metadata(self) -> Dict[str, str]:
         """Extract meta tags and semantic markers."""
