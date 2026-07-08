@@ -89,7 +89,7 @@ class SimplePRDGenerator(PRDGenerator):
             f"High-Fidelity Observation of {state['url']}\n"
             f"Title: {state['title']}\n"
             f"Detected Components: {len(state['components'])}\n"
-            f"Initial Discovered Routes: {json.dumps(pending[:20])}\n"
+            f"Initial Discovered Routes: {json.dumps(pending)}\n"
             "Create a plan to exhaustively map this system's tree structure. "
             "You MUST explore all discovered routes to complete the map."
         )
@@ -115,9 +115,9 @@ class SimplePRDGenerator(PRDGenerator):
         """Build a compact markdown table for route discovery progress."""
         table = "## Route Map\n\n| Route | Status | Label |\n|-------|--------|-------|\n"
         
-        # Show all finished and first 10 pending to keep it very lean
+        # List all routes to ensure the audit trail is complete
         rows = sorted(self.routes.items(), key=lambda x: (x[1]["status"] != "Finished", x[0]))
-        for url, data in rows[:50]: # Limit to top 50 rows for context safety
+        for url, data in rows:
             table += f"| {url} | {data['status']} | {data['label']} |\n"
         return table
 
@@ -144,22 +144,14 @@ class SimplePRDGenerator(PRDGenerator):
             self._handle_iteration_result(i + 1, decision, current_state)
 
     def _build_iteration_prompt(self, state: Dict[str, Any]) -> str:
-        """Build a lean prompt for a single discovery iteration."""
+        """Build a comprehensive prompt for a single discovery iteration."""
         pending = sorted([u for u, d in self.routes.items() if d["status"] == "Pending"])
         
-        # Only send essential component data to save tokens
-        lean_components = []
-        for c in state['components'][:8]:
-            lean_components.append({
-                "t": c.get("tag"),
-                "txt": c.get("text")[:30], # Truncate text
-                "p": c.get("path")[-50:] # Keep only the last 50 chars of the path
-            })
-
+        # Send ALL component data and ALL pending routes for maximum discovery quality
         return (
             f"URL: {state['url']}\n"
-            f"Pending: {json.dumps(pending[:5])}\n"
-            f"DNA: {json.dumps(lean_components)}\n\n"
+            f"Pending: {json.dumps(pending)}\n"
+            f"DNA: {json.dumps(state['components'])}\n\n"
             "Action: GOTO <url>, CLICK <path>, or FINISH."
         )
 

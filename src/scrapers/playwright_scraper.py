@@ -70,11 +70,10 @@ class PlaywrightScraper(Scraper):
         return self._page.evaluate(script)
 
     def _discover_components(self) -> List[Dict[str, Any]]:
-        """Perform deep discovery of interactive components."""
+        """Perform deep discovery of all interactive components."""
         script = """() => {
             const gp = (e, p=[]) => { while(e.parentElement) { p.unshift(e.tagName.toLowerCase()+(e.id?'#'+e.id:'')); e=e.parentElement; } return p.join(' > '); };
             return Array.from(document.querySelectorAll('button, a, input, select, textarea, [role="button"]'))
-                .filter(el => el.getBoundingClientRect().width > 0)
                 .map(el => ({
                     tag: el.tagName.toLowerCase(),
                     text: el.innerText.trim() || el.getAttribute('aria-label') || '',
