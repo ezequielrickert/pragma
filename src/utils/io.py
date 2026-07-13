@@ -19,6 +19,22 @@ def write_output(path_str: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def append_output(path_str: str, content: str) -> None:
+    """Append content to a file, creating parent directories/file if needed.
+
+    Unlike write_output, prior content is preserved - each call adds to the
+    end rather than overwriting, for building an append-only log/history file.
+
+    Args:
+        path_str: Destination file path.
+        content: String content to append.
+    """
+    path = Path(path_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(content)
+
+
 def upsert_env_vars(path_str: str, values: Dict[str, str]) -> None:
     """Set one or more KEY=value lines in a .env-style file, preserving the rest.
 

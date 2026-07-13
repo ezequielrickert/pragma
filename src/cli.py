@@ -49,7 +49,31 @@ def parse_args(argv: list) -> argparse.Namespace:
     )
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder for PRDs")
     parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
+    parser.add_argument(
+        "--progress-logs",
+        dest="progress_logs_dir",
+        help="Folder for append-only per-iteration debug logs (default: progress_logs)",
+    )
+    parser.add_argument(
+        "--graph-logs",
+        dest="graph_logs_dir",
+        help="Folder for the navigation graph (which action led from which page to which "
+        "page), written as JSON (default: graph_logs)",
+    )
     parser.add_argument("--max-iterations", type=int, dest="max_iterations")
+    parser.add_argument(
+        "--wait-seconds",
+        type=float,
+        dest="wait_seconds",
+        help="Seconds to let a page settle after navigation/click before reading links (default: 15)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        dest="batch_size",
+        help="Max pending routes/DNA components sent per iteration prompt (default: 20). "
+        "Lower = faster/cheaper iterations, but needs more of them (raise --max-iterations too).",
+    )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     return parser.parse_args(argv)
 

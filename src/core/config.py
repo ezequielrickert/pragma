@@ -27,14 +27,43 @@ class PragmaConfig:
     generator: str = "simple"
     out_dir: str = "docs"
     logs_dir: str = "research_logs"
+    progress_logs_dir: str = "progress_logs"
+    graph_logs_dir: str = "graph_logs"
     headless: bool = True
     max_iterations: int = 12
+    wait_seconds: float = 15.0
+    batch_size: int = 20
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     _ENV_MAP: ClassVar[Dict[str, str]] = {
         "url": "URL",
         "agent": "AGENT_PROVIDER",
     }
+
+    def _apply_env(self) -> None:
+        for field_name, env_name in self._ENV_MAP.items():
+            val = os.getenv(env_name)
+            if val:
+                setattr(self, field_name, val)
+
+    def _apply_yaml(self, yaml_path: Optional[str]) -> None:
+        path = Path(yaml_path) if yaml_path else Path("pragma.yaml")
+        if not path.exists():
+            if yaml_path:
+                raise FileNotFoundError(f"Config file not found: {yaml_path}")
+            return
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        valid = {f.name for f in fields(self)}
+        for key, val in data.items():
+            if key in valid and val is not None:
+                setattr(self, key, val)
+        print(f"Loaded config from {path}")
+
+    def _apply_overrides(self, overrides: Optional[Dict[str, Any]]) -> None:
+        for key, val in (overrides or {}).items():
+            if val is not None:
+                setattr(self, key, val)
 
     @classmethod
     def load(
@@ -45,25 +74,7 @@ class PragmaConfig:
         Precedence (highest wins): explicit CLI flag > YAML file value > env var > default.
         """
         cfg = cls()
-
-        for field_name, env_name in cls._ENV_MAP.items():
-            val = os.getenv(env_name)
-            if val:
-                setattr(cfg, field_name, val)
-
-        path = Path(yaml_path) if yaml_path else Path("pragma.yaml")
-        if path.exists():
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            valid = {f.name for f in fields(cls)}
-            for key, val in data.items():
-                if key in valid and val is not None:
-                    setattr(cfg, key, val)
-            print(f"Loaded config from {path}")
-        elif yaml_path:
-            raise FileNotFoundError(f"Config file not found: {yaml_path}")
-
-        for key, val in (cli_overrides or {}).items():
-            if val is not None:
-                setattr(cfg, key, val)
-
+        cfg._apply_env()
+        cfg._apply_yaml(yaml_path)
+        cfg._apply_overrides(cli_overrides)
         return cfg

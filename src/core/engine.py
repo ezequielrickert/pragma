@@ -34,9 +34,14 @@ class Engine:
     def from_config(cls, config: PragmaConfig) -> "Engine":
         """Resolve and wire plugins named in config via the registries."""
         slug = _slugify(config.url)
-        log_path = f"{config.logs_dir}/{slug}_research_{_timestamp()}.md"
+        timestamp = _timestamp()
+        log_path = f"{config.logs_dir}/{slug}_research_{timestamp}.md"
+        progress_log_path = f"{config.progress_logs_dir}/{slug}_progress_{timestamp}.md"
+        graph_log_path = f"{config.graph_logs_dir}/{slug}_graph_{timestamp}.json"
 
-        scraper = SCRAPER_REGISTRY.create(config.scraper, headless=config.headless)
+        scraper = SCRAPER_REGISTRY.create(
+            config.scraper, headless=config.headless, wait_seconds=config.wait_seconds
+        )
 
         provider_options = config.agents.get(config.agent, {})
         try:
@@ -50,7 +55,10 @@ class Engine:
             agent=agent,
             scraper=scraper,
             progress_file=log_path,
+            progress_log_file=progress_log_path,
+            graph_log_file=graph_log_path,
             max_iterations=config.max_iterations,
+            batch_size=config.batch_size,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir)
 

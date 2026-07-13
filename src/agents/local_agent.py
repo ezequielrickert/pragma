@@ -23,11 +23,16 @@ class LocalConfig:
 
     base_url: Optional[str] = None
     model: Optional[str] = None
-    timeout: int = 120
+    timeout: int = 300
 
     @classmethod
     def from_env(cls) -> "LocalConfig":
-        return cls(base_url=os.getenv("LOCAL_API_URL"), model=os.getenv("LOCAL_MODEL"))
+        env_timeout = os.getenv("LOCAL_TIMEOUT")
+        return cls(
+            base_url=os.getenv("LOCAL_API_URL"),
+            model=os.getenv("LOCAL_MODEL"),
+            timeout=int(env_timeout) if env_timeout else 300,
+        )
 
 
 @AGENT_REGISTRY.register("local")

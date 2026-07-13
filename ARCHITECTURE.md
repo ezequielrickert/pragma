@@ -8,8 +8,10 @@ Pragma is an autonomous web-app archaeology tool. It follows a structured **Plan
 2.  **Phase 2: Planning:** The agent analyzes the initial discovery and generates an exhaustive research strategy.
 3.  **Phase 3: Execution:** The agent enters an iterative loop where it:
     *   Reads the persistent research progress.
-    *   Decides on deep-fidelity actions (`GOTO`, `CLICK` via text or CSS path).
+    *   Decides on deep-fidelity actions (`GOTO <url>`, `CLICK <element number>` - CLICK refers to
+        a numbered element from a short list shown that iteration, not a raw CSS path).
     *   Updates the timestamped research log with detailed component findings.
+    *   Records a navigation-graph edge (which action led from which page to which page).
 4.  **Phase 4: Synthesis:** The agent uses the entire research history to generate the final Digital Blueprint.
 
 ---
@@ -85,6 +87,36 @@ internal shape.
 
 ---
 
+## Keeping Iteration Prompts Small: Indexed CLICK Targets
+
+`_build_iteration_prompt` (`src/generators/prd_generator.py`) caps pending routes and DNA
+components at `batch_size` items each - but item *count* isn't the only driver of prompt size.
+Each DOM component's full CSS path (`body > header > ... > nav > ... > a`) and `attributes.class`
+(often hundreds of characters on CSS-framework-heavy sites) used to be dumped verbatim as JSON for
+every shown component, regardless of `batch_size`. On a page with a deep/complex nav, that alone
+could dwarf the count-based cap and drive iteration/inference time up independent of `batch_size`.
+
+DNA is now rendered as a short numbered list (`[1] <a> 'About'`) — tag and text only. The model
+refers to a CLICK target by its number (`CLICK 3`); `_resolve_click_selector` maps that back to the
+real CSS path via `_dna_index_map`, which is rebuilt fresh every iteration and never shown to the
+model. This is the single largest per-iteration prompt-size reduction available, on top of
+`batch_size`, `wait_seconds`, and provider `timeout` for taming slow/small local models. For
+resilience across model tiers, a CLICK target that isn't a valid number still falls back to being
+treated as a literal CSS path (if it looks like one) or matched by visible text.
+
+---
+
+## Navigation Graph
+
+Route status (pending/visited) doesn't capture *how* the crawl got from one page to another. Each
+successful GOTO/CLICK is recorded as a `{from, action, to}` edge in `self.graph_edges`
+(`_handle_iteration_result`), written at the end of the run as JSON to `graph_log_file` and
+rendered as a Mermaid flowchart appended to `progress_log_file` (`_write_graph_log`,
+`_build_mermaid_graph`) — so the exploration path is visible both to tooling (JSON) and to a human
+glancing at the debug trail (auto-rendered diagram in GitHub/VS Code markdown preview).
+
+---
+
 ## Per-Provider Config Encapsulation
 
 As more AI providers get added, their env vars, credentials, and model settings must not pile
@@ -130,15 +162,30 @@ class directly if it needs no OAuth-vs-REST branching), and add one import to
 - **`src/generators/`**: Manages the Plan-Execute-Iterate loop and persistent memory.
 - **`src/utils/`**: Basic I/O operations.
 - **`docs/`**: Final generated Digital Blueprint PRDs.
-- **`research_logs/`**: Detailed, timestamped history of the agent's exploration and decisions.
+- **`research_logs/`**: Live status snapshot (route table) for the current session, overwritten on
+  every update. This is the file `_synthesize_tree_report` reads back in to build the final PRD.
+- **`progress_logs/`**: Append-only debug trail, one entry per DISCOVERY/PLAN/ITERATION/SYNTHESIS
+  stage, in order, for the entire run. Never overwritten, never read back by the engine itself -
+  purely for a human to inspect what the agent actually said/did, e.g. to spot a malformed
+  response or a bad prompt. Location configurable via `progress_logs_dir` in `pragma.yaml` or
+  `--progress-logs`. Gets a rendered Mermaid flowchart of the navigation graph appended once the
+  run finishes.
+- **`graph_logs/`**: The navigation graph as JSON - a list of `{from, action, to}` edges, one per
+  successful GOTO/CLICK, recording which action led from which page to which page. Configurable
+  via `graph_logs_dir` / `--graph-logs`.
 
 ---
 
-## Persistent Memory & Documentation
+## Persistent Memory & Debugging
 
-Pragma maintains a detailed log in **`research_logs/`** for every session. This file captures:
-*   The agent's initial research plan.
-*   Every iteration's observations, including **Component DNA** (paths, roles, visibility).
-*   Every action taken (`GOTO`, `CLICK`) and its outcome.
+Pragma keeps two separate logs per session, serving different purposes:
 
-This ensures that the final PRD is a synthesis of the entire archaeological journey, and the logs provide a permanent audit trail of the agent's discovery process.
+- **`research_logs/{slug}_research_{ts}.md`**: the engine's *working memory*. `_update_progress()`
+  rewrites this file on every stage with the current route table and the latest log entry only -
+  it's a snapshot, not a history. This is what gets fed back into the agent for the final
+  synthesis step (`_synthesize_tree_report`), so it only needs to reflect current state.
+- **`progress_logs/{slug}_progress_{ts}.md`**: the *audit trail*. Every DISCOVERY/PLAN
+  CREATED/ITERATION N/SYNTHESIS stage is appended here in full, including the agent's raw
+  response text even when it was malformed or failed to produce an action. This is the file to
+  open when debugging why a run stalled, an iteration produced no progress, or a model's output
+  didn't match the expected `GOTO`/`CLICK`/`FINISH` format.

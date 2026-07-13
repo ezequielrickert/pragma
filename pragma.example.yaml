@@ -11,8 +11,13 @@ agent: gemini        # gemini | openai | local | mock
 generator: simple
 out_dir: docs
 logs_dir: research_logs
+progress_logs_dir: progress_logs  # append-only per-iteration debug trail, for understanding LLM behavior
+graph_logs_dir: graph_logs        # navigation graph (which action led from which page to which page), as JSON
 headless: true
 max_iterations: 12
+wait_seconds: 15  # settle time after navigate/click before reading links; raise for JS-heavy sites
+batch_size: 20    # max pending routes/DNA components per iteration prompt; lower = faster iterations,
+                  # more of them needed (raise max_iterations to match) - good for small/local models
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to

@@ -8,7 +8,7 @@ a single setting without hand-editing YAML.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 from dotenv import dotenv_values
@@ -59,6 +59,13 @@ PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
             "default": "google/gemma-4-e2b",
             "secret": False,
         },
+        {
+            "name": "timeout",
+            "label": "Request timeout in seconds (raise this if generation times out)",
+            "default": "300",
+            "secret": False,
+            "type": "int",
+        },
     ],
     "mock": [],
 }
@@ -69,6 +76,86 @@ def _load_existing_yaml() -> Dict[str, Any]:
     if path.exists():
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return {}
+
+
+def _prompt_secret_field(field: Dict[str, Any], env_values: Dict[str, Any]) -> Optional[str]:
+    label = field["label"]
+    if env_values.get(field["env"]):
+        label += " [already set]"
+    return prompts.secret(label) or None
+
+
+def _prompt_text_field(field: Dict[str, Any], current: Dict[str, Any]) -> Any:
+    default = str(current.get(field["name"], field["default"]))
+    value = prompts.text(field["label"], default=default)
+    if not value:
+        return None
+    if field.get("type") == "int" and value.isdigit():
+        return int(value)
+    return value
+
+
+def _prompt_provider_fields(
+    agent: str, existing_overrides: Dict[str, Any], env_values: Dict[str, Any]
+) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """Prompt for every field a provider needs; returns (yaml overrides, env secrets)."""
+    provider_overrides = dict(existing_overrides)
+    secrets_to_write: Dict[str, str] = {}
+
+    for field in PROVIDER_FIELDS.get(agent, []):
+        if field["secret"]:
+            value = _prompt_secret_field(field, env_values)
+            if value:
+                secrets_to_write[field["env"]] = value
+            # Blank means "keep whatever is already in .env" - never overwrite with "".
+        else:
+            value = _prompt_text_field(field, provider_overrides)
+            if value is not None:
+                provider_overrides[field["name"]] = value
+
+    return provider_overrides, secrets_to_write
+
+
+def _prompt_pipeline_settings(existing: Dict[str, Any]) -> Dict[str, Any]:
+    headless = prompts.confirm("Run browser headless?", default=existing.get("headless", True))
+    max_iterations_raw = prompts.text(
+        "Max iterations per run", default=str(existing.get("max_iterations", 12))
+    )
+    wait_seconds_raw = prompts.text(
+        "Seconds to let a page settle before reading links (raise for JS-heavy/mega-menu sites)",
+        default=str(existing.get("wait_seconds", 15)),
+    )
+    batch_size_raw = prompts.text(
+        "Max pending routes/DNA components sent per iteration (lower = faster iterations, "
+        "but needs more of them)",
+        default=str(existing.get("batch_size", 20)),
+    )
+    return {
+        "out_dir": prompts.text("Output folder for PRDs", default=existing.get("out_dir", "docs")),
+        "logs_dir": prompts.text(
+            "Folder for research logs", default=existing.get("logs_dir", "research_logs")
+        ),
+        "progress_logs_dir": prompts.text(
+            "Folder for append-only per-iteration debug logs",
+            default=existing.get("progress_logs_dir", "progress_logs"),
+        ),
+        "graph_logs_dir": prompts.text(
+            "Folder for the navigation graph (which action led from which page to which page)",
+            default=existing.get("graph_logs_dir", "graph_logs"),
+        ),
+        "headless": bool(headless),
+        "max_iterations": int(max_iterations_raw) if max_iterations_raw.isdigit() else 12,
+        "wait_seconds": float(wait_seconds_raw) if _is_number(wait_seconds_raw) else 15.0,
+        "batch_size": int(batch_size_raw) if batch_size_raw.isdigit() else 20,
+    }
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
 
 
 def run_config_wizard() -> None:
@@ -89,41 +176,16 @@ def run_config_wizard() -> None:
         "Generator strategy:", GENERATOR_REGISTRY.names(), default=existing.get("generator", "simple")
     )
 
-    provider_overrides: Dict[str, Any] = dict(existing_agents.get(agent, {}))
-    secrets_to_write: Dict[str, str] = {}
-
-    for field in PROVIDER_FIELDS.get(agent, []):
-        if field["secret"]:
-            label = field["label"]
-            if env_values.get(field["env"]):
-                label += " [already set]"
-            value = prompts.secret(label)
-            if value:
-                secrets_to_write[field["env"]] = value
-            # Blank means "keep whatever is already in .env" - never overwrite with "".
-        else:
-            current_default = provider_overrides.get(field["name"], field["default"])
-            value = prompts.text(field["label"], default=current_default)
-            if value:
-                provider_overrides[field["name"]] = value
-
-    headless = prompts.confirm("Run browser headless?", default=existing.get("headless", True))
-    max_iterations_raw = prompts.text(
-        "Max iterations per run", default=str(existing.get("max_iterations", 12))
+    provider_overrides, secrets_to_write = _prompt_provider_fields(
+        agent, existing_agents.get(agent, {}), env_values
     )
-    out_dir = prompts.text("Output folder for PRDs", default=existing.get("out_dir", "docs"))
-    logs_dir = prompts.text(
-        "Folder for research logs", default=existing.get("logs_dir", "research_logs")
-    )
+    pipeline_settings = _prompt_pipeline_settings(existing)
 
     config_data: Dict[str, Any] = {
         "scraper": scraper,
         "agent": agent,
         "generator": generator,
-        "out_dir": out_dir,
-        "logs_dir": logs_dir,
-        "headless": bool(headless),
-        "max_iterations": int(max_iterations_raw) if max_iterations_raw.isdigit() else 12,
+        **pipeline_settings,
     }
     all_agents = dict(existing_agents)
     if provider_overrides:

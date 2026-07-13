@@ -21,10 +21,25 @@ without touching your saved config:
 - `--scraper <name>` (default: `playwright`)
 - `--agent <name>` / `--provider <name>` (also `gemini`, `openai`, `local`, `mock`)
 - `--generator <name>` (default: `simple`, the Plan-Execute-Iterate "Ralph-Loop")
-- `--out`, `--logs`, `--max-iterations`, `--headed`, `--config <path/to/other.yaml>`
+- `--out`, `--logs`, `--progress-logs`, `--graph-logs`, `--max-iterations`, `--wait-seconds`,
+  `--batch-size`, `--headed`, `--config <path/to/other.yaml>`
 
 Precedence for every setting: explicit CLI flag > `pragma.yaml` > environment variable (`.env`)
 > built-in default.
+
+Debugging a run: `research_logs/` is the engine's live working-memory snapshot (overwritten each
+stage, used to build the final PRD). `progress_logs/` is a separate, append-only trail of every
+DISCOVERY/PLAN/ITERATION/SYNTHESIS stage in order, including the agent's raw response even when
+it was malformed - open that file when a run stalls or an iteration seems to make no progress; it
+also gets a rendered Mermaid diagram of the navigation graph appended once the run finishes.
+`graph_logs/` has that same graph as JSON (a list of `{from, action, to}` edges) - which
+component/action led from which page to which page - for feeding into other tooling.
+
+Iteration prompts stay small regardless of site size: `batch_size` caps how many pending routes
+and clickable elements are shown per iteration, and CLICK targets are referenced by a short number
+from that list rather than a raw CSS path/class string (which on CSS-framework-heavy sites can be
+hundreds of characters per element) - the biggest lever if a local model is timing out or taking a
+long time per iteration. Lower `batch_size` and raise `--max-iterations` to compensate.
 
 Design: a micro-kernel `Engine` (`src/core/engine.py`) orchestrates a `Scraper` ("the hands"),
 an `Agent` ("the brain"/LLM), and a `PRDGenerator` orchestration strategy ("the loop"), all
@@ -48,3 +63,11 @@ and registering it - no changes anywhere else. The `config` wizard's provider-sp
 interactive setup.
 
 IMPORTANT: the way in which the agent understands the page is by running: "console.table($$('a'), ['innerHTML', 'href']);".
+
+## Wiki
+
+[`wiki/`](wiki/README.md) has durable, reusable domain knowledge extracted from building this
+project - prompt engineering for multi-step agents, local-model constraints, Playwright automation
+pitfalls, graph-based crawl tracking, and the debugging methodology used to find every bug in this
+codebase. Read it before debugging a misbehaving agent loop, or when building the next one; it's
+written to outlive this specific project and to seed Claude Code skills for future sessions.

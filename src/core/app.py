@@ -8,12 +8,20 @@ menu-driven UX of the Claude Code / GitHub Copilot CLIs.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Dict, List
 
 from . import prompts
 from .config import PragmaConfig
-from .engine import Engine
 from .wizard import run_config_wizard
+
+# The actual scrape+generate work always runs in a subprocess (`src/cli.py <url>`)
+# rather than in-process. Playwright's sync API leaves this process's asyncio
+# event loop in a state that breaks subsequent questionary prompts if a scrape
+# runs directly in the menu process - a known Playwright/prompt_toolkit conflict.
+CLI_PATH = Path(__file__).resolve().parents[2] / "src" / "cli.py"
 
 ANALYZE = "Analyze a URL"
 CONFIGURE = "Configure (provider, model, api key, ...)"
@@ -58,19 +66,13 @@ def _run_analysis() -> None:
     if not url:
         print("No URL provided, cancelled.\n")
         return
-    config.url = url
 
-    try:
-        print(f"\nStarting autonomous archaeology for: {config.url}")
-        print(
-            f"Wiring: scraper={config.scraper} agent={config.agent} "
-            f"generator={config.generator}"
-        )
-        engine = Engine.from_config(config)
-        prd_path = engine.run(config.url)
-        print(f"Successfully generated PRD: {prd_path}\n")
-    except Exception as exc:
-        print(f"Critical error during exploration: {exc}\n")
+    print()
+    result = subprocess.run([sys.executable, str(CLI_PATH), url])
+    if result.returncode != 0:
+        print(f"\nAnalysis exited with an error (code {result.returncode}).\n")
+    else:
+        print()
 
 
 def run_app() -> None:
