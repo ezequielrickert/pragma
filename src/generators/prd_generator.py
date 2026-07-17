@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import json
 import pathlib
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from ..core.interfaces import Action, Agent, PageState, PRDGenerator, Scraper, parse_action
+from ..core.interfaces import Action, Agent, GraphStore, PageState, PRDGenerator, Scraper, parse_action
 from ..core.registry import GENERATOR_REGISTRY
+from ..storage.memory_graph_store import InMemoryGraphStore
 from ..utils.io import append_output, write_output
 
 # Applied only to the per-iteration decision call, never to _create_plan (which
@@ -31,6 +32,7 @@ class SimplePRDGenerator(PRDGenerator):
         self,
         agent: Agent,
         scraper: Scraper,
+        graph_store: Optional[GraphStore] = None,
         progress_file: str = "PROGRESS.md",
         progress_log_file: Optional[str] = None,
         graph_log_file: Optional[str] = None,
@@ -40,6 +42,10 @@ class SimplePRDGenerator(PRDGenerator):
         """Initialize with brain (agent), hands (scraper), and progress tracker.
 
         Args:
+            graph_store: Where the navigation graph (pages + edges) is tracked
+                and queried between iterations. Defaults to a fresh in-memory
+                store (no persistence across runs) when not supplied - see
+                InMemoryGraphStore vs Neo4jGraphStore in src/storage/.
             progress_file: Live status snapshot (route table), overwritten on every
                 update - this is what gets fed back into the final synthesis step.
             progress_log_file: Optional append-only debug trail (one entry per
@@ -56,6 +62,7 @@ class SimplePRDGenerator(PRDGenerator):
         """
         self.agent = agent
         self.scraper = scraper
+        self.graph_store = graph_store or InMemoryGraphStore()
         self.progress_file = progress_file
         self.progress_log_file = progress_log_file
         self.graph_log_file = graph_log_file
@@ -71,13 +78,13 @@ class SimplePRDGenerator(PRDGenerator):
         self.archeologist_skill = self._load_skill("archeologist-skill")
         self.dom_mapper_skill = self._load_skill("dom-mapper-skill")
 
-        # Track discovery state
-        self.routes: Dict[str, Dict[str, Any]] = {}
+        # Track discovery state. The graph itself (pages/edges) lives in
+        # self.graph_store, not here - self.base_domain doubles as the "site"
+        # key used to scope every graph_store call.
         self.base_domain: Optional[str] = None
         self.plan_summary: str = ""
         self._last_action_error: Optional[str] = None
-        self._dna_index_map: Dict[int, Dict[str, str]] = {}
-        self.graph_edges: List[Dict[str, str]] = []
+        self._dna_index_map: dict = {}
 
     def _load_skill(self, skill_name: str) -> Optional[str]:
         """Load a specific skill from the .gemini/skills directory."""
@@ -94,7 +101,7 @@ class SimplePRDGenerator(PRDGenerator):
 
         # Initialize discovery tracking
         self.base_domain = self._get_domain(url)
-        self._add_route(url, status="Finished", components=len(state.components), context="Root")
+        self._upsert(url, status="Finished", components=len(state.components), context="Root")
         self._update_discovered_routes(state.links, source=url)
         self._update_progress(
             "DISCOVERY",
@@ -138,28 +145,32 @@ class SimplePRDGenerator(PRDGenerator):
                 return cleaned[len(prefix):]
         return cleaned
 
-    def _add_route(self, url: str, status: str = "Pending", components: int = 0, context: str = "", label: str = "") -> None:
-        """Add or update a route in the tracking map."""
-        clean_url = self._clean_url(url)
-        if clean_url not in self.routes or status != "Pending":
-            self.routes[clean_url] = {
-                "status": status,
-                "components": components,
-                "visited": "2026-05-17" if status == "Finished" else "-",
-                "context": context or self.routes.get(clean_url, {}).get("context", "-"),
-                "label": label or self.routes.get(clean_url, {}).get("label", "-")
-            }
+    def _upsert(self, url: str, status: str = "Pending", components: int = 0, context: str = "", label: str = "") -> None:
+        """Normalize a URL into its graph-node key and upsert it into the graph store."""
+        self.graph_store.upsert_page(
+            self.base_domain, self._clean_url(url), status=status, components=components,
+            context=context, label=label,
+        )
 
-    def _update_discovered_routes(self, links: list[Dict[str, str]], source: str) -> None:
+    def _update_discovered_routes(self, links: list, source: str) -> None:
         """Add new same-domain links to discovery list."""
         for link in links:
             href = link.get("href", "")
             if href and self._get_domain(href) == self.base_domain:
-                self._add_route(href, context=source, label=link.get("text", ""))
+                label = link.get("text", "")
+                self._upsert(href, context=source, label=label)
+                # Recorded per (source, href) pair, not just onto the destination
+                # page - a page can be linked to from many different source pages
+                # with different anchor text, and a later GOTO's component
+                # description must only claim a link that actually exists on the
+                # page it's navigating from (see _describe_component).
+                self.graph_store.record_link(
+                    self.base_domain, self._clean_url(source), self._clean_url(href), label
+                )
 
     def _create_plan(self, state: PageState) -> str:
         """Create a step-by-step research plan for deep excavation."""
-        pending = [u for u, d in self.routes.items() if d["status"] == "Pending"]
+        pending = self.graph_store.get_pending(self.base_domain)
         shown = pending[: self.batch_size]
         prompt = (
             f"High-Fidelity Observation of {state.url}\n"
@@ -174,14 +185,12 @@ class SimplePRDGenerator(PRDGenerator):
 
     def _update_progress(self, stage: str, details: str) -> None:
         """Overwrite the live status snapshot, and append to the debug trail."""
-        visited = [u for u, d in self.routes.items() if d["status"] == "Finished"]
-
-        total = len(self.routes)
-        perc = (len(visited) / total * 100) if total > 0 else 0
+        finished, total = self.graph_store.count_visited(self.base_domain)
+        perc = (finished / total * 100) if total > 0 else 0
 
         header = (
             f"# Archaeology Progress: {self.base_domain}\n\n"
-            f"## Status: {len(visited)}/{total} ({perc:.1f}%)\n\n"
+            f"## Status: {finished}/{total} ({perc:.1f}%)\n\n"
         )
 
         table = self._build_progress_table()
@@ -191,17 +200,16 @@ class SimplePRDGenerator(PRDGenerator):
         if self.progress_log_file:
             append_output(
                 self.progress_log_file,
-                f"## {stage} ({len(visited)}/{total} visited)\n\n{details}\n\n---\n\n",
+                f"## {stage} ({finished}/{total} visited)\n\n{details}\n\n---\n\n",
             )
 
     def _build_progress_table(self) -> str:
         """Build a compact markdown table for route discovery progress."""
         table = "## Route Map\n\n| Route | Status | Label |\n|-------|--------|-------|\n"
-        
+
         # List all routes to ensure the audit trail is complete
-        rows = sorted(self.routes.items(), key=lambda x: (x[1]["status"] != "Finished", x[0]))
-        for url, data in rows:
-            table += f"| {url} | {data['status']} | {data['label']} |\n"
+        for row in self.graph_store.get_progress_table_rows(self.base_domain):
+            table += f"| {row['url']} | {row['status']} | {row['label']} |\n"
         return table
 
     def _execute_loop(self, state: PageState) -> None:
@@ -267,7 +275,7 @@ class SimplePRDGenerator(PRDGenerator):
 
     def _already_visited(self, url: str) -> bool:
         """Whether a URL is already a Finished node in the navigation graph."""
-        return self.routes.get(self._clean_url(url), {}).get("status") == "Finished"
+        return self.graph_store.is_visited(self.base_domain, self._clean_url(url))
 
     def _build_iteration_prompt(self, state: PageState) -> str:
         """Build a bounded prompt for a single discovery iteration.
@@ -281,7 +289,7 @@ class SimplePRDGenerator(PRDGenerator):
         which on CSS-framework-heavy sites can be hundreds of characters each and
         was likely the single biggest driver of prompt size (and inference time).
         """
-        pending = sorted([u for u, d in self.routes.items() if d["status"] == "Pending"])
+        pending = self.graph_store.get_pending(self.base_domain)
         shown_pending = pending[: self.batch_size]
         shown_components = state.components[: self.batch_size]
 
@@ -298,10 +306,12 @@ class SimplePRDGenerator(PRDGenerator):
         dna_block = "\n".join(dna_lines) if dna_lines else "(none)"
 
         plan_line = f"Plan: {self.plan_summary}\n" if self.plan_summary else ""
+        loop_line = self._loop_signal_line(state.url)
 
         return (
             f"{plan_line}"
             f"You are currently at: {state.url} (already visited - do NOT GOTO this URL again)\n"
+            f"{loop_line}"
             f"Pending routes you may GOTO ({len(shown_pending)} of {len(pending)} shown): "
             f"{json.dumps(shown_pending)}\n"
             f"Clickable elements on this page, for CLICK targets ({len(shown_components)} of "
@@ -310,22 +320,33 @@ class SimplePRDGenerator(PRDGenerator):
             "above>, or FINISH."
         )
 
+    def _loop_signal_line(self, url: str) -> str:
+        """Advisory prompt line naming components that already led to `url` before.
+
+        Queried from the graph store every iteration (see `get_loop_signals`) -
+        this is a warning, not a hard block: the model already can't re-GOTO a
+        Finished page (see the guard in `_execute_loop`), but a CLICK that leads
+        back to a page it's already reached via a different component is legal
+        and sometimes correct, so we only inform, never override the model's
+        choice (see wiki/graph-based-crawl-tracking.md).
+        """
+        signals = self.graph_store.get_loop_signals(self.base_domain, self._clean_url(url))
+        if not signals:
+            return ""
+        tried = ", ".join(f'{s["component"]} (from {s["from"]})' for s in signals)
+        return f"Note: this page has already been reached via: {tried}. Trying the same route again will not make progress.\n"
+
     def _handle_iteration_result(
         self, iter_num: int, action_text: str, from_url: str, state: PageState
     ) -> None:
         """Update state, progress, and the navigation graph after an iteration."""
         url = self._clean_url(state.url)
-        component = self._describe_component(parse_action(action_text))
+        component = self._describe_component(parse_action(action_text), from_url)
 
-        self._add_route(url, status="Finished", components=len(state.components))
+        self._upsert(url, status="Finished", components=len(state.components))
         self._update_discovered_routes(state.links, source=url)
-        self.graph_edges.append(
-            {
-                "from": self._clean_url(from_url),
-                "component": component,
-                "action": action_text,
-                "to": url,
-            }
+        self.graph_store.record_edge(
+            self.base_domain, self._clean_url(from_url), url, component, action_text
         )
 
         self._update_progress(
@@ -334,15 +355,21 @@ class SimplePRDGenerator(PRDGenerator):
             f"Now at: {state.url}\nComponents found: {len(state.components)}",
         )
 
-    def _describe_component(self, action: Action) -> str:
+    def _describe_component(self, action: Action, from_url: str) -> str:
         """Best-effort human label for the link/element used to move to a new page.
 
-        For GOTO, this is the link text captured when the destination route was
-        first discovered (see `_update_discovered_routes`). For CLICK, it's the
-        tag/text of the numbered DNA element that was clicked.
+        For GOTO, this only claims a link if one was actually discovered on
+        `from_url` pointing at the target (see `_update_discovered_routes` /
+        `record_link`) - looking up a label by destination page alone was
+        wrong whenever the same page had been linked to from multiple source
+        pages with different anchor text, since it could attribute a link
+        that exists on some other page entirely. For CLICK, it's the tag/text
+        of the numbered DNA element that was clicked.
         """
         if action.kind == "goto":
-            label = self.routes.get(self._clean_url(action.target), {}).get("label")
+            label = self.graph_store.get_link_label(
+                self.base_domain, self._clean_url(from_url), self._clean_url(action.target)
+            )
             if label and label != "-":
                 return f'link "{label}"'
             return "direct navigation (no known link label)"
@@ -365,13 +392,29 @@ class SimplePRDGenerator(PRDGenerator):
         action = parse_action(decision)
         try:
             if action.kind == "goto":
-                return self.scraper.navigate(action.target)
+                return self.scraper.navigate(self._resolve_goto_url(action.target))
             if action.kind == "click":
                 return self.scraper.click(self._resolve_click_selector(action.target))
         except Exception as exc:
             self._last_action_error = str(exc)
             print(f"Action failed: {exc}")
         return None
+
+    def _resolve_goto_url(self, target: str) -> str:
+        """Turn a GOTO target into an absolute, navigable URL.
+
+        The Pending routes shown to the model are scheme-stripped graph-node
+        keys (see `_clean_url` - scheme is dropped so http/https variants of
+        the same page count as one node), so the model naturally echoes back
+        a schemeless url like "example.com/about" when it picks one. A real
+        navigation needs an absolute URL, so default to https:// when the
+        model's target has no scheme - a bare model target with a scheme
+        (e.g. it invented a different absolute URL) is left untouched.
+        """
+        target = target.strip()
+        if target.startswith("http://") or target.startswith("https://"):
+            return target
+        return f"https://{target}"
 
     def _resolve_click_selector(self, target: str) -> str:
         """Turn a CLICK target into a Playwright selector.
@@ -395,19 +438,22 @@ class SimplePRDGenerator(PRDGenerator):
         Written as JSON (queryable/machine-readable) to `graph_log_file`, and as
         a Mermaid flowchart appended to `progress_log_file` for immediate human
         visualization (renders automatically in GitHub/VS Code markdown preview).
+        Read from the graph store (the source of truth) rather than any
+        in-memory list, so this reflects whatever backend is configured.
         """
+        edges = self.graph_store.get_edges(self.base_domain)
         if self.graph_log_file:
-            write_output(self.graph_log_file, json.dumps(self.graph_edges, indent=2))
-        if self.progress_log_file and self.graph_edges:
+            write_output(self.graph_log_file, json.dumps(edges, indent=2))
+        if self.progress_log_file and edges:
             append_output(
                 self.progress_log_file,
-                f"## NAVIGATION GRAPH\n\n{self._build_mermaid_graph()}\n\n---\n\n",
+                f"## NAVIGATION GRAPH\n\n{self._build_mermaid_graph(edges)}\n\n---\n\n",
             )
 
-    def _build_mermaid_graph(self) -> str:
-        """Render `graph_edges` as a Mermaid flowchart (nodes = pages, edges = the component
+    def _build_mermaid_graph(self, edges: list) -> str:
+        """Render `edges` as a Mermaid flowchart (nodes = pages, edges = the component
         used to get there - falls back to the raw action text if no component is known)."""
-        node_ids: Dict[str, str] = {}
+        node_ids: dict = {}
 
         def node_id(node_url: str) -> str:
             if node_url not in node_ids:
@@ -415,7 +461,7 @@ class SimplePRDGenerator(PRDGenerator):
             return node_ids[node_url]
 
         lines = ["```mermaid", "flowchart LR"]
-        for edge in self.graph_edges:
+        for edge in edges:
             src, dst = node_id(edge["from"]), node_id(edge["to"])
             label = (edge.get("component") or edge["action"]).replace('"', "'")[:40]
             lines.append(f'    {src}["{edge["from"]}"] -->|"{label}"| {dst}["{edge["to"]}"]')
@@ -438,3 +484,4 @@ class SimplePRDGenerator(PRDGenerator):
             return self.agent.generate(prompt, system_instruction=self.dom_mapper_skill)
         finally:
             self.scraper.close()
+            self.graph_store.close()

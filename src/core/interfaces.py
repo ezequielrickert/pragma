@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -101,6 +101,115 @@ class Agent(ABC):
 
         Returns:
             The generated response text.
+        """
+        raise NotImplementedError
+
+
+class GraphStore(ABC):
+    """Interface for the crawl graph's persistence/query backend.
+
+    Every method is scoped by `site` (the crawled domain) so multiple sites
+    can be tracked side by side without their data mixing - the tool is
+    expected to crawl many different websites over time, each analyzed
+    independently. `url` values passed in and returned are always the
+    already-normalized, scheme-stripped node key (see `_clean_url` in
+    SimplePRDGenerator) - the store itself does not re-normalize.
+    """
+
+    @abstractmethod
+    def connect(self) -> None:
+        """Establish the connection and idempotently ensure schema exists."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release the connection. Safe to call even if never connected."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def upsert_page(
+        self,
+        site: str,
+        url: str,
+        status: str = "Pending",
+        components: int = 0,
+        context: str = "",
+        label: str = "",
+    ) -> None:
+        """Create or update a page node for `site`.
+
+        A bare rediscovery (status="Pending") must never clobber an already
+        Finished page's recorded status/components, mirroring the old
+        `_add_route` behavior - only a non-Pending status overwrites.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def is_visited(self, site: str, url: str) -> bool:
+        """Whether this page is a Finished node in the graph for `site`."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_pending(self, site: str, limit: Optional[int] = None) -> List[str]:
+        """Up to `limit` Pending page urls for `site`, sorted ascending. Unbounded if limit is None."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_page_label(self, site: str, url: str) -> Optional[str]:
+        """The link-text label recorded for a page, if any."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_link(self, site: str, from_url: str, to_url: str, label: str) -> None:
+        """Record that a link from `from_url` to `to_url` was discovered, with its visible text.
+
+        Distinct from `record_edge` (an actually-taken navigation): this
+        captures every discovered link association per source page, so a
+        later GOTO's component description can be verified against the
+        specific page it claims to have come from. A single page can be
+        linked to from many different source pages with different anchor
+        text - collapsing that into one label per destination page (rather
+        than one per from/to pair) previously caused a GOTO's reported
+        component to describe a link that exists on some other page
+        entirely, not the page actually being navigated from.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_link_label(self, site: str, from_url: str, to_url: str) -> Optional[str]:
+        """The label of a specific from->to link discovery, if one was ever recorded."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_edge(self, site: str, from_url: str, to_url: str, component: str, action: str) -> None:
+        """Record a successful navigation from `from_url` to `to_url` for `site`."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_edges(self, site: str) -> List[Dict[str, str]]:
+        """All recorded edges for `site`, each {"from", "component", "action", "to"}, in insertion order."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_progress_table_rows(self, site: str) -> List[Dict[str, Any]]:
+        """All page rows for `site` as {"url", "status", "components", "label"},
+
+        sorted by (status != "Finished", url) ascending.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_visited(self, site: str) -> Tuple[int, int]:
+        """(finished_count, total_count) of pages tracked for `site`."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_loop_signals(self, site: str, url: str) -> List[Dict[str, str]]:
+        """Distinct {"component", "from"} pairs of edges already leading into `url` for `site`.
+
+        Empty if `url` has never been reached before. Used to warn the agent
+        that a page it's about to land on has already been reached via one or
+        more other components, without hard-blocking the action.
         """
         raise NotImplementedError
 

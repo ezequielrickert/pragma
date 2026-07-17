@@ -15,7 +15,7 @@ from dotenv import dotenv_values
 
 from ..utils.io import upsert_env_vars
 from . import prompts
-from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, SCRAPER_REGISTRY
+from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
 
 PRAGMA_YAML = "pragma.yaml"
 ENV_FILE = ".env"
@@ -70,6 +70,30 @@ PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
     "mock": [],
 }
 
+# Per-graph-store prompts, same shape as PROVIDER_FIELDS - persisted to
+# pragma.yaml's `graph_stores:` block (non-secret) / .env (secret).
+GRAPH_STORE_FIELDS: Dict[str, List[Dict[str, Any]]] = {
+    "neo4j": [
+        {"name": "host", "label": "Neo4j host", "default": "localhost", "secret": False},
+        {
+            "name": "port",
+            "label": "Neo4j bolt port",
+            "default": "7687",
+            "secret": False,
+            "type": "int",
+        },
+        {"name": "database", "label": "Neo4j database name", "default": "neo4j", "secret": False},
+        {"name": "user", "label": "Neo4j username", "default": "neo4j", "secret": False},
+        {
+            "name": "password",
+            "label": "Neo4j password (blank = keep current)",
+            "secret": True,
+            "env": "NEO4J_PASSWORD",
+        },
+    ],
+    "memory": [],
+}
+
 
 def _load_existing_yaml() -> Dict[str, Any]:
     path = Path(PRAGMA_YAML)
@@ -96,13 +120,22 @@ def _prompt_text_field(field: Dict[str, Any], current: Dict[str, Any]) -> Any:
 
 
 def _prompt_provider_fields(
-    agent: str, existing_overrides: Dict[str, Any], env_values: Dict[str, Any]
+    provider: str,
+    existing_overrides: Dict[str, Any],
+    env_values: Dict[str, Any],
+    fields_table: Dict[str, List[Dict[str, Any]]] = PROVIDER_FIELDS,
 ) -> Tuple[Dict[str, Any], Dict[str, str]]:
-    """Prompt for every field a provider needs; returns (yaml overrides, env secrets)."""
+    """Prompt for every field a provider needs; returns (yaml overrides, env secrets).
+
+    Generic over any per-provider fields table shaped like PROVIDER_FIELDS -
+    reused for GRAPH_STORE_FIELDS so agent and graph-store setup share one
+    prompt/persist implementation instead of duplicating the secret/non-secret
+    branching logic.
+    """
     provider_overrides = dict(existing_overrides)
     secrets_to_write: Dict[str, str] = {}
 
-    for field in PROVIDER_FIELDS.get(agent, []):
+    for field in fields_table.get(provider, []):
         if field["secret"]:
             value = _prompt_secret_field(field, env_values)
             if value:
@@ -162,6 +195,7 @@ def run_config_wizard() -> None:
     """Interactively configure scraper/agent/generator wiring and persist it."""
     existing = _load_existing_yaml()
     existing_agents = existing.get("agents", {})
+    existing_graph_stores = existing.get("graph_stores", {})
     env_values = dotenv_values(ENV_FILE) if Path(ENV_FILE).exists() else {}
 
     print("Pragma setup - configure once, then just run: python3 src/cli.py <url>\n")
@@ -175,16 +209,26 @@ def run_config_wizard() -> None:
     generator = prompts.select(
         "Generator strategy:", GENERATOR_REGISTRY.names(), default=existing.get("generator", "simple")
     )
+    graph_store = prompts.select(
+        "Graph store (where the navigation graph is tracked/queried):",
+        GRAPH_STORE_REGISTRY.names(),
+        default=existing.get("graph_store", "memory"),
+    )
 
     provider_overrides, secrets_to_write = _prompt_provider_fields(
         agent, existing_agents.get(agent, {}), env_values
     )
+    graph_store_overrides, graph_store_secrets = _prompt_provider_fields(
+        graph_store, existing_graph_stores.get(graph_store, {}), env_values, GRAPH_STORE_FIELDS
+    )
+    secrets_to_write.update(graph_store_secrets)
     pipeline_settings = _prompt_pipeline_settings(existing)
 
     config_data: Dict[str, Any] = {
         "scraper": scraper,
         "agent": agent,
         "generator": generator,
+        "graph_store": graph_store,
         **pipeline_settings,
     }
     all_agents = dict(existing_agents)
@@ -192,6 +236,12 @@ def run_config_wizard() -> None:
         all_agents[agent] = provider_overrides
     if all_agents:
         config_data["agents"] = all_agents
+
+    all_graph_stores = dict(existing_graph_stores)
+    if graph_store_overrides:
+        all_graph_stores[graph_store] = graph_store_overrides
+    if all_graph_stores:
+        config_data["graph_stores"] = all_graph_stores
 
     Path(PRAGMA_YAML).write_text(
         "# Written by `python3 src/cli.py config`. Edit freely or re-run the wizard.\n"

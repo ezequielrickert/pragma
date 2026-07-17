@@ -25,6 +25,7 @@ class PragmaConfig:
     scraper: str = "playwright"
     agent: str = "openai"
     generator: str = "simple"
+    graph_store: str = "memory"
     out_dir: str = "docs"
     logs_dir: str = "research_logs"
     progress_logs_dir: str = "progress_logs"
@@ -34,6 +35,7 @@ class PragmaConfig:
     wait_seconds: float = 15.0
     batch_size: int = 20
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     _ENV_MAP: ClassVar[Dict[str, str]] = {
         "url": "URL",

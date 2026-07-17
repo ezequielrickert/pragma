@@ -9,6 +9,9 @@
 scraper: playwright
 agent: gemini        # gemini | openai | local | mock
 generator: simple
+graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
+                      # (see docker-compose.yml) and persists the navigation graph, queryable
+                      # between iterations, isolated per crawled site via a `site` property
 out_dir: docs
 logs_dir: research_logs
 progress_logs_dir: progress_logs  # append-only per-iteration debug trail, for understanding LLM behavior
@@ -35,3 +38,12 @@ agents:
   local:
     base_url: http://localhost:1234/v1/chat/completions
     model: my-local-model
+
+# Optional: non-secret, per-graph-store settings, same shape as `agents:`
+# above. Only used when `graph_store: neo4j`. Password stays in .env
+# (NEO4J_PASSWORD) - never here.
+graph_stores:
+  neo4j:
+    host: localhost
+    port: 7687
+    database: neo4j

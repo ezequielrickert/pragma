@@ -21,7 +21,7 @@ from src.core import prompts
 from src.core.app import run_app
 from src.core.config import PragmaConfig
 from src.core.engine import Engine
-from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, SCRAPER_REGISTRY
+from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
 from src.core.wizard import run_config_wizard
 
 
@@ -46,6 +46,11 @@ def parse_args(argv: list) -> argparse.Namespace:
     )
     parser.add_argument(
         "--generator", "-g", help=f"Generator strategy ({', '.join(GENERATOR_REGISTRY.names())})"
+    )
+    parser.add_argument(
+        "--graph-store",
+        dest="graph_store",
+        help=f"Graph store plugin ({', '.join(GRAPH_STORE_REGISTRY.names())})",
     )
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder for PRDs")
     parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
@@ -125,7 +130,7 @@ def main() -> None:
         print(f"Starting autonomous archaeology for: {config.url}")
         print(
             f"Wiring: scraper={config.scraper} agent={config.agent} "
-            f"generator={config.generator}"
+            f"generator={config.generator} graph_store={config.graph_store}"
         )
         engine = Engine.from_config(config)
         prd_path = engine.run(config.url)

@@ -78,7 +78,8 @@ def test_loop_survives_malformed_action(tmp_path):
 
     # Both valid GOTOs after the malformed response must have been recorded as visited.
     # (route keys are scheme-stripped for graph-node identity, see _clean_url)
-    visited = {u for u, d in gen.routes.items() if d["status"] == "Finished"}
+    rows = gen.graph_store.get_progress_table_rows(gen.base_domain)
+    visited = {r["url"] for r in rows if r["status"] == "Finished"}
     assert "stub/page-a" in visited
     assert "stub/page-b" in visited
 
@@ -211,7 +212,7 @@ def test_iteration_prompt_is_bounded_by_batch_size(tmp_path):
 
     # Simulate a large site: 300 pending routes discovered.
     for i in range(300):
-        gen._add_route(f"https://stub/page-{i}")
+        gen._upsert(f"https://stub/page-{i}")
 
     huge_state = PageState(
         url="https://stub",
@@ -281,7 +282,46 @@ def test_click_target_resolves_by_index(tmp_path):
     engine.run("https://stub.example")
 
     assert scraper.clicked_selectors == ["body > button:nth-of-type(2)"]
-    assert gen.graph_edges[0]["component"] == '<button> "Second"'
+    assert gen.graph_store.get_edges(gen.base_domain)[0]["component"] == '<button> "Second"'
+
+
+def test_goto_target_without_scheme_still_navigates(tmp_path):
+    """A GOTO to a schemeless target must still reach the scraper as an absolute URL.
+
+    Regression test: the Pending routes shown to the model are scheme-stripped
+    graph-node keys (see _clean_url), so a model naturally echoes one back
+    verbatim, e.g. `GOTO example.com/about` instead of `GOTO https://example.com/about`.
+    Playwright can't navigate to a schemeless string - it must be resolved to an
+    absolute URL before being handed to the scraper.
+    """
+    from src.generators.prd_generator import SimplePRDGenerator
+
+    class RecordingScraper(Scraper):
+        def __init__(self):
+            self.navigate_calls: List[str] = []
+
+        def navigate(self, url):
+            self.navigate_calls.append(url)
+            return PageState(url=url, title="Stub", components=[], links=[])
+
+        def click(self, selector):
+            return self.get_state()
+
+        def get_state(self):
+            return PageState(url="https://stub", title="Stub")
+
+        def close(self):
+            pass
+
+    agent = ScriptedAgent(["plan", "GOTO stub/page-a", "FINISH"])
+    scraper = RecordingScraper()
+    gen = SimplePRDGenerator(
+        agent, scraper, progress_file=str(tmp_path / "progress.md"), max_iterations=3
+    )
+    engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
+    engine.run("https://stub.example")
+
+    assert scraper.navigate_calls == ["https://stub.example", "https://stub/page-a"]
 
 
 def test_graph_edges_are_recorded_and_written(tmp_path):
@@ -314,28 +354,33 @@ def test_graph_edges_are_recorded_and_written(tmp_path):
     engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
     engine.run("https://stub.example")
 
-    assert len(gen.graph_edges) == 2
+    edges = gen.graph_store.get_edges(gen.base_domain)
+    assert len(edges) == 2
     # from/to are scheme-stripped graph-node keys, see _clean_url
-    assert gen.graph_edges[0] == {
+    assert edges[0] == {
         "from": "stub.example",
         "component": "direct navigation (no known link label)",
         "action": "GOTO https://stub/page-a",
         "to": "stub/page-a",
     }
-    assert gen.graph_edges[1]["from"] == "stub/page-a"
-    assert gen.graph_edges[1]["to"] == "stub/page-b"
+    assert edges[1]["from"] == "stub/page-a"
+    assert edges[1]["to"] == "stub/page-b"
 
     written = json_module.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))
-    assert written == gen.graph_edges
+    assert written == edges
 
 
 def test_graph_edge_records_component_used_to_navigate(tmp_path):
     """A GOTO to a previously-discovered link must record that link's visible text.
 
     Regression test / feature: knowing a route exists isn't the same as
-    knowing *which component* led there. When a route was discovered via a
-    real `<a>` link (label captured in `_update_discovered_routes`), the graph
-    edge and progress log for the GOTO that visits it should say so.
+    knowing *which component* led there. When a link to the target was
+    discovered specifically on the page being navigated *from* (recorded via
+    `record_link` in `_update_discovered_routes`), the graph edge and progress
+    log for the GOTO that visits it should say so. Looking up a label by
+    destination page alone (rather than the specific from/to pair) used to
+    misattribute a link discovered on some other page entirely as if it were
+    on the current page - see wiki/graph-based-crawl-tracking.md.
     """
     from src.generators.prd_generator import SimplePRDGenerator
 
@@ -348,15 +393,49 @@ def test_graph_edge_records_component_used_to_navigate(tmp_path):
         progress_log_file=str(tmp_path / "progress_log.md"),
         max_iterations=3,
     )
-    # Simulate the link having been discovered on an earlier page, with its label.
-    gen._add_route("https://stub/about", context="https://stub.example", label="About Us")
+    # Simulate the link having been discovered on the root page (the page the
+    # GOTO below will actually navigate from), with its label. base_domain is
+    # set manually here to match what generate_prd will compute from the root
+    # url below, so this seed lands in the same site bucket.
+    gen.base_domain = "stub.example"
+    gen.graph_store.record_link(gen.base_domain, "stub.example", "stub/about", "About Us")
 
     engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
     engine.run("https://stub.example")
 
-    assert gen.graph_edges[0]["component"] == 'link "About Us"'
+    assert gen.graph_store.get_edges(gen.base_domain)[0]["component"] == 'link "About Us"'
     log_content = (tmp_path / "progress_log.md").read_text(encoding="utf-8")
     assert 'Component: link "About Us"' in log_content
+
+
+def test_goto_component_is_not_attributed_to_the_wrong_source_page(tmp_path):
+    """A link discovered on page X must never be claimed as the component for a GOTO from page Y.
+
+    Regression test for a real bug found crawling a live site: a route can be
+    discovered (and thus labeled) via a link on one page, but later actually
+    be reached by a GOTO issued from a completely different page. The old
+    per-destination-page label lookup couldn't tell the two apart and
+    reported the label from page X's link even when navigating from page Y,
+    which doesn't have that link at all.
+    """
+    from src.generators.prd_generator import SimplePRDGenerator
+
+    agent = ScriptedAgent(["plan", "GOTO https://stub/target", "FINISH"])
+    scraper = StubScraper()
+    gen = SimplePRDGenerator(
+        agent, scraper, progress_file=str(tmp_path / "progress.md"), max_iterations=3
+    )
+    gen.base_domain = "stub.example"
+    # "target" was discovered on a page that is NOT the one we're about to
+    # navigate from - its label must not leak into this GOTO's component.
+    gen.graph_store.record_link(gen.base_domain, "some-other-page", "stub/target", "Ver agenda completa")
+
+    engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
+    engine.run("https://stub.example")
+
+    component = gen.graph_store.get_edges(gen.base_domain)[0]["component"]
+    assert component == "direct navigation (no known link label)"
+    assert "Ver agenda completa" not in component
 
 
 def test_scheme_variants_of_same_url_are_one_graph_node(tmp_path):
@@ -373,10 +452,10 @@ def test_scheme_variants_of_same_url_are_one_graph_node(tmp_path):
     scraper = StubScraper()
     gen = SimplePRDGenerator(ScriptedAgent([]), scraper, progress_file=str(tmp_path / "p.md"))
 
-    gen._add_route("http://stub/page")  # discovered via a non-https link
+    gen._upsert("http://stub/page")  # discovered via a non-https link
     assert gen._already_visited("https://stub/page") is False
 
-    gen._add_route("https://stub/page", status="Finished")  # visited via its canonical form
+    gen._upsert("https://stub/page", status="Finished")  # visited via its canonical form
     assert gen._already_visited("http://stub/page") is True
     assert gen._already_visited("https://stub/page/") is True  # trailing slash too
 

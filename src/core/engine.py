@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from ..utils.io import write_output
 from .config import PragmaConfig
-from .interfaces import Agent, PRDGenerator, Scraper
-from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, SCRAPER_REGISTRY
+from .interfaces import Agent, GraphStore, PRDGenerator, Scraper
+from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
 
 
 def _slugify(url: str) -> str:
@@ -23,12 +24,18 @@ class Engine:
     """Wires a scraper, an agent, and a generator strategy, then runs them."""
 
     def __init__(
-        self, scraper: Scraper, agent: Agent, generator: PRDGenerator, out_dir: str = "docs"
+        self,
+        scraper: Scraper,
+        agent: Agent,
+        generator: PRDGenerator,
+        out_dir: str = "docs",
+        graph_store: Optional[GraphStore] = None,
     ) -> None:
         self.scraper = scraper
         self.agent = agent
         self.generator = generator
         self.out_dir = out_dir
+        self.graph_store = graph_store
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -50,17 +57,27 @@ class Engine:
             print(f"Failed to initialize {config.agent} agent: {exc}; falling back to mock")
             agent = AGENT_REGISTRY.create("mock")
 
+        store_options = config.graph_stores.get(config.graph_store, {})
+        try:
+            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, **store_options)
+            graph_store.connect()
+        except Exception as exc:
+            print(f"Failed to initialize {config.graph_store} graph store: {exc}; falling back to memory")
+            graph_store = GRAPH_STORE_REGISTRY.create("memory")
+            graph_store.connect()
+
         generator = GENERATOR_REGISTRY.create(
             config.generator,
             agent=agent,
             scraper=scraper,
+            graph_store=graph_store,
             progress_file=log_path,
             progress_log_file=progress_log_path,
             graph_log_file=graph_log_path,
             max_iterations=config.max_iterations,
             batch_size=config.batch_size,
         )
-        return cls(scraper, agent, generator, out_dir=config.out_dir)
+        return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 
     def run(self, url: str) -> str:
         """Run the wired strategy on a URL; write and return the PRD path."""
