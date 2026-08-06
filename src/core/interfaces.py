@@ -3,6 +3,8 @@ Core interfaces and data contracts for the Pragma micro-kernel.
 """
 from __future__ import annotations
 
+import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +19,13 @@ class PageState:
     metadata: Dict[str, str] = field(default_factory=dict)
     components: List[Dict[str, Any]] = field(default_factory=list)
     links: List[Dict[str, str]] = field(default_factory=list)
+    # Short (~300 char) description of what this page is about - meta
+    # description if the site has one, else heading + first substantial
+    # paragraph. "" for scrapers/tests that don't extract it. See
+    # PlaywrightScraper._extract_description for how this is built and
+    # SimplePRDGenerator's _record_description for how it ends up in the
+    # final PRD, not just the live iteration prompt.
+    description: str = ""
 
 
 @dataclass
@@ -43,7 +52,189 @@ def parse_action(text: str) -> Action:
         return Action("goto", decision[4:].strip())
     if decision.upper().startswith("CLICK"):
         return Action("click", decision[5:].strip())
+    if decision.upper().startswith("FILL"):
+        return Action("fill", decision[4:].strip())
+    if decision.upper().startswith("SUBMIT"):
+        return Action("submit", decision[6:].strip())
     return Action("unknown", decision)
+
+
+@dataclass
+class AgentAction:
+    """A parsed, backend-agnostic agent decision - the successor to `Action`.
+
+    Produced by `Agent.act()` regardless of whether the underlying backend used
+    native tool-calling or the text-based fallback, so `SimplePRDGenerator`
+    never has to know which one happened. `ref` is always a numbered-list
+    index into the last shown "Clickable elements" list, never a raw
+    selector - resolving ref -> selector stays the generator's job (see
+    `_resolve_click_selector`/`_dna_index_map` in prd_generator.py), same as
+    the legacy `CLICK <number>` protocol.
+    """
+
+    kind: str  # "navigate" | "click" | "fill" | "submit" | "finish" | "help" | "unknown"
+    ref: Optional[int] = None
+    url: Optional[str] = None
+    value: Optional[str] = None  # also carries `help`'s topic string - see parse_agent_action
+    raw: str = ""
+
+
+# Canonical tool surface offered to every agent backend, kept intentionally
+# terse (one line each) per wiki/local-and-small-model-constraints.md - a
+# small/local model pays for every token of tool-schema prose on every single
+# turn, so verbose per-parameter descriptions are a real, recurring cost, not
+# a one-time one. `LocalAgent` translates this list into an OpenAI-style
+# `tools` payload for native function-calling; the base `Agent.act()` default
+# instead renders it as a short text block appended to the system prompt.
+TOOL_SPECS: List[Dict[str, Any]] = [
+    {
+        "name": "navigate",
+        "description": "Go to one of the Pending routes shown to you.",
+        "parameters": {"url": "string - one of the Pending routes shown"},
+    },
+    {
+        "name": "click",
+        "description": "Click a numbered element from the Clickable elements list.",
+        "parameters": {"ref": "integer - the element's number"},
+    },
+    {
+        "name": "fill",
+        "description": "Type text into a numbered input/textarea element.",
+        "parameters": {"ref": "integer - the element's number", "value": "string - text to enter"},
+    },
+    {
+        "name": "submit",
+        "description": "Press Enter on a numbered element to submit its form (use after fill).",
+        "parameters": {"ref": "integer - the element's number"},
+    },
+    {
+        "name": "finish",
+        "description": "Conclude research once all pending routes are explored.",
+        "parameters": {},
+    },
+    {
+        "name": "help",
+        "description": "Ask for guidance on a specific topic when unsure how to proceed.",
+        "parameters": {
+            "topic": (
+                "string - one of: goal_overview, ref_semantics, navigate_usage, "
+                "click_usage, fill_submit_flow, text_field_values, combobox_usage, "
+                "form_completion_flow, finish_criteria"
+            )
+        },
+    },
+]
+
+# The `help` topic enum above must stay a subset of what Module 3 actually serves at
+# /static/{topic} (src/api_server/static_docs.py's TOPICS) - kept as a literal list here rather
+# than importing from api_server, since core/interfaces.py must not depend on a leaf module.
+# tests/test_api_server.py's drift guard checks the two stay in sync.
+HELP_TOPICS: List[str] = [
+    "goal_overview",
+    "ref_semantics",
+    "navigate_usage",
+    "click_usage",
+    "fill_submit_flow",
+    "text_field_values",
+    "combobox_usage",
+    "form_completion_flow",
+    "finish_criteria",
+]
+
+
+def _tool_block_text(tools: List[Dict[str, Any]]) -> str:
+    """Render `tools` as a compact text block for backends without native tool-calling.
+
+    One line per tool, e.g. `- click(ref): Click a numbered element...` - not a
+    full JSON schema dump, to keep this cheap on every turn for small models.
+
+    This only lists parameter *names* (`topic`), never their descriptions - a
+    real model hallucinated a help topic ("navigation") that was never valid
+    (`navigate_usage` is), because the only place its actual valid values ever
+    appeared was inside a parameter description string this function never
+    renders at all in the text-fallback path. `HELP_TOPICS` gets its own
+    explicit, always-rendered line for exactly this reason - not left as prose
+    buried in one tool's description that may or may not reach the model
+    depending on which backend/path is active.
+    """
+    lines = ["Available actions:"]
+    for tool in tools:
+        params = ", ".join(tool["parameters"].keys())
+        lines.append(f"- {tool['name']}({params}): {tool['description']}")
+    if any(tool["name"] == "help" for tool in tools):
+        lines.append(f"Valid help topics (must match exactly): {', '.join(HELP_TOPICS)}")
+    lines.append(
+        "Respond with EXACTLY ONE JSON object on a single line, e.g. "
+        '{"action": "click", "ref": 3} or {"action": "fill", "ref": 2, "value": "hello"} '
+        'or {"action": "navigate", "url": "example.com/about"} or {"action": "finish"}. '
+        "No explanations, no markdown, no text before or after the JSON object."
+    )
+    return "\n".join(lines)
+
+
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def parse_agent_action(text: str) -> AgentAction:
+    """Parse a model reply into an AgentAction.
+
+    Tries the preferred single-JSON-object format first (e.g.
+    `{"action": "click", "ref": 3}`), then falls back to the legacy
+    GOTO/CLICK/FILL/SUBMIT/FINISH single-line text grammar (`parse_action`)
+    for backends/models that don't follow the JSON format - this keeps the
+    old protocol working as a safety net rather than a hard requirement.
+    """
+    raw = (text or "").strip()
+    match = _JSON_OBJECT_RE.search(raw)
+    if match:
+        try:
+            obj = json.loads(match.group(0))
+        except (json.JSONDecodeError, TypeError):
+            obj = None
+        if isinstance(obj, dict) and "action" in obj:
+            kind = str(obj.get("action", "")).strip().lower()
+            kind = {"goto": "navigate"}.get(kind, kind)
+            if kind in ("navigate", "click", "fill", "submit", "finish", "help"):
+                ref = obj.get("ref")
+                try:
+                    ref = int(ref) if ref is not None else None
+                except (TypeError, ValueError):
+                    ref = None
+                # help's parameter is named "topic" in TOOL_SPECS (clearer to the model than
+                # "value"), but AgentAction has no dedicated field for it - reuse `value`
+                # (already fill's text-to-type field) rather than growing the dataclass for
+                # one more kind. Accept either key so a model that echoes TOOL_SPECS' own
+                # parameter name still parses correctly.
+                value = obj.get("value")
+                if kind == "help" and value is None:
+                    value = obj.get("topic")
+                return AgentAction(
+                    kind=kind,
+                    ref=ref,
+                    url=obj.get("url"),
+                    value=value,
+                    raw=raw,
+                )
+
+    legacy = parse_action(raw)
+    if legacy.kind == "goto":
+        return AgentAction(kind="navigate", url=legacy.target, raw=raw)
+    if legacy.kind in ("click", "fill", "submit"):
+        target = legacy.target.strip()
+        if legacy.kind == "fill":
+            # Legacy text form: `FILL <ref> <value>`.
+            parts = target.split(None, 1)
+            ref_text, value = (parts[0], parts[1]) if len(parts) == 2 else (target, "")
+        else:
+            ref_text, value = target, None
+        try:
+            ref = int(ref_text)
+        except ValueError:
+            ref = None
+        return AgentAction(kind=legacy.kind, ref=ref, value=value, raw=raw)
+    if legacy.kind == "finish":
+        return AgentAction(kind="finish", raw=raw)
+    return AgentAction(kind="unknown", raw=raw)
 
 
 class Scraper(ABC):
@@ -87,6 +278,37 @@ class Scraper(ABC):
         """Close the browser session and clean up resources."""
         raise NotImplementedError
 
+    def fill(self, selector: str, value: str) -> PageState:
+        """Type `value` into an input/textarea element and return the new page state.
+
+        Concrete (not abstract) with a NotImplementedError default rather than
+        an abstract method, so existing minimal Scraper implementations (test
+        stubs, alternate backends) keep working unchanged unless they
+        specifically opt into supporting fill - only PlaywrightScraper
+        overrides this today.
+
+        Args:
+            selector: CSS selector identifying the target element.
+            value: Text to enter into the element.
+
+        Returns:
+            A PageState describing the resulting page.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support fill()")
+
+    def submit(self, selector: str) -> PageState:
+        """Press Enter on an element (e.g. after fill) and return the new page state.
+
+        Concrete-with-default for the same reason as `fill` above.
+
+        Args:
+            selector: CSS selector identifying the target element.
+
+        Returns:
+            A PageState describing the resulting page.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support submit()")
+
 
 class Agent(ABC):
     """Interface for AI agent backends."""
@@ -103,6 +325,30 @@ class Agent(ABC):
             The generated response text.
         """
         raise NotImplementedError
+
+    def act(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]] = TOOL_SPECS,
+        system_instruction: Optional[str] = None,
+    ) -> AgentAction:
+        """Return a structured AgentAction decision, using `tools` as the action surface.
+
+        Default (concrete) implementation: any backend gets this for free just
+        by implementing `generate()` - it appends a compact text description
+        of `tools` to the system prompt (see `_tool_block_text`) and parses
+        the reply as either a single JSON action object or the legacy
+        GOTO/CLICK/FILL/SUBMIT/FINISH text grammar (see `parse_agent_action`).
+
+        A backend whose server/model supports real function-calling (e.g.
+        LocalAgent talking to an OpenAI-compatible endpoint with the `tools`
+        request param) should override this to attempt that first, falling
+        back to `super().act(...)` when the model/server doesn't cooperate -
+        see LocalAgent.act() for the pattern.
+        """
+        combined = f"{system_instruction}\n\n{_tool_block_text(tools)}" if system_instruction else _tool_block_text(tools)
+        reply = self.generate(prompt, system_instruction=combined)
+        return parse_agent_action(reply)
 
 
 class GraphStore(ABC):
@@ -210,6 +456,131 @@ class GraphStore(ABC):
         Empty if `url` has never been reached before. Used to warn the agent
         that a page it's about to land on has already been reached via one or
         more other components, without hard-blocking the action.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def clear_site(self, site: str) -> None:
+        """Delete every page/edge/link/component tracked for `site`, leaving other sites untouched.
+
+        For a backend that persists across runs (Neo4j), this is what actually
+        resets state between crawls - `Engine.from_config` calls it by default
+        (`PragmaConfig.fresh`) before wiring the generator. Without it, a site
+        whose URLs are per-session tokens (e.g. a `/o/<random-id>` order flow)
+        silently accumulates a "visited" node for every past run's session,
+        forever - none of which will ever be seen again, but all of which the
+        next run's plan/synthesis steps still read back as real history. A
+        process-local store (InMemoryGraphStore) never persists across runs
+        regardless, so this is a no-op there - implemented uniformly anyway so
+        callers stay backend-agnostic.
+        """
+        raise NotImplementedError
+
+    # -- Component-level frontier -------------------------------------------------
+    # A Page node tracks whether a page was ever visited; these methods track the
+    # finer-grained question of whether an individual interactive element on that
+    # page was ever acted on. Without this, a component's "have I touched this"
+    # state either lives only in the calling process's memory (lost the moment the
+    # agent navigates away, and never present at all on turn one of a later run
+    # against the same persisted site) or isn't tracked at all. `page_url` here is
+    # always the already-`_clean_url`-canonicalized page key (see SimplePRDGenerator),
+    # exactly like every `url` elsewhere in this interface; `path` is the CSS
+    # selector the scraper itself produces for the element (its `gp()` helper),
+    # reused as-is rather than inventing a second identity scheme.
+
+    @abstractmethod
+    def record_component(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        tag: str = "",
+        text: str = "",
+        role: str = "",
+        input_type: str = "",
+        visible: bool = True,
+        layer: str = "semantic",
+    ) -> None:
+        """Create or refresh a Component node for `site`/`page_url`/`path`.
+
+        Idempotent, same discipline as `upsert_page`: descriptive fields
+        (tag/text/role/input_type/visible/layer) refresh on every call since
+        they can legitimately change page to page (e.g. text), but `interacted`
+        and its interaction history are never touched here - only
+        `record_component_interaction` sets those, and a rediscovery must never
+        clobber prior interaction state.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_component_interaction(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        action: str,
+        value: str = "",
+        resulting_url: str = "",
+    ) -> None:
+        """Mark a component as interacted with and append one interaction record.
+
+        Auto-creates the Component node if it doesn't already exist (mirrors
+        `record_edge`'s auto-create of its endpoint Page nodes) - an
+        interaction can be recorded even if `record_component` wasn't called
+        first in some code path.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
+        """All known components for one page: {path: {tag, text, interacted, visible}}.
+
+        One query per prompt build, not one per component - the caller is
+        expected to build this once per iteration and read from the dict
+        repeatedly for the same page.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def count_unexplored_components(self, site: str, semantic_only: bool = True) -> Tuple[int, int]:
+        """(unexplored_count, total_count) of components tracked across all of `site`.
+
+        `semantic_only=True` excludes `layer="pointer"` components (the
+        cursor:pointer catch-all, capped and noisier than the semantic/ARIA
+        selector) from both counts, so a completion guard reading this isn't
+        gated by the least reliable discovery layer.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_pages_with_unexplored_components(
+        self, site: str, limit: Optional[int] = None, semantic_only: bool = True
+    ) -> List[Dict[str, Any]]:
+        """[{"url", "unexplored_count"}] for pages with >=1 unexplored component, sorted descending.
+
+        This is the revisit queue: pages the agent has already left behind
+        that still have real, undone work on them.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def page_has_unexplored_components(self, site: str, url: str, semantic_only: bool = True) -> bool:
+        """Whether `url` has at least one un-interacted-with component tracked.
+
+        The condition under which a revisit to an already-visited page is not
+        redundant - used to relax the navigate-decline guard without turning
+        it into an override (the guard still only ever declines, just with a
+        more accurate redundancy condition).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """{page_url: {path: {tag, text, interacted, interactions}}} for all of `site`.
+
+        The durable, human-inspectable "what did I do on this page, and to
+        what" record - what `_write_component_ledger` writes out, sourced from
+        real persisted state rather than a parallel in-memory shadow copy.
         """
         raise NotImplementedError
 

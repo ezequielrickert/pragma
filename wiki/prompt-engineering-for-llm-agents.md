@@ -89,9 +89,26 @@ Action: CLICK <element number from the list above>
 
 The program resolves `CLICK 2` back to the real selector via an index built fresh each iteration —
 the model never has to reproduce anything longer than a small integer. This is strictly easier for
-weak models to get right, and it shrinks the prompt (see next doc). Keep a fallback path (treat
-the target as a literal selector, or match by visible text) for stronger models that might
-improvise anyway — don't make the fallback the primary path.
+weak models to get right, and it shrinks the prompt (see next doc).
+
+**Update — the literal-selector fallback below was later removed, on purpose:** this doc originally
+recommended keeping a fallback path (treat an unresolvable target as a literal CSS selector, or
+match by visible text) for a stronger model that might improvise anyway. In practice this made
+failures *more* confusing, not less: a model that invented a selector instead of using a shown
+index got a plausible-looking but wrong action silently accepted, instead of a clear, immediate
+rejection it could learn from. The fix was the opposite of "keep a lenient fallback" — reject any
+unresolvable ref outright and say so in the next prompt's error-feedback line (see Principle 5):
+
+```python
+def _resolve_ref_selector(self, ref):
+    if ref is not None and ref in self._dna_index_map:
+        return self._dna_index_map[ref]["path"]
+    raise ValueError(f"Unknown element ref: {ref!r} - use a number from the Clickable elements list")
+```
+
+General lesson: a permissive fallback for "in case the model does something clever" usually isn't
+worth it once you have a working error-feedback loop — a clear rejection the model can react to on
+the next turn beats a silent guess that might be wrong in a way nobody notices.
 
 ## Principle 5: State negative constraints in the prompt *and* enforce them mechanically
 
@@ -104,3 +121,50 @@ would be genuinely bad to violate (redoing expensive work, revisiting a dead end
 check in code that declines to act on a violation rather than trusting the model to self-police.
 See [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) for where to draw the line
 between "decline redundant work" (safe) and "override the model's decision" (risky).
+
+**A second instance of the same principle, escalated**: an *informational* nudge (a prompt line
+saying "N new elements just appeared, investigate before finishing") wasn't enough on its own — a
+small local model concluded a run anyway, immediately after a page changed substantially (3 → 11
+components, same URL) without looking at any of the new content. Text the model can silently ignore
+isn't a mechanical constraint, no matter how clearly it's worded. The fix escalated from "inform" to
+"block": the specific terminal action (`finish`) was rejected outright when new, never-shown
+components were part of what the model had just been shown, converted into a skipped turn with an
+explicit error instead of ending the run. This is a narrower, more justified version of "override"
+than the broad heuristic [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) warns
+against — see that doc's updated "Prefer decline over override" section for why blocking one
+specific, verifiable-condition, terminal action is a different risk profile than substituting a
+different action for whatever the model chose.
+
+## Principle 6: For a weak/small model, prefer deterministic always-shown signals over optional on-demand ones
+
+**Symptom observed, repeatedly**: several pieces of guidance were first built as something the
+model could *ask for* (a `help(topic)` action returning fuller docs on demand) or as a *hint* it
+could act on if it noticed. Both consistently underperformed a plainer alternative: computing the
+same information deterministically in code and putting it directly in every relevant prompt,
+unconditionally. A field's current value, whether a combobox's options are already visible, whether
+a submit button is actually ready to be clicked, whether an element has already been interacted
+with — all of these ended up as **always-rendered facts computed from real state**, not as
+something gated behind the model choosing to ask or independently noticing.
+
+**Why it happens**: an optional lookup adds a second point where a weak model's tool-calling can
+fail (see [local-and-small-model-constraints.md](local-and-small-model-constraints.md) on native
+tool-calling reliability) and a second decision it can simply skip. A hint buried in prose competes
+with everything else in the prompt for attention a small model may not reliably allocate.
+Information the model *needs* to act correctly this turn is more reliable as an unconditional fact
+than as something contingent on the model's own initiative.
+
+**Fix pattern**: reserve on-demand/optional lookups (`help`, a docs API) for genuinely deep
+background that would be wasteful to include on every single turn — the "why", not the "what's true
+right now." Compute and inject anything the model needs to make *this turn's* decision correctly,
+every time, as a short deterministic line derived from real state:
+
+```python
+if any(c.get("input_type") == "submit" for c in shown_components):
+    unfilled = [i for i, c in enumerate(shown_components, 1) if is_fillable(c) and not c.get("value")]
+    line = (f"Do not click submit yet - field(s) {unfilled} still show no value."
+            if unfilled else 'Every visible field has a value - click submit next.')
+```
+
+This costs a little prompt space on every turn, in exchange for not depending on the model
+remembering to ask, or noticing a subtle change on its own — a trade worth making for anything the
+model would otherwise get wrong by default.

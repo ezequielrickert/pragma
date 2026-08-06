@@ -15,9 +15,10 @@ loop, over many iterations, possibly with a small/local model.
 | Doc | Read this when... |
 |---|---|
 | [prompt-engineering-for-llm-agents.md](prompt-engineering-for-llm-agents.md) | You're writing/debugging system prompts for a multi-step agent, especially one with several distinct call sites (plan vs. act vs. summarize). |
-| [local-and-small-model-constraints.md](local-and-small-model-constraints.md) | Your agent works fine on GPT-4/Gemini but breaks, times out, or hangs on a local/small model. |
-| [browser-automation-pitfalls.md](browser-automation-pitfalls.md) | You're driving Playwright (or similar) from generated selectors, and clicks/navigation silently fail or hit the wrong element. |
-| [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) | Your agent loops, revisits the same state, or you need to explain *how* it got from A to B. |
+| [local-and-small-model-constraints.md](local-and-small-model-constraints.md) | Your agent works fine on GPT-4/Gemini but breaks, times out, hangs, or silently drops tool-call arguments on a local/small model. |
+| [browser-automation-pitfalls.md](browser-automation-pitfalls.md) | You're driving Playwright (or similar) from generated selectors, and clicks/navigation silently fail, hit the wrong element, or a dropdown/combobox seems to have nothing in it. |
+| [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) | Your agent loops, revisits the same state, needs to explain *how* it got from A to B, or a persistent store's history no longer matches reality. |
+| [tool-calling-and-execution-layers.md](tool-calling-and-execution-layers.md) | You're designing or debugging how an agent's decisions turn into real actions — native function-calling vs. text fallback, a standing execution service, or where to draw the line between execution and reference-knowledge services. |
 | [debugging-agent-systems.md](debugging-agent-systems.md) | An agent is "behaving badly" and you don't yet know if it's the model, the prompt, or the code. Read this first, before you start guessing. |
 
 ## Quick symptom → doc lookup
@@ -25,8 +26,13 @@ loop, over many iterations, possibly with a small/local model.
 - "Model returns garbage / wrong format / ignores instructions" → prompt-engineering, then debugging-agent-systems
 - "Model returns a huge/malformed plan instead of a short action" → prompt-engineering (shared-instruction conflict)
 - "Local model times out / context length exceeded" → local-and-small-model-constraints
+- "Model's tool call is missing a parameter the schema marks required" → local-and-small-model-constraints, then tool-calling-and-execution-layers
+- "Model picks an invalid value for a constrained parameter" → local-and-small-model-constraints (structural enum, not prose)
 - "Click does nothing / times out / hits the wrong element" → browser-automation-pitfalls
+- "Nothing to click after opening a dropdown/menu/combobox" → browser-automation-pitfalls (custom-widget ARIA roles)
 - "Agent stuck in a loop revisiting the same page(s)" → graph-based-crawl-tracking, then debugging-agent-systems
+- "Agent finishes/gives up before the page is actually done" → prompt-engineering (Principle 5/6), then graph-based-crawl-tracking
+- "A fix had no effect on the live run" → tool-calling-and-execution-layers (stale standing-service process), then debugging-agent-systems
 - "Not sure where to even start" → debugging-agent-systems
 
 ## Turning this into skills

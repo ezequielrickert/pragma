@@ -59,6 +59,61 @@ completely normal. Make timeout a per-provider config value (see `LocalConfig.ti
 further per deployment (`agents.local.timeout` in `pragma.yaml`) rather than picking one number
 that has to work everywhere.
 
+## Native tool-calling: a "required" schema field is not a guarantee the model fills it
+
+**Symptom observed**: a local model's native `tool_calls` response for a `fill(ref, value)` action
+came back as `{"ref": 1}` — `value` simply absent, even though the OpenAI-style function schema
+listed it under `"required"`. Filling `""` every time is worse than a visible failure: it looks
+like a real action ran (a new page state came back) while never actually entering anything, which
+produced an infinite loop between a toggle control and a field that silently stayed empty forever.
+
+**Why it happens**: `"required"` in a JSON schema is a hint most cloud APIs enforce server-side,
+but a local model's own chat template decides what it actually emits — nothing forces compliance
+in general, and a small model's tool-calling is exactly where you should expect it to be loosest.
+
+**Fix pattern**: never trust that a "required" parameter arrived — validate on the receiving end,
+and prefer *recovering* over *erroring* for parameters you can reasonably synthesize. If the target
+element's own metadata (a label, placeholder, `name`, input type) is available, generate a sensible
+fallback value from it rather than silently sending an empty string or aborting the run:
+
+```python
+if not action.value:
+    action.value = generate_value_from_field_metadata(target_component)
+```
+
+Mutate the actual action object (not just a local variable) so anything logged or read downstream
+reflects what was actually sent — a fallback that only lives in a local variable can silently never
+reach the log a human reads to debug the run.
+
+## Constrain parameters structurally (JSON-schema `enum`), not just with prose in a description
+
+**Symptom observed**: a tool parameter's valid values were spelled out only as prose inside its
+`description` string ("string - one of: goal_overview, ref_semantics, ..."). The model hallucinated
+a plausible-but-wrong value anyway ("navigation" instead of the real `navigate_usage`) — prose
+inside a description field is not a constraint, just more text competing with everything else in
+the prompt for the model's attention. Separately, the compact text-fallback rendering used for
+backends without native tool-calling support didn't even render parameter descriptions at all
+(only parameter *names*) — so on that path, the model never saw the valid values in the first
+place, regardless of how they were phrased.
+
+**Fix pattern**: for a closed set of valid values, use a real JSON-schema `enum` on the native
+tool-calling path, not prose:
+
+```python
+properties["topic"]["enum"] = ["goal_overview", "ref_semantics", "navigate_usage", ...]
+```
+
+And on the text-fallback path, give the enum its own explicit, always-rendered line — don't rely on
+a per-tool description string to carry it, since some renderers of "available tools" may not even
+surface parameter descriptions at all:
+
+```
+Valid help topics (must match exactly): goal_overview, ref_semantics, navigate_usage, ...
+```
+
+Test both code paths independently — they can (and did, here) diverge silently, since a fix
+verified against one path's actual output can leave the other completely unfixed.
+
 ## Checklist when adding/debugging local-model support
 
 - [ ] Is there a hard cap on every list/collection that goes into a prompt (not just "usually
@@ -69,3 +124,7 @@ that has to work everywhere.
       default — not a value copied from a different provider's config?
 - [ ] If the model can only see a slice of the full state, does it have enough info to make
       forward progress (e.g. total counts, "N of M shown"), even if it can't see everything?
+- [ ] For every tool parameter marked "required" in a schema, is there a fallback if the model
+      omits or empties it anyway — not just a schema annotation you're trusting it to honor?
+- [ ] For every closed-set parameter (an enum of valid values), is the constraint structural
+      (JSON-schema `enum`) on every code path that can produce a tool call, not prose in one?

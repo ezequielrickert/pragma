@@ -6,21 +6,41 @@
 # Copy to pragma.yaml (auto-loaded) or pass --config <path>.
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
-scraper: playwright
+scraper: playwright  # playwright (in-process) | rest (talks to a standing local API server, run
+                      # separately via `python -m src.api_server` - same PlaywrightScraper actions
+                      # plus curated docs, persistent browser session decoupled from this process;
+                      # see ARCHITECTURE.md's "Module 3: Unified REST API". Base URL via
+                      # PRAGMA_API_URL, default http://127.0.0.1:8765)
 agent: gemini        # gemini | openai | local | mock
 generator: simple
 graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
                       # (see docker-compose.yml) and persists the navigation graph, queryable
                       # between iterations, isolated per crawled site via a `site` property
+fresh: true           # purge this site's previously recorded graph_store state before crawling
+                       # (only matters for graph_store: neo4j - memory never persists across runs
+                       # regardless). Set false to resume a previous run's progress on a large,
+                       # stable site instead of starting over - but leave this on for any site whose
+                       # URLs are per-session tokens (e.g. a `/o/<random-id>` order flow), where old
+                       # runs' "visited" nodes will never be revisited and just add stale history.
 out_dir: docs
 logs_dir: research_logs
 progress_logs_dir: progress_logs  # append-only per-iteration debug trail, for understanding LLM behavior
-graph_logs_dir: graph_logs        # navigation graph (which action led from which page to which page), as JSON
+graph_logs_dir: graph_logs        # navigation graph (which action led from which page to which page) and
+                                   # the per-page component ledger (every component seen, whether it was
+                                   # interacted with, and its interaction history), both as JSON
 headless: true
 max_iterations: 12
 wait_seconds: 15  # settle time after navigate/click before reading links; raise for JS-heavy sites
-batch_size: 20    # max pending routes/DNA components per iteration prompt; lower = faster iterations,
-                  # more of them needed (raise max_iterations to match) - good for small/local models
+batch_size: 20    # default cap for both pending routes and DNA components per iteration prompt; lower
+                  # = faster iterations, more of them needed (raise max_iterations to match) - good
+                  # for small/local models
+# pending_batch_size: 20    # override just the pending-routes cap; falls back to batch_size if unset
+# component_batch_size: 20  # override just the DNA-components cap; falls back to batch_size if unset -
+                             # raise this alone for a component-dense page (a mega-nav with hundreds of
+                             # elements) without inflating the unrelated pending-routes budget
+allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
+                          # of example.com and its links get queued as pending routes too (naive
+                          # last-two-label match, not a full public-suffix-list lookup)
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to

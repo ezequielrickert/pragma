@@ -66,6 +66,12 @@ PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
             "secret": False,
             "type": "int",
         },
+        {
+            "name": "api_key",
+            "label": "Bearer token (blank = keep current / none needed for a bare local endpoint)",
+            "secret": True,
+            "env": "LOCAL_API_KEY",
+        },
     ],
     "mock": [],
 }

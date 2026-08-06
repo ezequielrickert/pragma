@@ -9,6 +9,7 @@ from ..agents import local_agent  # noqa: F401  (registers "local")
 from ..agents import mock_agent  # noqa: F401  (registers "mock")
 from ..generators import prd_generator  # noqa: F401  (registers "simple")
 from ..scrapers import playwright_scraper  # noqa: F401  (registers "playwright")
+from ..scrapers import rest_scraper  # noqa: F401  (registers "rest")
 from ..storage import memory_graph_store  # noqa: F401  (registers "memory")
 
 try:

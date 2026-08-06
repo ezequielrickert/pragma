@@ -119,3 +119,100 @@ def _clean_url(self, url: str) -> str:
             return cleaned[len(prefix):]
     return cleaned
 ```
+
+## "Nothing to click" usually means a custom-widget blind spot, not an empty page
+
+**Symptom observed**: a discovery query of `button, a, input, select, textarea, [role="button"]`
+found nothing new after opening a searchable shop-picker on a real site — even though the model had
+correctly clicked the trigger and the widget had visibly opened. Direct inspection of the live DOM
+found **22 real, clickable options**, every one a `<div role="option">` inside a Radix/cmdk
+("Command") popover. The agent wasn't confused; the tool genuinely could not see most of the page.
+
+**Why it happens**: modern component libraries (Radix, shadcn/ui's Command, MUI, Headless UI) build
+listbox options, menu items, tabs, and custom checkboxes/radios/switches out of `<div>`/`<li>` with
+an ARIA `role`, not a native interactive tag. `[role="button"]` alone only covers one such pattern.
+
+**Fix pattern**: broaden the discovery selector to the whole family of interactive ARIA roles, not
+just `button`:
+
+```js
+'button, a, input, select, textarea, ' +
+'[role="button"], [role="option"], [role="menuitem"], ' +
+'[role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], ' +
+'[role="checkbox"], [role="radio"], [role="switch"], [role="combobox"]'
+```
+
+This is framework-agnostic (role-based, not tied to Radix/cmdk/MUI specifically) and directly
+verifiable: reopen the widget and diff the discovered element count/list before vs. after.
+
+## The last-resort case: no tag, no role, just `cursor: pointer`
+
+Occasionally a clickable element has no semantic tag and no ARIA role at all — a styled
+`<div onClick=...>` with zero accessibility markup. The one signal that survives even then is the
+computed `cursor: pointer` style. Add it as a second-tier fallback, not the primary discovery path:
+
+```js
+// Exclude anything already caught by the primary selector, in either direction -
+// a pointer-cursor wrapper around a real button is redundant with that button,
+// and so is a real button's own inner span that just inherits cursor:pointer from it.
+for (const el of document.querySelectorAll('body *')) {
+    if (semanticSet.has(el)) continue;
+    if (el.closest(primarySelector)) continue;   // ancestor already covered
+    if (getComputedStyle(el).cursor !== 'pointer') continue;
+    if ([...el.querySelectorAll('*')].some(c => semanticSet.has(c))) continue; // descendant already covered
+    // candidate
+}
+```
+
+Both exclusion checks matter — without the ancestor check, a real `<button>`'s inner `<span>`
+(which inherits `cursor: pointer`) shows up as a spurious duplicate target for the same click.
+
+**Known, deliberately unimplemented gap**: neither pass finds elements inside an *open shadow
+root* — `document.querySelectorAll` doesn't pierce shadow boundaries. Not fixed speculatively, since
+no site actually hit this yet (Radix/cmdk render light DOM); if one does, the fix needs two things:
+each shadow root needs its own `querySelectorAll` pass alongside `document`'s, and any path-builder
+walking `element.parentElement` needs to continue via `element.getRootNode().host` when
+`parentElement` is null but `getRootNode()` is a `ShadowRoot`.
+
+## A form field's live `value` is the only reliable "did this work" signal — don't trust `required`
+
+**Symptom observed**: a real, production site marked every form field's `required` HTML attribute
+`false` — including ones that were, in practice, mandatory — because validation was done entirely
+client-side (React state), never via native HTML constraint validation. Any logic gating "is this
+form ready to submit" on the `required` attribute silently never gated anything on this site.
+
+**Fix pattern**: don't infer "does this field matter" from markup that a site may not use correctly
+or at all. Instead, track what you can always verify regardless of a site's validation approach:
+does the field currently show a value?
+
+```js
+value: ['input', 'textarea', 'select'].includes(el.tagName.toLowerCase()) ? (el.value || '') : '',
+```
+
+An empty field after an attempted fill, or a field that was never filled at all, are both
+observable facts about the live DOM — "does this field currently have a value" survives regardless
+of how (or whether) a site marks required fields.
+
+## fill ≠ submit, and submitting before a form is actually filled is its own bug
+
+Filling a value never submits a form by itself — a separate action (Enter, or clicking the submit
+control) is required. The less obvious failure mode discovered in practice was the *opposite*
+direction: an agent clicked a visible "submit"-looking button while another required field on the
+same page still showed no value, and the page responded with a burst of new content (a validation
+state, 3 → 11 elements on the same URL) that then got misread as "there's nothing more to do here."
+Before treating a submit-looking control as the next step, check every other visible fillable
+field's current value first — not just the one just filled.
+
+## Generating a value for a field needs the label, not just the placeholder — and isn't English-only
+
+**Symptom observed**: a field with `placeholder=""` but a real, associated `<label for="...">Correo
+electrónico</label>` (Spanish for "email") looked unlabelled to logic that only checked
+`placeholder`, and separately, English-only keyword matching (`"email" in label`) missed it even
+once the label text was available.
+
+**Fix pattern**: check for an accessible label independently of placeholder — `label[for=id]`, a
+wrapping `<label>`, or `aria-labelledby` — since a real form field is very often labelled with no
+placeholder at all. When inferring a field's purpose from that label to generate a value, don't
+assume the label is in English: strip accents/diacritics before keyword matching, and include the
+target site's actual language's vocabulary alongside English if you know the site isn't
+English-only, rather than only ever matching one language's words.

@@ -80,6 +80,15 @@ def parse_args(argv: list) -> argparse.Namespace:
         "Lower = faster/cheaper iterations, but needs more of them (raise --max-iterations too).",
     )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
+    parser.add_argument(
+        "--fresh",
+        dest="fresh",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Purge this site's previously recorded graph_store state before crawling "
+        "(default: on; matters for --graph-store neo4j, which persists across runs). "
+        "Use --no-fresh to resume a previous run's progress on a large, stable site instead.",
+    )
     return parser.parse_args(argv)
 
 

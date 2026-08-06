@@ -34,6 +34,30 @@ class PragmaConfig:
     max_iterations: int = 12
     wait_seconds: float = 15.0
     batch_size: int = 20
+    # Independent overrides for the two budgets `batch_size` otherwise double-spends
+    # (pending routes shown per prompt vs. DNA components shown per prompt) - a
+    # component-dense page (a mega-nav with hundreds of elements) competing with a
+    # route-heavy site's pending-page queue for the same shared number can run out
+    # of `max_iterations` before its long tail of components is ever even shown.
+    # None means "fall back to batch_size" - see SimplePRDGenerator.__init__.
+    pending_batch_size: Optional[int] = None
+    component_batch_size: Optional[int] = None
+    # Whether same-domain scoping (which links get queued as pending routes)
+    # treats a subdomain (e.g. blog.example.com) as in-scope for a crawl of
+    # example.com. Off by default - matches the pre-existing exact-netloc-match
+    # behavior. A naive last-two-label heuristic when enabled, not a full
+    # public-suffix-list lookup (see SimplePRDGenerator._domain_in_scope).
+    allow_subdomains: bool = False
+    # Purge this site's previously recorded graph_store state before crawling
+    # (Engine.from_config). Matters for graph_store: neo4j, which persists
+    # across runs - without this, a site whose URLs are per-session tokens
+    # (e.g. a `/o/<random-id>` order flow) accumulates a "visited" node per
+    # past run forever, none of which will ever be seen again but all of
+    # which the next run's plan/synthesis steps still read back as history.
+    # graph_store: memory never persists across runs regardless, so this is a
+    # no-op there either way. Set to false to resume a previous run's
+    # progress on a genuinely multi-session crawl of a large, stable site.
+    fresh: bool = True
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 

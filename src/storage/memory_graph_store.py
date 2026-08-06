@@ -18,6 +18,8 @@ class _SiteData:
     routes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     edges: List[Dict[str, str]] = field(default_factory=list)
     links: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    # {page_url: {path: {tag, text, role, input_type, visible, layer, interacted, interactions}}}
+    components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -102,3 +104,110 @@ class InMemoryGraphStore(GraphStore):
                 seen_pairs.add(pair)
                 seen.append({"component": edge["component"], "from": edge["from"]})
         return seen
+
+    def clear_site(self, site: str) -> None:
+        self._sites.pop(site, None)
+
+    def record_component(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        tag: str = "",
+        text: str = "",
+        role: str = "",
+        input_type: str = "",
+        visible: bool = True,
+        layer: str = "semantic",
+    ) -> None:
+        page_components = self._site(site).components.setdefault(page_url, {})
+        existing = page_components.get(path)
+        page_components[path] = {
+            "tag": tag,
+            "text": text,
+            "role": role,
+            "input_type": input_type,
+            "visible": visible,
+            "layer": layer,
+            "interacted": existing["interacted"] if existing else False,
+            "interactions": existing["interactions"] if existing else [],
+        }
+
+    def record_component_interaction(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        action: str,
+        value: str = "",
+        resulting_url: str = "",
+    ) -> None:
+        page_components = self._site(site).components.setdefault(page_url, {})
+        record = page_components.setdefault(
+            path,
+            {
+                "tag": "", "text": "", "role": "", "input_type": "",
+                "visible": True, "layer": "semantic", "interacted": False, "interactions": [],
+            },
+        )
+        record["interacted"] = True
+        record["interactions"].append(
+            {"action": action, "value": value, "resulting_url": resulting_url}
+        )
+
+    def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
+        return {
+            path: {"tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"]}
+            for path, r in self._site(site).components.get(page_url, {}).items()
+        }
+
+    def _iter_components(self, site: str, semantic_only: bool):
+        for page_components in self._site(site).components.values():
+            for record in page_components.values():
+                if semantic_only and record.get("layer") == "pointer":
+                    continue
+                yield record
+
+    def count_unexplored_components(self, site: str, semantic_only: bool = True) -> Tuple[int, int]:
+        total = 0
+        unexplored = 0
+        for record in self._iter_components(site, semantic_only):
+            total += 1
+            if not record["interacted"]:
+                unexplored += 1
+        return unexplored, total
+
+    def get_pages_with_unexplored_components(
+        self, site: str, limit: Optional[int] = None, semantic_only: bool = True
+    ) -> List[Dict[str, Any]]:
+        counts: List[Dict[str, Any]] = []
+        for page_url, page_components in self._site(site).components.items():
+            count = sum(
+                1
+                for record in page_components.values()
+                if not record["interacted"] and not (semantic_only and record.get("layer") == "pointer")
+            )
+            if count:
+                counts.append({"url": page_url, "unexplored_count": count})
+        counts.sort(key=lambda row: row["unexplored_count"], reverse=True)
+        return counts if limit is None else counts[:limit]
+
+    def page_has_unexplored_components(self, site: str, url: str, semantic_only: bool = True) -> bool:
+        for record in self._site(site).components.get(url, {}).values():
+            if semantic_only and record.get("layer") == "pointer":
+                continue
+            if not record["interacted"]:
+                return True
+        return False
+
+    def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        return {
+            page_url: {
+                path: {
+                    "tag": r["tag"], "text": r["text"],
+                    "interacted": r["interacted"], "interactions": list(r["interactions"]),
+                }
+                for path, r in page_components.items()
+            }
+            for page_url, page_components in self._site(site).components.items()
+        }

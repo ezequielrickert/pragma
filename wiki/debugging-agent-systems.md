@@ -16,6 +16,10 @@ code or prompt bug, not a model-competence problem:
 | Agent revisits the same page forever | Weak model keeps making the same bad choice | URL scheme not normalized — two dict keys for one page — see graph-tracking doc |
 | Agent keeps clicking the same broken thing | Weak model fixates | Non-unique generated selector, silently failing every time — see browser-automation doc |
 | Iteration takes 600+ seconds | Weak/slow model | Verbose per-item data (full CSS paths, class strings) blowing up prompt size — see local-model doc |
+| Agent had "nothing to click" after opening a dropdown/combobox | Weak model can't figure out the widget | Discovery selector missed the whole family of ARIA-role custom-widget elements — 22 real options existed, none discoverable — see browser-automation doc |
+| Agent filled a field with junk / left it empty despite a "required" schema field | Weak model ignoring the tool schema | Native tool-calling silently omitted the parameter anyway — schema `"required"` isn't enforced by the model's own chat template — see local-model doc |
+| Agent concluded research immediately after a page changed substantially | Weak model not caring / done too early | An *informational* nudge alone doesn't mechanically stop anything — needed an actual block, not just a hint — see prompt-engineering doc (Principle 5) |
+| Server logs flooded with cryptic auth warnings | Infra/credentials misconfigured | Tests never loaded `.env` at all — a real secret existed but the check that would have used it never saw it |
 
 The pattern: **a plausible-sounding "the model just isn't good enough" story will stop you from
 finding the actual bug.** Treat that explanation as a last resort, only after the checklist below
@@ -43,6 +47,27 @@ has been exhausted.
 5. **Only after 1-4**: consider whether the model itself is actually undersized/undertrained for
    the task, and address that on its own terms (bigger model, few-shot examples, structured output
    enforcement) — don't reach for this before ruling out the above.
+
+## When the failure involves unfamiliar real-world specifics, go to the real target *first*
+
+The scripted-fake technique below is for confirming and regression-testing a hypothesis you already
+have. It can't help you *form* one when the actual failure mode lives in specifics you don't know
+yet — you can't write a fake that accurately reproduces a real site's markup without first knowing
+what that markup actually is. A combobox rendering its options as `<div role="option">` instead of
+`<button>`, a `required` attribute that's `false` on every field on a real site regardless of what's
+actually required, a native tool call silently missing a parameter — none of these were guessable
+from first principles; every one was found by driving the real target directly (the actual scraper
+against the actual live URL, in a throwaway script) and reading back exactly what came out:
+
+```python
+scraper = PlaywrightScraper()
+state = scraper.navigate(url)
+print(state.components)  # what does the tool actually see, right now, for real?
+```
+
+Once that reveals the actual failure mode, encode it as a scripted fake (below) for the permanent
+regression test — the two techniques are sequential, not alternatives: real target to discover the
+unknown shape of the bug, scripted fake to lock the fix in place forever afterward.
 
 ## Reproduce with a deterministic, scripted fake — not just "try it again on the real site"
 

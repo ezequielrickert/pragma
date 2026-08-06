@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..utils.io import write_output
 from .config import PragmaConfig
@@ -45,6 +46,11 @@ class Engine:
         log_path = f"{config.logs_dir}/{slug}_research_{timestamp}.md"
         progress_log_path = f"{config.progress_logs_dir}/{slug}_progress_{timestamp}.md"
         graph_log_path = f"{config.graph_logs_dir}/{slug}_graph_{timestamp}.json"
+        # Same folder as the navigation graph - both are machine-readable JSON
+        # debug artifacts written once at the end of a run; a new config
+        # dimension (its own dir/CLI flag) for one more file felt like more
+        # ceremony than the addition warranted.
+        components_log_path = f"{config.graph_logs_dir}/{slug}_components_{timestamp}.json"
 
         scraper = SCRAPER_REGISTRY.create(
             config.scraper, headless=config.headless, wait_seconds=config.wait_seconds
@@ -66,6 +72,14 @@ class Engine:
             graph_store = GRAPH_STORE_REGISTRY.create("memory")
             graph_store.connect()
 
+        if config.fresh:
+            site = urlparse(config.url).netloc
+            if site:
+                # No-op for InMemoryGraphStore (nothing persists across runs there
+                # anyway) - matters for graph_store: neo4j, see PragmaConfig.fresh's
+                # docstring for why this defaults to on.
+                graph_store.clear_site(site)
+
         generator = GENERATOR_REGISTRY.create(
             config.generator,
             agent=agent,
@@ -74,8 +88,12 @@ class Engine:
             progress_file=log_path,
             progress_log_file=progress_log_path,
             graph_log_file=graph_log_path,
+            components_log_file=components_log_path,
             max_iterations=config.max_iterations,
             batch_size=config.batch_size,
+            pending_batch_size=config.pending_batch_size,
+            component_batch_size=config.component_batch_size,
+            allow_subdomains=config.allow_subdomains,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 
