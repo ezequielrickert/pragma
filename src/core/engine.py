@@ -102,6 +102,8 @@ class Engine:
             dynamic_url_segments=config.dynamic_url_segments,
             strip_query_params=config.strip_query_params,
             keep_query_params=config.keep_query_params,
+            use_sitemap=config.use_sitemap,
+            skeleton_fraction=config.skeleton_fraction,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 

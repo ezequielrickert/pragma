@@ -7,7 +7,10 @@ import json
 import pathlib
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 from typing import List, Optional
+
+import requests
 
 from ..core.interfaces import AgentAction, Agent, GraphStore, PageState, PRDGenerator, Scraper
 from ..core.registry import GENERATOR_REGISTRY
@@ -56,6 +59,8 @@ class SimplePRDGenerator(PRDGenerator):
         dynamic_url_segments: Optional[List[str]] = None,
         strip_query_params: bool = True,
         keep_query_params: Optional[List[str]] = None,
+        use_sitemap: bool = False,
+        skeleton_fraction: float = 0.3,
     ) -> None:
         """Initialize with brain (agent), hands (scraper), and progress tracker.
 
@@ -169,6 +174,32 @@ class SimplePRDGenerator(PRDGenerator):
                 genuinely changes page content (e.g. `?page=2` for pagination).
                 Ignored when `strip_query_params` is False (nothing is stripped to
                 begin with).
+            use_sitemap: Whether to fetch and parse `/sitemap.xml` once, at the
+                start of Discovery, and queue every in-scope URL found there as a
+                Pending route (see `_seed_from_sitemap`) - a near-zero-cost way to
+                learn a large site's overall breadth (every top-level section)
+                without spending any agent iterations discovering it via clicks.
+                Best-effort only: a missing/unreachable/malformed sitemap never
+                fails the run, it just means nothing gets seeded this way.
+                Defaults to `False` *here* deliberately, unlike `PragmaConfig`'s
+                own default of `True` - this class talks to the real network via
+                `requests` directly (unlike scraper-mediated calls, which a test
+                double can simply not implement), so a conservative constructor
+                default keeps every existing/future test that builds a
+                `SimplePRDGenerator` directly (often against a fake domain like
+                `stub.example`) from making a real HTTP request unless it opts in.
+                `Engine.from_config` always passes `PragmaConfig.use_sitemap`
+                explicitly, so a real CLI run still gets this on by default.
+            skeleton_fraction: Fraction of `max_iterations` (0.0-1.0) reserved for
+                a breadth-first "skeleton" pass - see `_order_pending` - that
+                prioritizes visiting at least one route from every not-yet-seen
+                top-level section before the remaining budget is spent drilling
+                into any single section's depth. After that many real iterations,
+                ordering switches to prioritizing by `get_incoming_link_counts`
+                (routes linked to from more places first). This only ever
+                reorders which Pending routes are shown first - like
+                `_select_dna_components` for DNA components, it never removes an
+                option or forces the model's choice.
         """
         self.agent = agent
         self.scraper = scraper
@@ -201,6 +232,16 @@ class SimplePRDGenerator(PRDGenerator):
         # ".../o/{id}" (not a real page) instead of an actual, previously-seen
         # instance - see _resolve_goto_url.
         self._template_sample_urls: dict = {}
+        self.use_sitemap = use_sitemap
+        # At least 1, never 0 - even a tiny max_iterations budget should get at
+        # least one breadth-prioritized turn before switching to link-count
+        # ordering, rather than skeleton_fraction rounding down to "skip the
+        # skeleton phase entirely" on a small run.
+        self.skeleton_iterations = max(1, int(max_iterations * skeleton_fraction))
+        # How many real (budgeted) iterations have completed so far - set once per
+        # turn, right before building that turn's prompt (see _execute_loop), so
+        # _order_pending can tell whether it's still inside the skeleton phase.
+        self._completed_iterations = 0
         # Set once, from the root page, by _establish_site_context - a persistent,
         # whole-run "what is this site/app for" line surfaced on every iteration
         # prompt (see _build_iteration_prompt) and folded into _create_plan's
@@ -345,6 +386,7 @@ class SimplePRDGenerator(PRDGenerator):
 
         # Initialize discovery tracking
         self.base_domain = self._get_domain(url)
+        self._seed_from_sitemap(url)
         self._upsert(url, status="Finished", components=len(state.components), context="Root")
         self._record_page_inventory(state)
         self._update_discovered_routes(state.links, source=url)
@@ -546,9 +588,78 @@ class SimplePRDGenerator(PRDGenerator):
                 f"{source}, not queued as pending routes.",
             )
 
+    def _seed_from_sitemap(self, root_url: str) -> str:
+        """Best-effort: fetch and parse `/sitemap.xml` once, queuing every in-scope
+        URL found there as a Pending route before any agent iteration runs.
+
+        This is a near-zero-cost way to learn a large site's overall breadth (every
+        top-level section) without spending a single iteration discovering it via
+        clicks - the sitemap only says which URLs *exist*, not what's on them, so
+        it's a complement to real crawling, never a replacement for it (a route
+        seeded this way still needs an actual visit to record its components).
+
+        Handles one level of sitemap-index nesting (`<sitemapindex>` pointing at
+        several `<sitemap>` sub-files - common on larger sites) - capped at 5
+        sub-sitemaps so a sitemap index with hundreds of entries can't turn this
+        "free" step into an unbounded number of requests before the crawl even
+        starts. Never raises: a missing file (very common - not every site has
+        one), a network error, or malformed XML all just mean nothing gets seeded,
+        exactly as if `use_sitemap` were off.
+
+        Returns the sitemap URL that was actually fetched, mostly for tests -
+        callers otherwise only care about the side effect (Pending routes queued).
+        """
+        if not self.use_sitemap:
+            return ""
+        sitemap_url = f"https://{self.base_domain}/sitemap.xml"
+        try:
+            urls = self._fetch_sitemap_urls(sitemap_url, depth=0)
+        except Exception as exc:  # noqa: BLE001 - best-effort, never blocks the run
+            print(f"Sitemap seeding skipped ({sitemap_url}): {exc}")
+            return ""
+        queued = 0
+        for href in urls:
+            if self._domain_in_scope(self._get_domain(href)):
+                self._upsert(href, context="sitemap.xml")
+                queued += 1
+        if queued:
+            self._update_progress(
+                "DISCOVERY", f"Seeded {queued} route(s) from {sitemap_url} before crawling started."
+            )
+        return sitemap_url
+
+    # Standard sitemap XML namespace - every <loc>/<sitemap>/<url> tag in a real
+    # sitemap is namespaced, so a plain (non-namespaced) find/findall would silently
+    # match nothing.
+    _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+
+    def _fetch_sitemap_urls(self, sitemap_url: str, depth: int) -> List[str]:
+        """One sitemap file's `<loc>` URLs, recursing into up to 5 sub-sitemaps if
+        this file turns out to be a `<sitemapindex>` rather than a plain `<urlset>`
+        - `depth` only ever goes 0 -> 1, sub-sitemaps are never themselves treated
+        as indexes, so this can't recurse indefinitely."""
+        response = requests.get(sitemap_url, timeout=5)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        tag = root.tag.rsplit("}", 1)[-1]  # strip the namespace, keep just the local name
+        if tag == "sitemapindex" and depth == 0:
+            urls: List[str] = []
+            sub_sitemaps = [
+                loc.text.strip()
+                for loc in root.findall(".//sm:sitemap/sm:loc", self._SITEMAP_NS)
+                if loc.text
+            ][:5]
+            for sub_url in sub_sitemaps:
+                try:
+                    urls.extend(self._fetch_sitemap_urls(sub_url, depth=1))
+                except Exception as exc:  # noqa: BLE001 - one bad sub-sitemap shouldn't lose the rest
+                    print(f"Sub-sitemap skipped ({sub_url}): {exc}")
+            return urls
+        return [loc.text.strip() for loc in root.findall(".//sm:url/sm:loc", self._SITEMAP_NS) if loc.text]
+
     def _create_plan(self, state: PageState) -> str:
         """Create a step-by-step research plan for deep excavation."""
-        pending = self.graph_store.get_pending(self.base_domain)
+        pending = self._order_pending(self.graph_store.get_pending(self.base_domain))
         shown = pending[: self.pending_batch_size]
         prompt = (
             f"{self._site_context_line()}"
@@ -687,6 +798,10 @@ class SimplePRDGenerator(PRDGenerator):
             passes += 1
             from_url = current_state.url
 
+            # Set before building the prompt, not after - _order_pending needs "how
+            # many real iterations completed before this turn" to decide whether
+            # it's still inside the skeleton phase for *this* turn's ordering.
+            self._completed_iterations = i
             prompt = self._build_iteration_prompt(current_state)
             action = self.agent.act(prompt, system_instruction=self.archeologist_skill)
 
@@ -979,6 +1094,57 @@ class SimplePRDGenerator(PRDGenerator):
         """Whether a URL is already a Finished node in the navigation graph."""
         return self.graph_store.is_visited(self.base_domain, self._clean_url(url))
 
+    @staticmethod
+    def _top_level_section(url: str) -> str:
+        """The first path segment of a cleaned url ("domain/section/rest" ->
+        "section"), "" for the bare domain/root. Used by `_order_pending` as a
+        cheap proxy for "which part of the site is this" - not a guarantee of
+        real information architecture, just enough to tell "a route under a
+        section already visited" from "a route that opens up an entirely new
+        one."""
+        _, _, rest = url.partition("/")
+        return rest.split("/", 1)[0] if rest else ""
+
+    def _order_pending(self, pending: List[str]) -> List[str]:
+        """Reorder (never filter) Pending routes before `_build_iteration_prompt`
+        caps them to `pending_batch_size` - purely advisory prioritization, same
+        "reorder, never override the model's actual choice" posture as
+        `_select_dna_components` for DNA components: every route in `pending` is
+        still shown (subject to the same batch cap as before), just not
+        necessarily in the same order.
+
+        Two ranking strategies, chosen by how much of `skeleton_iterations` has
+        elapsed:
+
+        - **Skeleton phase** (`_completed_iterations < skeleton_iterations`):
+          routes whose top-level section (see `_top_level_section`) hasn't been
+          Finished yet are surfaced first (stable sort - ties keep `pending`'s
+          existing, alphabetical order). Goal: touch every major section of the
+          site at least once before the budget gets spent drilling into any one
+          of them, so a large site's overall shape gets covered even if the run
+          ends before finishing everything.
+        - **Depth phase** (after that): routes are ranked by
+          `get_incoming_link_counts` descending - a route linked to from many
+          other pages is more likely to be structurally important (e.g. present
+          in a global nav) than one reachable from a single, obscure link, so
+          remaining iterations spend their budget where it's more likely to
+          matter. A route with no recorded incoming links (count 0, e.g. one
+          seeded straight from the sitemap with no discovered link to it yet)
+          sorts last, not first - it's not yet known to matter more than
+          anything else.
+        """
+        if not pending:
+            return pending
+        if self._completed_iterations < self.skeleton_iterations:
+            finished_sections = {
+                self._top_level_section(row["url"])
+                for row in self.graph_store.get_progress_table_rows(self.base_domain)
+                if row["status"] == "Finished"
+            }
+            return sorted(pending, key=lambda u: self._top_level_section(u) in finished_sections)
+        counts = self.graph_store.get_incoming_link_counts(self.base_domain)
+        return sorted(pending, key=lambda u: counts.get(u, 0), reverse=True)
+
     def _build_iteration_prompt(self, state: PageState) -> str:
         """Build a bounded prompt for a single discovery iteration.
 
@@ -1000,7 +1166,7 @@ class SimplePRDGenerator(PRDGenerator):
         matter how many times the model clicks the trigger that reveals them.
         """
         cleaned_url = self._clean_url(state.url)
-        pending = self.graph_store.get_pending(self.base_domain)
+        pending = self._order_pending(self.graph_store.get_pending(self.base_domain))
         shown_pending = pending[: self.pending_batch_size]
         # One query for every component ever recorded on this page, consulted
         # instead of recomputed each turn from the live DOM alone - this is what

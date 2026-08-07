@@ -290,6 +290,17 @@ class Neo4jGraphStore(GraphStore):
             )
             return [{"component": r["component"], "from": r["from"]} for r in result]
 
+    def get_incoming_link_counts(self, site: str) -> Dict[str, int]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (a:Page {site: $site})-[:DISCOVERED_LINK {site: $site}]->(b:Page {site: $site})
+                RETURN b.url AS url, count(DISTINCT a) AS incoming
+                """,
+                site=site,
+            )
+            return {r["url"]: r["incoming"] for r in result}
+
     def clear_site(self, site: str) -> None:
         # DETACH DELETE on every Page tagged with this site removes all of its
         # incident relationships too (NAVIGATED_TO, DISCOVERED_LINK, HAS_PAGE),

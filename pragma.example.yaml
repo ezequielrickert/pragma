@@ -71,6 +71,13 @@ strip_query_params: true  # drop query strings from the graph-node key by defaul
 # keep_query_params:       # query param NAMES to keep even when strip_query_params is true,
 #   - page                 # for a site where a param genuinely changes content (e.g. ?page=2)
 
+use_sitemap: true        # fetch/parse /sitemap.xml once before crawling starts and queue every
+                          # in-scope URL found there as Pending - near-zero-cost breadth, best-effort
+                          # (a missing/unreachable sitemap never fails the run)
+skeleton_fraction: 0.3   # fraction of max_iterations reserved for a breadth-first pass (visit every
+                          # not-yet-seen top-level section before drilling into any one's depth) -
+                          # after that, remaining Pending routes are ranked by incoming-link count
+
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to
 # that provider's own environment variables (see .env.example) - so you never

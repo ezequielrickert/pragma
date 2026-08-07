@@ -487,6 +487,24 @@ class GraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_incoming_link_counts(self, site: str) -> Dict[str, int]:
+        """{url: distinct number of other pages with a discovered link to it} for
+        every url in `site` that has at least one incoming link (from
+        `record_link` - every discovered link, not just ones actually followed).
+
+        This is the "how structurally central is this page" signal used to
+        prioritize which Pending route to explore next once initial breadth
+        coverage is established (see `SimplePRDGenerator._order_pending`) - a
+        page linked to from many other pages (present in a global nav/footer,
+        or referenced from many product pages) is more likely to matter than
+        one reachable from only a single, obscure link. One batch query/pass
+        over the whole site, not one call per candidate url - this is read
+        once per iteration during the depth phase, over a potentially large
+        Pending list.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def clear_site(self, site: str) -> None:
         """Delete every page/edge/link/component tracked for `site`, leaving other sites untouched.
 

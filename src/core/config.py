@@ -95,6 +95,18 @@ class PragmaConfig:
     # Query param names to keep even when strip_query_params is True, for a site
     # where a specific param genuinely changes page content (e.g. `?page=2`).
     keep_query_params: List[str] = field(default_factory=list)
+    # Fetch/parse /sitemap.xml once, before crawling starts, queuing every
+    # in-scope URL found there as a Pending route - a near-zero-cost way to learn
+    # a large site's breadth without spending agent iterations discovering it via
+    # clicks. Best-effort: a missing/unreachable/malformed sitemap never fails
+    # the run. See SimplePRDGenerator._seed_from_sitemap.
+    use_sitemap: bool = True
+    # Fraction (0.0-1.0) of max_iterations reserved for a breadth-first pass that
+    # prioritizes visiting at least one route from every not-yet-seen top-level
+    # section before spending the remaining budget drilling into any one
+    # section's depth (ranked instead by incoming-link count once elapsed). See
+    # SimplePRDGenerator._order_pending.
+    skeleton_fraction: float = 0.3
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 

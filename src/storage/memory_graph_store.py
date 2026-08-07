@@ -106,6 +106,15 @@ class InMemoryGraphStore(GraphStore):
                 seen.append({"component": edge["component"], "from": edge["from"]})
         return seen
 
+    def get_incoming_link_counts(self, site: str) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        sources: Dict[str, set] = {}
+        for from_url, to_url in self._site(site).links.keys():
+            sources.setdefault(to_url, set()).add(from_url)
+        for to_url, froms in sources.items():
+            counts[to_url] = len(froms)
+        return counts
+
     def clear_site(self, site: str) -> None:
         self._sites.pop(site, None)
 
