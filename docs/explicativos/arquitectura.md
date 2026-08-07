@@ -126,6 +126,25 @@ quedar en loop, con el mayor contexto posible":
   que las reveló. Siguen existiendo como sus propios `Component` (auditables, listables), solo
   dejan de contar como deuda individual.
 
+## Modo seguro (safe mode)
+
+Pedido original en [`feedback.md`](../../feedback.md): "que no haga mutaciones, que no cambie el
+estado". `SimplePRDGenerator._is_mutating_action`/`_block_mutation` interceptan cada `click`/
+`submit` (nunca `fill` — escribir texto no envía nada por sí solo) antes de ejecutarlo:
+`component_classifier.classify_mutation_risk` marca el componente si (a) su formulario contenedor
+manda por `POST` (`PlaywrightScraper` expone el `form_method` real, calculado por el propio
+browser — `"get"` es el default del spec HTML si no se especifica) o (b) su texto matchea un verbo
+de negocio curado (comprar/eliminar/confirmar/buy/delete/...). Deliberadamente **no** incluye
+verbos genéricos como "enviar"/"submit" — bloquearían casi cualquier formulario de contacto
+inofensivo.
+
+Una acción bloqueada nunca llega al scraper — se registra como `Component` con
+`excluded_from_debt=True` (mismo mecanismo de la Fase 3) y se agrega a
+`self._mutation_boundaries`, que termina en una sección `## Safe Mode: Detected Mutation
+Boundaries` del PRD final — es parte del entregable, no solo un log interno. `safe_mode: true` es
+el default (`--unsafe` en el CLI, o `safe_mode: false` en `pragma.yaml`, para desactivarlo y volver
+al comportamiento de ejecutar todo, como antes de esta función).
+
 ## Configuración en capas
 
 [`src/core/config.py`](../../src/core/config.py) (`PragmaConfig`) mezcla, en orden creciente de

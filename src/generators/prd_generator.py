@@ -19,6 +19,7 @@ from ..storage.memory_graph_store import InMemoryGraphStore
 from ..utils.io import append_output, write_output
 from .component_classifier import (
     classify_component_type,
+    classify_mutation_risk,
     find_revealed_options,
     group_choice_sets,
     group_steppers,
@@ -61,6 +62,7 @@ class SimplePRDGenerator(PRDGenerator):
         keep_query_params: Optional[List[str]] = None,
         use_sitemap: bool = False,
         skeleton_fraction: float = 0.3,
+        safe_mode: bool = True,
     ) -> None:
         """Initialize with brain (agent), hands (scraper), and progress tracker.
 
@@ -200,6 +202,21 @@ class SimplePRDGenerator(PRDGenerator):
                 reorders which Pending routes are shown first - like
                 `_select_dna_components` for DNA components, it never removes an
                 option or forces the model's choice.
+            safe_mode: Whether to block (rather than execute) a `click`/`submit`
+                that looks like it would mutate real state - place an order,
+                submit a payment, delete something, register for a real service
+                - instead only recording that such a mutation point exists there
+                (see `_is_mutating_action`/`_block_mutation`). `fill` is never
+                blocked - typing into a field doesn't submit anything by itself.
+                This is the one exception in this class to "the engine never
+                overrides the model's choices, only declines" being purely about
+                loop prevention - here it's about not taking a real-world,
+                possibly irreversible action on the crawled site's behalf.
+                Default on, matching this project's own backlog (feedback.md:
+                "que no haga mutaciones, que no cambie el estado"). Set False
+                (`--unsafe` on the CLI) to actually perform every action the
+                model chooses, unmodified - the pre-existing behavior before
+                this feature existed.
         """
         self.agent = agent
         self.scraper = scraper
@@ -232,6 +249,12 @@ class SimplePRDGenerator(PRDGenerator):
         # ".../o/{id}" (not a real page) instead of an actual, previously-seen
         # instance - see _resolve_goto_url.
         self._template_sample_urls: dict = {}
+        self.safe_mode = safe_mode
+        # Every {"url", "component", "reason", "attempted_action"} blocked by safe
+        # mode this run, in order - folded into the final PRD report (see
+        # generate_prd) so a detected-but-not-executed mutation point is part of
+        # the actual deliverable, not just a debug-log line.
+        self._mutation_boundaries: list = []
         self.use_sitemap = use_sitemap
         # At least 1, never 0 - even a tiny max_iterations budget should get at
         # least one breadth-prioritized turn before switching to link-count
@@ -411,9 +434,34 @@ class SimplePRDGenerator(PRDGenerator):
 
         print("Phase 4/4: Synthesizing Hierarchical System Mind-Map")
         report = self._synthesize_tree_report()
+        report += self._build_mutation_boundaries_section()
         if self.progress_log_file:
             append_output(self.progress_log_file, f"## SYNTHESIS\n\n{report}\n\n---\n\n")
         return report
+
+    def _build_mutation_boundaries_section(self) -> str:
+        """A "## Safe Mode: Detected Mutation Boundaries" section appended to the
+        final PRD, listing every real-state-changing action safe mode found and
+        declined to perform (see `_block_mutation`) - part of the actual
+        deliverable, not just an internal log, since "here is a real
+        order/payment/delete flow this run deliberately did not execute" is
+        exactly the kind of fact a PRD reader needs to know about the app.
+        Returns "" (no section at all) when nothing was ever blocked - most
+        crawls of a purely informational site will never trigger this.
+        """
+        if not self._mutation_boundaries:
+            return ""
+        lines = [
+            "\n\n## Safe Mode: Detected Mutation Boundaries\n",
+            "The following real, state-changing actions were detected but deliberately "
+            "**not executed** (safe mode was on - see `--unsafe` to disable):\n",
+        ]
+        for boundary in self._mutation_boundaries:
+            lines.append(
+                f"- **{boundary['url']}** - {boundary['attempted_action']} on "
+                f"{boundary['component']}: {boundary['reason']}"
+            )
+        return "\n".join(lines) + "\n"
 
     def _get_domain(self, url: str) -> str:
         """Extract domain from URL for filtering."""
@@ -866,6 +914,12 @@ class SimplePRDGenerator(PRDGenerator):
                 self._skip_repeated_target(i, action)
                 continue
 
+            if self.safe_mode and action.kind in ("click", "submit"):
+                reason = self._is_mutating_action(action)
+                if reason:
+                    self._block_mutation(i, action, from_url, reason)
+                    continue
+
             next_state = self._execute_action(action)
             if next_state is None:
                 reason = f" Reason: {self._last_action_error}" if self._last_action_error else ""
@@ -1082,6 +1136,68 @@ class SimplePRDGenerator(PRDGenerator):
             "target without producing a new page.",
         )
 
+    def _is_mutating_action(self, action: AgentAction) -> Optional[str]:
+        """Safe-mode check: would executing `action` (a click or submit - see the
+        `_execute_loop` call site, `fill` never reaches here) likely mutate real
+        state? Delegates the actual detection to
+        `component_classifier.classify_mutation_risk` against the ref's own
+        recorded metadata (`_dna_index_map` - specifically `form_method` and
+        `text`) - this method only resolves the ref and returns the reason
+        string (or `None`), it doesn't decide the policy itself.
+
+        An unresolvable ref (the model hallucinated one) returns `None` here,
+        not a block - that failure is `_execute_action`'s job to surface via the
+        normal error-feedback loop, not safe mode's.
+        """
+        if action.ref is None:
+            return None
+        comp = self._dna_index_map.get(action.ref)
+        if not comp:
+            return None
+        return classify_mutation_risk(comp)
+
+    def _block_mutation(self, iter_num: int, action: AgentAction, current_url: str, reason: str) -> None:
+        """Safe mode: record that a real mutation point exists here, without
+        executing it - see `PragmaConfig.safe_mode`'s docstring for why this is
+        the one "decline a real-world action" exception to `_execute_loop`'s
+        general "only decline for loop prevention" posture.
+
+        Persisted as a Component with `excluded_from_debt=True` (same mechanism
+        Fase 3 introduced for grouped dropdown options) - a permanently blocked
+        action should never demand its own interaction to satisfy
+        `_reject_premature_finish`, since safe mode guarantees it will never
+        actually be performed. Also appended to `self._mutation_boundaries` for
+        the final report (see `generate_prd`) - a detected-but-not-executed
+        mutation point is part of the deliverable, not just a debug-log line.
+        """
+        comp = self._dna_index_map.get(action.ref, {})
+        path = comp.get("path", "")
+        label = f'<{comp.get("tag", "")}> "{(comp.get("text") or "").strip()}"'
+        cleaned_url = self._clean_url(current_url)
+        print(f"Safe mode: blocked {action.kind} on {label} at {cleaned_url} - {reason}")
+        if path:
+            self.graph_store.record_component_options(
+                self.base_domain, cleaned_url, path,
+                json.dumps({"kind": "mutation_boundary", "reason": reason, "attempted_action": action.kind}),
+                excluded_from_debt=True,
+            )
+        self._mutation_boundaries.append(
+            {"url": cleaned_url, "component": label, "reason": reason, "attempted_action": action.kind}
+        )
+        self._last_failed_action = self._action_label(action)
+        self._last_action_error = (
+            f"blocked by safe mode ({reason}) - this looks like it would change real, "
+            "possibly irreversible state (place an order, submit a payment, delete "
+            "something, register for a real service). Safe mode does not execute actions "
+            "like this; it has been recorded as a detected mutation boundary in the final "
+            "report instead. Pick a different element, or finish if nothing else remains."
+        )
+        self._update_progress(
+            f"ITERATION {iter_num}",
+            f"{action.kind} {action.ref} blocked by safe mode: {reason}. Recorded as a "
+            "mutation boundary, not executed.",
+        )
+
     def _action_label(self, action: AgentAction) -> str:
         """Short human label for an action, used in the next prompt's failure note."""
         if action.kind == "navigate":
@@ -1198,6 +1314,10 @@ class SimplePRDGenerator(PRDGenerator):
                 # an iframe (see PlaywrightScraper._discover_components). Read by
                 # _execute_action to target the right document.
                 "frame_url": comp.get("frame_url", ""),
+                # The enclosing form's computed method ('get'/'post'/'') - not shown
+                # to the model, read by _is_mutating_action (safe mode) to decide
+                # whether a click/submit on this ref would submit real state.
+                "form_method": comp.get("form_method", ""),
             }
             path = comp.get("path", "")
             if path:

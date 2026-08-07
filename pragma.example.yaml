@@ -78,6 +78,12 @@ skeleton_fraction: 0.3   # fraction of max_iterations reserved for a breadth-fir
                           # not-yet-seen top-level section before drilling into any one's depth) -
                           # after that, remaining Pending routes are ranked by incoming-link count
 
+safe_mode: true  # block (never execute) a click/submit that looks like it would mutate real state -
+                 # a form submitting via POST, or text matching a business-mutation verb (comprar/
+                 # eliminar/confirmar/buy/delete/...) - recorded as a detected mutation boundary in
+                 # the final report instead. fill is never blocked. Set false (or --unsafe on the
+                 # CLI) to actually perform every action the model chooses.
+
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to
 # that provider's own environment variables (see .env.example) - so you never

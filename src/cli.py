@@ -81,6 +81,14 @@ def parse_args(argv: list) -> argparse.Namespace:
     )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     parser.add_argument(
+        "--unsafe",
+        action="store_true",
+        help="Disable safe mode: execute every action the model chooses, including one that "
+        "looks like it would mutate real state (a form submitting via POST, a buy/delete/"
+        "confirm button). Safe mode (on by default) blocks such actions and records them as "
+        "detected mutation boundaries in the final report instead of performing them.",
+    )
+    parser.add_argument(
         "--fresh",
         dest="fresh",
         action=argparse.BooleanOptionalAction,
@@ -122,6 +130,8 @@ def main() -> None:
     }
     if overrides.pop("headed", False):
         overrides["headless"] = False
+    if overrides.pop("unsafe", False):
+        overrides["safe_mode"] = False
     overrides["url"] = url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)

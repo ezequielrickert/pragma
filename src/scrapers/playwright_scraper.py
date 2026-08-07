@@ -487,6 +487,13 @@ class PlaywrightScraper(Scraper):
                     // treat "any submit button anywhere" as gating "any unfilled field
                     // anywhere."
                     form: el.closest('form') ? gp(el.closest('form')) : '',
+                    // The enclosing form's *computed* method - the browser applies the
+                    // HTML-spec default of 'get' when a <form> has no method attribute at
+                    // all, so this is a verified signal (not a guess) that
+                    // component_classifier.classify_mutation_risk uses to flag a real,
+                    // state-changing submission (safe mode) without needing the model or
+                    // this scraper to interpret any JavaScript.
+                    form_method: el.closest('form') ? (el.closest('form').method || 'get').toLowerCase() : '',
                     // input_type/placeholder/label/role/disabled/visible let the model
                     // tell a text field it should `fill` apart from a button it should
                     // `click`, infer what a field is *for* even with no placeholder,

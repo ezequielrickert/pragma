@@ -107,6 +107,13 @@ class PragmaConfig:
     # section's depth (ranked instead by incoming-link count once elapsed). See
     # SimplePRDGenerator._order_pending.
     skeleton_fraction: float = 0.3
+    # Block (rather than execute) a click/submit that looks like it would mutate
+    # real state - a form submitting via POST, or text matching a business-
+    # mutation verb (comprar/eliminar/confirmar/buy/delete/...) - recording that
+    # a mutation point exists there instead. fill is never blocked. Default on,
+    # matching this project's own backlog (feedback.md: "que no haga mutaciones,
+    # que no cambie el estado"). See SimplePRDGenerator.safe_mode / --unsafe.
+    safe_mode: bool = True
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 

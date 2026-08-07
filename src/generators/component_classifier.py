@@ -24,6 +24,23 @@ _OPTION_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab
 _INCREMENT_WORDS = {"agregar", "sumar", "mas", "add", "increase", "increment", "plus", "+"}
 _DECREMENT_WORDS = {"restar", "quitar", "menos", "remove", "decrease", "decrement", "minus", "-"}
 
+# Business-mutation verb vocabulary, English + Spanish, for `classify_mutation_risk`'s
+# text-based signal - see that function's docstring for why generic verbs like
+# "enviar"/"submit"/"send" are deliberately excluded (they'd flag nearly every
+# contact/newsletter form on the internet, not just real state-changing actions).
+# Deliberately a flat set of substrings, not a regex/NLP model - matches this
+# project's established preference for a small, auditable, extendable-by-hand
+# vocabulary (see _INCREMENT_WORDS/_DECREMENT_WORDS above, and
+# wiki/local-and-small-model-constraints.md's broader case for determinism over
+# heavier machinery wherever the underlying facts are already knowable this simply).
+_MUTATION_VERBS = {
+    "comprar", "pagar", "confirmar", "eliminar", "borrar", "cancelar", "inscribir",
+    "inscribirme", "suscribir", "suscribirme", "finalizar compra", "confirmar pedido",
+    "confirmar compra", "dar de baja", "realizar pedido", "realizar pago",
+    "buy", "purchase", "pay", "checkout", "confirm", "delete", "remove", "cancel",
+    "subscribe", "unsubscribe", "place order", "sign up", "register", "enroll",
+}
+
 
 def _normalize(text: str) -> str:
     """Lowercase, accent-stripped comparison key - mirrors
@@ -68,6 +85,55 @@ def classify_component_type(comp: Dict[str, Any]) -> str:
     if comp.get("discovery_layer") == "pointer":
         return "custom control (component-library element, no native tag/role)"
     return "element"
+
+
+def classify_mutation_risk(comp: Dict[str, Any]) -> Optional[str]:
+    """Best-effort, deterministic signal that acting on `comp` (a click or submit -
+    never a fill, which only types text and never itself submits anything) would
+    likely mutate real state - place an order, submit a payment, delete
+    something, register for a real service - rather than just navigate or reveal
+    more UI in place. Used by `SimplePRDGenerator`'s safe mode
+    (`_is_mutating_action`) to decide whether to actually perform an action or
+    only record that a mutation point exists there, never executing it.
+
+    Two independent signals, either is enough to flag - this is exactly the
+    "if it's a POST, mark that there's an operation there without doing it"
+    behavior from this project's own backlog (feedback.md):
+
+    1. The component's enclosing form uses `method="post"` (`comp["form_method"]`,
+       set by `PlaywrightScraper._discover_components` from the browser's own
+       computed `form.method`, which defaults to `"get"` per the HTML spec when
+       unspecified in markup - so this is a real, verified signal, not a guess).
+       A GET-based form (a search box, an in-page filter) is not flagged - GET is
+       conventionally non-mutating, matching feedback.md's own framing ("para
+       poder mandar, por ejemplo, en modo get").
+    2. The component's own visible text matches a curated business-mutation verb
+       (`_MUTATION_VERBS`) - covers the common SPA pattern of a button with no
+       real `<form>` at all, wired to call an API directly from an `onClick`
+       handler, which the POST-form signal alone could never see. Deliberately
+       excludes generic verbs like "enviar"/"submit"/"send" (English "send"
+       included) - those appear on essentially every contact/newsletter form on
+       the internet, and flagging on them would block harmless, common
+       exploration far more than the mutations this exists to catch.
+
+    Deliberately conservative in the direction of over-flagging: a missed real
+    mutation (false negative) is a worse outcome for this feature's purpose than
+    blocking something that turns out to be harmless (false positive) - there is
+    no way to know a click handler's real server-side effect from static
+    analysis alone, so this is an approximation, not a guarantee. See
+    docs/explicativos/pendientes-futuras-fases.md for known false-positive/
+    false-negative cases.
+
+    Returns a short human-readable reason string if flagged, `None` otherwise.
+    """
+    if (comp.get("form_method") or "").lower() == "post":
+        return "its enclosing form submits via POST"
+    text = _normalize(comp.get("text") or "")
+    aria_label = _normalize((comp.get("attributes") or {}).get("aria-label", ""))
+    for verb in _MUTATION_VERBS:
+        if verb in text or verb in aria_label:
+            return f"its text matches a business-mutation verb ({verb!r})"
+    return None
 
 
 def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[str, Any]]:
