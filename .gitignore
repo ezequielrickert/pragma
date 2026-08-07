@@ -1,1 +1,18 @@
 .env
+pragma.yaml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Generated crawl output (research/progress logs, navigation graphs) - one
+# run creates several timestamped files per site; only committing intentional
+# examples/fixtures is worth doing manually with `git add -f`.
+research_logs/*.md
+progress_logs/*.md
+graph_logs/*.json

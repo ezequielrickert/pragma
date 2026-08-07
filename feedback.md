@@ -1,0 +1,10 @@
+- Graph store para guardar iteraciones tipo Neo4J
+- Estaría bueno poder visualizar los grafos (podemos hacer cáculo de complejidad de grafos)
+    - 
+- Cual es la condición de corte del grafo 
+    - Chequeo de loops
+    - Iteraciones maximas
+- Que no haga mutaciones, que no cambie el estado
+    - Que tenga safe mode y unsafe mode. Uno con estado y otro sin: para poder mandar, por ejemplo, en modo get.
+    - También puede hacer boundaries de mutación, que por ejemplo si hay que inscribirse a una materia y detecta que es un post, marque que no hace la operación pero que hay una operación ahí.
+- Interceptar el javascript que le llega, sacar información de eso.

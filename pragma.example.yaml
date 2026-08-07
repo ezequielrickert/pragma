@@ -1,0 +1,81 @@
+# Pragma pipeline wiring. Normally you don't hand-edit this file - run
+# `python3 src/cli.py config` for an interactive wizard that writes it (and
+# saves API keys to .env) for you. This file is just a reference/starting
+# point, and a place to look if you want to edit a setting by hand.
+#
+# Copy to pragma.yaml (auto-loaded) or pass --config <path>.
+# Any value here can be overridden by a CLI flag.
+# url: https://example.com
+scraper: playwright  # playwright (in-process) | rest (talks to a standing local API server, run
+                      # separately via `python -m src.api_server` - same PlaywrightScraper actions
+                      # plus curated docs, persistent browser session decoupled from this process;
+                      # see ARCHITECTURE.md's "Module 3: Unified REST API". Base URL via
+                      # PRAGMA_API_URL, default http://127.0.0.1:8765)
+agent: gemini        # gemini | openai | local | mock
+generator: simple
+graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
+                      # (see docker-compose.yml) and persists the navigation graph, queryable
+                      # between iterations, isolated per crawled site via a `site` property
+fresh: true           # purge this site's previously recorded graph_store state before crawling
+                       # (only matters for graph_store: neo4j - memory never persists across runs
+                       # regardless). Set false to resume a previous run's progress on a large,
+                       # stable site instead of starting over - but leave this on for any site whose
+                       # URLs are per-session tokens (e.g. a `/o/<random-id>` order flow), where old
+                       # runs' "visited" nodes will never be revisited and just add stale history.
+out_dir: docs
+logs_dir: research_logs
+progress_logs_dir: progress_logs  # append-only per-iteration debug trail, for understanding LLM behavior
+graph_logs_dir: graph_logs        # navigation graph (which action led from which page to which page) and
+                                   # the per-page component ledger (every component seen, whether it was
+                                   # interacted with, and its interaction history), both as JSON
+headless: true
+max_iterations: 12
+wait_seconds: 15  # settle time after navigate/click before reading links; raise for JS-heavy sites
+batch_size: 20    # default cap for both pending routes and DNA components per iteration prompt; lower
+                  # = faster iterations, more of them needed (raise max_iterations to match) - good
+                  # for small/local models
+# pending_batch_size: 20    # override just the pending-routes cap; falls back to batch_size if unset
+# component_batch_size: 20  # override just the DNA-components cap; falls back to batch_size if unset -
+                             # raise this alone for a component-dense page (a mega-nav with hundreds of
+                             # elements) without inflating the unrelated pending-routes budget
+allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
+                          # of example.com and its links get queued as pending routes too (naive
+                          # last-two-label match, not a full public-suffix-list lookup)
+max_stalled_finish_attempts: 3  # give up on a page's remaining unexplored components after this many
+                                 # consecutive checks find its debt hasn't shrunk - protects against a
+                                 # component whose identity shifts every DOM change (e.g. a quantity
+                                 # stepper) or a real interaction whose outcome never changes (e.g. a
+                                 # login retried against invalid credentials) burning the whole run on
+                                 # one page. Raise it if a real site legitimately needs more attempts
+                                 # before "not improving" is really true (e.g. slow-loading filters).
+
+# Optional: non-secret, per-provider settings. Only the block matching `agent`
+# above (or --agent on the CLI) is used. Anything you omit here falls back to
+# that provider's own environment variables (see .env.example) - so you never
+# need to touch this file for providers you're not using, and this file keeps
+# growing per-provider instead of piling more prefixed vars into .env.
+#
+# Keep API keys and credential file paths in .env, not here, since this file
+# may be committed to version control.
+agents:
+  gemini:
+    model: models/gemini-1.5-flash-latest
+  openai:
+    model: gpt-4o-mini
+  local:
+    base_url: http://localhost:1234/v1/chat/completions
+    model: my-local-model
+    # timeout: 600      # per-request seconds; raise for a slow/large local model
+    # max_tokens: 1024  # cap each response's generated tokens - unset by default,
+                         # since a reasoning model (DeepSeek-R1 and similar) needs
+                         # room for its chain-of-thought before its actual answer;
+                         # only set this once you know your model's real budget
+
+# Optional: non-secret, per-graph-store settings, same shape as `agents:`
+# above. Only used when `graph_store: neo4j`. Password stays in .env
+# (NEO4J_PASSWORD) - never here.
+graph_stores:
+  neo4j:
+    host: localhost
+    port: 7687
+    database: neo4j
