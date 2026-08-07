@@ -69,3 +69,58 @@ def test_docs_client_degrades_on_unreachable_server():
     client = DocsClient(RestConfig(base_url="http://127.0.0.1:1"))
     result = client.get("click_usage")
     assert "unavailable" in result
+
+
+def test_components_state_reads_through_graph_store_runtime(monkeypatch):
+    """GET /components/state must return whatever the underlying GraphStore's
+    get_component_states reports, position included - it's a thin read-through, not
+    its own storage. Uses an in-memory store as a stand-in for Neo4j so this test
+    doesn't need a live database (see test_neo4j_graph_store_integration.py for that)."""
+    from src.api_server import graph_store_runtime
+    from src.storage.memory_graph_store import InMemoryGraphStore
+
+    store = InMemoryGraphStore()
+    store.record_component(
+        "example.com", "example.com/x", "button#go",
+        tag="button", text="Go", x=10.0, y=20.0, width=80.0, height=32.0,
+    )
+    monkeypatch.setattr(graph_store_runtime, "get_store", lambda: store)
+
+    client = TestClient(app)
+    response = client.get("/components/state", params={"site": "example.com", "page_url": "example.com/x"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["button#go"]["interacted"] is False
+    assert body["button#go"]["x"] == 10.0
+    assert body["button#go"]["height"] == 32.0
+
+
+def test_components_debt_reads_through_graph_store_runtime(monkeypatch):
+    from src.api_server import graph_store_runtime
+    from src.storage.memory_graph_store import InMemoryGraphStore
+
+    store = InMemoryGraphStore()
+    store.record_component("example.com", "example.com/x", "button#go")
+    monkeypatch.setattr(graph_store_runtime, "get_store", lambda: store)
+
+    client = TestClient(app)
+    response = client.get("/components/debt", params={"site": "example.com"})
+    assert response.status_code == 200
+    assert response.json() == [{"url": "example.com/x", "unexplored_count": 1}]
+
+
+def test_components_endpoints_503_when_graph_store_unreachable(monkeypatch):
+    """A real Neo4j connection failure (e.g. graph_store: memory was used generator-side,
+    or Neo4j just isn't reachable) must surface as a clear 503, not a bare 500 stack trace -
+    this is the caller's signal that graph_store: neo4j is required for these routes."""
+    from src.api_server import graph_store_runtime
+
+    def _raise():
+        raise RuntimeError("no password configured")
+
+    monkeypatch.setattr(graph_store_runtime, "get_store", _raise)
+
+    client = TestClient(app)
+    response = client.get("/components/state", params={"site": "example.com", "page_url": "example.com/x"})
+    assert response.status_code == 503
+    assert "graph_store: neo4j" in response.json()["detail"]

@@ -13,6 +13,12 @@ from ..core.registry import GENERATOR_REGISTRY
 from ..scrapers.rest_scraper import DocsClient
 from ..storage.memory_graph_store import InMemoryGraphStore
 from ..utils.io import append_output, write_output
+from .component_classifier import (
+    classify_component_type,
+    find_revealed_options,
+    group_choice_sets,
+    group_steppers,
+)
 
 # Note: the per-iteration decision call no longer needs its own "respond with
 # exactly one line" instruction here - Agent.act() (see src/core/interfaces.py)
@@ -36,11 +42,13 @@ class SimplePRDGenerator(PRDGenerator):
         progress_log_file: Optional[str] = None,
         graph_log_file: Optional[str] = None,
         components_log_file: Optional[str] = None,
+        components_catalog_file: Optional[str] = None,
         max_iterations: int = 12,
         batch_size: int = 20,
         pending_batch_size: Optional[int] = None,
         component_batch_size: Optional[int] = None,
         allow_subdomains: bool = False,
+        max_stalled_finish_attempts: int = 3,
         docs_client: Optional[DocsClient] = None,
     ) -> None:
         """Initialize with brain (agent), hands (scraper), and progress tracker.
@@ -72,6 +80,16 @@ class SimplePRDGenerator(PRDGenerator):
                 see `_write_component_ledger`). This is Module 2's own state (ref
                 numbering, interaction history) - not something Module 3 tracks
                 or could serve, since it never participates in prompt-building.
+            components_catalog_file: Optional path to write a human-readable
+                component catalog (Markdown) once the run finishes - one
+                narrated entry per component (or per stepper/choice-group,
+                collapsed into a single entry), built from the same persisted
+                `graph_store` data as `components_log_file` but classified
+                (see `component_classifier.py`) and narrated by the model into
+                short prose, rather than raw JSON. Generated once, after the
+                research loop ends - not part of `max_iterations`' budget.
+                Never written if left unset (default), matching every other
+                optional log path here.
             batch_size: Default cap for both pending routes and DNA components sent
                 per iteration prompt, used whenever `pending_batch_size`/
                 `component_batch_size` aren't set explicitly. Smaller values mean
@@ -90,6 +108,20 @@ class SimplePRDGenerator(PRDGenerator):
                 site (e.g. blog.example.com while crawling example.com) counts
                 as in-scope and gets queued as a pending route too. Off by
                 default - see `_domain_in_scope`.
+            max_stalled_finish_attempts: How many consecutive times a page's
+                unexplored-component debt can fail to improve before
+                `_reject_premature_finish` gives up on that page and stops
+                treating its remaining debt as blocking. Protects against two
+                real failure modes: a component whose CSS path shifts every
+                time a sibling is added/removed (e.g. a quantity stepper),
+                which never accumulates a stable `interacted` identity and so
+                never converges; and a component whose interaction is real but
+                whose outcome never changes (e.g. a login submit retried
+                against invalid credentials), which correctly stays
+                `interacted` itself but doesn't reduce the page's overall
+                debt either. A page still making real progress (each attempt
+                reveals something new) never trips this - see
+                `_apply_diminishing_returns`.
         """
         self.agent = agent
         self.scraper = scraper
@@ -98,11 +130,13 @@ class SimplePRDGenerator(PRDGenerator):
         self.progress_log_file = progress_log_file
         self.graph_log_file = graph_log_file
         self.components_log_file = components_log_file
+        self.components_catalog_file = components_catalog_file
         self.max_iterations = max_iterations
         self.batch_size = batch_size
         self.pending_batch_size = pending_batch_size if pending_batch_size is not None else batch_size
         self.component_batch_size = component_batch_size if component_batch_size is not None else batch_size
         self.allow_subdomains = allow_subdomains
+        self.max_stalled_finish_attempts = max_stalled_finish_attempts
         self.docs_client = docs_client or DocsClient()
         # Load specialized skills. Note: PROGRESS.md is written mechanically by
         # _update_progress() below - the LLM is never asked to author it, so the
@@ -113,6 +147,7 @@ class SimplePRDGenerator(PRDGenerator):
         # tables instead of actions).
         self.archeologist_skill = self._load_skill("archeologist-skill")
         self.dom_mapper_skill = self._load_skill("dom-mapper-skill")
+        self.component_catalog_skill = self._load_skill("component-catalog-skill")
 
         # Track discovery state. The graph itself (pages/edges) lives in
         # self.graph_store, not here - self.base_domain doubles as the "site"
@@ -198,6 +233,33 @@ class SimplePRDGenerator(PRDGenerator):
         # situation loud in the log instead of silently burning the whole
         # iteration budget before anyone notices.
         self._recent_targets: List[str] = []
+        # Diminishing-returns tracking for _reject_premature_finish, keyed by
+        # cleaned page url: {url: unexplored_count last seen for that page when
+        # the finish guard checked it}. A repeated check that finds the count
+        # hasn't strictly improved (gone down) increments {url: strike_count}
+        # in `_page_debt_strikes`; once a page's strikes reach
+        # `max_stalled_finish_attempts`, it moves into `_given_up_pages` and
+        # its remaining debt stops blocking `finish` from then on. This is the
+        # fix for two real, related failure modes: (1) a component whose
+        # underlying CSS path shifts every time a sibling is added/removed
+        # (e.g. a quantity stepper's "+"/"-" buttons) never actually
+        # accumulates `interacted: True` under a stable identity - each click
+        # looks like a "new" never-touched component, so the debt count
+        # oscillates (11 -> 13 -> 11 -> 13...) and never converges; (2) a
+        # component whose interaction is real but whose outcome doesn't change
+        # (e.g. a login submit tried repeatedly against invalid credentials)
+        # correctly stays "interacted" itself, but real attempts spent on it
+        # don't reduce the *page's* overall debt either. Both cases share the
+        # same observable signature - repeated real effort, no shrinking
+        # debt - so both are caught by the same page-level, no-progress
+        # circuit breaker rather than needing to separately diagnose "why."
+        # A page where genuine progress is still happening (each interaction
+        # reveals new content, e.g. a filter that surfaces new result
+        # components each time a different value is tried) keeps resetting its
+        # strikes back to zero and is never given up on early.
+        self._page_debt_strikes: dict = {}
+        self._page_last_debt: dict = {}
+        self._given_up_pages: set = set()
 
     def _load_skill(self, skill_name: str) -> Optional[str]:
         """Load a specific skill from the .gemini/skills directory."""
@@ -215,6 +277,7 @@ class SimplePRDGenerator(PRDGenerator):
         # Initialize discovery tracking
         self.base_domain = self._get_domain(url)
         self._upsert(url, status="Finished", components=len(state.components), context="Root")
+        self._record_page_inventory(state)
         self._update_discovered_routes(state.links, source=url)
         self._record_description(url, state.description)
         self._update_progress(
@@ -232,6 +295,7 @@ class SimplePRDGenerator(PRDGenerator):
         self._execute_loop(state)
         self._write_graph_log()
         self._write_component_ledger()
+        self._write_component_catalog()
 
         print("Phase 4/4: Synthesizing Hierarchical System Mind-Map")
         report = self._synthesize_tree_report()
@@ -469,13 +533,21 @@ class SimplePRDGenerator(PRDGenerator):
             # node. This is a cheap, explicit check (no page load spent) on top
             # of the "Pending" list already excluding visited routes - it's the
             # safety net for cases like scheme (http/https) duplicates or the
-            # model simply not following instructions.
+            # model simply not following instructions. A page in
+            # `_given_up_pages` (see `_apply_diminishing_returns`) counts as
+            # fully covered here too, even though real component debt is still
+            # technically recorded for it - repeated attempts already proved
+            # that debt isn't shrinking, so a revisit would just resume the
+            # same non-improving cycle the give-up decision was meant to stop.
             if (
                 action.kind == "navigate"
                 and action.url
                 and self._already_visited(action.url)
-                and not self.graph_store.page_has_unexplored_components(
-                    self.base_domain, self._clean_url(action.url)
+                and (
+                    self._clean_url(action.url) in self._given_up_pages
+                    or not self.graph_store.page_has_unexplored_components(
+                        self.base_domain, self._clean_url(action.url)
+                    )
                 )
             ):
                 node = self._clean_url(action.url)
@@ -509,7 +581,7 @@ class SimplePRDGenerator(PRDGenerator):
                 self._track_oscillation(i, target_path)
             else:
                 self._recent_targets = []
-            self._handle_iteration_result(i, action, from_url, next_state)
+            self._handle_iteration_result(i, action, from_url, next_state, current_state.components)
             current_state = next_state
 
     def _track_oscillation(self, iter_num: int, target_path: str) -> None:
@@ -594,16 +666,30 @@ class SimplePRDGenerator(PRDGenerator):
         the same page - "already shown" was never actually evidence anything
         was looked at.
 
-        Termination stays safe: `max_iterations` is an unconditional outer
-        cap this check cannot affect - a site whose debt never clears simply
-        exhausts its budget and ends normally, as with any other unresolved
-        guard.
+        Termination stays safe even without the next paragraph's mechanism:
+        `max_iterations` is an unconditional outer cap this check cannot
+        affect - a site whose debt never clears simply exhausts its budget
+        and ends normally, as with any other unresolved guard.
+
+        Before blocking, `_apply_diminishing_returns` filters out any page
+        whose debt has stopped shrinking across repeated checks (see its
+        docstring and `max_stalled_finish_attempts`) - real crawls showed
+        `max_iterations` alone wasn't a *good* backstop, just a safe one: a
+        component whose CSS path shifts on every DOM sibling change (a
+        quantity stepper) or a login submit retried against invalid
+        credentials could each burn most of a run's budget on a single page
+        that was never going to converge, leaving little left for the rest of
+        the site. This still only ever *removes* a page from the blocking set
+        - it never substitutes an action - so it stays inside the same
+        "decline, don't override" posture as everything else here.
         """
         debt_pages = self.graph_store.get_pages_with_unexplored_components(
-            self.base_domain, limit=6, semantic_only=False
+            self.base_domain, limit=None, semantic_only=False
         )
+        debt_pages = self._apply_diminishing_returns(debt_pages)
         if not debt_pages:
             return False
+        debt_pages = debt_pages[:6]
 
         current_key = self._clean_url(current_url)
         names = ", ".join(f"{row['url']} ({row['unexplored_count']})" for row in debt_pages)
@@ -625,6 +711,55 @@ class SimplePRDGenerator(PRDGenerator):
         self._last_action_error = detail
         self._update_progress(f"ITERATION {iter_num}", f"finish rejected: {detail}")
         return True
+
+    def _apply_diminishing_returns(self, debt_pages: list) -> list:
+        """Filter `debt_pages` (from `graph_store.get_pages_with_unexplored_components`),
+        removing any page whose debt has stopped improving across repeated checks -
+        see `max_stalled_finish_attempts`'s docstring in `__init__` for the two real
+        failure modes this exists to break: a component whose CSS path shifts every
+        time a DOM sibling is added/removed (never accumulates a stable `interacted`
+        identity, so debt oscillates instead of shrinking), and a component whose
+        interaction is real but whose outcome never changes (debt just plateaus).
+
+        Called with the *full* (unlimited) debt list, not a capped slice - a page
+        ranked outside whatever display limit the caller uses downstream must still
+        have its strikes tracked every time, or it could stall unnoticed forever
+        without ever being given up on.
+
+        Every call here is a real "was this page's debt checked and found no better
+        than last time" event, since it only runs from `_reject_premature_finish`,
+        itself only invoked when the model actually attempts `finish` - so strikes
+        accumulate at the same pace real finish attempts happen, not on some
+        independent timer.
+        """
+        result = []
+        for row in debt_pages:
+            url, count = row["url"], row["unexplored_count"]
+            if url in self._given_up_pages:
+                continue
+            last = self._page_last_debt.get(url)
+            if last is not None and count >= last:
+                strikes = self._page_debt_strikes.get(url, 0) + 1
+                self._page_debt_strikes[url] = strikes
+                if strikes >= self.max_stalled_finish_attempts:
+                    self._given_up_pages.add(url)
+                    print(
+                        f"Giving up on {url}: unexplored count stayed at/above {count} for "
+                        f"{strikes} consecutive checks - likely a component whose identity "
+                        "shifts on every interaction (e.g. a stepper) or whose outcome never "
+                        "changes (e.g. a login retry). Its remaining debt no longer blocks finish."
+                    )
+                    self._update_progress(
+                        "DIMINISHING RETURNS",
+                        f"Gave up on {url}'s remaining {count} unexplored component(s) after "
+                        f"{strikes} checks with no improvement.",
+                    )
+                    continue
+            else:
+                self._page_debt_strikes[url] = 0
+            self._page_last_debt[url] = count
+            result.append(row)
+        return result
 
     def _skip_repeated_target(self, iter_num: int, action: AgentAction) -> None:
         """Handle a click/fill/submit that repeats the previous iteration's
@@ -713,11 +848,20 @@ class SimplePRDGenerator(PRDGenerator):
             }
             path = comp.get("path", "")
             if path:
+                # Refreshes text/visibility for the subset actually shown this
+                # turn - `_record_page_inventory` (called once per new page,
+                # from `_handle_iteration_result`/`generate_prd`) already
+                # recorded every component including position; `rect` is
+                # passed through here too so this refresh doesn't null out
+                # that position data on the next call (record_component's
+                # ON MATCH SET always writes x/y/width/height verbatim).
+                rect = comp.get("rect") or {}
                 self.graph_store.record_component(
                     self.base_domain, cleaned_url, path,
                     tag=comp.get("tag", ""), text=text, role=comp.get("role", ""),
                     input_type=comp.get("input_type", ""), visible=comp.get("visible", True),
                     layer=comp.get("discovery_layer", "semantic"),
+                    x=rect.get("x"), y=rect.get("y"), width=rect.get("width"), height=rect.get("height"),
                 )
             interacted = states.get(path, {}).get("interacted", False)
             dna_lines.append(f"[{idx}] {self._describe_dna_element(comp, text, interacted=interacted)}")
@@ -774,6 +918,95 @@ class SimplePRDGenerator(PRDGenerator):
             "element, or finish. If unsure how, use help(topic) first."
         )
 
+    def _record_page_inventory(self, state: PageState) -> None:
+        """Persist every component discovered on `state` into `graph_store`,
+        position included - not just the `component_batch_size`-capped subset
+        `_build_iteration_prompt` shows the model that turn.
+
+        This is the deterministic "special iteration" run automatically the
+        moment a new page loads (called from `generate_prd` for the root page
+        and `_handle_iteration_result` for every page reached afterward) - no
+        model call, no iteration budget spent, always accurate the instant a
+        page is seen, per wiki/prompt-engineering-for-llm-agents.md Principle
+        6 (deterministic signals, not left for the model to request). Without
+        this, a component that never happens to win a `component_batch_size`
+        slot (e.g. it sits behind 300 higher-priority components) would never
+        be persisted at all, and so could never appear as "unexplored debt" -
+        it would just silently never exist as far as the checklist is
+        concerned.
+
+        Also classifies each component's type (see `component_classifier.
+        classify_component_type`) and, from a single snapshot alone (no
+        before/after diff needed), detects quantity steppers and named
+        radio/checkbox groups - see `_record_single_snapshot_groupings`. A
+        revealed dropdown/combobox's options need an actual before/after
+        diff around a click instead, so that case is handled separately in
+        `_handle_iteration_result`.
+        """
+        cleaned_url = self._clean_url(state.url)
+        for comp in state.components:
+            path = comp.get("path", "")
+            if not path:
+                continue
+            rect = comp.get("rect") or {}
+            self.graph_store.record_component(
+                self.base_domain, cleaned_url, path,
+                tag=comp.get("tag", ""), text=(comp.get("text") or "").strip()[:60],
+                role=comp.get("role", ""), input_type=comp.get("input_type", ""),
+                visible=comp.get("visible", True), layer=comp.get("discovery_layer", "semantic"),
+                x=rect.get("x"), y=rect.get("y"), width=rect.get("width"), height=rect.get("height"),
+                component_type=classify_component_type(comp),
+            )
+        self._record_single_snapshot_groupings(cleaned_url, state.components)
+
+    def _record_single_snapshot_groupings(self, cleaned_url: str, components: list) -> None:
+        """Detect and persist stepper/choice-group structure that's knowable
+        from one page snapshot alone (unlike a revealed dropdown's options,
+        which need a before/after diff - see `_handle_iteration_result`).
+
+        Each detected group's members get an `options` JSON blob describing
+        the group they belong to - e.g. a stepper's decrement button records
+        `{"kind": "stepper_decrement", "paired_with": {...}, "current_value":
+        "3"}}`, its increment button the mirror, and its value element
+        `"kind": "stepper_value"`. A radio/checkbox group's members each get
+        `{"kind": "choice_group_member", "group_name": "...", "choices": [...]}}`
+        naming every sibling and which one (if any) is currently checked.
+        """
+        for stepper in group_steppers(components):
+            paired_with = {
+                "decrement": stepper["decrement_path"],
+                "increment": stepper["increment_path"],
+                "value": stepper["value_path"],
+            }
+            for role, path in (
+                ("stepper_decrement", stepper["decrement_path"]),
+                ("stepper_increment", stepper["increment_path"]),
+                ("stepper_value", stepper["value_path"]),
+            ):
+                if not path:
+                    continue
+                self.graph_store.record_component_options(
+                    self.base_domain, cleaned_url, path,
+                    json.dumps({
+                        "kind": role, "paired_with": paired_with,
+                        "current_value": stepper["current_value"],
+                    }),
+                )
+
+        for group_name, members in group_choice_sets(components).items():
+            choices = [
+                {"text": (m.get("text") or "").strip(), "selected": bool(m.get("selected"))}
+                for m in members
+            ]
+            for member in members:
+                path = member.get("path", "")
+                if not path:
+                    continue
+                self.graph_store.record_component_options(
+                    self.base_domain, cleaned_url, path,
+                    json.dumps({"kind": "choice_group_member", "group_name": group_name, "choices": choices}),
+                )
+
     def _record_component_interaction(self, url: str, path: str, action: AgentAction, resulting_url: str) -> None:
         """Record one interaction against a component's persisted graph_store entry.
 
@@ -804,6 +1037,148 @@ class SimplePRDGenerator(PRDGenerator):
         if self.components_log_file:
             ledger = self.graph_store.get_component_ledger(self.base_domain)
             write_output(self.components_log_file, json.dumps(ledger, indent=2))
+
+    def _build_page_catalog_facts(self, page_components: dict) -> List[dict]:
+        """Turn one page's ledger entries into a list of catalog-ready fact
+        dicts, collapsing a stepper's 2-3 members or a choice-group's N
+        members into one entry each - the model is asked to describe "the
+        control," not each of its parts separately (see component-catalog-
+        skill's rules). Iterates paths in sorted order so output is stable
+        run to run for the same underlying data.
+        """
+        facts: List[dict] = []
+        covered_stepper_keys = set()
+        covered_group_names = set()
+        for path in sorted(page_components.keys()):
+            record = page_components[path]
+            try:
+                options = json.loads(record.get("options") or "{}")
+            except json.JSONDecodeError:
+                options = {}
+            kind = options.get("kind")
+
+            if kind in ("stepper_decrement", "stepper_increment", "stepper_value"):
+                paired = options.get("paired_with") or {}
+                key = tuple(sorted(v for v in paired.values() if v))
+                if not key or key in covered_stepper_keys:
+                    continue
+                covered_stepper_keys.add(key)
+                facts.append(
+                    {
+                        "type": "stepper control (increment/decrement)",
+                        "text": record.get("text") or "quantity control",
+                        "current_value": options.get("current_value"),
+                        "interacted": record.get("interacted", False),
+                    }
+                )
+                continue
+
+            if kind == "choice_group_member":
+                group_name = options.get("group_name") or path
+                if group_name in covered_group_names:
+                    continue
+                covered_group_names.add(group_name)
+                facts.append(
+                    {
+                        "type": "radio/checkbox group",
+                        "text": f"group '{group_name}'",
+                        "choices": options.get("choices", []),
+                        "interacted": record.get("interacted", False),
+                    }
+                )
+                continue
+
+            if kind == "combobox_trigger":
+                facts.append(
+                    {
+                        "type": record.get("component_type") or "combobox trigger",
+                        "text": record.get("text") or "",
+                        "choices": options.get("choices", []),
+                        "interacted": record.get("interacted", False),
+                    }
+                )
+                continue
+
+            # An empty `text` here has already been through the scraper's
+            # broadened label fallback chain (innerText -> aria-label/
+            # aria-labelledby/title/img-alt/svg-title -> textContent - see
+            # PlaywrightScraper._discover_components) and still came up
+            # empty. That's now a real fact worth stating plainly - "no
+            # accessible label found" - rather than passing '' through to the
+            # narration prompt, where it used to read identically to a
+            # labelling bug ("Unnamed Element"/"Empty Element") instead of as
+            # "this component genuinely has no discoverable label." No CSS
+            # selector/path here - the narration skill is explicitly told
+            # never to surface implementation details, only what a component
+            # is/does.
+            text = record.get("text") or "(no accessible label found on this element)"
+            facts.append(
+                {
+                    "type": record.get("component_type") or "element",
+                    "text": text,
+                    "interacted": record.get("interacted", False),
+                }
+            )
+        return facts
+
+    @staticmethod
+    def _render_catalog_fact_line(index: int, fact: dict) -> str:
+        """One deterministic-facts line fed into the narration prompt - plain,
+        parseable-by-eye key=value pairs, not prose, so the model has exactly
+        the verified facts and nothing it has to infer or guess at."""
+        parts = [f"type={fact['type']!r}", f"text={fact.get('text', '')!r}", f"interacted={fact.get('interacted')}"]
+        if "current_value" in fact:
+            parts.append(f"current_value={fact['current_value']!r}")
+        if "choices" in fact:
+            parts.append(f"choices={fact['choices']!r}")
+        return f"{index}. " + " ".join(parts)
+
+    def _write_component_catalog(self) -> None:
+        """Write a human-readable, per-component documentation file, once the
+        run finishes - not part of `max_iterations`' budget, since it's built
+        entirely from already-persisted `graph_store` data after the crawl is
+        done, not something that needs the live browser session.
+
+        Each page gets exactly one `agent.generate()` call (batched across all
+        of that page's components, not one call per component) - the same
+        small-model-conscious batching discipline the rest of this project
+        uses (see wiki/local-and-small-model-constraints.md). The deterministic
+        facts themselves (type, options, interacted state - see
+        `_build_page_catalog_facts`/`component_classifier.py`) are always
+        correct regardless of what the model does with them; narration failure
+        on one page degrades to including the raw facts for that page instead
+        of aborting the whole catalog - this file is a documentation
+        enrichment, not something the crawl's correctness depends on, unlike
+        the core action loop (see LocalAgent's truncation handling, which
+        deliberately does the opposite - fails loudly - for exactly that
+        reason: there, a silent failure wastes the whole run's iteration
+        budget with nothing to show for it; here, a silent narration failure
+        on one page still leaves every other page's entry, plus this page's
+        own raw facts, intact).
+        """
+        if not self.components_catalog_file:
+            return
+        ledger = self.graph_store.get_component_ledger(self.base_domain)
+        sections = []
+        for page_url in sorted(ledger.keys()):
+            facts = self._build_page_catalog_facts(ledger[page_url])
+            if not facts:
+                continue
+            facts_block = "\n".join(self._render_catalog_fact_line(i, f) for i, f in enumerate(facts, 1))
+            prompt = (
+                f"Page: {page_url}\n\nComponents:\n{facts_block}\n\n"
+                "Write the documentation entries."
+            )
+            try:
+                narration = self.agent.generate(prompt, system_instruction=self.component_catalog_skill)
+            except Exception as exc:  # noqa: BLE001 - degrade this one page, not the whole catalog
+                narration = f"_(narration unavailable: {exc})_\n\nRaw facts:\n```\n{facts_block}\n```"
+            sections.append(f"## {page_url}\n\n{narration}\n")
+        if sections:
+            write_output(
+                self.components_catalog_file,
+                "# Component Catalog\n\n" + "\n---\n\n".join(sections),
+            )
 
     def _select_dna_components(self, components: list, states: dict) -> list:
         """Pick up to `batch_size` DNA components to show, prioritizing what's
@@ -1034,13 +1409,18 @@ class SimplePRDGenerator(PRDGenerator):
         must name the same debt that guard will actually enforce, library-built
         (cursor:pointer-only) components included, or it would tell the model
         "nothing left here" about a page that then goes on to block `finish`.
+
+        Also excludes anything in `self._given_up_pages` - once
+        `_reject_premature_finish` has stopped enforcing a page's debt (see
+        `_apply_diminishing_returns`), pointing the model back at it here would
+        just resume the same non-improving cycle that got it given up on.
         """
         debt_pages = [
             row
             for row in self.graph_store.get_pages_with_unexplored_components(
                 self.base_domain, limit=self.pending_batch_size, semantic_only=False
             )
-            if row["url"] != current_url
+            if row["url"] != current_url and row["url"] not in self._given_up_pages
         ]
         if not debt_pages:
             return ""
@@ -1051,13 +1431,19 @@ class SimplePRDGenerator(PRDGenerator):
         )
 
     def _handle_iteration_result(
-        self, iter_num: int, action: AgentAction, from_url: str, state: PageState
+        self,
+        iter_num: int,
+        action: AgentAction,
+        from_url: str,
+        state: PageState,
+        before_components: Optional[list] = None,
     ) -> None:
         """Update state, progress, and the navigation graph after an iteration."""
         url = self._clean_url(state.url)
         component = self._describe_component(action, from_url)
 
         self._upsert(url, status="Finished", components=len(state.components))
+        self._record_page_inventory(state)
         self._update_discovered_routes(state.links, source=url)
         self._record_description(url, state.description)
         self.graph_store.record_edge(
@@ -1066,6 +1452,19 @@ class SimplePRDGenerator(PRDGenerator):
         target_path = self._resolve_target_path(action)
         if target_path:
             self._record_component_interaction(from_url, target_path, action, state.url)
+        # A click that reveals a set of listbox/menu options (a dropdown/combobox
+        # opening) isn't knowable from a single snapshot - it's the *diff* between
+        # what was on the page immediately before this click and immediately
+        # after. Only meaningful in-place (state.url == from_url): a real
+        # navigation's "before" page is a different page entirely, not a
+        # revealed-in-place widget.
+        if action.kind == "click" and target_path and before_components is not None and state.url == from_url:
+            revealed = find_revealed_options(before_components, state.components)
+            if revealed:
+                self.graph_store.record_component_options(
+                    self.base_domain, self._clean_url(from_url), target_path,
+                    json.dumps({"kind": "combobox_trigger", "choices": revealed}),
+                )
 
         # `action.raw` is deliberately left showing the model's original, literal
         # output (useful for judging the model's own behavior) - but that means a

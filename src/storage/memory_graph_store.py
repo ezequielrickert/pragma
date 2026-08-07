@@ -18,7 +18,8 @@ class _SiteData:
     routes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     edges: List[Dict[str, str]] = field(default_factory=list)
     links: Dict[Tuple[str, str], str] = field(default_factory=dict)
-    # {page_url: {path: {tag, text, role, input_type, visible, layer, interacted, interactions}}}
+    # {page_url: {path: {tag, text, role, input_type, visible, layer, x, y, width,
+    # height, component_type, options, interacted, interactions}}}
     components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
 
 
@@ -108,6 +109,21 @@ class InMemoryGraphStore(GraphStore):
     def clear_site(self, site: str) -> None:
         self._sites.pop(site, None)
 
+    @staticmethod
+    def _new_component_record() -> Dict[str, Any]:
+        """A fresh default record for a path first touched via
+        `record_component_interaction`/`record_component_options` rather than
+        `record_component` - a plain dict literal, not a shared class-level
+        default, since `interactions` is a mutable list every record needs
+        its own instance of, not one aliased across every auto-created path."""
+        return {
+            "tag": "", "text": "", "role": "", "input_type": "",
+            "visible": True, "layer": "semantic",
+            "x": None, "y": None, "width": None, "height": None,
+            "component_type": "", "options": "",
+            "interacted": False, "interactions": [],
+        }
+
     def record_component(
         self,
         site: str,
@@ -119,6 +135,11 @@ class InMemoryGraphStore(GraphStore):
         input_type: str = "",
         visible: bool = True,
         layer: str = "semantic",
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        component_type: str = "",
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         existing = page_components.get(path)
@@ -129,6 +150,12 @@ class InMemoryGraphStore(GraphStore):
             "input_type": input_type,
             "visible": visible,
             "layer": layer,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "component_type": component_type,
+            "options": existing["options"] if existing else "",
             "interacted": existing["interacted"] if existing else False,
             "interactions": existing["interactions"] if existing else [],
         }
@@ -143,21 +170,24 @@ class InMemoryGraphStore(GraphStore):
         resulting_url: str = "",
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
-        record = page_components.setdefault(
-            path,
-            {
-                "tag": "", "text": "", "role": "", "input_type": "",
-                "visible": True, "layer": "semantic", "interacted": False, "interactions": [],
-            },
-        )
+        record = page_components.setdefault(path, self._new_component_record())
         record["interacted"] = True
         record["interactions"].append(
             {"action": action, "value": value, "resulting_url": resulting_url}
         )
 
+    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+        page_components = self._site(site).components.setdefault(page_url, {})
+        record = page_components.setdefault(path, self._new_component_record())
+        record["options"] = options
+
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         return {
-            path: {"tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"]}
+            path: {
+                "tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"],
+                "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
+                "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+            }
             for path, r in self._site(site).components.get(page_url, {}).items()
         }
 
@@ -206,6 +236,8 @@ class InMemoryGraphStore(GraphStore):
                 path: {
                     "tag": r["tag"], "text": r["text"],
                     "interacted": r["interacted"], "interactions": list(r["interactions"]),
+                    "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
+                    "component_type": r.get("component_type", ""), "options": r.get("options", ""),
                 }
                 for path, r in page_components.items()
             }

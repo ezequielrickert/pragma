@@ -297,6 +297,11 @@ class Neo4jGraphStore(GraphStore):
         input_type: str = "",
         visible: bool = True,
         layer: str = "semantic",
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        component_type: str = "",
     ) -> None:
         with self._session() as session:
             session.run(
@@ -306,14 +311,20 @@ class Neo4jGraphStore(GraphStore):
                 MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
                 ON CREATE SET
                     c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
-                    c.visible = $visible, c.layer = $layer, c.interacted = false, c.interactions = []
+                    c.visible = $visible, c.layer = $layer,
+                    c.x = $x, c.y = $y, c.width = $width, c.height = $height,
+                    c.component_type = $component_type, c.options = '',
+                    c.interacted = false, c.interactions = []
                 ON MATCH SET
                     c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
-                    c.visible = $visible, c.layer = $layer
+                    c.visible = $visible, c.layer = $layer,
+                    c.x = $x, c.y = $y, c.width = $width, c.height = $height,
+                    c.component_type = $component_type
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, tag=tag, text=text,
                 role=role, input_type=input_type, visible=visible, layer=layer,
+                x=x, y=y, width=width, height=height, component_type=component_type,
             )
 
     def record_component_interaction(
@@ -334,11 +345,29 @@ class Neo4jGraphStore(GraphStore):
                 MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
                 ON CREATE SET
                     c.tag = '', c.text = '', c.role = '', c.input_type = '',
-                    c.visible = true, c.layer = 'semantic', c.interacted = false, c.interactions = []
+                    c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '',
+                    c.interacted = false, c.interactions = []
                 SET c.interacted = true, c.interactions = c.interactions + $entry
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, entry=entry,
+            )
+
+    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+        with self._session() as session:
+            session.run(
+                """
+                MERGE (p:Page {site: $site, url: $page_url})
+                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
+                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
+                ON CREATE SET
+                    c.tag = '', c.text = '', c.role = '', c.input_type = '',
+                    c.visible = true, c.layer = 'semantic', c.component_type = '',
+                    c.interacted = false, c.interactions = []
+                SET c.options = $options
+                MERGE (p)-[:HAS_COMPONENT]->(c)
+                """,
+                site=site, page_url=page_url, path=path, options=options,
             )
 
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
@@ -347,7 +376,9 @@ class Neo4jGraphStore(GraphStore):
                 """
                 MATCH (c:Component {site: $site, page_url: $page_url})
                 RETURN c.path AS path, c.tag AS tag, c.text AS text,
-                       c.interacted AS interacted, c.visible AS visible
+                       c.interacted AS interacted, c.visible AS visible,
+                       c.component_type AS component_type, c.options AS options,
+                       c.x AS x, c.y AS y, c.width AS width, c.height AS height
                 """,
                 site=site, page_url=page_url,
             )
@@ -355,6 +386,8 @@ class Neo4jGraphStore(GraphStore):
                 r["path"]: {
                     "tag": r["tag"], "text": r["text"],
                     "interacted": r["interacted"], "visible": r["visible"],
+                    "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
+                    "component_type": r["component_type"] or "", "options": r["options"] or "",
                 }
                 for r in result
             }
@@ -401,7 +434,9 @@ class Neo4jGraphStore(GraphStore):
                 """
                 MATCH (c:Component {site: $site})
                 RETURN c.page_url AS page_url, c.path AS path, c.tag AS tag, c.text AS text,
-                       c.interacted AS interacted, c.interactions AS interactions
+                       c.interacted AS interacted, c.interactions AS interactions,
+                       c.x AS x, c.y AS y, c.width AS width, c.height AS height,
+                       c.component_type AS component_type, c.options AS options
                 """,
                 site=site,
             )
@@ -413,5 +448,7 @@ class Neo4jGraphStore(GraphStore):
                     "text": r["text"],
                     "interacted": r["interacted"],
                     "interactions": [json.loads(e) for e in (r["interactions"] or [])],
+                    "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
+                    "component_type": r["component_type"] or "", "options": r["options"] or "",
                 }
             return ledger

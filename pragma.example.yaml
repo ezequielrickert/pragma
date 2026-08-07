@@ -41,6 +41,13 @@ batch_size: 20    # default cap for both pending routes and DNA components per i
 allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
                           # of example.com and its links get queued as pending routes too (naive
                           # last-two-label match, not a full public-suffix-list lookup)
+max_stalled_finish_attempts: 3  # give up on a page's remaining unexplored components after this many
+                                 # consecutive checks find its debt hasn't shrunk - protects against a
+                                 # component whose identity shifts every DOM change (e.g. a quantity
+                                 # stepper) or a real interaction whose outcome never changes (e.g. a
+                                 # login retried against invalid credentials) burning the whole run on
+                                 # one page. Raise it if a real site legitimately needs more attempts
+                                 # before "not improving" is really true (e.g. slow-loading filters).
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to
@@ -58,6 +65,11 @@ agents:
   local:
     base_url: http://localhost:1234/v1/chat/completions
     model: my-local-model
+    # timeout: 600      # per-request seconds; raise for a slow/large local model
+    # max_tokens: 1024  # cap each response's generated tokens - unset by default,
+                         # since a reasoning model (DeepSeek-R1 and similar) needs
+                         # room for its chain-of-thought before its actual answer;
+                         # only set this once you know your model's real budget
 
 # Optional: non-secret, per-graph-store settings, same shape as `agents:`
 # above. Only used when `graph_store: neo4j`. Password stays in .env

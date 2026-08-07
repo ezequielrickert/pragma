@@ -51,6 +51,7 @@ class Engine:
         # dimension (its own dir/CLI flag) for one more file felt like more
         # ceremony than the addition warranted.
         components_log_path = f"{config.graph_logs_dir}/{slug}_components_{timestamp}.json"
+        components_catalog_path = f"{config.graph_logs_dir}/{slug}_component_catalog_{timestamp}.md"
 
         scraper = SCRAPER_REGISTRY.create(
             config.scraper, headless=config.headless, wait_seconds=config.wait_seconds
@@ -89,11 +90,13 @@ class Engine:
             progress_log_file=progress_log_path,
             graph_log_file=graph_log_path,
             components_log_file=components_log_path,
+            components_catalog_file=components_catalog_path,
             max_iterations=config.max_iterations,
             batch_size=config.batch_size,
             pending_batch_size=config.pending_batch_size,
             component_batch_size=config.component_batch_size,
             allow_subdomains=config.allow_subdomains,
+            max_stalled_finish_attempts=config.max_stalled_finish_attempts,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 

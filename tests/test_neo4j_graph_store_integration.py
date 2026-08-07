@@ -112,6 +112,54 @@ def test_record_component_is_idempotent_and_preserves_interacted(store):
     assert states["button#go"]["text"] == "Go (updated)"
 
 
+def test_record_component_persists_position(store):
+    site = "pragma-test.local"
+    store.record_component(
+        site, "home", "button#go", tag="button", text="Go",
+        x=10.0, y=20.0, width=80.0, height=32.0,
+    )
+    states = store.get_component_states(site, "home")
+    assert states["button#go"]["x"] == 10.0
+    assert states["button#go"]["height"] == 32.0
+
+    ledger = store.get_component_ledger(site)
+    assert ledger["home"]["button#go"]["width"] == 80.0
+
+
+def test_record_component_type_and_options_roundtrip(store):
+    import json
+
+    site = "pragma-test.local"
+    store.record_component(
+        site, "home", "div#trigger", tag="div", text="Tercera Docena",
+        component_type="custom control (component-library element, no native tag/role)",
+    )
+    options = json.dumps({
+        "kind": "combobox_trigger",
+        "choices": [{"text": "Mi Gusto", "selected": True}, {"text": "Solo Empanadas", "selected": False}],
+    })
+    store.record_component_options(site, "home", "div#trigger", options)
+
+    states = store.get_component_states(site, "home")
+    assert states["div#trigger"]["component_type"] == "custom control (component-library element, no native tag/role)"
+    assert json.loads(states["div#trigger"]["options"])["choices"][0]["text"] == "Mi Gusto"
+
+    # A later plain rediscovery (record_component has no `options` param at all)
+    # must not clobber the options field back to empty - only
+    # record_component_options does. component_type DOES refresh every call
+    # (same discipline as x/y/width/height), so it's passed again here.
+    store.record_component(
+        site, "home", "div#trigger", tag="div", text="Tercera Docena (updated)",
+        component_type="custom control (component-library element, no native tag/role)",
+    )
+    states = store.get_component_states(site, "home")
+    assert states["div#trigger"]["options"] != ""
+    assert states["div#trigger"]["component_type"] != ""
+
+    ledger = store.get_component_ledger(site)
+    assert ledger["home"]["div#trigger"]["component_type"] != ""
+
+
 def test_record_component_interaction_auto_creates_node(store):
     site = "pragma-test.local"
     store.record_component_interaction(site, "home", "button#go", action="click", value="", resulting_url="about")

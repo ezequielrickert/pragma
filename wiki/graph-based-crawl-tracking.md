@@ -76,6 +76,23 @@ If you need a broader stuck-detection heuristic, make it opt-in and clearly sepa
 identity-based decline check above — don't conflate "we know this is redundant" (safe to skip)
 with "this looks unproductive by some heuristic" (risky to override).
 
+**Update — the finish-blocking condition above ("never-shown") was later found to be too weak,
+and had to become "never-interacted-with":** the mechanism (decline, don't override) was right;
+the specific *fact* it was checking wasn't. A component the model had been *shown* once — in a
+numbered list it glanced at — counted as "covered," even if the model never actually clicked, filled,
+or submitted it. A real run exposed this directly: the model filled one field on a page, was shown
+two other real components in that same prompt, and called `finish` on the very next turn — the
+guard let it through because both components had technically been "shown," which is all the
+original condition checked. "Shown" only proves the model's prompt *contained* the component; it
+proves nothing about whether the model did anything with it. The fix: gate `finish` on whether each
+component's persisted `interacted` flag (see the per-component ledger below) is `True`, not on
+whether its path has ever appeared in a rendered list. This also fixed a second instance of the same
+mistake at the boundary of a run: the check used to be skipped entirely on the very first prompt of
+a run ("everything's trivially new on turn one, that's not itself suspicious") — but "has this ever
+been looked at" is exactly as unanswered on turn one as on any later turn; there is no legitimate
+reason for turn one to be exempt from a check whose actual job is "was this acted on," not "is this
+new."
+
 ## Separate the live snapshot from the append-only audit trail
 
 A crawl needs two different kinds of log, and conflating them either loses history or bloats every
@@ -154,3 +171,25 @@ signal a filled text field's own visible value already provides — but generali
 This single field turns a list of URLs into an actual explainable path, and it's nearly free to
 render as a diagram (e.g. a Mermaid flowchart) directly from the edge list for a human to skim
 without needing any extra tooling.
+
+**Update — a write-only ledger doesn't help discovery; it has to be consulted, and consulted
+without a quality filter that quietly excludes real elements:** the ledger above was originally
+built and populated correctly, but nothing ever *read it back* to decide what to explore next — it
+was pure logging, checked by nothing. The fix wasn't the ledger itself, it was wiring the completion
+guard (see "Prefer decline over override," above) and the next-turn element-priority logic to
+actually query it, and to keep querying it across page revisits and even across separate runs
+against a persisted backend (a component genuinely interacted-with in a *previous* run must stay
+deprioritized on turn one of a new run against the same site — an in-process-only "have I shown
+this" set can never know that).
+
+A second trap on the same code path: if your discovery layer has a two-tier design — a reliable
+primary selector (native tags, ARIA roles) plus a noisier last-resort fallback for elements with no
+semantic markup at all (see [browser-automation-pitfalls.md](browser-automation-pitfalls.md)'s
+`cursor: pointer` fallback) — don't let a "reduce noise" filter on the *fallback* layer bleed into
+your *completion* check. The fallback layer is frequently the **only** layer that finds anything at
+all on a page built with a component library (custom `<div>`-based buttons/pickers/menus with no
+native tag or role) — excluding it from "is this page fully explored" makes those pages look
+complete the instant *any* semantic-layer element is touched, regardless of how many real,
+clickable, library-built components sit right next to it, untouched. If a layer distinction exists
+for ranking/noise-reduction purposes, keep it — but give the completion/coverage check its own,
+separate, inclusive view that doesn't inherit that filter by default.

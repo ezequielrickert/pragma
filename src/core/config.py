@@ -48,6 +48,15 @@ class PragmaConfig:
     # behavior. A naive last-two-label heuristic when enabled, not a full
     # public-suffix-list lookup (see SimplePRDGenerator._domain_in_scope).
     allow_subdomains: bool = False
+    # How many consecutive times a page's unexplored-component debt can fail
+    # to shrink before the finish guard gives up on that page - see
+    # SimplePRDGenerator._apply_diminishing_returns. Protects against a
+    # component whose CSS path shifts on every DOM change (e.g. a quantity
+    # stepper) or a real interaction whose outcome never changes (e.g. a login
+    # retried against invalid credentials), either of which could otherwise
+    # burn most of a run's iteration budget on one page that was never going
+    # to converge.
+    max_stalled_finish_attempts: int = 3
     # Purge this site's previously recorded graph_store state before crawling
     # (Engine.from_config). Matters for graph_store: neo4j, which persists
     # across runs - without this, a site whose URLs are per-session tokens

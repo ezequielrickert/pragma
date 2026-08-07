@@ -127,13 +127,14 @@ saying "N new elements just appeared, investigate before finishing") wasn't enou
 small local model concluded a run anyway, immediately after a page changed substantially (3 → 11
 components, same URL) without looking at any of the new content. Text the model can silently ignore
 isn't a mechanical constraint, no matter how clearly it's worded. The fix escalated from "inform" to
-"block": the specific terminal action (`finish`) was rejected outright when new, never-shown
-components were part of what the model had just been shown, converted into a skipped turn with an
-explicit error instead of ending the run. This is a narrower, more justified version of "override"
-than the broad heuristic [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) warns
-against — see that doc's updated "Prefer decline over override" section for why blocking one
-specific, verifiable-condition, terminal action is a different risk profile than substituting a
-different action for whatever the model chose.
+"block": the specific terminal action (`finish`) was rejected outright when the model hadn't
+actually acted on components it had been shown, converted into a skipped turn with an explicit error
+instead of ending the run. This is a narrower, more justified version of "override" than the broad
+heuristic [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) warns against — see that
+doc's updated "Prefer decline over override" section for why blocking one specific,
+verifiable-condition, terminal action is a different risk profile than substituting a different
+action for whatever the model chose, and for a further correction: "shown" turned out to be the
+wrong bar for that verifiable condition — it had to become "interacted with."
 
 ## Principle 6: For a weak/small model, prefer deterministic always-shown signals over optional on-demand ones
 

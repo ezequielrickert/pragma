@@ -208,12 +208,25 @@ class PlaywrightScraper(Scraper):
     def _discover_components(self) -> List[Dict[str, Any]]:
         """Perform deep discovery of all interactive components.
 
+        Every returned component also carries `rect` ({x, y, width, height},
+        viewport-relative CSS pixels at discovery time - see `getRect`) -
+        SimplePRDGenerator persists this into the graph store's component
+        checklist alongside `interacted`, so the checklist is a precise map
+        of *where* on the page each component is, not just that it exists.
+
         Paths are built as valid, unique CSS selectors: an element with an id
         uses `tag#id`; otherwise it gets a `:nth-of-type(n)` index among its
         same-tag siblings. Without this, sibling elements with no id (e.g. every
         link in a nav menu) produce identical path strings, which then fail as
         CSS selectors with a Playwright "strict mode: resolved to N elements"
         error on click - silently, since click() only logs such failures.
+
+        Each component's `text` uses a broadened fallback chain (see
+        `getAccessibleLabel` below) rather than just `innerText`/`aria-label` -
+        `innerText` is empty for anything CSS-hidden (e.g. a visually-hidden
+        accessible-label span), which otherwise makes a real, labelled
+        component indistinguishable from a genuinely empty one downstream in
+        the component catalog (see component_classifier.py/prd_generator.py).
 
         Discovery has two layers, in order of preference: native/ARIA-role
         elements (see the `selector` below - covers native tags plus the
@@ -296,6 +309,17 @@ class PlaywrightScraper(Scraper):
                 const rect = e.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
             };
+            // Viewport-relative bounding box, in CSS pixels, at discovery time -
+            // rounded to whole pixels since sub-pixel precision isn't meaningful
+            // here (nothing consumes it at that resolution) and keeps the
+            // payload smaller on a component-dense page. This is what makes the
+            // persisted component checklist a genuinely *precise* map of the
+            // page - not just "this exists" but "this exists right here" -
+            // rather than recomputing `isVisible`'s rect and throwing it away.
+            const getRect = (e) => {
+                const r = e.getBoundingClientRect();
+                return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+            };
             // A text input's `placeholder` is often absent even when a real,
             // human-readable label exists right next to it (<label for="...">
             // is the standard accessible-forms pattern) - without this, a
@@ -314,6 +338,40 @@ class PlaywrightScraper(Scraper):
                     const ref = document.getElementById(labelledBy);
                     if (ref && ref.innerText.trim()) return ref.innerText.trim();
                 }
+                return '';
+            };
+            // A component's accessible text can live somewhere `innerText`/
+            // `aria-label` never look: `innerText` returns '' for anything
+            // CSS-hidden (a common sr-only/visually-hidden accessibility
+            // utility class wrapping the *real* label next to a decorative
+            // icon), and a bare `aria-label` check misses `aria-labelledby`,
+            // `title`, an `<img alt>` child, or an SVG `<title>` child - all
+            // legitimate accessible-name sources. A real crawl (empanad.app)
+            // hit exactly this: a header `<a href="/">` wrapping only
+            // `<img alt="EmpanadApp">` with no aria-label of its own -
+            // `innerText` and `aria-label` were both '', so the component
+            // catalog narrated it as "Unnamed Element"/"Empty Element" even
+            // though the real label was one attribute away. Order matters:
+            // check the cheap/specific sources before the broad
+            // `textContent` fallback, so a real label is preferred over
+            // incidental hidden text.
+            const getAccessibleLabel = (e) => {
+                const ariaLabel = e.getAttribute('aria-label');
+                if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+                const labelledBy = e.getAttribute('aria-labelledby');
+                if (labelledBy) {
+                    const ref = document.getElementById(labelledBy);
+                    if (ref && ref.innerText.trim()) return ref.innerText.trim();
+                }
+                const title = e.getAttribute('title');
+                if (title && title.trim()) return title.trim();
+                const img = e.querySelector('img[alt]');
+                if (img) {
+                    const alt = img.getAttribute('alt');
+                    if (alt && alt.trim()) return alt.trim();
+                }
+                const svgTitle = e.querySelector('svg > title');
+                if (svgTitle && svgTitle.textContent.trim()) return svgTitle.textContent.trim();
                 return '';
             };
             // Modern component libraries (Radix, shadcn/ui's Command/cmdk, MUI,
@@ -359,7 +417,7 @@ class PlaywrightScraper(Scraper):
                     if (semanticSet.has(el)) continue;
                     if (el.closest(selector)) continue;
                     if (getComputedStyle(el).cursor !== 'pointer') continue;
-                    const label = el.innerText?.trim() || el.getAttribute('aria-label') || '';
+                    const label = el.innerText?.trim() || getAccessibleLabel(el);
                     if (!label) continue;
                     let wrapsSemantic = false;
                     for (const child of el.querySelectorAll('*')) {
@@ -374,7 +432,17 @@ class PlaywrightScraper(Scraper):
             return [...semanticEls, ...pointerEls]
                 .map(el => ({
                     tag: el.tagName.toLowerCase(),
-                    text: el.innerText.trim() || el.getAttribute('aria-label') || '',
+                    // Last-resort fallback is `textContent` (not just
+                    // `innerText`/`aria-label`/`getAccessibleLabel`) - it
+                    // ignores CSS visibility entirely, so it can recover text
+                    // from a visually-hidden sr-only span or a disconnected
+                    // inline SVG label that none of the above sources catch.
+                    // Accepted here (unlike the pointer-catch-all layer above,
+                    // which deliberately stops at getAccessibleLabel) because
+                    // by this point something recoverable is strictly better
+                    // than the catalog narrating a real, meaningful component
+                    // as "Unnamed Element"/"Empty Element".
+                    text: el.innerText.trim() || getAccessibleLabel(el) || (el.textContent || '').trim(),
                     path: gp(el),
                     discovery_layer: layerOf(el),
                     // The nearest enclosing <form>'s own path, or '' if none - lets
@@ -408,6 +476,21 @@ class PlaywrightScraper(Scraper):
                     value: ['input', 'textarea', 'select'].includes(el.tagName.toLowerCase()) ? (el.value || '') : '',
                     required: ['input', 'textarea', 'select'].includes(el.tagName.toLowerCase()) ? !!el.required : false,
                     visible: isVisible(el),
+                    rect: getRect(el),
+                    // Whether this element is the currently-active/chosen one within its
+                    // own group (a listbox option, a radio/checkbox, a tab) - component
+                    // libraries (Radix/shadcn/MUI/...) mark this via one of several
+                    // conventions depending on the widget, so all the common ones are
+                    // checked rather than picking just one. Distinct from `value`, which
+                    // is a text field's own typed content, not a member's membership
+                    // state within a set of options. Consumed by SimplePRDGenerator's
+                    // component classifier to report which option/choice is the default
+                    // or currently-active one in the generated component catalog.
+                    selected: el.getAttribute('aria-selected') === 'true' ||
+                        el.getAttribute('aria-checked') === 'true' ||
+                        el.getAttribute('data-state') === 'checked' ||
+                        el.getAttribute('data-state') === 'on' ||
+                        !!el.checked,
                     attributes: { id: el.id, class: el.className, href: el.getAttribute('href') || '' }
                 }));
         }"""

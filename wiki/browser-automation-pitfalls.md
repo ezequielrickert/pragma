@@ -167,12 +167,81 @@ for (const el of document.querySelectorAll('body *')) {
 Both exclusion checks matter — without the ancestor check, a real `<button>`'s inner `<span>`
 (which inherits `cursor: pointer`) shows up as a spurious duplicate target for the same click.
 
-**Known, deliberately unimplemented gap**: neither pass finds elements inside an *open shadow
+**Update — the shadow-DOM gap below was later implemented, exactly as predicted:** once broader
+coverage became a real requirement (not just a hypothetical), the fix was precisely the two things
+called out below — a recursive pass collecting every element's `.shadowRoot` alongside `document`
+itself, and `parentElement` walks continuing via `getRootNode().host` at a shadow boundary. Closed
+roots need nothing extra: `.shadowRoot` is `null` for `mode: 'closed'`, so they're skipped for free
+with no separate open/closed detection required. Left as a confirmation that "not fixed
+speculatively, here's exactly what the fix would look like when needed" is worth writing down even
+before you need it — this is what let the eventual fix be a direct implementation of the plan below,
+not a fresh investigation.
+
+**Original note (kept for context)**: neither pass finds elements inside an *open shadow
 root* — `document.querySelectorAll` doesn't pierce shadow boundaries. Not fixed speculatively, since
 no site actually hit this yet (Radix/cmdk render light DOM); if one does, the fix needs two things:
 each shadow root needs its own `querySelectorAll` pass alongside `document`'s, and any path-builder
 walking `element.parentElement` needs to continue via `element.getRootNode().host` when
 `parentElement` is null but `getRootNode()` is a `ShadowRoot`.
+
+## A component's text can be empty even when a real, recoverable label exists
+
+**Symptom observed**: a generated component catalog (see `component_classifier.py`/
+`prd_generator.py`'s `_write_component_catalog`) narrated a large fraction of a real site's
+components as content-free — `"Unnamed Element" - An unnamed interactive component`,
+`"Empty Element" - Not interacted with`. This wasn't the LLM narration pass failing; it was being
+handed genuinely empty facts. Direct inspection of the live DOM (`empanad.app`) found the actual
+element: `<a href="/"><img src="/logo.png" alt="EmpanadApp"></a>` — a real, meaningful header logo
+link with a perfectly good accessible name, one attribute away from where discovery was looking.
+
+**Why it happens**: `el.innerText` is `''` for an `<a>`/`<button>` whose only content is an
+`<img>` (an image has no text of its own), and the element itself carried no `aria-label`. The
+label extraction fell back to `el.innerText.trim() || el.getAttribute('aria-label') || ''` —
+exactly two sources — and stopped there. Several other legitimate accessible-name sources exist and
+were checked nowhere: `aria-labelledby`, a `title` attribute, a child `<img alt>`, an SVG `<title>`,
+and (for the visually-hidden-span icon-button pattern, `<button><svg/><span style="display:none">
+Add flavor</span></button>`) plain `textContent`, which — unlike `innerText` — doesn't respect CSS
+visibility at all.
+
+**Fix pattern**: same lesson as the ARIA-role discovery gap above — broaden the signal, don't rely
+on model cleverness to compensate for facts the extraction layer never captured. Chain fallbacks
+from most-specific/safest to broadest-but-noisiest, and only reach for the noisy last resort
+(`textContent`, which can pick up genuinely-hidden template/duplicate text unrelated to the visible
+element) on the *primary* discovery path — not on a secondary noise-filtered catch-all layer that
+exists specifically to avoid flooding results with decorative wrappers:
+
+```js
+const getAccessibleLabel = (e) => {
+    const ariaLabel = e.getAttribute('aria-label');
+    if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+    const labelledBy = e.getAttribute('aria-labelledby');
+    if (labelledBy) {
+        const ref = document.getElementById(labelledBy);
+        if (ref && ref.innerText.trim()) return ref.innerText.trim();
+    }
+    const title = e.getAttribute('title');
+    if (title && title.trim()) return title.trim();
+    const img = e.querySelector('img[alt]');
+    if (img && img.getAttribute('alt').trim()) return img.getAttribute('alt').trim();
+    const svgTitle = e.querySelector('svg > title');
+    if (svgTitle && svgTitle.textContent.trim()) return svgTitle.textContent.trim();
+    return '';
+};
+// Primary discovery path: innerText -> the chain above -> textContent as last resort.
+text: el.innerText.trim() || getAccessibleLabel(el) || (el.textContent || '').trim(),
+```
+
+**A downstream corollary**: once the extraction side is fixed, a component whose text is *still*
+empty after every fallback is now a trustworthy fact — it genuinely has no discoverable label, not
+a labelling bug. Say that plainly wherever the empty case is consumed (e.g. `"(no accessible label
+found on this element)"` fed to an LLM narration prompt) instead of passing `''` through, which
+reads identically to a bug you haven't found yet.
+
+**How to catch this in review/testing**: for any text/label-extraction feature, write a fixture
+with a real accessible name that `innerText` alone can't see — an `<img alt>`-only link, and a
+`display:none` label span with no `aria-label` on the interactive element itself — and assert the
+extracted text recovers it. Don't test only with plain-text buttons/links, where every fallback
+gives the same answer and the gap can't show up.
 
 ## A form field's live `value` is the only reliable "did this work" signal — don't trust `required`
 

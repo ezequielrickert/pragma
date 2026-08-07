@@ -500,15 +500,65 @@ class GraphStore(ABC):
         input_type: str = "",
         visible: bool = True,
         layer: str = "semantic",
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+        component_type: str = "",
     ) -> None:
         """Create or refresh a Component node for `site`/`page_url`/`path`.
 
         Idempotent, same discipline as `upsert_page`: descriptive fields
-        (tag/text/role/input_type/visible/layer) refresh on every call since
-        they can legitimately change page to page (e.g. text), but `interacted`
-        and its interaction history are never touched here - only
-        `record_component_interaction` sets those, and a rediscovery must never
-        clobber prior interaction state.
+        (tag/text/role/input_type/visible/layer/x/y/width/height/component_type)
+        refresh on every call since they can legitimately change page to page
+        (e.g. text, or a layout shift moving an element) - but `interacted`,
+        its interaction history, and `options` (see `record_component_options`)
+        are never touched here - only their own dedicated setters do, and a
+        rediscovery must never clobber state that isn't recomputed every call.
+
+        `x`/`y`/`width`/`height` are the element's viewport-relative bounding
+        box in CSS pixels at the moment it was discovered (see
+        PlaywrightScraper._discover_components), `None` when unknown (e.g. a
+        scraper/test double that doesn't report it). This is what makes the
+        stored checklist a *precise* map of the page - not just "this exists
+        somewhere" but "this exists right here" - useful for a human auditing
+        the checklist, and a documented building block for coordinate-based
+        interaction, though `click`/`fill`/`submit` still resolve by selector
+        today, not by position.
+
+        `component_type` is a short, deterministic classification (see
+        `src.generators.component_classifier.classify_component_type`) - e.g.
+        "checkbox", "text field (email)", "combobox (searchable dropdown)" -
+        computed from tag/role/input_type alone, safe to recompute and
+        overwrite every call like the other descriptive fields.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+        """Set (fully overwrite) the JSON-encoded `options` field on a Component
+        node - structured facts beyond simple existence: a revealed dropdown's
+        choices and which one is selected, a stepper's paired increment/
+        decrement paths and current value, or a radio/checkbox group's
+        sibling members. See `component_classifier.py` for what actually
+        computes these; this method only persists whatever JSON string it's
+        given, keyed the same way as `record_component`.
+
+        Deliberately a *separate* method from `record_component`, not one more
+        parameter on it: `options` is really only knowable at specific moments
+        (e.g. right after a click reveals a dropdown's items - a before/after
+        diff, not something present in any single discovery snapshot), unlike
+        every field `record_component` refreshes, which is recomputable from
+        the current DOM alone on every single call. Folding `options` into
+        that same call would mean every ordinary rediscovery (most of which
+        have no idea what a component's options are) would overwrite it back
+        to empty, permanently erasing something more expensive to learn than
+        to lose.
+
+        Auto-creates the Component node if it doesn't already exist, mirroring
+        `record_component_interaction`'s auto-create (a caller with options to
+        record for a path it hasn't explicitly `record_component`-ed yet
+        should still succeed, not silently no-op).
         """
         raise NotImplementedError
 
@@ -533,11 +583,17 @@ class GraphStore(ABC):
 
     @abstractmethod
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
-        """All known components for one page: {path: {tag, text, interacted, visible}}.
+        """All known components for one page:
+        {path: {tag, text, interacted, visible, x, y, width, height,
+        component_type, options}}.
 
         One query per prompt build, not one per component - the caller is
         expected to build this once per iteration and read from the dict
-        repeatedly for the same page.
+        repeatedly for the same page. `x`/`y`/`width`/`height` are `None` for
+        components recorded before position tracking existed, or by a
+        scraper/test double that doesn't report it. `options` is the raw JSON
+        string set by `record_component_options`, `""` if never set - callers
+        that need the structured value should `json.loads` it themselves.
         """
         raise NotImplementedError
 
@@ -576,7 +632,8 @@ class GraphStore(ABC):
 
     @abstractmethod
     def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        """{page_url: {path: {tag, text, interacted, interactions}}} for all of `site`.
+        """{page_url: {path: {tag, text, interacted, interactions, x, y, width,
+        height, component_type, options}}} for all of `site`.
 
         The durable, human-inspectable "what did I do on this page, and to
         what" record - what `_write_component_ledger` writes out, sourced from

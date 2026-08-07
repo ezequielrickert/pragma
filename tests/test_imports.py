@@ -789,6 +789,79 @@ def test_finish_is_rejected_when_a_left_behind_page_has_unexplored_components(tm
     assert scraper.navigate_calls == ["https://stub.example/page-a", "https://stub/page-a"]
 
 
+def test_finish_eventually_succeeds_on_a_page_that_never_converges(tmp_path):
+    """A page whose component identities shift on every interaction (e.g. a
+    quantity stepper whose sibling-index-based CSS paths change every time a
+    row is added/removed) must not block `finish` forever - once its debt has
+    failed to shrink for `max_stalled_finish_attempts` consecutive checks, the
+    diminishing-returns guard must give up on it and let the run conclude.
+
+    Regression test for two real crawls (empanad.app's "Agregar"/"Restar"
+    stepper, mapadeprofesionales.com's repeated login-submit retries): both
+    burned most of a run's iteration budget on one page that was never going
+    to fully "converge," at the direct expense of exploring the rest of the
+    site.
+    """
+    from src.generators.prd_generator import SimplePRDGenerator
+
+    class ChurningStepperScraper(Scraper):
+        """Every click both interacts with the current trigger AND spawns a
+        brand-new, never-before-seen component path (simulating a stepper
+        whose sibling-index-based path shifts every time a row is added) -
+        the debt on this page can never reach zero."""
+
+        def __init__(self):
+            self.click_count = 0
+
+        def navigate(self, url):
+            return self._state()
+
+        def _state(self) -> PageState:
+            return PageState(
+                url="https://stub",
+                title="Stub",
+                components=[
+                    {"tag": "button", "text": "trigger", "path": "button#trigger"},
+                    {"tag": "div", "text": f"row-{self.click_count}", "path": f"div#row{self.click_count}"},
+                ],
+                links=[],
+            )
+
+        def click(self, selector):
+            self.click_count += 1
+            return self._state()
+
+        def get_state(self):
+            return self._state()
+
+        def close(self):
+            pass
+
+    # Every "CLICK 1" targets whatever un-interacted component currently sorts
+    # first (always the freshly-spawned row - the trigger gets interacted
+    # once and then stays deprioritized) - so debt never shrinks, it just
+    # keeps respawning. max_stalled_finish_attempts=2 keeps the test fast.
+    agent = ScriptedAgent(
+        ["plan", "CLICK 1", "FINISH", "CLICK 1", "FINISH", "CLICK 1", "FINISH", "FINISH"]
+    )
+    scraper = ChurningStepperScraper()
+    gen = SimplePRDGenerator(
+        agent,
+        scraper,
+        progress_file=str(tmp_path / "progress.md"),
+        progress_log_file=str(tmp_path / "progress_log.md"),
+        max_iterations=10,
+        max_stalled_finish_attempts=2,
+    )
+    engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
+    engine.run("https://stub.example")
+
+    log_content = (tmp_path / "progress_log.md").read_text(encoding="utf-8")
+    assert "finish rejected" in log_content
+    assert "Gave up on" in log_content
+    assert "Agent concluded research" in log_content
+
+
 def test_goto_target_without_scheme_still_navigates(tmp_path):
     """A GOTO to a schemeless target must still reach the scraper as an absolute URL.
 
@@ -1174,6 +1247,40 @@ def test_discover_components_reports_visibility(tmp_path):
         scraper.close()
 
 
+def test_discover_components_recovers_text_from_hidden_and_alt_sources(tmp_path):
+    """A component with empty `innerText`/`aria-label` but a real accessible
+    name elsewhere must not be discovered as blank.
+
+    Regression test: a real crawl (empanad.app) hit a header `<a href="/">`
+    wrapping only `<img alt="EmpanadApp">` - `innerText` is '' (an <img> has
+    no text) and the <a> itself carries no aria-label, so the component
+    catalog narrated it as "Unnamed Element"/"Empty Element" even though a
+    real, recoverable label (the image's alt text) was one attribute away.
+    Also covers the common accessible-icon-button pattern: a visually-hidden
+    (`display:none`) label span with no aria-label on the button itself,
+    which only the `textContent` last-resort fallback recovers.
+    """
+    from src.scrapers.playwright_scraper import PlaywrightScraper
+
+    fixture = tmp_path / "index.html"
+    fixture.write_text(
+        "<html><body>"
+        '<a id="logo-link" href="#"><img src="logo.png" alt="EmpanadApp"></a>'
+        '<button id="icon-btn"><svg></svg><span style="display:none;">Add flavor</span></button>'
+        "</body></html>",
+        encoding="utf-8",
+    )
+
+    scraper = PlaywrightScraper(headless=True, wait_seconds=0)
+    try:
+        state = scraper.navigate(fixture.as_uri())
+        by_id = {c["attributes"]["id"]: c for c in state.components}
+        assert by_id["logo-link"]["text"] == "EmpanadApp"
+        assert by_id["icon-btn"]["text"] == "Add flavor"
+    finally:
+        scraper.close()
+
+
 def test_discover_components_escapes_special_characters_in_ids(tmp_path):
     """A CSS-special character in an id (e.g. a colon) must not produce an
     invalid, unclickable selector.
@@ -1449,3 +1556,115 @@ def test_local_agent_sends_bearer_token_when_api_key_configured(monkeypatch):
     without_key = LocalAgent(base_url="http://fake/v1/chat/completions")
     without_key.generate("prompt")
     assert "Authorization" not in seen_headers[-1]
+
+
+def test_local_agent_max_tokens_is_opt_in(monkeypatch):
+    """max_tokens must be omitted from the request payload by default (a local
+    reasoning model needs room for its own chain-of-thought - guessing a "safe"
+    cap risks silently truncating it mid-thought), but included, on both the
+    native tool-calling and text-fallback paths, once explicitly configured."""
+    from src.agents.local_agent import LocalAgent
+
+    monkeypatch.delenv("LOCAL_MAX_TOKENS", raising=False)
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = str(payload)
+
+        def json(self):
+            return self._payload
+
+    seen_payloads = []
+
+    def fake_post(url, json, headers, timeout):
+        seen_payloads.append(json)
+        return FakeResponse(200, {"choices": [{"message": {"content": '{"action": "finish"}'}}]})
+
+    monkeypatch.setattr("src.agents.local_agent.requests.post", fake_post)
+
+    no_cap = LocalAgent(base_url="http://fake/v1/chat/completions")
+    no_cap.generate("prompt")
+    assert "max_tokens" not in seen_payloads[-1]
+
+    capped = LocalAgent(base_url="http://fake/v1/chat/completions", max_tokens=512)
+    capped.generate("prompt")
+    assert seen_payloads[-1]["max_tokens"] == 512
+
+    # Native tool-calling path too - both request builders must respect it.
+    capped._act_native("prompt", tools=[], system_instruction=None)
+    assert seen_payloads[-1]["max_tokens"] == 512
+
+
+def test_local_agent_raises_clear_error_when_truncated_by_max_tokens(monkeypatch):
+    """A response cut off by max_tokens (finish_reason: 'length') must raise a
+    specific, actionable error - not silently return/parse as empty content,
+    which downstream every other code path would treat as an ordinary
+    malformed response and just skip, with no indication of the real cause.
+
+    Regression test: a reasoning model (DeepSeek-R1) given too small a
+    max_tokens spent its entire budget on chain-of-thought, returning empty
+    `content` with no `tool_calls` either - indistinguishable, before this
+    fix, from any other malformed response, silently skipped every single
+    iteration of a run with no way to tell max_tokens was the actual cause.
+    """
+    from src.agents.local_agent import LocalAgent
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = str(payload)
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, json, headers, timeout):
+        return FakeResponse(
+            200,
+            {"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+        )
+
+    monkeypatch.setattr("src.agents.local_agent.requests.post", fake_post)
+
+    agent = LocalAgent(base_url="http://fake/v1/chat/completions", max_tokens=64)
+    try:
+        agent.generate("prompt")
+        assert False, "expected a RuntimeError"
+    except RuntimeError as exc:
+        assert "max_tokens" in str(exc)
+        assert "length" in str(exc)
+
+    # Same detection on the native tool-calling path.
+    try:
+        agent._act_native("prompt", tools=[], system_instruction=None)
+        assert False, "expected a RuntimeError"
+    except RuntimeError as exc:
+        assert "max_tokens" in str(exc)
+
+
+def test_local_agent_normal_finish_reason_is_unaffected(monkeypatch):
+    """A normal ('stop') completion must parse exactly as before - the
+    truncation check must not false-positive on ordinary responses."""
+    from src.agents.local_agent import LocalAgent
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = str(payload)
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, json, headers, timeout):
+        return FakeResponse(
+            200,
+            {"choices": [{"finish_reason": "stop", "message": {"content": '{"action": "finish"}'}}]},
+        )
+
+    monkeypatch.setattr("src.agents.local_agent.requests.post", fake_post)
+
+    agent = LocalAgent(base_url="http://fake/v1/chat/completions")
+    assert agent.generate("prompt") == '{"action": "finish"}'

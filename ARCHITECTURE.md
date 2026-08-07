@@ -261,7 +261,7 @@ access, only a chat-completions HTTP response. It picks a short verb from `TOOL_
 call to Module 3. This is why swapping transports (this module previously used MCP; now plain
 REST) never touches the model-facing contract at all.
 
-One process, two path-prefixed namespaces:
+One process, three path-prefixed namespaces:
 
 - **`/dynamic/*`** (`src/api_server/dynamic.py`) — `navigate`/`click`/`fill`/`submit`/`get_state`,
   each wrapping the matching `PlaywrightScraper` method 1:1. A persistent `PlaywrightScraper`
@@ -279,6 +279,14 @@ One process, two path-prefixed namespaces:
   verbs already are. `SimplePRDGenerator` injects the fetched text into the *next* turn's prompt
   only (ephemeral), and `help` calls don't count against a run's `max_iterations` budget since they
   don't change page state.
+- **`/components/*`** (`src/api_server/components.py`) — read-only access to the persisted
+  component checklist (`GraphStore`'s Component nodes: `interacted` state plus each element's
+  viewport-relative bounding box at discovery time). Unlike `/dynamic/*`, this reads state written
+  by a *different* process (a `SimplePRDGenerator` CLI run) via `graph_store: neo4j`, a shared
+  database — `graph_store: memory` never persists cross-process, so these routes return a 503
+  rather than a misleading empty result in that case. `GET /components/state?site=..&page_url=..`
+  returns `{path: {tag, text, interacted, visible, x, y, width, height}}`; `GET
+  /components/debt?site=..` returns the same revisit-queue `_reject_premature_finish` enforces.
 
 **Important:** none of this fixes a local model's flaky native tool-calling support (`LocalAgent`'s
 three-tier degrade — see "Keeping Iteration Prompts Small" above) — that's a model/chat-template
