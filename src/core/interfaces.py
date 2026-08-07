@@ -309,6 +309,33 @@ class Scraper(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} does not support submit()")
 
+    def extract_context(self, max_chars: int = 1500) -> str:
+        """Return a richer "what is this site/app for" text than `PageState.description`
+        alone, read from the *current* page (meant to be called once, right after the
+        initial Discovery navigate to the root URL - see
+        `SimplePRDGenerator._establish_site_context`).
+
+        `PageState.description` is deliberately terse (~300 chars, meta description or
+        heading + first paragraph only) because it's re-surfaced on *every* iteration
+        prompt as a per-page `Page context:` line - a small/local model pays that cost
+        every turn. This method exists for a different job: a one-time, deeper read of
+        the landing page (more headings, more paragraphs) so the agent starts the crawl
+        already knowing what business/domain it's looking at - e.g. "this sells
+        empanadas; flavor selection and quantity are the core ordering flow" - rather
+        than inferring that from route names alone partway through the run. Concrete
+        with a `NotImplementedError` default (same pattern as `fill`/`submit` above),
+        so a backend that doesn't implement it (e.g. `RestScraper` - Module 3's
+        `/dynamic/*` has no matching route yet) degrades to `PageState.description`
+        instead of crashing - see `_establish_site_context`'s try/except.
+
+        Args:
+            max_chars: Upper bound on the returned text's length.
+
+        Returns:
+            The extracted context text, "" if nothing usable was found.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support extract_context()")
+
 
 class Agent(ABC):
     """Interface for AI agent backends."""

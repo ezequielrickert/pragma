@@ -67,6 +67,17 @@ class PragmaConfig:
     # no-op there either way. Set to false to resume a previous run's
     # progress on a genuinely multi-session crawl of a large, stable site.
     fresh: bool = True
+    # Read a deeper "what is this site/app for" text from the root page once, at the
+    # start of Discovery, and surface it on every iteration prompt - see
+    # SimplePRDGenerator._establish_site_context. Grounds fill-value/action choices in
+    # the site's actual purpose (e.g. an empanada-ordering site never gets "lapicera"
+    # typed into a flavor field) instead of only ever seeing route names and short
+    # per-page descriptions. No extra LLM call - the scraper's own extracted text is
+    # used directly (see that method's docstring for why). Default on; set false to
+    # skip the extra page read (e.g. a very slow site, or a root page whose content
+    # isn't representative of the rest of the app).
+    deep_context: bool = True
+    context_max_chars: int = 1500
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 

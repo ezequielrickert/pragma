@@ -151,6 +151,41 @@ class PlaywrightScraper(Scraper):
         time.sleep(self.wait_seconds)
         return self.get_state()
 
+    def extract_context(self, max_chars: int = 1500) -> str:
+        """Deeper one-time read of the current page for `SimplePRDGenerator._establish_site_context` -
+        see `Scraper.extract_context`'s docstring for why this is separate from
+        `_extract_description`.
+
+        Unlike `_extract_description` (meta description, else first heading + first
+        substantial paragraph - deliberately terse since it's repeated every turn),
+        this collects *every* h1/h2/h3 (deduped, in document order - a real site's
+        headings are usually its own table of contents of what it does/sells) plus the
+        first several substantial paragraphs (not just one), so a business whose
+        purpose isn't stated in a single meta tag or opening line still comes through -
+        e.g. a product listing whose "what we sell" only becomes clear across a few
+        section headings and blurbs, not one paragraph.
+        """
+        script = """(maxChars) => {
+            const seen = new Set();
+            const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+                .map(h => h.innerText.trim())
+                .filter(t => t.length > 1 && !seen.has(t) && seen.add(t));
+            const paragraphs = Array.from(document.querySelectorAll('p'))
+                .map(p => p.innerText.trim())
+                .filter(t => t.length > 20)
+                .slice(0, 5);
+            const metaDesc = document.querySelector('meta[name="description"]');
+            const parts = [];
+            if (metaDesc && metaDesc.getAttribute('content')) {
+                parts.push(metaDesc.getAttribute('content').trim());
+            }
+            if (headings.length) parts.push('Headings: ' + headings.join(' | '));
+            if (paragraphs.length) parts.push(paragraphs.join(' '));
+            return parts.join('\\n').slice(0, maxChars);
+        }"""
+        self._ensure_browser()
+        return self._page.evaluate(script, max_chars) or ""
+
     def get_state(self) -> PageState:
         """Extract current page structure and interactive DNA."""
         self._ensure_browser()

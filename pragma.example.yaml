@@ -48,6 +48,12 @@ max_stalled_finish_attempts: 3  # give up on a page's remaining unexplored compo
                                  # login retried against invalid credentials) burning the whole run on
                                  # one page. Raise it if a real site legitimately needs more attempts
                                  # before "not improving" is really true (e.g. slow-loading filters).
+deep_context: true       # read a deeper "what is this site/app for" text from the root page once, at
+                          # the start of Discovery, and surface it every iteration - grounds fill
+                          # values/actions in the site's real purpose (e.g. never types "lapicera" into
+                          # a flavor field on an empanada-ordering site). No extra LLM call. Set false
+                          # to skip (e.g. a very slow site, or a root page not representative of the rest).
+context_max_chars: 1500  # cap on the extracted site-context text
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to

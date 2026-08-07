@@ -53,7 +53,11 @@ TOPICS: dict[str, str] = {
         "search box a term relevant to the page's Page context line, a phone field a "
         "plausible-looking number. Never fill a guess-free field with junk text or leave it "
         "blank if a sensible value is inferable - an empty/nonsense value in a required field is "
-        "the most common reason a form fails to submit."
+        "the most common reason a form fails to submit. Also check the 'Site purpose' line shown "
+        "every turn: a field's value must make sense for that specific business, not just match "
+        "its label/type in the abstract - e.g. on a site whose purpose says it sells empanadas, a "
+        "'flavor' or 'sabor' field needs a plausible empanada flavor (ham and cheese, beef, "
+        "chicken, etc.), never an unrelated word."
     ),
     "finish_criteria": (
         "Call finish only when every route listed as pending across the whole session has been "

@@ -50,6 +50,8 @@ class SimplePRDGenerator(PRDGenerator):
         allow_subdomains: bool = False,
         max_stalled_finish_attempts: int = 3,
         docs_client: Optional[DocsClient] = None,
+        deep_context: bool = True,
+        context_max_chars: int = 1500,
     ) -> None:
         """Initialize with brain (agent), hands (scraper), and progress tracker.
 
@@ -122,6 +124,20 @@ class SimplePRDGenerator(PRDGenerator):
                 debt either. A page still making real progress (each attempt
                 reveals something new) never trips this - see
                 `_apply_diminishing_returns`.
+            deep_context: Whether to read a deeper "what is this site/app for" text
+                from the root page once, at the start of Discovery, and surface it on
+                every iteration prompt (see `_establish_site_context`) - grounds the
+                model in what business/domain it's crawling (e.g. "this sells
+                empanadas") before it starts choosing actions, rather than only ever
+                seeing route names and short per-page descriptions. Deliberately no
+                extra LLM call - see `_establish_site_context`'s docstring for why:
+                the raw extracted text is used directly. Falls back to
+                `PageState.description` when the active scraper doesn't implement
+                `Scraper.extract_context` (e.g. `RestScraper` - a known gap, see
+                docs/explicativos/pendientes-futuras-fases.md). Default on; set False
+                to skip entirely (e.g. to save the extra page read on a very slow
+                site, or when the root page's content isn't representative).
+            context_max_chars: Upper bound passed to `Scraper.extract_context()`.
         """
         self.agent = agent
         self.scraper = scraper
@@ -138,6 +154,14 @@ class SimplePRDGenerator(PRDGenerator):
         self.allow_subdomains = allow_subdomains
         self.max_stalled_finish_attempts = max_stalled_finish_attempts
         self.docs_client = docs_client or DocsClient()
+        self.deep_context = deep_context
+        self.context_max_chars = context_max_chars
+        # Set once, from the root page, by _establish_site_context - a persistent,
+        # whole-run "what is this site/app for" line surfaced on every iteration
+        # prompt (see _build_iteration_prompt) and folded into _create_plan's
+        # prompt too. "" when deep_context is off or nothing usable was extracted -
+        # every consumer already treats an empty context_line as "omit it".
+        self.site_context: str = ""
         # Load specialized skills. Note: PROGRESS.md is written mechanically by
         # _update_progress() below - the LLM is never asked to author it, so the
         # "archaeology-progress-tracker" skill is intentionally not loaded/used
@@ -280,6 +304,7 @@ class SimplePRDGenerator(PRDGenerator):
         self._record_page_inventory(state)
         self._update_discovered_routes(state.links, source=url)
         self._record_description(url, state.description)
+        self._establish_site_context(state)
         self._update_progress(
             "DISCOVERY",
             f"Root page: {url}\nComponents found: {len(state.components)}\n"
@@ -412,6 +437,7 @@ class SimplePRDGenerator(PRDGenerator):
         pending = self.graph_store.get_pending(self.base_domain)
         shown = pending[: self.pending_batch_size]
         prompt = (
+            f"{self._site_context_line()}"
             f"High-Fidelity Observation of {state.url}\n"
             f"Title: {state.title}\n"
             f"Detected Components: {len(state.components)}\n"
@@ -473,6 +499,53 @@ class SimplePRDGenerator(PRDGenerator):
         for url, description in self._page_descriptions.items():
             lines.append(f"- **{url}**: {description}")
         return "\n".join(lines) + "\n\n"
+
+    def _establish_site_context(self, state: PageState) -> None:
+        """Set `self.site_context` once, from the root page - a whole-run "what is
+        this site/app for" grounding line, distinct from `state.description`'s
+        per-page (and much terser) context.
+
+        Deliberately no LLM call: an earlier design summarized the extracted text
+        into a short model-written blurb via one extra `agent.generate()` at the
+        start of the run, but every call site that drives the decision loop reuses
+        the same `ScriptedAgent`-style script-of-responses pattern used throughout
+        this project's tests (`agent.act()`/`agent.generate()` both draw from one
+        shared, ordered script) - inserting an unconditional extra `generate()` call
+        here would silently shift every existing script by one entry. Using the
+        scraper's own extracted text directly avoids a model call entirely (cheaper,
+        faster, and per wiki/local-and-small-model-constraints.md's preference for
+        deterministic signals over model judgment wherever the underlying facts are
+        already mechanically available - the same reasoning `component_classifier.py`
+        follows), at the cost of the text being page-content-as-is rather than a
+        polished summary.
+
+        Falls back to `state.description` (already-available, no extra scraper call)
+        when `self.deep_context` is off, the active `Scraper` doesn't implement
+        `extract_context` (e.g. `RestScraper` - Module 3's `/dynamic/*` has no
+        matching route yet, a known gap - see
+        docs/explicativos/pendientes-futuras-fases.md), or the deeper extraction
+        raised for any other reason - a missing/failed context grounding should
+        never abort a run that would otherwise work fine without it.
+        """
+        if not self.deep_context:
+            return
+        try:
+            context = self.scraper.extract_context(max_chars=self.context_max_chars)
+        except NotImplementedError:
+            context = state.description
+        except Exception as exc:  # noqa: BLE001 - degrade to no site context, don't abort the run
+            print(f"Warning: extract_context failed, falling back to page description: {exc}")
+            context = state.description
+        self.site_context = (context or "").strip()
+        if self.site_context:
+            self._update_progress("CONTEXT", f"Site context established:\n{self.site_context}")
+
+    def _site_context_line(self) -> str:
+        """Persistent prompt line surfacing `self.site_context` - shown every
+        iteration (unlike `_last_error_line`/`_pending_guidance_line`, which
+        consume themselves once shown), since "what is this site for" stays true
+        for the whole run, not just the next turn."""
+        return f"Site purpose (established from the landing page): {self.site_context}\n" if self.site_context else ""
 
     def _execute_loop(self, state: PageState) -> None:
         """The core iteration loop for deep component discovery.
@@ -893,6 +966,7 @@ class SimplePRDGenerator(PRDGenerator):
         )
 
         plan_line = f"Plan: {self.plan_summary}\n" if self.plan_summary else ""
+        site_context_line = self._site_context_line()
         loop_line = self._loop_signal_line(state.url)
         error_line = self._last_error_line()
         guidance_line = self._pending_guidance_line()
@@ -901,6 +975,7 @@ class SimplePRDGenerator(PRDGenerator):
         debt_line = self._component_debt_line(cleaned_url)
 
         return (
+            f"{site_context_line}"
             f"{plan_line}"
             f"{error_line}"
             f"{guidance_line}"

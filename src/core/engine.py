@@ -97,6 +97,8 @@ class Engine:
             component_batch_size=config.component_batch_size,
             allow_subdomains=config.allow_subdomains,
             max_stalled_finish_attempts=config.max_stalled_finish_attempts,
+            deep_context=config.deep_context,
+            context_max_chars=config.context_max_chars,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 
