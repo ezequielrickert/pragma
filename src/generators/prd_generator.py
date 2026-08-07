@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import unicodedata
 from typing import List, Optional
 
@@ -52,6 +53,9 @@ class SimplePRDGenerator(PRDGenerator):
         docs_client: Optional[DocsClient] = None,
         deep_context: bool = True,
         context_max_chars: int = 1500,
+        dynamic_url_segments: Optional[List[str]] = None,
+        strip_query_params: bool = True,
+        keep_query_params: Optional[List[str]] = None,
     ) -> None:
         """Initialize with brain (agent), hands (scraper), and progress tracker.
 
@@ -138,6 +142,33 @@ class SimplePRDGenerator(PRDGenerator):
                 to skip entirely (e.g. to save the extra page read on a very slow
                 site, or when the root page's content isn't representative).
             context_max_chars: Upper bound passed to `Scraper.extract_context()`.
+            dynamic_url_segments: Regex patterns (see `_normalize_dynamic_segments`),
+                each tested with `re.fullmatch` against one path segment at a time
+                (never the domain segment, never the whole path at once) - a segment
+                that matches any pattern is replaced with the literal placeholder
+                `{id}` before the URL is used as a graph-node key. Fixes the case
+                where a URL embeds a per-visit token directly in its path (e.g.
+                `/o/elk5kvp8trn54Kx2bNOlw0c3GjVCAGhhP`, a cart/order confirmation
+                page) - without this, every such visit mints a permanently distinct
+                `Page` (and its own separate `Component` set) even though it's the
+                same logical screen every time, which both inflates the graph and
+                burns iteration budget on pages that will never be seen again.
+                Empty by default (no change in behavior for any site that doesn't
+                opt in) - deliberately opt-in per site rather than an automatic
+                "this looks like a token" heuristic, since a real product-id
+                segment (e.g. an ASIN-like code) could otherwise be merged by
+                mistake. See docs/explicativos/neo4j.md's "Problema conocido"
+                section for the full write-up.
+            strip_query_params: Whether query strings are dropped entirely from the
+                graph-node key by default (True) - most query params (tracking
+                tokens, session ids) don't represent meaningfully different content.
+                Set False to preserve every query string exactly as seen (the
+                pre-existing, unfixed behavior).
+            keep_query_params: Names of query params to keep even when
+                `strip_query_params` is True - for a site where a specific param
+                genuinely changes page content (e.g. `?page=2` for pagination).
+                Ignored when `strip_query_params` is False (nothing is stripped to
+                begin with).
         """
         self.agent = agent
         self.scraper = scraper
@@ -156,6 +187,20 @@ class SimplePRDGenerator(PRDGenerator):
         self.docs_client = docs_client or DocsClient()
         self.deep_context = deep_context
         self.context_max_chars = context_max_chars
+        # Compiled once here, not on every _clean_url call - a URL is normalized on
+        # essentially every operation this class does, so re-compiling per call would
+        # repeat the same regex-compile cost on every single navigation/link/component
+        # lookup for the whole run.
+        self._dynamic_segment_patterns = [re.compile(p) for p in (dynamic_url_segments or [])]
+        self.strip_query_params = strip_query_params
+        self.keep_query_params = set(keep_query_params or [])
+        # {templated cleaned key ("domain/o/{id}"): a real, concrete URL that
+        # actually produced that key} - populated by _clean_url itself whenever
+        # normalization collapses a dynamic segment. Without this, choosing to
+        # `navigate` to such a Pending route would try to load the literal string
+        # ".../o/{id}" (not a real page) instead of an actual, previously-seen
+        # instance - see _resolve_goto_url.
+        self._template_sample_urls: dict = {}
         # Set once, from the root page, by _establish_site_context - a persistent,
         # whole-run "what is this site/app for" line surfaced on every iteration
         # prompt (see _build_iteration_prompt) and folded into _create_plan's
@@ -335,7 +380,9 @@ class SimplePRDGenerator(PRDGenerator):
 
     def _clean_url(self, url: str) -> str:
         """Normalize a URL into a graph-node key: drop scheme and trailing slash,
-        and drop the fragment unless it looks like a client-side route.
+        drop the fragment unless it looks like a client-side route, replace any
+        configured dynamic path segment with a placeholder, and apply the query-
+        string policy (`strip_query_params`/`keep_query_params`).
 
         A route discovered via an http:// link almost always redirects to
         https:// (or vice versa) - without stripping the scheme, the two
@@ -356,16 +403,83 @@ class SimplePRDGenerator(PRDGenerator):
         anchor, dropped) - a bare-segment router with no leading `/` (e.g.
         `#products`) won't be recognized as a route by this and is a known,
         documented v1 gap rather than something solved speculatively here.
+        Dynamic-segment normalization (below) is not applied inside a kept
+        hash route either - out of scope for this pass, see
+        docs/explicativos/pendientes-futuras-fases.md.
+
+        Query strings and dynamic path segments are the other source of
+        node-identity duplication this method fixes: a URL like
+        `/o/<random-order-token>` mints a brand-new, permanently-distinct
+        `Page` on every single visit even though it's the same logical screen
+        each time - see `_normalize_dynamic_segments`/`_normalize_query`.
         """
         base, _, fragment = url.partition("#")
+        base, _, query = base.partition("?")
         base = base.rstrip("/")
         for prefix in ("https://", "http://"):
             if base.startswith(prefix):
                 base = base[len(prefix):]
                 break
+        base = self._normalize_dynamic_segments(base)
+        result = base + self._normalize_query(query)
         if "/" in fragment:
-            return f"{base}#{fragment.rstrip('/')}"
-        return base
+            result = f"{result}#{fragment.rstrip('/')}"
+        if "{id}" in result:
+            # First real URL seen for this template wins - later ones collapse into
+            # the same node without overwriting the sample, so a `navigate` to this
+            # templated key (see _resolve_goto_url) always lands somewhere real.
+            self._template_sample_urls.setdefault(result, url)
+        return result
+
+    def _normalize_dynamic_segments(self, base: str) -> str:
+        """Replace any path segment matching a configured `dynamic_url_segments`
+        pattern with the literal placeholder `{id}`.
+
+        `base` is the scheme-stripped `domain/path/segments` string (query and
+        fragment already removed by `_clean_url`) - the first segment (the
+        domain itself) is never a candidate, only what follows it, so a pattern
+        can never accidentally collapse two entirely different sites into one
+        node. Each remaining segment is matched with `re.fullmatch` (the whole
+        segment must match, not a substring) against every configured pattern in
+        order; the first match wins. No-op (returns `base` unchanged) when no
+        patterns are configured - the default, zero-behavior-change case.
+        """
+        if not self._dynamic_segment_patterns:
+            return base
+        parts = base.split("/")
+        if len(parts) < 2:
+            return base
+        domain, path_segments = parts[0], parts[1:]
+        normalized = [
+            "{id}"
+            if segment and any(pattern.fullmatch(segment) for pattern in self._dynamic_segment_patterns)
+            else segment
+            for segment in path_segments
+        ]
+        return "/".join([domain, *normalized])
+
+    def _normalize_query(self, query: str) -> str:
+        """Apply the `strip_query_params`/`keep_query_params` policy to a URL's
+        raw query string (without the leading `?`), returning either `""` or a
+        new `?...`-prefixed string to append to the cleaned path.
+
+        `strip_query_params=False` preserves the query exactly as seen (opt-out,
+        the pre-existing unfixed behavior). Otherwise every param is dropped
+        unless its name is in `keep_query_params` - most query params seen in
+        practice (tracking/session tokens) don't represent meaningfully
+        different content, so stripping by default is the safer choice; a site
+        where a param genuinely changes what's on the page (e.g. `?page=2`)
+        should list it in `keep_query_params` instead of disabling this
+        entirely.
+        """
+        if not query:
+            return ""
+        if not self.strip_query_params:
+            return f"?{query}"
+        if not self.keep_query_params:
+            return ""
+        kept = [pair for pair in query.split("&") if pair.split("=", 1)[0] in self.keep_query_params]
+        return f"?{'&'.join(kept)}" if kept else ""
 
     def _upsert(self, url: str, status: str = "Pending", components: int = 0, context: str = "", label: str = "") -> None:
         """Normalize a URL into its graph-node key and upsert it into the graph store."""
@@ -1714,6 +1828,13 @@ class SimplePRDGenerator(PRDGenerator):
         (e.g. it invented a different absolute URL) is left untouched.
         """
         target = target.strip()
+        sample = self._template_sample_urls.get(target)
+        if sample:
+            # `target` is a templated key ("domain/o/{id}") - not a real, loadable
+            # URL on its own (see _clean_url) - resolve it to the first concrete
+            # instance actually seen instead of trying to load the literal
+            # placeholder string.
+            return sample
         if target.startswith(("http://", "https://")):
             return target
         return f"https://{target}"

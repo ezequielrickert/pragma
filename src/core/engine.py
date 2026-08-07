@@ -99,6 +99,9 @@ class Engine:
             max_stalled_finish_attempts=config.max_stalled_finish_attempts,
             deep_context=config.deep_context,
             context_max_chars=config.context_max_chars,
+            dynamic_url_segments=config.dynamic_url_segments,
+            strip_query_params=config.strip_query_params,
+            keep_query_params=config.keep_query_params,
         )
         return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 

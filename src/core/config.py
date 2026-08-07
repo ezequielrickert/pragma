@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 import yaml
 
@@ -78,6 +78,23 @@ class PragmaConfig:
     # isn't representative of the rest of the app).
     deep_context: bool = True
     context_max_chars: int = 1500
+    # Regex patterns (re.fullmatch against one path segment at a time, domain
+    # segment never a candidate) marking a URL path segment as per-visit/dynamic
+    # rather than a real distinct route - e.g. an order confirmation page whose
+    # URL embeds a random token (`/o/<token>`). A matching segment is replaced
+    # with the literal placeholder `{id}` before the URL becomes a graph-node
+    # key, so every visit collapses into one node instead of minting a new one
+    # per token. Empty by default - opt-in per site, see
+    # SimplePRDGenerator._normalize_dynamic_segments and
+    # docs/explicativos/neo4j.md's "Problema conocido" section.
+    dynamic_url_segments: List[str] = field(default_factory=list)
+    # Whether query strings are dropped entirely from the graph-node key by
+    # default - most (tracking/session tokens) don't represent meaningfully
+    # different content. See SimplePRDGenerator._normalize_query.
+    strip_query_params: bool = True
+    # Query param names to keep even when strip_query_params is True, for a site
+    # where a specific param genuinely changes page content (e.g. `?page=2`).
+    keep_query_params: List[str] = field(default_factory=list)
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
