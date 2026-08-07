@@ -38,8 +38,8 @@ def test_find_revealed_options_returns_only_newly_appeared_option_role_elements(
     ]
     revealed = find_revealed_options(before, after)
     assert revealed == [
-        {"text": "Mi Gusto", "selected": True},
-        {"text": "Solo Empanadas", "selected": False},
+        {"text": "Mi Gusto", "selected": True, "path": "div#opt1"},
+        {"text": "Solo Empanadas", "selected": False, "path": "div#opt2"},
     ]
 
 

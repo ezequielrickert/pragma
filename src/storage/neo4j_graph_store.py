@@ -26,10 +26,28 @@ from ..core.registry import GRAPH_STORE_REGISTRY
 # to print via Python logging's default stderr handler and read like a real error.
 logging.getLogger("neo4j").setLevel(logging.ERROR)
 
-# Shared filter clause for the `semantic_only` component queries below - excludes
-# the cursor:pointer catch-all layer (capped, noisier than the ARIA/semantic
-# selector) from unexplored-component counts and completion-guard checks.
-_SEMANTIC_ONLY_CLAUSE = " WHERE c.layer <> 'pointer'"
+# Predicate for the `semantic_only` component queries below - excludes the
+# cursor:pointer catch-all layer (capped, noisier than the ARIA/semantic selector)
+# from unexplored-component counts and completion-guard checks.
+_SEMANTIC_ONLY_PREDICATE = "c.layer <> 'pointer'"
+
+# Every debt-counting query below must also exclude a grouped member (e.g. one of a
+# revealed dropdown's options - see GraphStore.record_component_options'
+# `excluded_from_debt` docstring), regardless of whether `semantic_only` filtering is
+# also applied - `coalesce(..., false)` handles rows written before this property
+# existed (never set -> null -> treated as false, i.e. still counted, matching the
+# pre-existing behavior for anything not explicitly excluded).
+_NOT_EXCLUDED_PREDICATE = "NOT coalesce(c.excluded_from_debt, false)"
+
+
+def _debt_where_clause(semantic_only: bool) -> str:
+    """Build the `WHERE` clause shared by every unexplored-component query -
+    always excludes grouped members, additionally excludes the pointer layer
+    when `semantic_only` is set."""
+    predicates = [_NOT_EXCLUDED_PREDICATE]
+    if semantic_only:
+        predicates.append(_SEMANTIC_ONLY_PREDICATE)
+    return " WHERE " + " AND ".join(predicates)
 
 
 @dataclass
@@ -353,7 +371,9 @@ class Neo4jGraphStore(GraphStore):
                 site=site, page_url=page_url, path=path, entry=entry,
             )
 
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, excluded_from_debt: bool = False
+    ) -> None:
         with self._session() as session:
             session.run(
                 """
@@ -364,10 +384,11 @@ class Neo4jGraphStore(GraphStore):
                     c.tag = '', c.text = '', c.role = '', c.input_type = '',
                     c.visible = true, c.layer = 'semantic', c.component_type = '',
                     c.interacted = false, c.interactions = []
-                SET c.options = $options
+                SET c.options = $options, c.excluded_from_debt = $excluded_from_debt
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, options=options,
+                excluded_from_debt=excluded_from_debt,
             )
 
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
@@ -378,7 +399,8 @@ class Neo4jGraphStore(GraphStore):
                 RETURN c.path AS path, c.tag AS tag, c.text AS text,
                        c.interacted AS interacted, c.visible AS visible,
                        c.component_type AS component_type, c.options AS options,
-                       c.x AS x, c.y AS y, c.width AS width, c.height AS height
+                       c.x AS x, c.y AS y, c.width AS width, c.height AS height,
+                       c.excluded_from_debt AS excluded_from_debt
                 """,
                 site=site, page_url=page_url,
             )
@@ -388,14 +410,13 @@ class Neo4jGraphStore(GraphStore):
                     "interacted": r["interacted"], "visible": r["visible"],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
+                    "excluded_from_debt": bool(r["excluded_from_debt"]),
                 }
                 for r in result
             }
 
     def count_unexplored_components(self, site: str, semantic_only: bool = True) -> Tuple[int, int]:
-        query = "MATCH (c:Component {site: $site})"
-        if semantic_only:
-            query += _SEMANTIC_ONLY_CLAUSE
+        query = "MATCH (c:Component {site: $site})" + _debt_where_clause(semantic_only)
         query += (
             " RETURN sum(CASE WHEN c.interacted THEN 0 ELSE 1 END) AS unexplored, count(c) AS total"
         )
@@ -406,9 +427,9 @@ class Neo4jGraphStore(GraphStore):
     def get_pages_with_unexplored_components(
         self, site: str, limit: Optional[int] = None, semantic_only: bool = True
     ) -> List[Dict[str, Any]]:
-        query = "MATCH (c:Component {site: $site, interacted: false})"
-        if semantic_only:
-            query += _SEMANTIC_ONLY_CLAUSE
+        query = (
+            "MATCH (c:Component {site: $site, interacted: false})" + _debt_where_clause(semantic_only)
+        )
         query += (
             " RETURN c.page_url AS url, count(c) AS unexplored_count"
             " ORDER BY unexplored_count DESC"
@@ -421,9 +442,10 @@ class Neo4jGraphStore(GraphStore):
             return [dict(r) for r in session.run(query, **params)]
 
     def page_has_unexplored_components(self, site: str, url: str, semantic_only: bool = True) -> bool:
-        query = "MATCH (c:Component {site: $site, page_url: $url, interacted: false})"
-        if semantic_only:
-            query += _SEMANTIC_ONLY_CLAUSE
+        query = (
+            "MATCH (c:Component {site: $site, page_url: $url, interacted: false})"
+            + _debt_where_clause(semantic_only)
+        )
         query += " RETURN c LIMIT 1"
         with self._session() as session:
             return session.run(query, site=site, url=url).single() is not None
@@ -436,7 +458,8 @@ class Neo4jGraphStore(GraphStore):
                 RETURN c.page_url AS page_url, c.path AS path, c.tag AS tag, c.text AS text,
                        c.interacted AS interacted, c.interactions AS interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
-                       c.component_type AS component_type, c.options AS options
+                       c.component_type AS component_type, c.options AS options,
+                       c.excluded_from_debt AS excluded_from_debt
                 """,
                 site=site,
             )
@@ -450,5 +473,6 @@ class Neo4jGraphStore(GraphStore):
                     "interactions": [json.loads(e) for e in (r["interactions"] or [])],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
+                    "excluded_from_debt": bool(r["excluded_from_debt"]),
                 }
             return ledger

@@ -174,6 +174,53 @@ def test_memory_store_get_pages_with_unexplored_components_sorted_descending():
     ]
 
 
+def test_memory_store_excluded_from_debt_members_never_count_as_unexplored():
+    """A grouped member (e.g. one of a revealed dropdown's options) tagged
+    excluded_from_debt=True must never itself count toward unexplored debt,
+    in any of the three debt-facing query methods - the fix for a dropdown
+    with N choices otherwise requiring N individual clicks (one per choice,
+    e.g. one per empanada flavor) before `finish` would be allowed, on top
+    of the trigger that revealed them."""
+    store = InMemoryGraphStore()
+    store.record_component("a.com", "a.com/x", "div#trigger", tag="div", text="Sabor")
+    store.record_component("a.com", "a.com/x", "div#opt1", tag="div", role="option", text="Jamon y queso")
+    store.record_component("a.com", "a.com/x", "div#opt2", tag="div", role="option", text="Carne")
+    store.record_component_options(
+        "a.com", "a.com/x", "div#opt1", '{"kind": "revealed_option_member"}', excluded_from_debt=True
+    )
+    store.record_component_options(
+        "a.com", "a.com/x", "div#opt2", '{"kind": "revealed_option_member"}', excluded_from_debt=True
+    )
+
+    # Only the trigger counts, in both numerator and denominator - the two
+    # excluded options drop out of "total" too, same as the pointer layer does
+    # under semantic_only, since they no longer represent tracked debt at all.
+    assert store.count_unexplored_components("a.com", semantic_only=False) == (1, 1)
+    assert store.get_pages_with_unexplored_components("a.com") == [
+        {"url": "a.com/x", "unexplored_count": 1}
+    ]
+    assert store.page_has_unexplored_components("a.com", "a.com/x") is True
+
+    # Interacting with the trigger alone (never the options) clears the page's debt.
+    store.record_component_interaction("a.com", "a.com/x", "div#trigger", action="click")
+    assert store.count_unexplored_components("a.com", semantic_only=False) == (0, 1)
+    assert store.get_pages_with_unexplored_components("a.com") == []
+    assert store.page_has_unexplored_components("a.com", "a.com/x") is False
+
+
+def test_memory_store_record_component_options_preserves_excluded_from_debt_flag():
+    """excluded_from_debt must survive get_component_states/get_component_ledger
+    (not just the internal debt-counting queries) so a caller inspecting the
+    persisted checklist can tell a grouped member apart from a standalone one."""
+    store = InMemoryGraphStore()
+    store.record_component_options(
+        "a.com", "a.com/x", "div#opt1", '{"kind": "revealed_option_member"}', excluded_from_debt=True
+    )
+
+    assert store.get_component_states("a.com", "a.com/x")["div#opt1"]["excluded_from_debt"] is True
+    assert store.get_component_ledger("a.com")["a.com/x"]["div#opt1"]["excluded_from_debt"] is True
+
+
 def test_memory_store_clear_site_removes_components_too():
     store = InMemoryGraphStore()
     store.record_component("a.com", "a.com/x", "button#a")
@@ -474,6 +521,65 @@ def test_build_page_catalog_facts_flags_genuinely_unlabeled_components(tmp_path)
     # No CSS selector/path leaks into the fact text - the narration skill is
     # explicitly told never to surface implementation details.
     assert "#" not in facts[0]["text"]
+
+
+def test_opening_a_dropdown_does_not_require_clicking_every_revealed_option(tmp_path):
+    """End-to-end regression test for the empanad.app flavor-picker case: opening a
+    dropdown/combobox (one click on its trigger) must be enough to satisfy
+    `_reject_premature_finish` - the model must NOT be forced to individually click
+    every one of the revealed options (e.g. every flavor) before `finish` succeeds."""
+    from src.core.engine import Engine
+    from src.core.interfaces import PageState, Scraper
+    from src.generators.prd_generator import SimplePRDGenerator
+    from tests.test_imports import ScriptedAgent
+
+    class FlavorPickerScraper(Scraper):
+        def navigate(self, url):
+            return PageState(
+                url="https://stub",
+                title="Stub",
+                components=[{"tag": "div", "text": "Elegir sabor", "path": "div#trigger"}],
+                links=[],
+            )
+
+        def click(self, selector):
+            if selector == "div#trigger":
+                return PageState(
+                    url="https://stub",
+                    title="Stub",
+                    components=[
+                        {"tag": "div", "text": "Elegir sabor", "path": "div#trigger"},
+                        {"tag": "div", "text": "Jamon y queso", "path": "div#opt1", "role": "option"},
+                        {"tag": "div", "text": "Carne", "path": "div#opt2", "role": "option"},
+                        {"tag": "div", "text": "Humita", "path": "div#opt3", "role": "option"},
+                    ],
+                    links=[],
+                )
+            return self.get_state()
+
+        def get_state(self):
+            return PageState(url="https://stub", title="Stub")
+
+        def close(self):
+            pass
+
+    store = InMemoryGraphStore()
+    agent = ScriptedAgent(["plan", "CLICK 1", "FINISH"])
+    scraper = FlavorPickerScraper()
+    gen = SimplePRDGenerator(
+        agent, scraper, graph_store=store, progress_file=str(tmp_path / "progress.md"), max_iterations=5
+    )
+    engine = Engine(scraper, agent, gen, out_dir=str(tmp_path))
+    engine.run("https://stub.example")
+
+    # The run must have concluded on its first FINISH attempt, not been forced to
+    # revisit and click div#opt1/opt2/opt3 individually first.
+    assert store.get_pages_with_unexplored_components(gen.base_domain) == []
+    states = store.get_component_states(gen.base_domain, "stub")
+    assert states["div#opt1"]["excluded_from_debt"] is True
+    assert states["div#trigger"]["interacted"] is True
+    # The options are still fully discovered/listed, just not individually required.
+    assert set(states.keys()) == {"div#trigger", "div#opt1", "div#opt2", "div#opt3"}
 
 
 def test_write_component_catalog_narrates_per_page_and_persists_facts(tmp_path):

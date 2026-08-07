@@ -83,7 +83,19 @@ def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[st
     """
     before_paths = {c.get("path") for c in before}
     return [
-        {"text": (c.get("text") or "").strip(), "selected": bool(c.get("selected"))}
+        {
+            "text": (c.get("text") or "").strip(),
+            "selected": bool(c.get("selected")),
+            # Added so the caller (SimplePRDGenerator._handle_iteration_result) can
+            # tag each revealed option's own Component node as a grouped member of
+            # the trigger that revealed it (see GraphStore.record_component_options'
+            # `excluded_from_debt`) - without this, a dropdown with N options would
+            # persist N independently-required-to-interact components merely from
+            # being displayed once, in addition to the trigger's own consolidated
+            # `choices` list, forcing the model to individually click every option
+            # (e.g. every empanada flavor) before `finish` would be allowed.
+            "path": c.get("path"),
+        }
         for c in after
         if (c.get("role") or "").lower() in _OPTION_ROLES and c.get("path") not in before_paths
     ]

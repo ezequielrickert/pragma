@@ -535,7 +535,9 @@ class GraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, excluded_from_debt: bool = False
+    ) -> None:
         """Set (fully overwrite) the JSON-encoded `options` field on a Component
         node - structured facts beyond simple existence: a revealed dropdown's
         choices and which one is selected, a stepper's paired increment/
@@ -559,6 +561,24 @@ class GraphStore(ABC):
         `record_component_interaction`'s auto-create (a caller with options to
         record for a path it hasn't explicitly `record_component`-ed yet
         should still succeed, not silently no-op).
+
+        `excluded_from_debt`: marks this component as a *grouped member* that
+        should never itself count toward "unexplored debt" (see
+        `count_unexplored_components`/`get_pages_with_unexplored_components`/
+        `page_has_unexplored_components` below) - the fix for a revealed
+        dropdown/combobox's option set: each option (e.g. one of a dozen
+        empanada flavors) is still discovered and still gets its own Component
+        node (so it's listable, clickable, and shows up in the ledger/catalog
+        for a human to audit), but only the *trigger* that revealed them is
+        required to have been interacted with to satisfy the completion guard
+        - not every individual option. Without this, a page with N revealed
+        options needed all N clicked before `finish` was allowed, in addition
+        to the trigger itself, which is both wasteful and not what "explored
+        this selector" should mean. Defaults to `False` so every existing
+        caller (steppers, radio/checkbox groups) keeps its current, unchanged
+        behavior - those groups' members still individually count as debt,
+        which is intentionally out of scope for this flag for now (see
+        docs/explicativos/pendientes-futuras-fases.md).
         """
         raise NotImplementedError
 

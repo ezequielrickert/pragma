@@ -1099,6 +1099,15 @@ class SimplePRDGenerator(PRDGenerator):
                 )
                 continue
 
+            if kind == "revealed_option_member":
+                # Already represented in full inside its trigger's own
+                # "combobox_trigger" fact (`choices`, above) - a separate fact per
+                # option here would just repeat every option's text a second time,
+                # which is exactly the per-variant duplication this component_type
+                # is meant to avoid (see GraphStore.record_component_options'
+                # `excluded_from_debt` docstring).
+                continue
+
             # An empty `text` here has already been through the scraper's
             # broadened label fallback chain (innerText -> aria-label/
             # aria-labelledby/title/img-alt/svg-title -> textContent - see
@@ -1465,6 +1474,26 @@ class SimplePRDGenerator(PRDGenerator):
                     self.base_domain, self._clean_url(from_url), target_path,
                     json.dumps({"kind": "combobox_trigger", "choices": revealed}),
                 )
+                # Each revealed option was already persisted as its own Component by
+                # `_record_page_inventory` above (it's part of `state.components`) and
+                # would otherwise count as its own unit of unexplored debt - meaning a
+                # dropdown with a dozen choices (e.g. every empanada flavor) would
+                # require clicking every single one before `finish` is allowed, on top
+                # of the trigger itself. Tagging each one `excluded_from_debt=True`
+                # keeps it discoverable/listable (and still shown in the ledger/catalog
+                # via its own entry - see `_build_page_catalog_facts`'s
+                # `revealed_option_member` handling) without requiring individual
+                # interaction - interacting with the trigger that revealed the set
+                # already counts as having explored the selector.
+                for option in revealed:
+                    option_path = option.get("path")
+                    if not option_path:
+                        continue
+                    self.graph_store.record_component_options(
+                        self.base_domain, self._clean_url(from_url), option_path,
+                        json.dumps({"kind": "revealed_option_member", "trigger_path": target_path}),
+                        excluded_from_debt=True,
+                    )
 
         # `action.raw` is deliberately left showing the model's original, literal
         # output (useful for judging the model's own behavior) - but that means a
