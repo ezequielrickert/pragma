@@ -98,6 +98,19 @@ pendiente".
   vida real) no se detecta - la señal estructural asume que la convención HTTP GET=no-mutante se
   respeta, que no siempre es cierto.
 
+## Login / `storage_state`
+
+- **`RestScraper` (Módulo 3) no soporta `storage_state_path` todavía** - lo acepta como parámetro
+  para seguir siendo un reemplazo directo de `PlaywrightScraper`, pero lo ignora. El servidor
+  standalone (`src/api_server/`) no tiene ninguna ruta `/dynamic/*` para cargar una sesión al
+  arrancar su browser persistente.
+- **`close()` no re-guarda el `storage_state` al final de la corrida** - si el sitio renueva una
+  cookie de sesión durante el crawl, el archivo guardado queda desactualizado hasta que se vuelva a
+  correr `python3 src/cli.py login` a mano.
+- **`python3 src/cli.py login` depende de que el usuario sepa cuándo terminó de loguearse** (un
+  `input()` bloqueante en la terminal) - no hay detección automática de "sesión iniciada" (ej.
+  esperar un cambio de URL o la aparición de una cookie de sesión conocida).
+
 ## General (no ligado a una fase puntual)
 
 - **Instrumentación/métricas de la corrida**: no hay ningún resumen que compare, en una corrida

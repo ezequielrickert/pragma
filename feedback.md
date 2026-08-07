@@ -32,3 +32,9 @@
   el modo seguro de arriba: una vez logueado, el crawler se topa con muchas más acciones que sí
   mutan estado (comprar, eliminar, confirmar inscripción) - con `safe_mode` ya implementado, esto
   es más seguro de agregar de lo que hubiera sido antes.
+    - ✅ Parcial: `python3 src/cli.py login <url>` + `storage_state_path` ya permiten loguearse una
+      vez a mano y reusar esa sesión en corridas posteriores (`PlaywrightScraper` opcional, sin
+      romper nada para sitios que no necesitan login). Ver
+      docs/explicativos/playwright.md#sesión-persistente--login-storage_state. Falta la parte de
+      "pasarle credenciales y que loguee solo" (usuario/contraseña automático) - sigue siendo
+      manual, un login por vez, a mano.

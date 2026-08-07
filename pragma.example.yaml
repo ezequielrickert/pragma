@@ -84,6 +84,13 @@ safe_mode: true  # block (never execute) a click/submit that looks like it would
                  # the final report instead. fill is never blocked. Set false (or --unsafe on the
                  # CLI) to actually perform every action the model chooses.
 
+# storage_state_path: storage_state.json  # optional - path to a Playwright storage-state JSON
+                          # file (cookies + localStorage) so a crawl of a site that requires login
+                          # starts already authenticated. Genuinely optional: unset (the default)
+                          # is unchanged behavior for any site that doesn't need login. Create the
+                          # file once with `python3 src/cli.py login <url> --storage-state <path>`
+                          # (gitignored by default - never commit it, it holds real session cookies).
+
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to
 # that provider's own environment variables (see .env.example) - so you never

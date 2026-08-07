@@ -22,10 +22,22 @@ without touching your saved config:
 - `--agent <name>` / `--provider <name>` (also `gemini`, `openai`, `local`, `mock`)
 - `--generator <name>` (default: `simple`, the Plan-Execute-Iterate "Ralph-Loop")
 - `--out`, `--logs`, `--progress-logs`, `--graph-logs`, `--max-iterations`, `--wait-seconds`,
-  `--batch-size`, `--headed`, `--config <path/to/other.yaml>`
+  `--batch-size`, `--headed`, `--unsafe`, `--storage-state <path>`, `--config <path/to/other.yaml>`
 
 Precedence for every setting: explicit CLI flag > `pragma.yaml` > environment variable (`.env`)
 > built-in default.
+
+Crawling a site that requires login: `python3 src/cli.py login <url>` opens a visible browser,
+lets you log in by hand, and saves the session to a file (default `storage_state.json`, gitignored
+- it holds real cookies, never commit it). Pass that file on future runs with `--storage-state
+<path>` (or `storage_state_path:` in `pragma.yaml`) so the crawl starts already authenticated -
+entirely optional, every site that doesn't need login works exactly as before.
+
+By default, Pragma runs in **safe mode**: a click/submit that looks like it would mutate real
+state (a form submitting via POST, or a button like "Comprar"/"Eliminar"/"Confirmar") is detected
+and *not* executed - it's recorded as a mutation boundary in the final report instead. Pass
+`--unsafe` to disable this and let the model actually perform every action it chooses, including
+real purchases/deletions/signups.
 
 Debugging a run: `research_logs/` is the engine's live working-memory snapshot (overwritten each
 stage, used to build the final PRD). `progress_logs/` is a separate, append-only trail of every

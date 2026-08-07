@@ -3,6 +3,7 @@ Playwright-based stateful scraper for Pragma with high-fidelity discovery.
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -16,7 +17,12 @@ from ..core.registry import SCRAPER_REGISTRY
 class PlaywrightScraper(Scraper):
     """A high-fidelity scraper that maintains a browser session."""
 
-    def __init__(self, headless: bool = True, wait_seconds: float = 15.0) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        wait_seconds: float = 15.0,
+        storage_state_path: Optional[str] = None,
+    ) -> None:
         """Initialize scraper settings.
 
         Args:
@@ -25,19 +31,60 @@ class PlaywrightScraper(Scraper):
                 before reading links/components - JS-heavy nav (mega menus,
                 client-rendered content) can otherwise still be missing from
                 the DOM at extraction time. Raise this for slow/JS-heavy sites.
+            storage_state_path: Optional path to a Playwright storage-state JSON
+                file (cookies + localStorage) to load into the browser context,
+                so a crawl of a site that requires login starts already
+                authenticated - without this, every run gets a brand-new, empty,
+                logged-out browser, completely isolated from any session you're
+                logged into in your own regular browser (a separate process
+                entirely - see docs/explicativos/playwright.md). Genuinely
+                optional: `None` (the default) behaves exactly as before this
+                parameter existed, for every site that doesn't need login.
+                Create the file once via `python3 src/cli.py login <url>
+                --storage-state <path>` (see `src/core/login_helper.py`) - a
+                missing file at this path degrades to a fresh, logged-out
+                context with a warning (see `_browser_context_kwargs`), it never
+                raises, since "haven't logged in yet" shouldn't crash a run
+                that doesn't actually need it.
         """
         self.headless = headless
         self.wait_seconds = wait_seconds
+        self.storage_state_path = storage_state_path
         self._playwright = None
         self._browser = None
+        self._context = None
         self._page = None
 
+    def _browser_context_kwargs(self) -> Dict[str, Any]:
+        """kwargs for `browser.new_context()` - `storage_state` only when a path
+        was configured *and* the file actually exists (split out from
+        `_ensure_browser` so this decision is testable without launching a real
+        browser).
+
+        A configured-but-missing path (e.g. `login` was never run yet) degrades
+        to a fresh, logged-out context with a printed warning, rather than
+        raising - this project's established best-effort posture for an
+        optional convenience (see `SimplePRDGenerator._seed_from_sitemap` for
+        the same philosophy applied to sitemap seeding).
+        """
+        if not self.storage_state_path:
+            return {}
+        if os.path.exists(self.storage_state_path):
+            return {"storage_state": self.storage_state_path}
+        print(
+            f"Warning: storage_state_path {self.storage_state_path!r} not found - starting a "
+            f"fresh, logged-out session. Run `python3 src/cli.py login <url> --storage-state "
+            f"{self.storage_state_path}` first to create it."
+        )
+        return {}
+
     def _ensure_browser(self) -> None:
-        """Lazily start playwright and browser."""
+        """Lazily start playwright, browser, and context."""
         if not self._playwright:
             self._playwright = sync_playwright().start()
             self._browser = self._playwright.chromium.launch(headless=self.headless)
-            self._page = self._browser.new_page()
+            self._context = self._browser.new_context(**self._browser_context_kwargs())
+            self._page = self._context.new_page()
 
     def navigate(self, url: str) -> PageState:
         """Navigate to a URL and capture deep state."""
@@ -589,11 +636,19 @@ class PlaywrightScraper(Scraper):
         return results
 
     def close(self) -> None:
-        """Shutdown browser and playwright."""
+        """Shutdown browser and playwright.
+
+        Note: this does not save `storage_state` back out - a login session's
+        cookies typically outlive one crawl run, so re-saving on every close
+        would silently drift the file (e.g. a session-refresh cookie churn)
+        without the user asking for it. Re-run `python3 src/cli.py login` to
+        refresh the file if the saved session actually expires.
+        """
         if self._browser:
             self._browser.close()
         if self._playwright:
             self._playwright.stop()
         self._browser = None
+        self._context = None
         self._playwright = None
         self._page = None

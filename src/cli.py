@@ -21,6 +21,7 @@ from src.core import prompts
 from src.core.app import run_app
 from src.core.config import PragmaConfig
 from src.core.engine import Engine
+from src.core.login_helper import run_login_helper
 from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
 from src.core.wizard import run_config_wizard
 
@@ -97,6 +98,32 @@ def parse_args(argv: list) -> argparse.Namespace:
         "(default: on; matters for --graph-store neo4j, which persists across runs). "
         "Use --no-fresh to resume a previous run's progress on a large, stable site instead.",
     )
+    parser.add_argument(
+        "--storage-state",
+        dest="storage_state_path",
+        help="Path to a Playwright storage-state JSON file (cookies + localStorage) to load so "
+        "the crawl starts already logged in - create one first with "
+        "`python3 src/cli.py login <url> --storage-state <path>`. Optional: omit for any site "
+        "that doesn't need login (the default, unchanged behavior).",
+    )
+    return parser.parse_args(argv)
+
+
+def parse_login_args(argv: list) -> argparse.Namespace:
+    """Parse arguments for `python3 src/cli.py login <url> [--storage-state <path>]`."""
+    parser = argparse.ArgumentParser(
+        prog="src/cli.py login",
+        description="Open a browser, log in by hand, and save the session for `--storage-state` "
+        "to reuse on later analysis runs.",
+    )
+    parser.add_argument("url", help="URL to open (e.g. the site's login page)")
+    parser.add_argument(
+        "--storage-state",
+        dest="storage_state_path",
+        default="storage_state.json",
+        help="Where to save the session (default: storage_state.json - gitignored, never commit "
+        "it, it contains real session cookies)",
+    )
     return parser.parse_args(argv)
 
 
@@ -105,13 +132,20 @@ def main() -> None:
 
     Bare `python3 src/cli.py` from a real terminal launches the interactive menu
     app (navigate between analyzing a URL and configuring the pipeline, no flags
-    needed). `python3 src/cli.py config` jumps straight to the setup wizard. Any
-    other invocation (flags/positional URL) runs a single analysis directly, for
+    needed). `python3 src/cli.py config` jumps straight to the setup wizard.
+    `python3 src/cli.py login <url>` opens a browser to log in by hand and save
+    the session for `--storage-state`/`storage_state_path` to reuse. Any other
+    invocation (flags/positional URL) runs a single analysis directly, for
     scripting/automation.
     """
     argv = sys.argv[1:]
     if argv and argv[0] == "config":
         run_config_wizard()
+        return
+
+    if argv and argv[0] == "login":
+        login_args = parse_login_args(argv[1:])
+        run_login_helper(login_args.url, login_args.storage_state_path)
         return
 
     if not argv:

@@ -91,6 +91,29 @@ entre sus hermanos del mismo tag si no. El recorrido hacia la raíz (`gp`) tambi
 de un shadow root vía `getRootNode().host`, así un elemento adentro de un shadow DOM igual obtiene
 un path resoluble.
 
+## Sesión persistente / login (`storage_state`)
+
+Cada corrida de Pragma lanza un Chromium **nuevo y vacío** (`chromium.launch()`), completamente
+aislado de cualquier browser que tengas abierto vos — loguearte a mano en tu Chrome de siempre no
+tiene ningún efecto sobre la sesión de Pragma, son procesos totalmente distintos sin cookies
+compartidas.
+
+Para crawlear un sitio que requiere login, `PlaywrightScraper` acepta un `storage_state_path`
+opcional (`None` por default — cero cambio de comportamiento si no lo usás). Si está configurado y
+el archivo existe, se carga al crear el contexto del browser (`browser.new_context(storage_state=...)`),
+así la corrida arranca ya autenticada. Si el archivo no existe todavía (nunca corriste el paso de
+login), no rompe la corrida — cae a una sesión nueva y desconectada, con una advertencia impresa
+(`_browser_context_kwargs`).
+
+Cómo generarlo: `python3 src/cli.py login <url>` (`src/core/login_helper.py`) abre un Chromium
+**visible**, te deja loguearte a mano, y al apretar Enter en la terminal guarda cookies +
+localStorage a un archivo JSON (`storage_state.json` por default). Ese archivo tiene sesiones
+reales — está en `.gitignore` a propósito, nunca se debe commitear.
+
+`close()` deliberadamente **no** re-guarda el estado al final de la corrida — si una cookie se
+renovó durante el crawl, el archivo no se actualiza solo; hay que volver a correr `login` si la
+sesión guardada expira.
+
 ## Qué más lleva cada componente
 
 Más allá de `tag`/`text`/`path`, cada componente incluye lo necesario para que el modelo decida

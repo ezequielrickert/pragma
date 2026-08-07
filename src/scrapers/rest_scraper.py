@@ -47,15 +47,21 @@ class RestScraper(Scraper):
         self,
         headless: bool = True,
         wait_seconds: float = 15.0,
+        storage_state_path: Optional[str] = None,
         config: Optional[RestConfig] = None,
     ) -> None:
-        """Accepts the same `headless`/`wait_seconds` kwargs `Engine.from_config` passes to every
-        scraper (see engine.py's `SCRAPER_REGISTRY.create` call) so this backend is a drop-in swap
-        for `PlaywrightScraper` in `pragma.yaml` - but they're intentionally unused here. Module 3
-        is a standing service with its own startup config (`PRAGMA_API_HEADLESS`/
-        `PRAGMA_API_WAIT_SECONDS`, read once when the server process starts), not something a
-        per-run client can override after the fact - see ARCHITECTURE.md's "Module 3" lifecycle
-        section for why.
+        """Accepts the same `headless`/`wait_seconds`/`storage_state_path` kwargs
+        `Engine.from_config` passes to every scraper (see engine.py's
+        `SCRAPER_REGISTRY.create` call) so this backend is a drop-in swap for
+        `PlaywrightScraper` in `pragma.yaml` - but they're intentionally unused
+        here. Module 3 is a standing service with its own startup config
+        (`PRAGMA_API_HEADLESS`/`PRAGMA_API_WAIT_SECONDS`, read once when the
+        server process starts), not something a per-run client can override
+        after the fact - see ARCHITECTURE.md's "Module 3" lifecycle section for
+        why. `storage_state_path` is a known gap here specifically (not yet
+        implemented): Module 3's browser session has no equivalent
+        `/dynamic/*` route to load a storage state into on startup - see
+        docs/explicativos/pendientes-futuras-fases.md.
         """
         self.config = config or RestConfig.from_env()
         self._session = requests.Session()

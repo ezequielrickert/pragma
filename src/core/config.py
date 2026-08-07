@@ -114,6 +114,14 @@ class PragmaConfig:
     # matching this project's own backlog (feedback.md: "que no haga mutaciones,
     # que no cambie el estado"). See SimplePRDGenerator.safe_mode / --unsafe.
     safe_mode: bool = True
+    # Optional path to a Playwright storage-state JSON file (cookies + localStorage)
+    # to load into the browser context, so a crawl of a site that requires login
+    # starts already authenticated. Genuinely optional - None (the default) is the
+    # exact pre-existing behavior for every site that doesn't need login. Create the
+    # file once via `python3 src/cli.py login <url> --storage-state <path>` - a
+    # missing file at this path degrades to a fresh, logged-out context with a
+    # warning rather than failing the run. See PlaywrightScraper.storage_state_path.
+    storage_state_path: Optional[str] = None
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 

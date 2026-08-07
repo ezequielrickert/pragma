@@ -54,7 +54,10 @@ class Engine:
         components_catalog_path = f"{config.graph_logs_dir}/{slug}_component_catalog_{timestamp}.md"
 
         scraper = SCRAPER_REGISTRY.create(
-            config.scraper, headless=config.headless, wait_seconds=config.wait_seconds
+            config.scraper,
+            headless=config.headless,
+            wait_seconds=config.wait_seconds,
+            storage_state_path=config.storage_state_path,
         )
 
         provider_options = config.agents.get(config.agent, {})
