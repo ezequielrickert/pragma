@@ -1,0 +1,144 @@
+# Arquitectura de Pragma, explicada
+
+> Ver también: [`ARCHITECTURE.md`](../../ARCHITECTURE.md) (versión en inglés, más técnica y
+> pegada al código). Este documento es el mismo territorio, en español y con más contexto para
+> alguien que no vio el proyecto antes.
+
+## Qué es el proyecto
+
+Pragma es una herramienta de **arqueología de aplicaciones web**: le das una URL y un agente
+autónomo (un LLM) navega el sitio con un browser real, va descubriendo su estructura (rutas,
+componentes interactivos, formularios) y al final genera un **PRD/Blueprint en Markdown** que
+documenta cómo está armado el frontend — como ingeniería inversa de una webapp de la que no
+tenés el código fuente.
+
+El motor sigue un modelo de 4 fases, el **"Ralph-Loop"** (Plan-Execute-Iterate):
+
+1. **Discovery** — navega a la URL raíz, saca una foto inicial (layout + componentes).
+2. **Planning** — el agente arma una estrategia de investigación.
+3. **Execution** — itera: lee el progreso persistido, decide una acción (`navigate`, `click`,
+   `fill`, `submit`, `finish`, o `help` si está perdido), la ejecuta, registra qué encontró y qué
+   arista de navegación usó.
+4. **Synthesis** — con todo lo investigado, genera el PRD final.
+
+## El micro-kernel: quién hace qué
+
+El corazón del diseño es que [`src/core/engine.py`](../../src/core/engine.py) (`Engine`) es un
+**kernel tonto**: no sabe nada de Playwright, de un proveedor de LLM en particular, ni de los
+detalles del loop. Solo resuelve "plugins por nombre" desde cuatro registries
+([`src/core/registry.py`](../../src/core/registry.py)):
+
+| Registry | Rol | Implementaciones hoy |
+|---|---|---|
+| `SCRAPER_REGISTRY` | "Las manos" — interactúa con el sitio | `playwright`, `rest` |
+| `AGENT_REGISTRY` | "El cerebro" — el LLM | `gemini`, `openai`, `local`, `mock` |
+| `GENERATOR_REGISTRY` | La estrategia de orquestación (el loop) | `simple` (el Ralph-Loop) |
+| `GRAPH_STORE_REGISTRY` | Dónde se persiste el grafo de crawl | `memory`, `neo4j` |
+
+Cada plugin se auto-registra con un decorador (ej. `@AGENT_REGISTRY.register("gemini")`), y
+[`src/core/bootstrap.py`](../../src/core/bootstrap.py) importa todos los módulos una vez para que
+esos registros corran antes de que el CLI resuelva nombres desde la config. Agregar un proveedor
+nuevo es: un archivo nuevo con su propia clase + `Config.from_env()`, y una línea de import en
+`bootstrap.py` — nada más cambia.
+
+Los contratos compartidos viven en [`src/core/interfaces.py`](../../src/core/interfaces.py):
+
+- **`PageState`** — lo que cualquier `Scraper` devuelve tras navegar/clickear/llenar: url, title,
+  metadata, `components` (la lista de elementos interactivos), `links`, y `description` (un
+  resumen corto de qué trata la página).
+- **`AgentAction`** — la decisión estructurada del agente (`kind`: `navigate`/`click`/`fill`/
+  `submit`/`finish`/`help`/`unknown`, más `ref`/`url`/`value` según corresponda). Reemplaza al
+  viejo formato de texto plano `GOTO`/`CLICK`/`FINISH` (que sigue soportado como fallback vía
+  `parse_agent_action()`, para modelos que no hacen tool-calling nativo).
+- **`GraphStore`** — la interfaz de persistencia del grafo de crawl. Ver [`neo4j.md`](neo4j.md)
+  para el detalle completo de qué guarda.
+
+## Cómo decide el agente qué hacer: `TOOL_SPECS`
+
+En vez de pedirle al modelo texto libre, `TOOL_SPECS` (en `interfaces.py`) define un menú cerrado
+de verbos, cada uno con una descripción de una línea (los modelos chicos/locales pagan cada token
+de esto en cada turno, así que se mantiene mínimo a propósito):
+
+| Verbo | Qué hace |
+|---|---|
+| `navigate(url)` | Ir a una de las rutas "Pending" mostradas |
+| `click(ref)` | Clickear el elemento número `ref` de la lista mostrada |
+| `fill(ref, value)` | Escribir texto en un input/textarea numerado |
+| `submit(ref)` | Apretar Enter sobre un elemento (después de un `fill`) |
+| `finish` | Concluir la investigación |
+| `help(topic)` | Pedir guía sobre un tema puntual cuando el modelo no sabe cómo seguir |
+
+`Agent.act()` es quien produce un `AgentAction` a partir de la respuesta cruda del modelo,
+soportando tanto tool-calling nativo (formato tipo OpenAI) como el fallback de texto — así
+`SimplePRDGenerator` nunca necesita saber cuál de los dos pasó.
+
+## Qué mecanismos evitan que el agente se pierda
+
+Esto es información que en su momento no existía y ahora sí — vale la pena tenerla documentada
+acá porque cambia bastante cómo se comporta un run real:
+
+- **`_skip_repeated_target`**: si la última acción "en el lugar" (click/fill/submit, sin cambiar
+  de página) se repite exactamente en la siguiente iteración, se bloquea — evita quedar
+  clickeando el mismo trigger que no lleva a nada nuevo.
+- **`_track_oscillation`**: si en las últimas 6 acciones "en el lugar" un mismo target aparece 3+
+  veces, se emite una advertencia fuerte al log — típicamente señala un elemento real que el
+  discovery no está encontrando, más que un problema del modelo.
+- **`_reject_premature_finish`**: no deja terminar el run mientras existan componentes ya
+  mostrados y nunca interactuados (`interacted: false` en el grafo), en cualquier página del
+  sitio, no solo en la actual.
+- **`_apply_diminishing_returns` / `max_stalled_finish_attempts`**: si el conteo de componentes
+  sin explorar de una página no baja después de varios chequeos, esa página se "da por perdida"
+  (`_given_up_pages`) y deja de bloquear el `finish` — pensado para componentes cuyo selector
+  cambia en cada render (ej. un stepper de cantidad) o un submit de login que nunca va a
+  resolverse.
+- **`max_passes`** (= `max_iterations * 3`): techo duro independiente, para que un modelo que
+  solo pide `help` una y otra vez no corra indefinidamente sin gastar su presupuesto real de
+  acciones.
+
+Estos mecanismos ya resuelven los casos de "loop de selector de idioma" y "página A→B→A
+incompleta" que se discutieron en análisis previos — ver el historial de esta conversación para
+el detalle de qué se descartó y por qué.
+
+## Configuración en capas
+
+[`src/core/config.py`](../../src/core/config.py) (`PragmaConfig`) mezcla, en orden creciente de
+prioridad: defaults incorporados → variables de entorno → `pragma.yaml` → flags explícitos de
+CLI. Incluye, entre otros: `scraper`, `agent`, `generator`, `graph_store`, `max_iterations`,
+`batch_size`, `wait_seconds`, y `fresh` (si `true`, por defecto, purga los datos previos de ese
+sitio en Neo4j antes de arrancar — ver [`neo4j.md`](neo4j.md#fresh-y-persistencia-entre-corridas)).
+
+## El CLI
+
+[`src/cli.py`](../../src/cli.py) tiene tres modos:
+
+- `python3 src/cli.py config` → wizard interactivo (`src/core/wizard.py`) que guarda config no
+  secreta en `pragma.yaml` y secretos en `.env`.
+- `python3 src/cli.py <url>` (o con flags) → corre un análisis directo.
+- `python3 src/cli.py` sin argumentos, en una terminal real → lanza una app de menú interactivo
+  (`src/core/app.py`).
+
+## Los tres "módulos" del sistema completo
+
+Pensar el sistema como tres piezas ayuda a ubicar dónde vive cada cosa:
+
+- **Módulo 1**: el servidor del modelo LLM (remoto, vía Tailscale en el setup actual —
+  configurable a cualquier endpoint compatible con la API de OpenAI).
+- **Módulo 2**: este orquestador (`SimplePRDGenerator` + `Engine`) — todo lo descripto arriba.
+- **Módulo 3**: el servidor REST local (`src/api_server/`) — ver
+  [`modulo3-api-server-y-rest-scraper.md`](modulo3-api-server-y-rest-scraper.md) para el detalle.
+
+## Mapa de carpetas
+
+| Carpeta | Rol |
+|---|---|
+| `src/core/` | El kernel: `Engine`, registries, interfaces (`PageState`, `AgentAction`, `GraphStore`), config en capas |
+| `src/scrapers/` | `PlaywrightScraper` ("las manos", en proceso) y `RestScraper` (las mismas manos, vía HTTP a Módulo 3) |
+| `src/api_server/` | Módulo 3 — servidor REST standalone (ejecución + docs curadas + checklist de componentes) |
+| `src/agents/` | Backends LLM (Gemini, OpenAI, local, mock), cada uno con su `Config.from_env()` |
+| `src/storage/` | Persistencia del grafo de crawl: memoria o Neo4j |
+| `src/generators/` | El Ralph-Loop (`SimplePRDGenerator`) y `component_classifier.py` (clasificación determinista de componentes, sin LLM) |
+| `docs/` | PRDs finales generados por corridas reales, más esta carpeta (`explicativos/`) |
+| `research_logs/` | Memoria de trabajo *viva* del run actual (se sobreescribe) |
+| `progress_logs/` | Trail de auditoría *append-only*, incluye respuestas crudas del modelo aunque sean inválidas |
+| `graph_logs/` | El grafo de navegación como JSON |
+| `wiki/` | Lecciones durables de dominio, no atadas al estado actual del código |
