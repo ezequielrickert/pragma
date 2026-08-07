@@ -77,7 +77,11 @@ se van a volver a ver, y la próxima corrida las lee como historia real al armar
 Una crawl real de `empanad.app` llegó a "13/13 visitadas, 0 pendientes" en un token de sesión
 recién creado, antes de hacer nada — puro efecto de acumulación entre corridas.
 
-## Problema conocido: identidad de URL con tokens dinámicos
+## Identidad de URL con tokens dinámicos (con arreglo opt-in disponible)
+
+> **Actualización**: esto ya tiene arreglo, pero es **opt-in por sitio** — no
+> corregido automáticamente. Si no configurás nada, el comportamiento sigue
+> siendo exactamente el descripto abajo.
 
 La constraint de unicidad funciona perfecto — nunca vas a tener dos `Page` con exactamente el
 mismo `(site, url)`. El problema es **qué string llega a `url` antes de compararse**. La
@@ -100,11 +104,31 @@ misma pantalla lógica.
 | `empanad.app/o/aB7cD9eFgH2iJkL4mNoP6qRsT8uV` | | |
 
 Esto **no es un bug de Neo4j ni de la constraint** — están haciendo exactamente lo que se les
-pide. El arreglo pasaría por decidir, antes de que el string llegue a `_clean_url`, qué partes de
-una URL son "ruta" y cuáles son "dato variable de esa visita puntual" (por ejemplo, un patrón
-regex declarado por sitio que diga "este segmento es dinámico, no lo uses como identidad"). Sigue
-sin resolverse — es la prioridad más alta pendiente del lado de recorrido/identidad, discutida en
-sesiones de análisis previas de este proyecto.
+pide. El arreglo consiste en decidir, antes de que el string llegue a la constraint, qué partes de
+una URL son "ruta" y cuáles son "dato variable de esa visita puntual".
+
+**Cómo se resuelve hoy** (`SimplePRDGenerator._clean_url`, `_normalize_dynamic_segments`,
+`_normalize_query`): declarás por sitio, en `pragma.yaml`, qué segmentos del path son dinámicos:
+
+```yaml
+dynamic_url_segments:
+  - '^[A-Za-z0-9]{16,}$'
+strip_query_params: true   # default - descarta query strings salvo los listados en keep_query_params
+```
+
+Cada segmento del path (nunca el dominio) se compara con `re.fullmatch` contra cada patrón — si
+matchea, se reemplaza por el placeholder literal `{id}` antes de construir la clave del nodo. Las
+tres URLs de la tabla de arriba colapsan a un solo `Page`: `empanad.app/o/{id}`.
+
+Deliberadamente **no** es una heurística automática ("esto parece un token") — es opt-in por
+sitio, para no fusionar por error un ID de producto real (ej. un código tipo ASIN) que también sea
+alfanumérico largo. Como la clave con placeholder no es una URL real navegable, `_clean_url` guarda
+la primera URL concreta vista para cada plantilla (`_template_sample_urls`), y `_resolve_goto_url`
+la usa si el agente elige esa ruta desde la lista de Pending — nunca intenta cargar el string
+`.../o/{id}` literal.
+
+Sigue sin resolverse (ver `docs/explicativos/pendientes-futuras-fases.md`): la normalización no se
+aplica dentro de una ruta de hash-SPA conservada (`#/products/123`).
 
 ## Consultar el grafo manualmente
 
