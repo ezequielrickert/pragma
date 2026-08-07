@@ -79,6 +79,39 @@ pendiente".
   con miles de páginas ya visitadas esto podría empezar a pesar. No se optimizó porque no hay
   evidencia todavía de que sea un problema real a la escala de sitios que este proyecto crawlea hoy.
 
+## Modo seguro (safe mode)
+
+- **Es una heurística aproximada, no una garantía.** `classify_mutation_risk` solo puede ver dos
+  señales del DOM (método del formulario, texto del componente) - no hay forma de conocer el
+  efecto real de un handler de JS (un `onClick` que llama a una API) desde análisis estático. Un
+  botón de verdad mutante con texto genérico ("Listo", "Ok", "→") y sin `<form>` real no se
+  detecta hoy.
+- **El vocabulario de verbos (`_MUTATION_VERBS`) es una lista fija, mantenida a mano** - un sitio en
+  otro idioma (no español/inglés) o con verbos de negocio fuera de la lista no se detecta. Extender
+  la lista es fácil pero manual.
+- **No intercepta tráfico de red real** - la alternativa más precisa (ver la entrada nueva en
+  `feedback.md`: interceptar el JS/requests reales vía `page.route()`/`page.on('request')` de
+  Playwright) daría una señal mucho más confiable de qué es un GET/POST real, en vez de inferirlo
+  de atributos del DOM. Quedó fuera de esta implementación porque cambia la forma de discovery en
+  sí, no es una extensión chica del guard actual.
+- **Un formulario GET que en la práctica sí muta estado** (mal implementado, pero existe en la
+  vida real) no se detecta - la señal estructural asume que la convención HTTP GET=no-mutante se
+  respeta, que no siempre es cierto.
+
+## General (no ligado a una fase puntual)
+
+- **Instrumentación/métricas de la corrida**: no hay ningún resumen que compare, en una corrida
+  real, cuánto ayudó cada mecanismo (cuántas iteraciones se gastaron en la fase esqueleto vs.
+  profundidad, cuántas páginas se dedupearon por identidad de URL, cuántos componentes quedaron
+  excluidos de deuda por agrupación). Todo lo construido en esta sesión tiene test unitario, pero
+  no se corrió todavía contra un sitio real para confirmar la mejora empírica más allá de lo que
+  los tests garantizan por diseño.
+- **`tests/test_neo4j_graph_store_integration.py` no se actualizó** con casos para
+  `get_incoming_link_counts` (Fase 2) ni para `excluded_from_debt` en `record_component_options`
+  (Fase 3) - esos métodos solo están probados contra `InMemoryGraphStore`. La query Cypher se
+  escribió siguiendo el mismo patrón que el resto del archivo, pero no se verificó contra una
+  instancia Neo4j real (no había una disponible en el entorno donde se implementó esto).
+
 ## Cómo usar este documento
 
 Cuando se retome cualquiera de estos puntos: implementarlo, y **mover** esa entrada de acá al
