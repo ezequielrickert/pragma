@@ -19,6 +19,7 @@ a fondo sin tener que leer el código fuente primero.
 | [`neo4j.md`](neo4j.md) | Qué nodos y relaciones existen en el grafo, de dónde salen los `<id>`/`<elementId>`, cómo se evita duplicar páginas/componentes, y el problema conocido de identidad de URL. | `src/storage/neo4j_graph_store.py`, `src/storage/memory_graph_store.py`, `src/core/interfaces.py` (la clase `GraphStore`), la función `_clean_url` en `prd_generator.py` |
 | [`playwright.md`](playwright.md) | Cómo el scraper descubre componentes (capas semántica/pointer, Shadow DOM, iframes), cómo ejecuta click/fill/submit, y qué información saca de cada página. | `src/scrapers/playwright_scraper.py` |
 | [`modulo3-api-server-y-rest-scraper.md`](modulo3-api-server-y-rest-scraper.md) | El servidor REST standalone (`src/api_server/`) y `RestScraper`, la alternativa a Playwright-en-proceso. | `src/api_server/*`, `src/scrapers/rest_scraper.py` |
+| [`pendientes-futuras-fases.md`](pendientes-futuras-fases.md) | Qué quedó deliberadamente afuera de alcance en cada fase de mejora del recorrido/contexto (0-3), y por qué. No es código — actualizar a mano cuando se retome o aparezca un residuo nuevo. | — (no se actualiza por un cambio de código puntual, solo cuando se resuelve o se identifica un pendiente) |
 
 ## Política: mantenerlos al día
 

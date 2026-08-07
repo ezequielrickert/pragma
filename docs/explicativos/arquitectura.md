@@ -99,6 +99,33 @@ Estos mecanismos ya resuelven los casos de "loop de selector de idioma" y "pági
 incompleta" que se discutieron en análisis previos — ver el historial de esta conversación para
 el detalle de qué se descartó y por qué.
 
+## Recorrido y contexto: fases 0-3 (navegar profundo, sin olvidos, sin loop)
+
+Cuatro mecanismos agregados en una sesión de trabajo dedicada a "que capte toda la página sin
+quedar en loop, con el mayor contexto posible":
+
+- **Fase 0 — Contexto del sitio** (`_establish_site_context`/`_site_context_line`): al arrancar,
+  `Scraper.extract_context()` lee la página raíz a fondo (todos los h1/h2/h3 + varios párrafos, no
+  solo el primero) y ese texto queda fijo como "Site purpose" en **todas** las iteraciones del run
+  — distinto del `Page context` por página, que sigue siendo corto y cambia página a página. Sin
+  llamada extra al LLM (usa el texto tal cual lo extrae el scraper) — ver el docstring del método
+  para por qué se descartó a propósito sumar una síntesis vía modelo.
+- **Fase 1 — Identidad de URL** (`_clean_url`/`_normalize_dynamic_segments`/`_normalize_query`):
+  ver [`neo4j.md`](neo4j.md#identidad-de-url-con-tokens-dinámicos-con-arreglo-opt-in-disponible) —
+  colapsa tokens dinámicos incrustados en el path y aplica una política de query strings, ambos
+  opt-in por sitio vía `pragma.yaml`.
+- **Fase 2 — Esqueleto antes que profundidad** (`_seed_from_sitemap`/`_order_pending`): semilla
+  best-effort desde `sitemap.xml` (sin costo de iteraciones), y durante los primeros
+  `skeleton_iterations` turnos reales las rutas Pending de secciones todavía no visitadas se
+  muestran primero; después, se ordenan por `GraphStore.get_incoming_link_counts` (cuántas páginas
+  distintas enlazan a cada una). Puramente de reordenamiento — nunca filtra ni fuerza la elección
+  del modelo, mismo criterio que ya usa `_select_dna_components` para los componentes.
+- **Fase 3 — Selectores sin duplicar variantes** (`record_component_options`'
+  `excluded_from_debt`): las opciones reveladas al abrir un desplegable/combobox ya no exigen ser
+  clickeadas una por una para permitir `finish` — alcanza con haber interactuado con el disparador
+  que las reveló. Siguen existiendo como sus propios `Component` (auditables, listables), solo
+  dejan de contar como deuda individual.
+
 ## Configuración en capas
 
 [`src/core/config.py`](../../src/core/config.py) (`PragmaConfig`) mezcla, en orden creciente de
