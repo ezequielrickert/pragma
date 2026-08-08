@@ -10,6 +10,7 @@ prose; it never has to *notice* them itself.
 """
 from __future__ import annotations
 
+import json
 import unicodedata
 from typing import Any, Dict, List, Optional
 
@@ -71,22 +72,44 @@ def classify_component_type(comp: Dict[str, Any]) -> str:
 
 
 def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[str, Any]]:
-    """Components with an "option"-family role present in `after` but not `before`
-    (matched by CSS path) - the choices a trigger's click just revealed.
+    """Components with an "option"-family role that a trigger's click/fill
+    just made available - either genuinely new to the DOM (matched by CSS
+    path not present in `before` at all - a React/Radix-portal widget that
+    mounts its popover content on open), OR already present in `before` but
+    CSS-hidden (`visible: False`) and now `visible: True` in `after` - the
+    other common pattern (a plain `hidden`/`display:none` toggle, the same
+    "present in the DOM the whole time, just hidden until a trigger" shape
+    `PlaywrightScraper._discover_components`'s own mega-menu handling already
+    assumes elsewhere). Both are "the user can now see and act on this that
+    they couldn't a moment ago" - the property this function actually exists
+    to detect - so both count as revealed.
 
-    Called from `SimplePRDGenerator._handle_iteration_result` comparing the page's
-    component list immediately before vs. after a click - this is the concrete
-    "clicking 'Tercera Docena' revealed a 9-item bakery picker" case: the trigger
-    itself doesn't carry its own options in a single DOM snapshot, they only exist
-    once it's been opened, so this has to be a before/after diff, not a
-    single-snapshot classification like the other functions here.
+    A component with no `visible` key at all in either snapshot (a caller
+    that doesn't track it) is never treated as newly-revealed via the
+    became-visible path - only the by-path-absence check applies for it -
+    preserving this function's original behavior for such callers.
+
+    Called from `MechanicalCrawler._visit_page` comparing a page's component
+    list immediately before vs. after a same-page interaction - this is the
+    concrete "clicking 'Tercera Docena' revealed a 9-item bakery picker" case:
+    the trigger itself doesn't carry its own options in a single DOM
+    snapshot, they only exist once it's been opened, so this has to be a
+    before/after diff, not a single-snapshot classification like the other
+    functions here.
     """
-    before_paths = {c.get("path") for c in before}
-    return [
-        {"text": (c.get("text") or "").strip(), "selected": bool(c.get("selected"))}
-        for c in after
-        if (c.get("role") or "").lower() in _OPTION_ROLES and c.get("path") not in before_paths
-    ]
+    before_by_path = {c.get("path"): c for c in before}
+    revealed = []
+    for c in after:
+        if (c.get("role") or "").lower() not in _OPTION_ROLES:
+            continue
+        prior = before_by_path.get(c.get("path"))
+        if prior is None:
+            is_new = True
+        else:
+            is_new = prior.get("visible") is False and c.get("visible") is True
+        if is_new:
+            revealed.append({"text": (c.get("text") or "").strip(), "selected": bool(c.get("selected"))})
+    return revealed
 
 
 def _parent_path(path: str) -> str:
@@ -170,3 +193,60 @@ def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
             continue
         groups.setdefault(name, []).append(comp)
     return {name: members for name, members in groups.items() if len(members) >= 2}
+
+
+def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
+    """Parse a Component's raw `options` JSON blob (`GraphStore`'s
+    `record_component_options` field) and classify which of the three known
+    shapes it is, returning a normalized `{"kind", ...}` dict, or `None` if
+    empty/unparseable/unrecognized. The single place every consumer of this
+    field (`graph_prd_synthesizer.py`'s catalog narration,
+    `component_tree.py`'s deterministic renderer) goes to interpret it, so
+    the three-shape disambiguation logic exists exactly once:
+
+    - `{"kind": "stepper", "container", "increment_path", "decrement_path",
+       "value_path", "current_value"}` - `group_steppers`' output, written by
+      `GraphStoreSink.record_inventory`.
+    - `{"kind": "choice_group", "group", "choices": [{"text", "selected"}]}`
+      - `group_choice_sets`' output, same writer.
+    - `{"kind": "revealed_options", "trigger", "choices": [{"text",
+       "selected"}]}` - `find_revealed_options`' output, written by
+      `GraphStoreSink.record_revealed_options` (Phase 1).
+    """
+    if not options_json:
+        return None
+    try:
+        options = json.loads(options_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(options, dict):
+        return None
+
+    if "increment_path" in options and "decrement_path" in options:
+        return {
+            "kind": "stepper",
+            "container": options.get("container"),
+            "increment_path": options.get("increment_path"),
+            "decrement_path": options.get("decrement_path"),
+            "value_path": options.get("value_path"),
+            "current_value": options.get("current_value"),
+        }
+    if "group" in options and "options" in options:
+        return {
+            "kind": "choice_group",
+            "group": options["group"],
+            "choices": [
+                {"text": o.get("text"), "selected": bool(o.get("selected"))}
+                for o in options.get("options", [])
+            ],
+        }
+    if "trigger" in options and "revealed_options" in options:
+        return {
+            "kind": "revealed_options",
+            "trigger": options.get("trigger"),
+            "choices": [
+                {"text": o.get("text"), "selected": bool(o.get("selected"))}
+                for o in options.get("revealed_options", [])
+            ],
+        }
+    return None

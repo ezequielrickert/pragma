@@ -21,7 +21,7 @@ from src.core import prompts
 from src.core.app import run_app
 from src.core.config import PragmaConfig
 from src.core.engine import Engine
-from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
+from src.core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 from src.core.wizard import run_config_wizard
 
 
@@ -35,9 +35,6 @@ def parse_args(argv: list) -> argparse.Namespace:
     parser.add_argument("--url", "-u", dest="url_flag", help="URL to explore (same as positional)")
     parser.add_argument("--config", "-c", dest="config_path", help="Path to a pragma YAML config file")
     parser.add_argument(
-        "--scraper", help=f"Scraper plugin ({', '.join(SCRAPER_REGISTRY.names())})"
-    )
-    parser.add_argument(
         "--agent",
         "--provider",
         "-p",
@@ -45,41 +42,57 @@ def parse_args(argv: list) -> argparse.Namespace:
         help=f"Agent plugin ({', '.join(AGENT_REGISTRY.names())})",
     )
     parser.add_argument(
-        "--generator", "-g", help=f"Generator strategy ({', '.join(GENERATOR_REGISTRY.names())})"
-    )
-    parser.add_argument(
         "--graph-store",
         dest="graph_store",
         help=f"Graph store plugin ({', '.join(GRAPH_STORE_REGISTRY.names())})",
     )
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder for PRDs")
-    parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
     parser.add_argument(
-        "--progress-logs",
-        dest="progress_logs_dir",
-        help="Folder for append-only per-iteration debug logs (default: progress_logs)",
+        "--debug-logs-dir",
+        dest="debug_logs_dir",
+        help="Folder for per-run debug artifacts: every crawl4ai hook firing, plus each page's "
+        "markdown conversion (default: debug_logs). Pass an empty string to disable.",
     )
-    parser.add_argument(
-        "--graph-logs",
-        dest="graph_logs_dir",
-        help="Folder for the navigation graph (which action led from which page to which "
-        "page), written as JSON (default: graph_logs)",
-    )
-    parser.add_argument("--max-iterations", type=int, dest="max_iterations")
     parser.add_argument(
         "--wait-seconds",
         type=float,
         dest="wait_seconds",
-        help="Seconds to let a page settle after navigation/click before reading links (default: 15)",
+        help="Seconds to let a page settle before discovery reads it (default: 2). Raise this for "
+        "JS-heavy sites (React/Vue SPAs) where components/links can otherwise read as 0 - the page's "
+        "pre-hydration HTML shell satisfies the default wait condition before real content renders.",
     )
     parser.add_argument(
-        "--batch-size",
+        "--element-budget",
         type=int,
-        dest="batch_size",
-        help="Max pending routes/DNA components sent per iteration prompt (default: 20). "
-        "Lower = faster/cheaper iterations, but needs more of them (raise --max-iterations too).",
+        dest="element_budget",
+        help="Max components MechanicalCrawler mechanically interacts with per page per visit-pass "
+        "(default: 200) - the backstop against a pathological reveal-chain, not a normal-case limit.",
+    )
+    parser.add_argument(
+        "--max-passes-per-page",
+        type=int,
+        dest="max_passes_per_page",
+        help="Max times to revisit the same page to keep draining its interaction frontier "
+        "(default: 10) - a page with more components than --element-budget needs more than one "
+        "pass; this bounds how many before giving up on a page that keeps generating new content "
+        "faster than one pass can keep up with.",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        dest="max_pages",
+        help="Total pages to visit before stopping the crawl (default: unbounded - crawl until the "
+        "URL frontier is exhausted).",
     )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
+    parser.add_argument(
+        "--tree-ascii",
+        dest="tree_ascii",
+        action="store_true",
+        default=None,
+        help="Render the component-tree document with plain ASCII (|--, `--) instead of the "
+        "default Unicode box-drawing characters (├──, └──) - for terminals that mangle Unicode.",
+    )
     parser.add_argument(
         "--fresh",
         dest="fresh",
@@ -137,13 +150,11 @@ def main() -> None:
 
     try:
         print(f"Starting autonomous archaeology for: {config.url}")
-        print(
-            f"Wiring: scraper={config.scraper} agent={config.agent} "
-            f"generator={config.generator} graph_store={config.graph_store}"
-        )
+        print(f"Wiring: agent={config.agent} graph_store={config.graph_store}")
         engine = Engine.from_config(config)
-        prd_path = engine.run(config.url)
-        print(f"Successfully generated PRD: {prd_path}")
+        result = engine.run(config.url)
+        print(f"Successfully generated PRD: {result.prd_path}")
+        print(f"Successfully generated component tree: {result.tree_path}")
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

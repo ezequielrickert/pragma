@@ -6,48 +6,71 @@
 # Copy to pragma.yaml (auto-loaded) or pass --config <path>.
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
-scraper: playwright  # playwright (in-process) | rest (talks to a standing local API server, run
-                      # separately via `python -m src.api_server` - same PlaywrightScraper actions
-                      # plus curated docs, persistent browser session decoupled from this process;
-                      # see ARCHITECTURE.md's "Module 3: Unified REST API". Base URL via
-                      # PRAGMA_API_URL, default http://127.0.0.1:8765)
 agent: gemini        # gemini | openai | local | mock
-generator: simple
 graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
-                      # (see docker-compose.yml) and persists the navigation graph, queryable
-                      # between iterations, isolated per crawled site via a `site` property
+                      # (see docker-compose.yml) and is the crawl's live, primary source of truth -
+                      # written to as the crawl happens, then read back by GraphPRDSynthesizer
 fresh: true           # purge this site's previously recorded graph_store state before crawling
                        # (only matters for graph_store: neo4j - memory never persists across runs
                        # regardless). Set false to resume a previous run's progress on a large,
                        # stable site instead of starting over - but leave this on for any site whose
                        # URLs are per-session tokens (e.g. a `/o/<random-id>` order flow), where old
                        # runs' "visited" nodes will never be revisited and just add stale history.
+                       # See max_visits_per_route_shape below for the matching *within-run* control
+                       # for this same kind of site.
 out_dir: docs
-logs_dir: research_logs
-progress_logs_dir: progress_logs  # append-only per-iteration debug trail, for understanding LLM behavior
-graph_logs_dir: graph_logs        # navigation graph (which action led from which page to which page) and
-                                   # the per-page component ledger (every component seen, whether it was
-                                   # interacted with, and its interaction history), both as JSON
-headless: true
-max_iterations: 12
-wait_seconds: 15  # settle time after navigate/click before reading links; raise for JS-heavy sites
-batch_size: 20    # default cap for both pending routes and DNA components per iteration prompt; lower
-                  # = faster iterations, more of them needed (raise max_iterations to match) - good
-                  # for small/local models
-# pending_batch_size: 20    # override just the pending-routes cap; falls back to batch_size if unset
-# component_batch_size: 20  # override just the DNA-components cap; falls back to batch_size if unset -
-                             # raise this alone for a component-dense page (a mega-nav with hundreds of
-                             # elements) without inflating the unrelated pending-routes budget
+headless: true         # run without a visible browser window - real, measured speedup; leave this on
+                       # unless you specifically need to watch the crawl happen
+# wait_seconds: 2.0    # settle time before reading a freshly-*navigated* page - raise for slow/
+                       # JS-heavy sites, lower for fast static ones
+# interaction_wait_seconds: 2.0  # settle time after a click/fill's own re-discovery - unset falls
+                       # back to wait_seconds. Usually safe to set noticeably lower than wait_seconds:
+                       # a same-page DOM update settles faster than a full page's first hydration, and
+                       # every single interaction pays this cost - it's typically the single largest
+                       # fixed cost in a real crawl's wall-clock time (confirmed live: ~145
+                       # interactions in one run, ~4s of fixed wait apiece)
+element_budget: 200  # max components MechanicalCrawler mechanically interacts with per page per
+                      # visit-pass - the backstop against a pathological reveal-chain, not a
+                      # normal-case limit (200 is generous enough that ordinary pages never hit it)
+# max_pages: 50       # total pages to visit before stopping; unset = unbounded (crawl until the
+                       # URL frontier is exhausted)
+page_concurrency: 1   # how many pages MechanicalCrawler visits at once. 1 = fully sequential
+                       # (original behavior, every guarantee holds exactly). Raise for a real,
+                       # large-scale crawl - fixed per-interaction waits overlap across concurrently-
+                       # visited pages instead of serializing, which is the only way to get a
+                       # many-hundred-page crawl down to minutes rather than hours. Becomes a *soft*
+                       # bound on max_pages once raised above 1 (can overshoot by up to this many).
+ai_fill_values: true   # ask `agent` for a realistic value per fillable field - a real network+
+                       # generation round trip per field. Set false to fall back to a fast
+                       # deterministic placeholder instead, for a speed-focused run that doesn't need
+                       # realistic fill values in the output (especially worth turning off against a
+                       # slow/remote local model).
+max_visits_per_route_shape: 1  # backstop for a site that mints a fresh, per-visit-token URL (e.g.
+                       # `/o/<random-hash>`) on essentially every visit - each token is a real,
+                       # distinct page, but visiting more than this many of the *same-shaped* route
+                       # (real slugs untouched - see src/utils/urls.py's route_shape()) just burns a
+                       # full interaction pass on what's structurally the same page every time.
+                       # Default 1: an ordinary site has no repeated route shapes, so this never
+                       # fires; raise it to sample more than one instance on purpose.
 allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
-                          # of example.com and its links get queued as pending routes too (naive
-                          # last-two-label match, not a full public-suffix-list lookup)
-max_stalled_finish_attempts: 3  # give up on a page's remaining unexplored components after this many
-                                 # consecutive checks find its debt hasn't shrunk - protects against a
-                                 # component whose identity shifts every DOM change (e.g. a quantity
-                                 # stepper) or a real interaction whose outcome never changes (e.g. a
-                                 # login retried against invalid credentials) burning the whole run on
-                                 # one page. Raise it if a real site legitimately needs more attempts
-                                 # before "not improving" is really true (e.g. slow-loading filters).
+                          # of example.com and its links get queued too (naive last-two-label match,
+                          # not a full public-suffix-list lookup)
+# page_timeout_seconds: 15.0  # crawl4ai's raw navigation/goto dead-page timeout - a DIFFERENT phase
+                       # than wait_seconds/interaction_wait_seconds above (those apply after a page
+                       # has already loaded; this bounds the underlying fetch itself). crawl4ai's own
+                       # default is 60s; lower this to drop a genuinely hung/dead request faster. Keep
+                       # it comfortably above wait_seconds's own scale, or a slow-but-alive real page
+                       # gets killed before it ever finishes rendering.
+# prefetch: false       # skip crawl4ai's own markdown-generation pipeline entirely - real savings,
+                       # since this project never reads that output (all facts come from its own
+                       # discovery JS instead). Side effect: debug_logs/*/pages/*.md snapshots come
+                       # back empty while this is on - leave false during active debugging, true for
+                       # a bulk/production run.
+# block_images: false   # abort image/media/font network requests outright - real bandwidth/time
+                       # savings (unlike crawl4ai's own exclude_external_images, which only trims
+                       # already-downloaded images from output this project doesn't read). A real
+                       # behavior change if a site's interactive elements depend on images actually
+                       # loading - opt in per-site once confirmed safe.
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to

@@ -98,6 +98,47 @@ Don't make `force=True` the default for every click — it skips *all* actionabi
 (visible, stable, receives events), which can click something the real user could never interact
 with. Use it as a targeted fallback for the specific "present but hidden" failure mode.
 
+## Detecting *revealed* content needs a visibility-transition check, not just DOM-presence diffing
+
+**Symptom observed**: a before/after component-list diff, meant to detect what a click just revealed
+(e.g. a dropdown's newly-opened choices), matched a "genuinely new to the DOM" test fixture correctly
+but reported nothing at all for the far more common real-world pattern: a `hidden`/`display:none`
+toggle, where the choices were already present in the *before* snapshot (same discovery pass that
+already finds CSS-hidden mega-menu items per this doc's own "present in the DOM the whole time, just
+hidden" pattern above) — just invisible — and only became visible in the *after* snapshot. A diff
+that only checks "is this path new" sees the same path in both snapshots and concludes nothing
+changed, even though the element just went from unreachable to reachable.
+
+**Why it happens**: two different, equally common patterns produce "a trigger reveals content," and
+they look identical from a user's perspective but completely different at the DOM level: a
+React/Radix-portal-style widget that *mounts* its popover content on open (genuinely new paths), and
+a plain CSS visibility toggle that was rendered from the start (same paths, `visible` flips
+`false → true`). A diff keyed only on path-presence only catches the first.
+
+**Fix pattern**: treat *either* transition as "revealed" — a path absent from the prior snapshot, OR
+a path present in both but flipping from not-visible to visible:
+
+```js
+function findRevealed(before, after) {
+    const beforeByPath = new Map(before.map(c => [c.path, c]));
+    return after.filter(c => {
+        const prior = beforeByPath.get(c.path);
+        if (!prior) return true;                                   // genuinely new to the DOM
+        return prior.visible === false && c.visible === true;      // was hidden, now shown
+    });
+}
+```
+
+A component with no `visible` field tracked at all in either snapshot should only ever match via the
+first (path-absence) branch — don't treat a missing field as an implicit `false → true` transition,
+or every untracked component will spuriously look "revealed."
+
+**How to catch this in review/testing**: write the diff test against *both* patterns explicitly — a
+fixture where the revealed elements are injected fresh via `innerHTML`/`appendChild`, and a separate
+fixture where they're present from page load with a `hidden`/`display:none` toggle. A test suite
+built only against one pattern (usually whichever one the original fixture happened to use) won't
+catch a regression in the other.
+
 ## Redirects mean the URL you request isn't the URL you end up at
 
 **Symptom observed**: a link discovered as `http://example.com/x` (a stale/legacy href on the

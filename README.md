@@ -1,4 +1,4 @@
-POC: Modular Scraper + Agent PRD Generator (Python)
+POC: Mechanical crawl4ai crawler + Neo4j graph + AI-synthesized PRD generator (Python)
 
 Setup:
 - pip install -r requirements.txt
@@ -6,7 +6,7 @@ Setup:
 - python3 src/cli.py config
 
 `config` launches an interactive setup wizard (arrow-key menus, editable defaults, masked
-API-key input) that persists your choice of scraper/agent/generator, model names, and endpoints
+API-key input) that persists your choice of agent/graph store, model names, and endpoints
 to `pragma.yaml`, and any secrets (API keys) to `.env`. Run it once; re-run it any time to change
 a setting - existing values are shown as defaults you can accept or overwrite, and it never
 touches settings for providers you're not using.
@@ -15,39 +15,39 @@ Then just run an analysis with the URL as the only required input:
 - `python3 src/cli.py https://example.com`
 - or: `python3 src/cli.py` (prompts for the URL interactively if none was given)
 
-Everything else - which scraper, which agent/model, output folders, headless mode, iteration
-limit - comes from what you configured. Any of it can still be overridden per run with flags,
+Everything else - which agent/model, which graph store, output folder, headless mode, crawl
+budget - comes from what you configured. Any of it can still be overridden per run with flags,
 without touching your saved config:
-- `--scraper <name>` (default: `playwright`)
-- `--agent <name>` / `--provider <name>` (also `gemini`, `openai`, `local`, `mock`)
-- `--generator <name>` (default: `simple`, the Plan-Execute-Iterate "Ralph-Loop")
-- `--out`, `--logs`, `--progress-logs`, `--graph-logs`, `--max-iterations`, `--wait-seconds`,
-  `--batch-size`, `--headed`, `--config <path/to/other.yaml>`
+- `--agent <name>` / `--provider <name>` (`gemini`, `openai`, `local`, `mock`)
+- `--graph-store <name>` (`memory`, `neo4j`)
+- `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
+  `--config <path/to/other.yaml>`
 
 Precedence for every setting: explicit CLI flag > `pragma.yaml` > environment variable (`.env`)
 > built-in default.
 
-Debugging a run: `research_logs/` is the engine's live working-memory snapshot (overwritten each
-stage, used to build the final PRD). `progress_logs/` is a separate, append-only trail of every
-DISCOVERY/PLAN/ITERATION/SYNTHESIS stage in order, including the agent's raw response even when
-it was malformed - open that file when a run stalls or an iteration seems to make no progress; it
-also gets a rendered Mermaid diagram of the navigation graph appended once the run finishes.
-`graph_logs/` has that same graph as JSON (a list of `{from, action, to}` edges) - which
-component/action led from which page to which page - for feeding into other tooling.
+Debugging a run: there are no more file-based logs (`research_logs/`/`progress_logs/`/
+`graph_logs/`) - the crawl's graph store *is* the live record. With `graph_store: neo4j`, open a
+Neo4j browser and query `site`-scoped `Page`/`Component` nodes and their edges directly; with the
+default `graph_store: memory`, inspect it in-process (nothing persists past one run).
 
-Iteration prompts stay small regardless of site size: `batch_size` caps how many pending routes
-and clickable elements are shown per iteration, and CLICK targets are referenced by a short number
-from that list rather than a raw CSS path/class string (which on CSS-framework-heavy sites can be
-hundreds of characters per element) - the biggest lever if a local model is timing out or taking a
-long time per iteration. Lower `batch_size` and raise `--max-iterations` to compensate.
+No iteration/prompt-size tuning is needed anymore - there's no per-step LLM decision consuming a
+token budget. `--element-budget` (default 200) is the only crawl-size knob: the per-page cap on
+how many components `MechanicalCrawler` mechanically interacts with in one visit-pass, a backstop
+against a pathological reveal-chain rather than a normal-case limit. `--max-pages` caps the total
+number of pages visited (default: unbounded, crawl until the URL frontier is exhausted).
 
-Design: a micro-kernel `Engine` (`src/core/engine.py`) orchestrates a `Scraper` ("the hands"),
-an `Agent` ("the brain"/LLM), and a `PRDGenerator` orchestration strategy ("the loop"), all
-resolved by name from plugin registries (`src/core/registry.py`). To add a new plugin, implement
-the relevant interface in `src/core/interfaces.py`, decorate the class (or a builder function)
-with `@SCRAPER_REGISTRY.register("name")` / `@AGENT_REGISTRY.register("name")` /
-`@GENERATOR_REGISTRY.register("name")`, and import the module from `src/core/bootstrap.py` so it
-registers itself at startup.
+Design: a micro-kernel `Engine` (`src/core/engine.py`) wires an `Agent` ("the brain"/LLM,
+`src/agents/`) and a `GraphStore` ("the graph", `src/storage/`), both resolved by name from plugin
+registries (`src/core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
+(`src/crawlers/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
+discovery and interaction) crawls the site and writes live to the graph store
+(`GraphStoreSink`, `src/crawlers/graph_sink.py`); `GraphPRDSynthesizer`
+(`src/generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
+Markdown PRD. See `ARCHITECTURE.md` for the full data flow. To add a new agent or graph-store
+plugin, implement the relevant interface in `src/core/interfaces.py`, decorate the class (or a
+builder function) with `@AGENT_REGISTRY.register("name")` / `@GRAPH_STORE_REGISTRY.register("name")`,
+and import the module from `src/core/bootstrap.py` so it registers itself at startup.
 
 Provider config is encapsulated per agent, not piled into one growing `.env`: each agent module
 (e.g. `src/agents/gemini_agent.py`) owns a small `Config` dataclass with a `from_env()`
@@ -62,12 +62,11 @@ and registering it - no changes anywhere else. The `config` wizard's provider-sp
 (`PROVIDER_FIELDS` in `src/core/wizard.py`) are the one place to extend when adding a provider's
 interactive setup.
 
-IMPORTANT: the way in which the agent understands the page is by running: "console.table($$('a'), ['innerHTML', 'href']);".
-
 ## Wiki
 
 [`wiki/`](wiki/README.md) has durable, reusable domain knowledge extracted from building this
-project - prompt engineering for multi-step agents, local-model constraints, Playwright automation
-pitfalls, graph-based crawl tracking, and the debugging methodology used to find every bug in this
-codebase. Read it before debugging a misbehaving agent loop, or when building the next one; it's
-written to outlive this specific project and to seed Claude Code skills for future sessions.
+project - prompt engineering for multi-step agents, local-model constraints, browser automation
+pitfalls (both Playwright-direct and crawl4ai-specific), graph-based crawl tracking, and the
+debugging methodology used to find every bug in this codebase. Read it before debugging a
+misbehaving agent/crawl loop, or when building the next one; it's written to outlive this specific
+project and to seed Claude Code skills for future sessions.
