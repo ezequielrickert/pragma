@@ -15,14 +15,15 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from ..crawlers.crawl4ai_crawler import Crawl4AICrawler
-from ..crawlers.debug_log import CrawlDebugLog
+from ..crawlers.debug_log import CrawlDebugLog, prune_old_runs
 from ..crawlers.fill_value_agent import make_ai_fill_value_fn
 from ..crawlers.fill_values import default_placeholder_fill_value
 from ..crawlers.graph_sink import GraphStoreSink
 from ..crawlers.mechanical_loop import MechanicalCrawler
 from ..generators.component_tree import generate_component_tree_document
+from ..generators.graph_export import generate_graph_export_document
 from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
-from ..utils.io import write_output
+from ..utils.io import record_run_manifest, write_output
 from .config import PragmaConfig
 from .interfaces import Agent, GraphStore
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
@@ -40,12 +41,23 @@ def _timestamp() -> str:
 
 @dataclass
 class EngineRunResult:
-    """`Engine.run()`'s return value - two separate output documents from one
-    crawl, per the component-tree feature's explicit "separate output file,
-    not merged into the existing prose PRD" requirement."""
+    """`Engine.run()`'s return value - the output documents from one crawl,
+    per the component-tree feature's explicit "separate output file, not
+    merged into the existing prose PRD" requirement, extended the same way
+    for the (opt-in) JSON export.
+
+    `export_path` is `None` whenever `export_json` is off (the default) -
+    callers should treat `None` as "not generated this run", not as a
+    failure. `manifest_path` is always set: recording this run in
+    `docs/runs.json` (`src/utils/io.py::record_run_manifest`) is unconditional,
+    unlike the export - it's cheap bookkeeping, not an extra artifact someone
+    has to opt into.
+    """
 
     prd_path: str
     tree_path: str
+    export_path: Optional[str] = None
+    manifest_path: str = ""
 
 
 class Engine:
@@ -72,6 +84,8 @@ class Engine:
         prefetch: bool = False,
         block_images: bool = False,
         allow_subdomains: bool = False,
+        debug_logs_keep_last: Optional[int] = None,
+        export_json: bool = False,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -112,6 +126,12 @@ class Engine:
         # MechanicalCrawler's own docstring for what raising this actually
         # changes and its tradeoffs.
         self.page_concurrency = page_concurrency
+        # Storage-side knobs (docs/explicativos/plan-almacenamiento.md Fase A) -
+        # see debug_logs_keep_last/export_json's own docstrings on
+        # PragmaConfig for what each does and why both default to "off"/
+        # "unbounded" (unchanged prior behavior).
+        self.debug_logs_keep_last = debug_logs_keep_last
+        self.export_json = export_json
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -159,6 +179,8 @@ class Engine:
             prefetch=config.prefetch,
             block_images=config.block_images,
             allow_subdomains=config.allow_subdomains,
+            debug_logs_keep_last=config.debug_logs_keep_last,
+            export_json=config.export_json,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -208,15 +230,47 @@ class Engine:
 
         if debug_log:
             debug_log.close()
+            # Prune only after close() - never delete a directory a live
+            # CrawlDebugLog handle might still write to. No-op unless
+            # debug_logs_keep_last is set (see its own docstring).
+            prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
 
+        run_timestamp = _timestamp()
         synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store)
         prd = synthesizer.synthesize(site)
-        prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{_timestamp()}.md"
+        prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{run_timestamp}.md"
         write_output(prd_path, prd)
 
         tree_doc = generate_component_tree_document(self.graph_store, site, use_box_drawing=not self.tree_ascii)
-        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{_timestamp()}.md"
+        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{run_timestamp}.md"
         write_output(tree_path, tree_doc)
 
+        export_path: Optional[str] = None
+        if self.export_json:
+            export_doc = generate_graph_export_document(self.graph_store, site)
+            export_path = f"{self.out_dir}/{_slugify(url)}_graph_{run_timestamp}.json"
+            write_output(export_path, export_doc)
+
+        finished_pages, total_pages = self.graph_store.count_visited(site)
+        unexplored_components, total_components = self.graph_store.count_unexplored_components(site)
+        manifest_path = record_run_manifest(
+            self.out_dir,
+            site,
+            {
+                "timestamp": run_timestamp,
+                "url": url,
+                "graph_store": self.graph_store.__class__.__name__,
+                "prd_path": prd_path,
+                "tree_path": tree_path,
+                "export_path": export_path,
+                "pages_finished": finished_pages,
+                "pages_total": total_pages,
+                "components_total": total_components,
+                "components_unexplored": unexplored_components,
+            },
+        )
+
         self.graph_store.close()
-        return EngineRunResult(prd_path=prd_path, tree_path=tree_path)
+        return EngineRunResult(
+            prd_path=prd_path, tree_path=tree_path, export_path=export_path, manifest_path=manifest_path
+        )

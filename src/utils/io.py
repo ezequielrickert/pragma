@@ -3,8 +3,9 @@ Input/Output utilities for Pragma.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, List
 
 
 def write_output(path_str: str, content: str) -> None:
@@ -62,3 +63,64 @@ def upsert_env_vars(path_str: str, values: Dict[str, str]) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def record_run_manifest(out_dir: str, site: str, entry: Dict[str, Any]) -> str:
+    """Append one run's metadata to a shared, git-diffable manifest under
+    `out_dir` (`{out_dir}/runs.json`) - {site: [entry, ...]}, oldest first.
+
+    Every other output document `Engine` writes (PRD, component tree, JSON
+    export) is timestamped in its own *filename*, which is enough to keep
+    runs from colliding but not enough to answer "what's the latest run for
+    this site" or "what runs exist at all" without listing the directory and
+    parsing filenames - this manifest is that missing index, cheap to keep
+    since `Engine` already builds every field it needs as a side effect of
+    finishing a run.
+
+    Deliberately one shared file across every site (not one manifest per
+    site) - a single small JSON file is easy to `git diff`/inspect whole,
+    and the number of sites one project tracks is small enough that this
+    never becomes a hot file the way `docs/{site}_*` output files already
+    aren't (those keep growing with every run regardless of this manifest).
+
+    Not safe against two processes writing concurrently (read-modify-write,
+    no file lock) - acceptable for how this project runs today (one `Engine`
+    per process, one CLI invocation at a time); if concurrent runs against
+    the same `out_dir` ever become a real usage pattern, this needs a lock
+    or a per-run-file-plus-rebuild scheme instead of a single shared file.
+    """
+    manifest_path = Path(out_dir) / "runs.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    data: Dict[str, List[Dict[str, Any]]] = {}
+    if manifest_path.exists():
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            # A corrupted/partial manifest must never block a real crawl from
+            # finishing and writing its actual output - start a fresh
+            # manifest instead of raising, same "documentation enrichment,
+            # not something correctness depends on" discipline
+            # GraphPRDSynthesizer's narration failure handling already uses.
+            data = {}
+    data.setdefault(site, []).append(entry)
+    manifest_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return str(manifest_path)
+
+
+def get_latest_run(out_dir: str, site: str) -> Dict[str, Any]:
+    """The most recently recorded `record_run_manifest` entry for `site`, or
+    `{}` if none exists (no manifest file yet, or no entry for this site) -
+    the read-side counterpart, for tooling that wants "the last output for
+    this site" without re-crawling or parsing `docs/` filenames.
+    """
+    manifest_path = Path(out_dir) / "runs.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    entries = data.get(site) or []
+    return entries[-1] if entries else {}

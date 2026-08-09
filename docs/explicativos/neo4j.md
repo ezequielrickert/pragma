@@ -1,14 +1,11 @@
 # Cómo Neo4j guarda el grafo de Pragma
 
-> ⚠️ **Parcialmente desactualizado** (migración a `crawl4ai`, commit `f5f1c02`). Los nodos `Page`/
-> `Component` y sus relaciones siguen existiendo tal como se describe abajo, pero `GraphStore`
-> sumó campos y un nodo nuevo que este doc no cubre todavía: `description`/`title` en `Page`,
-> `network_requests` en `Component`, y un nodo de texto estático separado (`record_text_content`/
-> `get_text_content_ledger`). La identidad de URL (sección final de este doc) ahora la resuelve
-> `src/utils/urls.py::clean_url()`/`route_shape()` — automático, sin necesitar configurar
-> `dynamic_url_segments` a mano como se describía acá. Revisar
-> [`src/core/interfaces.py::GraphStore`](../../src/core/interfaces.py) antes de confiar en el
-> detalle exacto de campos.
+> ⚠️ **Sección de identidad de URL desactualizada** (migración a `crawl4ai`, commit `f5f1c02`) — ver
+> el aviso al final de este doc. El esquema de nodos/relaciones de abajo (`Site`/`Page`/`Component`/
+> `TextContent`) sí está al día (actualizado para
+> [`docs/explicativos/plan-almacenamiento.md`](plan-almacenamiento.md) Fase A) contra
+> [`src/core/interfaces.py::GraphStore`](../../src/core/interfaces.py) — pero como con cualquier doc
+> explicativo, ante una duda puntual el código de la interfaz manda.
 
 > Código de referencia: [`src/storage/neo4j_graph_store.py`](../../src/storage/neo4j_graph_store.py),
 > [`src/storage/memory_graph_store.py`](../../src/storage/memory_graph_store.py) (la misma
@@ -20,22 +17,24 @@ backend recomendado para cualquier corrida que quieras poder inspeccionar despu�
 entre procesos (ej. el servidor REST leyendo lo que escribió una corrida de CLI), o retomar entre
 sesiones.
 
-## Los tres tipos de nodo
+## Los cuatro tipos de nodo
 
 | Label | Qué representa | Propiedades |
 |---|---|---|
 | `Site` | Un dominio crawleado. Uno solo por sitio. | `name` |
-| `Page` | Una URL ya normalizada dentro de ese sitio. | `site`, `url`, `status` (`Pending`/`Finished`), `components` (cantidad), `context`, `label`, `visited_at` |
-| `Component` | Un elemento interactivo encontrado en una `Page` puntual: botón, link, input, opción de un combo, etc. | `site`, `page_url`, `path`, `tag`, `text`, `role`, `input_type`, `visible`, `layer` (`semantic`/`pointer`, ver [`playwright.md`](playwright.md)), `x`, `y`, `width`, `height`, `component_type`, `options`, `interacted`, `interactions` (lista JSON de `{action, value, resulting_url}`) |
+| `Page` | Una URL ya normalizada dentro de ese sitio. | `site`, `url`, `status` (`Pending`/`Finished`), `components` (cantidad), `context`, `label`, `description` (resumen corto — meta description o encabezado + primer párrafo, ver `PageState.description`), `title` (el `<title>` real de la página — distinto de `label`, que es el texto del link que llevó hasta acá), `visited_at` |
+| `Component` | Un elemento interactivo encontrado en una `Page` puntual: botón, link, input, opción de un combo, etc. | `site`, `page_url`, `path`, `tag`, `text`, `role`, `input_type`, `visible`, `layer` (`semantic`/`pointer` — el catch-all `cursor: pointer` de última instancia), `x`, `y`, `width`, `height` (bounding box en el momento del descubrimiento), `component_type` (clasificación determinística, ver `component_classifier.py`), `options` (JSON de steppers/grupos de choice/opciones reveladas), `interacted`, `interactions` (lista JSON de `{action, value, resulting_url}`), `network_requests` (lista JSON de tandas de requests xhr/fetch "significativos" que disparó cada interacción — ver `src/crawlers/network_filter.py`) |
+| `TextContent` | Un bloque de texto no interactivo (`<p>`/`<h1-6>`/`<li>`/...) de una `Page` — separado de `Component` a propósito, ver el comentario en `src/core/interfaces.py::GraphStore.record_text_content`. | `site`, `page_url`, `path`, `tag`, `text`, `visible`, `x`, `y`, `width`, `height` |
 
 ## Las relaciones
 
 | Tipo | De → a | Qué significa | Se crea/actualiza en |
 |---|---|---|---|
 | `HAS_PAGE` | `Site → Page` | "Esta página pertenece a este sitio." | `upsert_page` |
-| `HAS_COMPONENT` | `Page → Component` | "Este elemento vive en esta página." | `record_component`, `record_component_interaction`, `record_component_options` |
-| `DISCOVERED_LINK` | `Page → Page` | "Se vio un link hacia esta otra página" — aunque el agente nunca lo haya seguido. | `record_link` |
-| `NAVIGATED_TO` | `Page → Page` | "El agente realmente se movió de A a B", con qué componente/acción lo hizo. | `record_edge` |
+| `HAS_COMPONENT` | `Page → Component` | "Este elemento vive en esta página." | `record_component`, `record_component_interaction`, `record_component_options`, `record_component_network` |
+| `HAS_TEXT` | `Page → TextContent` | "Este bloque de texto vive en esta página." | `record_text_content` |
+| `DISCOVERED_LINK` | `Page → Page` | "Se vio un link hacia esta otra página" — aunque el crawler nunca lo haya seguido. | `record_link` |
+| `NAVIGATED_TO` | `Page → Page` | "El crawler realmente se movió de A a B", con qué componente/acción lo hizo. | `record_edge` |
 
 ```mermaid
 graph LR
@@ -43,6 +42,7 @@ graph LR
   S -- HAS_PAGE --> B[Page: /carrito]
   A -- HAS_COMPONENT --> C1(Component: button 'Agregar')
   A -- HAS_COMPONENT --> C2(Component: input 'cantidad')
+  A -- HAS_TEXT --> T1(TextContent: p 'Elegí tus empanadas')
   A -- DISCOVERED_LINK --> B
   A -- NAVIGATED_TO --> B
 ```
@@ -53,11 +53,13 @@ Al conectar (`connect()`), se crean dos constraints de unicidad:
 
 - `page_site_url`: `(Page.site, Page.url)` es único.
 - `component_identity`: `(Component.site, Component.page_url, Component.path)` es único.
+- `text_content_identity`: `(TextContent.site, TextContent.page_url, TextContent.path)` es único.
 
 Todo alta/actualización usa `MERGE` sobre esa clave (nunca `CREATE` a secas para `Page`/
-`Component`), así que visitar la misma URL dos veces actualiza el mismo nodo en vez de crear uno
-nuevo. `NAVIGATED_TO` es la excepción: se crea con `CREATE`, no `MERGE`, porque cada navegación
-real es un evento distinto que vale la pena guardar aunque el par origen/destino se repita.
+`Component`/`TextContent`), así que visitar la misma URL dos veces actualiza el mismo nodo en vez de
+crear uno nuevo. `NAVIGATED_TO` es la excepción: se crea con `CREATE`, no `MERGE`, porque cada
+navegación real es un evento distinto que vale la pena guardar aunque el par origen/destino se
+repita.
 
 ## Los `<id>` / `<elementId>` que aparecen en Neo4j Browser
 
@@ -87,58 +89,50 @@ se van a volver a ver, y la próxima corrida las lee como historia real al armar
 Una crawl real de `empanad.app` llegó a "13/13 visitadas, 0 pendientes" en un token de sesión
 recién creado, antes de hacer nada — puro efecto de acumulación entre corridas.
 
-## Identidad de URL con tokens dinámicos (con arreglo opt-in disponible)
-
-> **Actualización**: esto ya tiene arreglo, pero es **opt-in por sitio** — no
-> corregido automáticamente. Si no configurás nada, el comportamiento sigue
-> siendo exactamente el descripto abajo.
+## Identidad de URL con tokens dinámicos (automático desde la migración a `crawl4ai`)
 
 La constraint de unicidad funciona perfecto — nunca vas a tener dos `Page` con exactamente el
-mismo `(site, url)`. El problema es **qué string llega a `url` antes de compararse**. La
-normalización de URL (`_clean_url` en `SimplePRDGenerator`) hoy:
+mismo `(site, url)`. El problema es **qué string llega a `url` antes de compararse**, y esto ya no
+lo resuelve config por sitio en `pragma.yaml` (`dynamic_url_segments`, como describía una versión
+vieja de este documento) — lo resuelve automáticamente
+[`src/utils/urls.py`](../../src/utils/urls.py), con dos funciones para dos preguntas distintas:
 
-- Saca el esquema (`https://`), la barra final, y fragmentos que no parecen una ruta de SPA.
-- **No toca query strings.**
-- **No reconoce segmentos dinámicos del path** — un token de sesión/orden/carrito incrustado
-  directamente en la ruta (ej. `/o/elk5kvp8trn54Kx2bNOlw0c3GjVCAGhhP`) no se distingue de una ruta
-  real.
+- **`clean_url(url)`**: identidad *física* — saca esquema, `www.`, barra final y fragmento
+  (`https://www.example.com/x/#s` y `http://example.com/x` → `example.com/x`). Es la que decide "el
+  browser realmente navegó a otro lado" (`MechanicalCrawler._visit_page`) — nunca se colapsa más
+  que esto para esa pregunta puntual.
+- **`route_shape(url)`**: un paso más allá de `clean_url()` — colapsa cualquier segmento del path
+  que *parezca* un token opaco generado (largo, alfanumérico mixto — `_TOKEN_SEGMENT_RE` +
+  `_looks_generated`, nunca el dominio) a un placeholder `{token}` compartido. Es lo que
+  `GraphStoreSink` usa como `page_key` real para escribir en `GraphStore` (`upsert_page`,
+  `record_component`, etc.) — así que **la clave que termina en Neo4j como `Page.url` para un sitio
+  de tokens de sesión ya es la versión colapsada**, no la URL literal con el hash.
 
-Resultado: cada visita con un token distinto mina un `Page` nuevo (y su propio set de
-`Component`, porque la identidad de `Component` incluye `page_url`), aunque sea exactamente la
-misma pantalla lógica.
-
-| URL real vista durante el crawl | ¿Misma página para un humano? | ¿Misma `Page` hoy? |
+| URL real vista durante el crawl | `clean_url()` (identidad física) | `route_shape()` (identidad de storage / `Page.url`) |
 |---|---|---|
-| `empanad.app/o/elk5kvp8trn54Kx2bNOlw0c3GjVCAGhhP` | Sí — las tres son "resumen de orden" | No — 3 nodos `Page` distintos |
-| `empanad.app/o/9zQwT2xrLk0pAvBnMcYh1sDf3eKu` | | |
-| `empanad.app/o/aB7cD9eFgH2iJkL4mNoP6qRsT8uV` | | |
+| `empanad.app/o/elk5kvp8trn54Kx2bNOlw0c3GjVCAGhhP` | `empanad.app/o/elk5kvp8trn54Kx2bNOlw0c3GjVCAGhhP` | `empanad.app/o/{token}` |
+| `empanad.app/o/9zQwT2xrLk0pAvBnMcYh1sDf3eKu` | `empanad.app/o/9zQwT2xrLk0pAvBnMcYh1sDf3eKu` | `empanad.app/o/{token}` |
 
-Esto **no es un bug de Neo4j ni de la constraint** — están haciendo exactamente lo que se les
-pide. El arreglo consiste en decidir, antes de que el string llegue a la constraint, qué partes de
-una URL son "ruta" y cuáles son "dato variable de esa visita puntual".
+Las tres instancias de la tabla anterior de este doc ya colapsan solas a un único nodo `Page`
+(`empanad.app/o/{token}`) sin configurar nada — la heurística es automática, no opt-in como en la
+arquitectura anterior. La contrapartida deliberadamente aceptada: es una heurística (`_looks_generated`
+exige mezcla de mayúsculas/dígitos, un slug real como `admisiones` nunca matchea), así que un ID de
+producto real con esa misma forma (ej. un ASIN) también colapsaría — ver el propio docstring de
+`route_shape()` para el razonamiento completo de por qué ese trade-off se acepta.
 
-**Cómo se resuelve hoy** (`SimplePRDGenerator._clean_url`, `_normalize_dynamic_segments`,
-`_normalize_query`): declarás por sitio, en `pragma.yaml`, qué segmentos del path son dinámicos:
+Dos consecuencias directas para quien lea el grafo en Neo4j Browser:
 
-```yaml
-dynamic_url_segments:
-  - '^[A-Za-z0-9]{16,}$'
-strip_query_params: true   # default - descarta query strings salvo los listados en keep_query_params
-```
-
-Cada segmento del path (nunca el dominio) se compara con `re.fullmatch` contra cada patrón — si
-matchea, se reemplaza por el placeholder literal `{id}` antes de construir la clave del nodo. Las
-tres URLs de la tabla de arriba colapsan a un solo `Page`: `empanad.app/o/{id}`.
-
-Deliberadamente **no** es una heurística automática ("esto parece un token") — es opt-in por
-sitio, para no fusionar por error un ID de producto real (ej. un código tipo ASIN) que también sea
-alfanumérico largo. Como la clave con placeholder no es una URL real navegable, `_clean_url` guarda
-la primera URL concreta vista para cada plantilla (`_template_sample_urls`), y `_resolve_goto_url`
-la usa si el agente elige esa ruta desde la lista de Pending — nunca intenta cargar el string
-`.../o/{id}` literal.
+- **`Page.url` para un sitio de tokens de sesión nunca es una URL navegable literal** — es la
+  plantilla con `{token}`. Esto es intencional (ver el punto anterior), no un dato corrompido.
+- `route_shape()` **nunca** se usa para decidir si el browser navegó de verdad (eso sigue siendo
+  siempre `clean_url()`) — mezclar las dos identidades ahí reintroduciría el bug que motivó
+  separarlas (ver `wiki/graph-based-crawl-tracking.md`, "Two identities, two different questions").
 
 Sigue sin resolverse (ver `docs/explicativos/pendientes-futuras-fases.md`): la normalización no se
-aplica dentro de una ruta de hash-SPA conservada (`#/products/123`).
+aplica dentro de una ruta de hash-SPA conservada (`#/products/123`), y el propio `wiki/graph-based-
+crawl-tracking.md` documenta un tercer caso de identidad — un cambio de pantalla SPA en la misma
+URL — que tampoco captura ninguna de las dos funciones de este archivo (ver su sección "A same-URL
+DOM change can be a full screen replacement").
 
 ## Consultar el grafo manualmente
 

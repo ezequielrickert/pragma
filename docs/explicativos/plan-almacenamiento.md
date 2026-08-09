@@ -119,4 +119,31 @@ revisable por partes.
 > Se actualiza al cerrar cada fase, con lo que se confirmó, lo que sorprendió, y cualquier cosa que
 > haya empeorado el sistema (o el riesgo de que lo haga) — no solo lo que salió bien.
 
-- *(pendiente — se completa a medida que cada fase cierra)*
+### Fase A (cerrada)
+
+- **Confirmado en la práctica, no solo en teoría**: `tests/test_graph_store.py` corrido en
+  aislamiento (`pytest tests/test_graph_store.py`) efectivamente fallaba 2/16 tests con
+  `KeyError: "Unknown agent 'mock'"` antes del fix de `conftest.py` (hallazgo #10) — no era una
+  hipótesis, se reprodujo. Con el import de `bootstrap` en `conftest.py`, los mismos 16 tests pasan
+  en aislamiento. Riesgo si algo similar vuelve a pasar: cualquier test nuevo que use
+  `Engine.from_config`/`*_REGISTRY.create()` sin que otro archivo haya importado antes un módulo de
+  agente/store va a fallar igual si se corre solo — el fix es a nivel de sesión de pytest
+  (`conftest.py`), así que cualquier test nuevo queda cubierto automáticamente.
+- **Decisión consciente**: `record_run_manifest` (`docs/runs.json`) NO tiene locking entre procesos
+  — es read-modify-write simple. Documentado explícitamente en el docstring como limitación
+  aceptada para el patrón de uso actual (un `Engine` por proceso). Si en algún momento se corren
+  crawls en paralelo contra el mismo `out_dir` (ej. un scheduler que dispara varias corridas a la
+  vez), este archivo puede perder entradas por una carrera de escritura — no habría corrupción de
+  JSON grave (cada escritura es atómica a nivel de `write_text`), pero sí una entrada de las dos
+  corridas concurrentes puede pisar a la otra si ambas leen antes de que la otra escriba. Señalado
+  acá para no perderlo de vista si el patrón de uso cambia.
+- **Nada de esta fase modificó el comportamiento por defecto** — `export_json` y
+  `debug_logs_keep_last` son opt-in (`False`/`None`), así que cualquier corrida existente sin tocar
+  `pragma.yaml`/flags se comporta exactamente igual que antes, más la escritura (siempre activa,
+  pero nueva) de `docs/runs.json`. Ese es el único cambio de comportamiento por defecto de la fase —
+  aceptado a propósito porque es puramente aditivo (un archivo nuevo, nunca lee ni depende de nada
+  existente) y de bajo costo (un `json.dumps` de unos pocos campos por corrida).
+- **Pendiente para una fase futura, no de esta**: no hay `README.md` en `docs/` (la carpeta de
+  salida) explicando qué es `runs.json` para alguien que la encuentre sin haber leído este plan —
+  candidato para Fase E si se arma el sitio `mkdocs-material`, o un README chico suelto antes si no
+  se llega a esa fase.

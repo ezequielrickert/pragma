@@ -46,6 +46,8 @@ def _print_config(config: PragmaConfig) -> None:
     print(f"  headless:       {config.headless}")
     print(f"  wait_seconds:   {config.wait_seconds}")
     print(f"  debug_logs_dir: {config.debug_logs_dir or '(disabled)'}")
+    print(f"  debug_logs_keep_last: {config.debug_logs_keep_last if config.debug_logs_keep_last else '(unbounded)'}")
+    print(f"  export_json:    {config.export_json}")
     print(f"  tree_ascii:     {config.tree_ascii}")
     print(f"  element_budget: {config.element_budget}")
     print(f"  max_pages:      {config.max_pages}")
