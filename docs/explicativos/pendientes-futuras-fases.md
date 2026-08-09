@@ -1,4 +1,28 @@
-# Residuos y trabajo futuro (fases 0-3)
+# Residuos y trabajo futuro (fases 0-3) — superadas por la migración a crawl4ai
+
+> ⚠️ **La base de código sobre la que se armó este documento ya no existe** (migración a
+> `crawl4ai`, commit `f5f1c02`, rama `scraper`) — `SimplePRDGenerator`/`PlaywrightScraper`, donde
+> vivían las Fases 0-3 y el modo seguro, fueron reemplazados por
+> `MechanicalCrawler`/`Crawl4AICrawler`. Qué pasó con cada línea de trabajo, concretamente:
+>
+> - **Identidad de URL (Fase 1)**: resuelta de otra forma, mejor — `src/utils/urls.py::clean_url`/
+>   `route_shape()` colapsa tokens dinámicos automáticamente (heurística, no opt-in por regex como
+>   se proponía acá). Ver [`neo4j.md`](neo4j.md).
+> - **Condición de corte / esqueleto-profundidad (Fase 2)**: el nuevo crawler no tiene el concepto
+>   de "presupuesto de iteraciones vía LLM" en absoluto — es mecánico, dos colas (URL + interacción)
+>   con `element_budget`/`max_passes_per_page`/`max_visits_per_route_shape` como backstops. La idea
+>   de "priorizar por grado de entrada" no se portó — la cola de URLs es FIFO simple.
+> - **Agrupar opciones de un desplegable (Fase 3)**: el nuevo `find_revealed_options` mejoró
+>   independientemente (detecta también el patrón hidden→visible), pero el concepto de
+>   `excluded_from_debt` no tiene equivalente — el nuevo diseño interactúa con *todo* elemento
+>   visible mecánicamente, filosofía de completitud por sobre selectividad, así que no aplica.
+> - **Contexto profundo del sitio (Fase 0)** y **modo seguro / mutation boundary**: sin
+>   equivalente todavía en la nueva arquitectura — genuinamente pendientes de re-evaluar sobre esta
+>   base nueva, no superados. El modo seguro en particular sigue siendo un pedido válido de
+>   `feedback.md` sin resolver.
+>
+> El resto de este documento describe el estado de las cosas *antes* de la migración — útil como
+> contexto de por qué se tomó cada decisión, no como estado actual del código.
 
 Este documento junta todo lo que quedó **deliberadamente afuera de alcance** al implementar las
 cuatro fases de "navegar profundo, sin olvidos, sin loop" (ver

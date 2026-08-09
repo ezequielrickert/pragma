@@ -1,8 +1,11 @@
-# Arquitectura de Pragma, explicada
+# Arquitectura de Pragma, explicada (versión anterior a la migración a crawl4ai)
 
-> Ver también: [`ARCHITECTURE.md`](../../ARCHITECTURE.md) (versión en inglés, más técnica y
-> pegada al código). Este documento es el mismo territorio, en español y con más contexto para
-> alguien que no vio el proyecto antes.
+> ⚠️ **Desactualizado.** Este documento describe la arquitectura previa a la migración a
+> `crawl4ai` (commit `f5f1c02`, rama `scraper`): `SimplePRDGenerator`, `PlaywrightScraper` y el
+> loop de decisión por-paso vía LLM que describe abajo **ya no existen en el código**. Se conserva
+> como contexto histórico de por qué se tomaron ciertas decisiones (el micro-kernel, las
+> registries, la config en capas siguen conceptualmente vigentes en `src/core/`), pero para lo que
+> el código hace *hoy* usá el `ARCHITECTURE.md` de la raíz del repo (en inglés, actualizado).
 
 ## Qué es el proyecto
 

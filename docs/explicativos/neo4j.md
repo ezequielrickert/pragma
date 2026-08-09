@@ -1,5 +1,15 @@
 # Cómo Neo4j guarda el grafo de Pragma
 
+> ⚠️ **Parcialmente desactualizado** (migración a `crawl4ai`, commit `f5f1c02`). Los nodos `Page`/
+> `Component` y sus relaciones siguen existiendo tal como se describe abajo, pero `GraphStore`
+> sumó campos y un nodo nuevo que este doc no cubre todavía: `description`/`title` en `Page`,
+> `network_requests` en `Component`, y un nodo de texto estático separado (`record_text_content`/
+> `get_text_content_ledger`). La identidad de URL (sección final de este doc) ahora la resuelve
+> `src/utils/urls.py::clean_url()`/`route_shape()` — automático, sin necesitar configurar
+> `dynamic_url_segments` a mano como se describía acá. Revisar
+> [`src/core/interfaces.py::GraphStore`](../../src/core/interfaces.py) antes de confiar en el
+> detalle exacto de campos.
+
 > Código de referencia: [`src/storage/neo4j_graph_store.py`](../../src/storage/neo4j_graph_store.py),
 > [`src/storage/memory_graph_store.py`](../../src/storage/memory_graph_store.py) (la misma
 > interfaz sin base de datos externa), y la interfaz `GraphStore` en

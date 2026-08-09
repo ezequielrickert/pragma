@@ -13,12 +13,18 @@ describe. Antes de nada, leé esa tabla para confirmar qué doc(s) corresponde t
 Inmediatamente después de editar cualquiera de estos archivos, en el mismo cambio (no como un
 paso separado para "después"):
 
+> ⚠️ Desde la migración a `crawl4ai` (commit `f5f1c02`, rama `scraper`), `playwright.md` y
+> `modulo3-api-server-y-rest-scraper.md` se eliminaron (describían `PlaywrightScraper`/
+> `src/api_server/`/`RestScraper`, que ya no existen), y `arquitectura.md`/`neo4j.md` quedaron
+> parcialmente desactualizados — ver el aviso al inicio de cada uno. Esta tabla sigue apuntando a
+> los archivos viejos hasta que alguien la revise contra `src/crawlers/*` (`mechanical_loop.py`,
+> `crawl4ai_crawler.py`, `graph_sink.py`) - no la sigas al pie de la letra sin confirmar que el
+> archivo de código todavía existe.
+
 | Si editaste... | Actualizá... |
 |---|---|
-| `src/storage/neo4j_graph_store.py`, `src/storage/memory_graph_store.py`, la clase `GraphStore` en `src/core/interfaces.py`, o `_clean_url` en `src/generators/prd_generator.py` | `docs/explicativos/neo4j.md` |
-| `src/scrapers/playwright_scraper.py` | `docs/explicativos/playwright.md` |
-| `src/api_server/*`, `src/scrapers/rest_scraper.py` | `docs/explicativos/modulo3-api-server-y-rest-scraper.md` |
-| `src/core/engine.py`, `src/core/registry.py`, `src/core/config.py`, `src/cli.py`, `src/core/wizard.py`, la forma general del loop en `src/generators/prd_generator.py` (no un detalle interno puntual) | `docs/explicativos/arquitectura.md` |
+| `src/storage/neo4j_graph_store.py`, `src/storage/memory_graph_store.py`, la clase `GraphStore` en `src/core/interfaces.py` | `docs/explicativos/neo4j.md` |
+| `src/core/engine.py`, `src/core/registry.py`, `src/core/config.py`, `src/cli.py`, `src/core/wizard.py` | `docs/explicativos/arquitectura.md` (revisar primero si sigue teniendo sentido actualizarlo o si conviene escribir un doc nuevo para `src/crawlers/*`) |
 
 ## Proceso
 
