@@ -149,3 +149,33 @@ MATCH (c:Component {site: "empanad.app", page_url: "empanad.app/menu", interacte
 // El camino real que siguió el crawl
 MATCH (a:Page {site: "empanad.app"})-[r:NAVIGATED_TO]->(b:Page) RETURN a.url, r.component, b.url ORDER BY r.created_at
 ```
+
+## Backup y restore
+
+`docker-compose.yml` persiste `/data` en un volumen nombrado de Docker (`pragma_neo4j_data`) - eso
+protege contra perder el grafo si el *contenedor* se recrea, pero no contra perder el *volumen* en
+sí (borrado accidental, `docker volume prune`, disco corrupto). Para eso están
+[`scripts/neo4j_backup.sh`](../../scripts/neo4j_backup.sh) y
+[`scripts/neo4j_restore.sh`](../../scripts/neo4j_restore.sh) (docs/explicativos/plan-almacenamiento.md
+Fase D).
+
+```bash
+# Backup: escribe backups/neo4j_<timestamp-UTC>.dump, parando y reiniciando el contenedor
+./scripts/neo4j_backup.sh
+
+# Restore: DESTRUCTIVO - pisa el estado actual del volumen con el contenido del dump
+./scripts/neo4j_restore.sh backups/neo4j_20260809T120000Z.dump
+```
+
+Ambos scripts usan `neo4j-admin database dump`/`load` vía `docker compose run` con un mount ad hoc
+de `/backups` (no agregado permanentemente al servicio en `docker-compose.yml`, ya que solo hace
+falta durante un backup/restore puntual, nunca en la operación normal). Community Edition (la
+edición que usa este proyecto) solo soporta backup **offline** - el contenedor se para durante el
+dump/load - a diferencia de Enterprise Edition, que soporta backup online sin cortar el servicio.
+Ver [la documentación oficial de Neo4j](https://neo4j.com/docs/operations-manual/current/docker/dump-load/)
+para el detalle completo del mecanismo subyacente.
+
+`backups/` está en `.gitignore` - un dump es un archivo binario, potencialmente grande, y contiene
+el grafo completo de cualquier sitio crawleado hasta ese momento; nunca vale la pena versionarlo.
+No hay todavía ninguna política de backups automáticos/programados (cron, tarea de Windows) - correr
+el script es, por ahora, una acción manual.

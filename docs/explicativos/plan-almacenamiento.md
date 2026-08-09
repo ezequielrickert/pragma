@@ -112,7 +112,7 @@ revisable por partes.
 9. ~~Cobertura contra Neo4j real de los campos marcados como pendientes en
    `pendientes-futuras-fases.md`~~ — no abordado esta fase, ver Bitácora.
 
-### Fase D — Operabilidad
+### Fase D — Operabilidad (cerrada)
 10. Script de backup/restore (`neo4j-admin dump`/`load`) + documentación — resuelve #8.
 
 ### Fase E — Nice-to-have
@@ -259,3 +259,49 @@ revisable por partes.
   ruta tier 1 (instancia ya alcanzable) - ambas ejercitadas por los 14 tests existentes, que pasan de
   `ERROR` a `skip` correctamente. **Pendiente real, igual que en Fase B**: confirmar tier 2 con
   Docker Desktop corriendo antes de mergear, o en la revisión de la PR.
+
+### Fase D (cerrada)
+
+- **Alcance**: `scripts/neo4j_backup.sh` (dump offline a `backups/neo4j_<timestamp>.dump`) y
+  `scripts/neo4j_restore.sh <dump>` (load destructivo), documentados en `docs/explicativos/neo4j.md`
+  con una sección nueva ("Backup y restore"). `backups/` agregado a `.gitignore`.
+- **Decisión de diseño**: el mount de `/backups` se agrega ad hoc vía `docker compose run -v ...` en
+  cada script, no permanentemente en `docker-compose.yml` — el servicio `neo4j` normal no necesita
+  ese mount para operar, solo estos dos scripts puntuales lo usan. Mantiene `docker-compose.yml` sin
+  cambios para el camino feliz (levantar Neo4j para crawlear), que es el 99% del uso real.
+- **Bug real evitado antes de que pasara** (no hipotético — confirmado con `git config --get
+  core.autocrlf` en este mismo entorno, que da `true`): sin un `.gitattributes`, estos dos scripts
+  `.sh` nuevos quedarían sujetos a la conversión LF→CRLF de Git al hacer checkout en Windows (el
+  mismo SO de este entorno y, salvo que se indique lo contrario, del resto del equipo) — un shebang
+  con `\r` al final rompe silenciosamente bajo bash. Se agregó `.gitattributes` (`*.sh text eol=lf`)
+  para forzar LF en el working directory sin importar `core.autocrlf`, y se verificó explícitamente
+  (`grep -c $'\r'` sobre el blob de git, no solo el archivo en disco) que el contenido commiteado no
+  tiene retornos de carro.
+- **Limitación honesta, la misma que en Fases B y C**: no pude ejecutar ninguno de los dos scripts de
+  punta a punta en este entorno — Docker Desktop no llega a levantar el daemon acá, así que
+  `docker compose stop/run/start` nunca se ejercitó contra un contenedor real. Mitigado con:
+  `bash -n` (chequeo de sintaxis) en ambos scripts, y una revisión manual línea por línea contra la
+  sintaxis exacta documentada en la [documentación oficial de Neo4j](https://neo4j.com/docs/operations-manual/current/docker/dump-load/)
+  para `neo4j-admin database dump`/`load`. **Pendiente real, otra vez**: correr ambos scripts contra
+  una instancia real (backup de un grafo con datos reales, después restore a un volumen vacío,
+  confirmar que el grafo vuelve idéntico) antes de confiar en ellos para un uso real - candidato
+  ideal para la revisión de la PR, junto con las Fases B/C.
+- **Deliberadamente fuera de alcance de esta fase**: no hay backups automáticos/programados (cron,
+  Task Scheduler de Windows) - correr el script sigue siendo una acción manual. No se evaluó todavía
+  si vale la pena agregar eso, o dejarlo como está dado que este proyecto corre crawls bajo demanda,
+  no como un servicio siempre-activo con datos acumulándose continuamente.
+
+### Observación general (no accionada, solo documentada — decisión de otro alcance)
+
+Revisando `.gitignore` para agregar `backups/`, noté algo que no estaba en el plan original: `docs/`
+(los PRDs/trees/exports generados por corridas reales) y `debug_logs/` (snapshots de corridas reales
+contra `empanad.app`/`austral.edu.ar`) están **commiteados al repo**, no ignorados - a diferencia de
+`research_logs/`/`progress_logs/`/`graph_logs/` (arquitectura anterior, ya no existen) que sí están
+en `.gitignore`. No sé si fue intencional (dejar ejemplos reales de output para que alguien nuevo
+entienda qué produce el proyecto sin tener que correrlo) o un descuido cuando se migró de la
+arquitectura anterior. **No lo toqué** - sacar archivos ya trackeados del control de versiones es una
+decisión más disruptiva de lo que corresponde a este plan de storage, y potencialmente borra
+ejemplos puestos ahí a propósito. Lo dejo señalado acá para que se decida explícitamente, no para
+que se actúe unilateralmente: si es intencional, capaz vale la pena decirlo en `docs/README.md`
+(agregado en la Fase A) para que quien lo lea no piense que es un descuido; si no lo es, es un
+`git rm --cached` chico el día que alguien confirme que sí lo es.
