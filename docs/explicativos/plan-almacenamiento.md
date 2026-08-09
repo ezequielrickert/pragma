@@ -94,12 +94,17 @@ revisable por partes.
 4. Fix de aislamiento de tests (`conftest.py` importa `bootstrap`) — resuelve #10.
 5. Actualizar `docs/explicativos/neo4j.md` — resuelve #9.
 
-### Fase B — Correctness/performance (riesgo medio, toca `graph_sink.py`/`mechanical_loop.py`)
-6. Migrar `Neo4jGraphStore` al driver async — resuelve #1. Es el cambio más invasivo del plan porque
-   propaga `await` a través de `GraphStoreSink`/`GraphStoreInteractionTracker` y de cada call site en
-   `mechanical_loop.py` (código del crawler) — se coordina/documenta explícitamente por eso.
-7. Refactor de los patrones Cypher repetidos a helpers compartidos — resuelve #4 y reduce el riesgo
-   del punto anterior.
+### Fase B — Correctness/performance (alcance revisado durante la implementación — ver Bitácora)
+6. ~~Migrar `Neo4jGraphStore` al driver async~~ — **descartado para esta fase** (ver Bitácora): la
+   migración completa obliga a volver `async` código de `mechanical_loop.py` documentado
+   explícitamente como sincrónico *a propósito* (`_transition_to_new_state`, `_enqueue`) — un cambio
+   de mayor alcance/riesgo del que corresponde asumir unilateralmente sobre código de otra persona
+   sin su revisión directa.
+6b. **Implementado en su lugar**: cachear localmente `GraphStoreInteractionTracker` (una lectura de
+    `GraphStore` por página por instancia de tracker, no una por cada chequeo de componente) —
+    ataca el patrón N+1 real que agravaba el hallazgo #1, sin tocar `mechanical_loop.py` en
+    absoluto.
+7. Refactor de los patrones Cypher repetidos a helpers compartidos — resuelve #4.
 
 ### Fase C — Calidad/testing
 8. `testcontainers[neo4j]` para integration tests reproducibles — resuelve #5 (parcial).
@@ -146,4 +151,71 @@ revisable por partes.
 - **Pendiente para una fase futura, no de esta**: no hay `README.md` en `docs/` (la carpeta de
   salida) explicando qué es `runs.json` para alguien que la encuentre sin haber leído este plan —
   candidato para Fase E si se arma el sitio `mkdocs-material`, o un README chico suelto antes si no
-  se llega a esa fase.
+  se llega a esa fase. *(Actualización: se agregó igual durante esta misma fase — ver
+  [`docs/README.md`](../README.md) — resultó barato y de bajo riesgo, no ameritaba esperar.)*
+
+### Fase B (cerrada — alcance recortado a propósito, ver por qué)
+
+- **Hallazgo revisado en el momento de implementar, no antes**: al leer `mechanical_loop.py` a fondo
+  para planear el cambio, encontré que `_transition_to_new_state` es **explícitamente** un método
+  sincrónico por diseño (su propio docstring: *"Pure bookkeeping, no crawler I/O ... kept as a plain
+  method, not async, for exactly that reason"*), y llama a `self.sink.record_navigation_edge`/
+  `record_page_finished`/`record_page_arrival`/`record_inventory`/`record_text_content` y a
+  `self.tracker.is_interacted`. `_enqueue` (también sincrónico) llama a `self.tracker.is_visited`.
+  Migrar `GraphStoreSink`/`GraphStoreInteractionTracker` a `async def` — el plan original de esta
+  fase — obliga en cascada a volver `async` estos dos métodos también, contradiciendo una decisión
+  de diseño explícita y documentada del propio crawler, no solo agregando `await` de forma mecánica.
+  Esto cambia la evaluación de riesgo: no es un refactor de bajo riesgo confinado a `src/storage/`,
+  es un cambio real al modelo de control del crawler.
+- **Decisión**: no forzar ese cambio unilateralmente sobre código ajeno sin que la otra persona lo
+  revise — en su lugar, buscar el mejor arreglo posible que no cruce esa frontera. Encontrado uno
+  mejor de lo esperado: `GraphStore.get_component_states`'s propio docstring en
+  `src/core/interfaces.py` ya documentaba el contrato como *"one query per page visit, not one per
+  component"*, pero `GraphStoreInteractionTracker.is_interacted` no lo cumplía — llamaba a
+  `get_component_states` fresco en cada chequeo, y `_visit_page`'s frontier loop llama a
+  `is_interacted` una vez por componente considerado en cada pasada. Para una página de N
+  componentes, eso son N round-trips reales a `GraphStore` (a Neo4j por red, si `graph_store: neo4j`)
+  para responder repetidamente la misma pregunta sobre una página que apenas cambió. Confirmado con
+  tests dedicados (`tests/test_graph_sink_tracker_cache.py`, un `GraphStore` "spy" que cuenta
+  llamadas reales) que antes del fix esto era exactamente N llamadas, no 1.
+- **Lo que se implementó**: cachear localmente por instancia de `GraphStoreInteractionTracker` (una
+  lectura real de `GraphStore` por página, no por componente) — mismo patrón para `is_visited`.
+  `mark_interacted`/`mark_visited` (antes no-ops puros) ahora actualizan esa caché local en el mismo
+  punto donde el escritor real (`GraphStoreSink`) hace el write real, así que la caché nunca queda
+  desincronizada de lo que esta misma corrida escribió. Cero cambios de firma o de comportamiento
+  observable desde `mechanical_loop.py` — sigue siendo la misma interfaz sincrónica, mismos call
+  sites, sin tocar ese archivo en absoluto.
+- **Qué NO resuelve esto**: el hallazgo #1 original (bloqueo del event loop bajo `page_concurrency >
+  1` durante las escrituras reales - `record_interaction`, `record_inventory`, etc.) sigue existiendo
+  tal cual - esta caché reduce drásticamente la *frecuencia* de las llamadas bloqueantes de lectura
+  (que dominaban en cantidad sobre las de escritura), pero no elimina el bloqueo de las escrituras.
+  **Queda como trabajo futuro, explícitamente NO recomendado para hacer unilateralmente**: la
+  migración completa al driver async de Neo4j, coordinada con quien mantiene `mechanical_loop.py`,
+  dado que toca invariantes de control de flujo que esa persona diseñó y documentó a propósito.
+- **Riesgo real evaluado y aceptado**: la caché asume que ningún otro proceso/tracker escribe al
+  mismo `site` concurrentemente durante esta corrida - no es un riesgo nuevo (la arquitectura ya
+  asume un único escritor por sitio por corrida vía `PragmaConfig.fresh`/`clear_site`), pero vale
+  dejarlo explícito acá por si ese supuesto cambia en el futuro (ver hallazgo sobre
+  `record_run_manifest` en la bitácora de Fase A - mismo tipo de supuesto).
+- **Verificación**: `tests/test_graph_sink.py` + `tests/test_mechanical_loop.py` completos (33 tests,
+  incluyendo los casos más sensibles a este cambio - re-interacción entre instancias de
+  `MechanicalCrawler`, drenado de páginas con más componentes que el budget, abandono de páginas que
+  nunca convergen) en verde después del cambio, más 7 tests nuevos dedicados a la caché en sí.
+- **Punto 7 (refactor de Cypher repetido) sí se hizo completo esta fase** - cero riesgo para el
+  crawler porque toca únicamente `src/storage/neo4j_graph_store.py`. `_page_ensure_clause()`
+  reemplaza 9 copias manuales del mismo bloque `MERGE (x:Page ...) ON CREATE SET ...` (7 métodos, 2
+  de ellos con dos endpoints cada uno) por una sola función que genera el fragmento; `_COMPONENT_BLANK_STUB`
+  unifica 3 copias casi idénticas del stub de auto-creación de `Component`, corrigiendo en el camino
+  una divergencia real entre ellas (`record_component_options` no seteaba `c.options = ''` en su
+  copia, las otras dos sí - inofensivo porque un `SET` incondicional lo pisa después de todas formas,
+  pero era exactamente el tipo de drift silencioso que este refactor existe para prevenir a futuro).
+- **Limitación honesta de la verificación**: no pude correr esto contra una instancia real de Neo4j
+  en este entorno — Docker está instalado (`docker --version` funciona) pero el daemon de Docker
+  Desktop no está corriendo (`docker compose up -d neo4j` falla al conectar al pipe), y no intenté
+  forzar el arranque de una app de escritorio desde acá. Mitigado con: comparación manual del texto
+  Cypher generado contra el original (idéntico, campo por campo), tests unitarios dedicados
+  (`tests/test_neo4j_cypher_helpers.py`) que verifican el contenido exacto y el balanceo de llaves
+  de cada fragmento generado sin necesitar conexión, y que `tests/test_neo4j_graph_store_integration.py`
+  sigue teniendo el mismo comportamiento de auto-skip que antes (no se tocó su lógica). **Pendiente
+  real**: correr `tests/test_neo4j_graph_store_integration.py` contra una instancia real antes de
+  mergear a `main`, o que alguien con Docker Desktop corriendo lo confirme en la revisión de la PR.
