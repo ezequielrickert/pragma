@@ -1,139 +1,72 @@
-# Pragma - Web Page to PRD Generator
+POC: Mechanical crawl4ai crawler + Neo4j graph + AI-synthesized PRD generator (Python)
 
-Pragma is a small, modular Python project that:
+Setup:
+- pip install -r requirements.txt
+- python3 -m playwright install
+- python3 src/cli.py config
 
-1. Scrapes a web page with Playwright.
-2. Extracts HTML + links.
-3. Sends that context to an LLM agent.
-4. Writes a markdown PRD file into `docs/`.
+`config` launches an interactive setup wizard (arrow-key menus, editable defaults, masked
+API-key input) that persists your choice of agent/graph store, model names, and endpoints
+to `pragma.yaml`, and any secrets (API keys) to `.env`. Run it once; re-run it any time to change
+a setting - existing values are shown as defaults you can accept or overwrite, and it never
+touches settings for providers you're not using.
 
-It is built as a POC, but with clear interfaces so components are easy to swap.
+Then just run an analysis with the URL as the only required input:
+- `python3 src/cli.py https://example.com`
+- or: `python3 src/cli.py` (prompts for the URL interactively if none was given)
 
-## What it does
+Everything else - which agent/model, which graph store, output folder, headless mode, crawl
+budget - comes from what you configured. Any of it can still be overridden per run with flags,
+without touching your saved config:
+- `--agent <name>` / `--provider <name>` (`gemini`, `openai`, `local`, `mock`)
+- `--graph-store <name>` (`memory`, `neo4j`)
+- `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
+  `--config <path/to/other.yaml>`
 
-- Scrapes rendered page content (`html`) and discovered links (`links`).
-- Generates a concise PRD in markdown with sections like goals, users, features, and acceptance criteria.
-- Supports multiple agent providers:
-  - Gemini via API key (`GeminiAgent`)
-  - Gemini via service account OAuth (`GeminiOAuthAgent`)
-  - OpenAI chat completion (`OpenAIAgent`)
-- Falls back to a local mock agent when provider setup fails.
+Precedence for every setting: explicit CLI flag > `pragma.yaml` > environment variable (`.env`)
+> built-in default.
 
-## Project structure
+Debugging a run: there are no more file-based logs (`research_logs/`/`progress_logs/`/
+`graph_logs/`) - the crawl's graph store *is* the live record. With `graph_store: neo4j`, open a
+Neo4j browser and query `site`-scoped `Page`/`Component` nodes and their edges directly; with the
+default `graph_store: memory`, inspect it in-process (nothing persists past one run).
 
-```text
-src/
-  interfaces.py              # Scraper, Agent, PRDGenerator abstractions
-  cli.py                     # Main CLI entrypoint
-  run_sample.py              # Simple sample runner + MockAgent
-  scrapers/
-	playwright_scraper.py    # Playwright-based scraper
-  agents/
-	openai_agent.py          # OpenAI implementation
-	gemini_agent.py          # Gemini API key implementation
-	gemini_oauth_agent.py    # Gemini service-account OAuth implementation
-  generators/
-	prd_generator.py         # Prompt builder + PRD generation pipeline
-docs/                        # Generated PRD outputs
-tests/
-  test_imports.py            # Basic import smoke test
-```
+No iteration/prompt-size tuning is needed anymore - there's no per-step LLM decision consuming a
+token budget. `--element-budget` (default 200) is the only crawl-size knob: the per-page cap on
+how many components `MechanicalCrawler` mechanically interacts with in one visit-pass, a backstop
+against a pathological reveal-chain rather than a normal-case limit. `--max-pages` caps the total
+number of pages visited (default: unbounded, crawl until the URL frontier is exhausted).
 
-## Quick start
+Design: a micro-kernel `Engine` (`src/core/engine.py`) wires an `Agent` ("the brain"/LLM,
+`src/agents/`) and a `GraphStore` ("the graph", `src/storage/`), both resolved by name from plugin
+registries (`src/core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
+(`src/crawlers/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
+discovery and interaction) crawls the site and writes live to the graph store
+(`GraphStoreSink`, `src/crawlers/graph_sink.py`); `GraphPRDSynthesizer`
+(`src/generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
+Markdown PRD. See `ARCHITECTURE.md` for the full data flow. To add a new agent or graph-store
+plugin, implement the relevant interface in `src/core/interfaces.py`, decorate the class (or a
+builder function) with `@AGENT_REGISTRY.register("name")` / `@GRAPH_STORE_REGISTRY.register("name")`,
+and import the module from `src/core/bootstrap.py` so it registers itself at startup.
 
-### 1) Install dependencies
+Provider config is encapsulated per agent, not piled into one growing `.env`: each agent module
+(e.g. `src/agents/gemini_agent.py`) owns a small `Config` dataclass with a `from_env()`
+classmethod that is the single source of truth for which env vars that provider needs. Nobody
+else reads `GEMINI_API_KEY`, `OPENAI_MODEL`, etc. directly. Non-secret per-provider settings
+(model name, endpoint) can also be set in `pragma.yaml` under an `agents:` block, keyed by
+provider name - only the block for the provider you're actually using is read, so switching to
+`--agent mock` or `--agent local` never requires you to look at Gemini/OpenAI settings at all.
+Keep API keys and credential file paths in `.env`, never in a committed YAML file. Adding a new
+provider (e.g. Anthropic) means adding one new agent module with its own `Config` + `from_env()`
+and registering it - no changes anywhere else. The `config` wizard's provider-specific prompts
+(`PROVIDER_FIELDS` in `src/core/wizard.py`) are the one place to extend when adding a provider's
+interactive setup.
 
-```powershell
-pip install -r requirements.txt
-python -m playwright install
-```
+## Wiki
 
-### 2) Configure environment
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Then edit `.env` and set at least:
-
-- `URL` (optional if always passing `--url`)
-- `AGENT_PROVIDER` (`gemini` or `openai`)
-- matching credentials (`GEMINI_API_KEY` or `OPENAI_API_KEY`)
-
-### 3) Run
-
-```powershell
-python src/cli.py --url https://example.com
-```
-
-Output file is written to `docs/` with a timestamped name like:
-
-`example.com_prd_20260513T120000Z.md`
-
-## Configuration
-
-Use `.env` (loaded automatically by `python-dotenv`).
-
-### Core variables
-
-- `URL` - default URL if `--url` is not provided.
-- `AGENT_PROVIDER` - `gemini` (default recommendation) or `openai`.
-- `OPENAI_MODEL` - defaults to `gpt-3.5-turbo`.
-
-### Gemini (API key)
-
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL` (example: `models/gemini-1.5-flash`)
-
-### Gemini (OAuth service account)
-
-- `GOOGLE_APPLICATION_CREDENTIALS` - path to service account JSON.
-- `GEMINI_MODEL` - model path used by OAuth agent.
-
-When `AGENT_PROVIDER=gemini`, the CLI prefers OAuth if `GOOGLE_APPLICATION_CREDENTIALS` is present; otherwise it uses API key mode.
-
-### OpenAI
-
-- `OPENAI_API_KEY`
-- optional `OPENAI_MODEL`
-
-## CLI usage
-
-```powershell
-python src/cli.py --url <target-url> --out docs
-```
-
-Arguments:
-
-- `--url`, `-u` - URL to scrape (falls back to `URL` env var).
-- `--out`, `-o` - output directory (default: `docs`).
-
-## Testing
-
-Run the current smoke test suite:
-
-```powershell
-python -m pytest -q
-```
-
-## Troubleshooting
-
-- `URL must be provided...`
-  - pass `--url` or set `URL` in `.env`.
-- Gemini `404` errors
-  - verify API key is tied to a project with Generative Language API enabled.
-  - verify selected `GEMINI_MODEL` is available to your account/key.
-- Gemini `403` / permission errors
-  - check key restrictions and API access; or use OAuth service account flow.
-- OpenAI initialization failures
-  - verify `OPENAI_API_KEY` and package version compatibility.
-
-## Design notes
-
-The project follows three explicit interfaces in `src/interfaces.py`:
-
-- `Scraper`: produces normalized scraped data.
-- `Agent`: turns a prompt into generated text.
-- `PRDGenerator`: composes final PRD markdown from scraped data.
-
-Because components depend on interfaces, you can replace scraper, model provider, or generator logic with minimal changes.
+[`wiki/`](wiki/README.md) has durable, reusable domain knowledge extracted from building this
+project - prompt engineering for multi-step agents, local-model constraints, browser automation
+pitfalls (both Playwright-direct and crawl4ai-specific), graph-based crawl tracking, and the
+debugging methodology used to find every bug in this codebase. Read it before debugging a
+misbehaving agent/crawl loop, or when building the next one; it's written to outlive this specific
+project and to seed Claude Code skills for future sessions.

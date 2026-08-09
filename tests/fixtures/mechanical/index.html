@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: index</title></head>
+<body>
+  <h1>Index</h1>
+  <p>A paragraph of real page text, not an interactive component.</p>
+  <ul>
+    <li>First list item text</li>
+  </ul>
+  <!-- Nested-in-a-button case: this <p> is the button's own accessible
+       label, not a separate text-content leaf - excluded by
+       extract_text_content.js's interactive-selector check. -->
+  <button id="wrappedTextButton"><p>Label wrapped in a paragraph</p></button>
+  <a href="/page-b.html">Go to B</a>
+  <button id="jsNav" onclick="window.location.href='/page-b.html'">Go via JS</button>
+
+  <!-- same-page reveal chain: click reveal1 -> reveal2 appears -> click it -> leafBtn appears -->
+  <button id="reveal1" onclick="document.getElementById('reveal2').style.display='inline'">Reveal 1</button>
+  <button id="reveal2" style="display:none" onclick="document.getElementById('leafBtn').style.display='inline'">Reveal 2</button>
+  <button id="leafBtn" style="display:none">Leaf</button>
+
+  <form>
+    <label for="nameInput">Name</label>
+    <input id="nameInput" type="text">
+  </form>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Delayed reveal on click fixture</title>
+<meta name="description" content="Simulates a same-page interaction whose DOM update settles after a short delay - for testing interaction_wait_seconds independently of wait_seconds (which only governs a plain navigation's own first-load wait).">
+</head>
+<body>
+  <h1>Delayed reveal on click</h1>
+  <p>Clicking the trigger below reveals a new button, but only after a short
+  delay - mirroring a same-page DOM update (a reveal, an async state change)
+  that takes a moment to settle, distinct from
+  wiki/crawl4ai-integration-pitfalls.md's initial-hydration delay entry.</p>
+  <button id="trigger" onclick="setTimeout(() => {
+    document.getElementById('root').innerHTML = '<button id=&quot;lateButton&quot;>Revealed late</button>';
+  }, 1500)">Trigger</button>
+  <div id="root"></div>
+</body>
+</html>

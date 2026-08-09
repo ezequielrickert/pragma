@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "generating-python-code": {
+      "source": "josemartinrodriguezmortaloni/opencode-config",
+      "sourceType": "github",
+      "skillPath": "skill/generating-python-code/SKILL.md",
+      "computedHash": "a7f50627509d141bbb1e7019ad3939f0d31c4f1eb50798dd43c0b926f3ed576d"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "f361db4e15e6bfd562a9282b1dccda513910a50061f9e838ce017be9c69dde3f"
+    },
+    "handoff": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/handoff/SKILL.md",
+      "computedHash": "ad03e8d4ea3cbbff66420eb7ba3cc375b5cbe1821a2449b53e863256cf5b5cde"
+    }
+  }
+}
