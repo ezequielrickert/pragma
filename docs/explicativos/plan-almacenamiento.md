@@ -106,10 +106,11 @@ revisable por partes.
     absoluto.
 7. Refactor de los patrones Cypher repetidos a helpers compartidos — resuelve #4.
 
-### Fase C — Calidad/testing
-8. `testcontainers[neo4j]` para integration tests reproducibles — resuelve #5 (parcial).
-9. Cobertura contra Neo4j real de los campos marcados como pendientes en
-   `docs/explicativos/pendientes-futuras-fases.md`.
+### Fase C — Calidad/testing (cerrada, ver Bitácora para el detalle de `testcontainers[neo4j]` vs `testcontainers`)
+8. `testcontainers` (paquete base, no el extra `[neo4j]` — ver Bitácora) para integration tests
+   reproducibles sin depender de `docker compose up -d neo4j` corrido a mano — resuelve #5.
+9. ~~Cobertura contra Neo4j real de los campos marcados como pendientes en
+   `pendientes-futuras-fases.md`~~ — no abordado esta fase, ver Bitácora.
 
 ### Fase D — Operabilidad
 10. Script de backup/restore (`neo4j-admin dump`/`load`) + documentación — resuelve #8.
@@ -219,3 +220,42 @@ revisable por partes.
   sigue teniendo el mismo comportamiento de auto-skip que antes (no se tocó su lógica). **Pendiente
   real**: correr `tests/test_neo4j_graph_store_integration.py` contra una instancia real antes de
   mergear a `main`, o que alguien con Docker Desktop corriendo lo confirme en la revisión de la PR.
+
+### Fase C (cerrada)
+
+- **Hallazgo real, no anticipado en el plan original**: `pip install "testcontainers[neo4j]"` (lo que
+  el plan original proponía) fuerza un upgrade silencioso de `neo4j==5.24.0` (el pin de
+  `requirements.txt`, el mismo driver que usa `Neo4jGraphStore` en producción) a `neo4j>=6` — el
+  extra `[neo4j]` de `testcontainers` lo declara como dependencia dura. Confirmado instalándolo en
+  este entorno: `pip` efectivamente desinstaló 5.24.0 e instaló 6.2.0 sin pedir confirmación. Subir
+  la versión mayor del driver de producción como efecto secundario de instalar una herramienta *de
+  test* es exactamente el tipo de regresión silenciosa que este plan existe para prevenir, no para
+  causar.
+- **Decisión**: usar el paquete base `testcontainers` (sin el extra `[neo4j]`) y su
+  `DockerContainer` genérico para levantar el contenedor (mismo `neo4j:5.24-community` que
+  `docker-compose.yml`), pero seguir haciendo todas las queries reales con el driver pineado del
+  propio proyecto (`Neo4jGraphStore`) — cero conflicto de versión, cero cambio a `requirements.txt`
+  de producción. El costo: un poco más de código manual (esperar el log `"Bolt enabled on"` en vez
+  de usar el `Neo4jContainer` ya armado que trae el extra) — aceptado a cambio de no tocar una
+  dependencia de producción sin necesidad real. Se documentó en `requirements-dev.txt` (nuevo).
+- **Bug real encontrado y arreglado en el camino** (no hipotético — lo disparó este mismo entorno):
+  la primera versión de la fixture envolvía `container.start()` en un `try/except` pero *no* la
+  construcción de `DockerContainer(...)` en sí — resultó que `DockerContainer.__init__` ya habla con
+  el cliente de Docker de forma eager, así que con el daemon de Docker Desktop no corriendo (el mismo
+  estado real de este entorno, confirmado en la Fase B), la excepción se disparaba *fuera* del
+  `try/except` y rompía la fixture entera con un ERROR en vez de degradar a skip. Corregido moviendo
+  la construcción adentro del mismo bloque. Verificado en este mismo entorno: antes del fix, los 14
+  tests terminaban en `ERROR`; después, los 14 hacen `skip` limpio - exactamente el comportamiento
+  esperado en un entorno sin Docker corriendo, que es justo lo que este entorno es.
+- **Lo que NO se hizo esta fase** (punto 9 del plan original): no se agregó cobertura nueva contra
+  Neo4j real para los campos marcados como pendientes en `pendientes-futuras-fases.md`
+  (`get_incoming_link_counts`, `excluded_from_debt`) porque esos métodos **ya no existen** en la
+  interfaz `GraphStore` vigente (`src/core/interfaces.py`) — eran parte de la arquitectura anterior a
+  la migración a `crawl4ai`, superada según el propio aviso al pie de `pendientes-futuras-fases.md`.
+  Ese punto del plan quedó obsoleto antes de poder ejecutarse; no hay nada real que cubrir ahí hoy.
+- **Verificación real de tier 2 (contenedor efectivamente levantado) sigue sin poder confirmarse en
+  este entorno** — mismo motivo que en la Fase B (Docker Desktop no llega a levantar el daemon acá).
+  Lo que sí se validó en este entorno, de verdad: el fallback a tier 3 (sin Docker disponible) y la
+  ruta tier 1 (instancia ya alcanzable) - ambas ejercitadas por los 14 tests existentes, que pasan de
+  `ERROR` a `skip` correctamente. **Pendiente real, igual que en Fase B**: confirmar tier 2 con
+  Docker Desktop corriendo antes de mergear, o en la revisión de la PR.
