@@ -18,6 +18,11 @@ se edita a mano.
   qué otros archivos se hayan generado. Es la forma de responder "¿cuál fue la última corrida de
   este sitio?" sin tener que parsear nombres de archivo (`src/utils/io.py::record_run_manifest`/
   `get_latest_run`).
+- **`index.md`** — la misma información de `runs.json`, pero renderizada como una tabla Markdown
+  navegable (una por sitio, corrida más reciente primero, con links directos a cada PRD/tree/export)
+  — se regenera entera en cada corrida (`src/utils/io.py::generate_docs_index`). Pensado para abrir
+  directamente (en GitHub, en un editor, donde sea que se vea Markdown), no para parsear
+  programáticamente — para eso está `runs.json`.
 - **`explicativos/`** — no es salida de una corrida, es documentación del proyecto en sí (ver
   [`explicativos/README.md`](explicativos/README.md)).
 

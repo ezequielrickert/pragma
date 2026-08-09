@@ -109,6 +109,60 @@ def record_run_manifest(out_dir: str, site: str, entry: Dict[str, Any]) -> str:
     return str(manifest_path)
 
 
+def generate_docs_index(out_dir: str) -> str:
+    """Render `{out_dir}/runs.json` (`record_run_manifest`) as a browsable
+    Markdown index - one table per site, most recent run first, linking to
+    each run's own PRD/tree/JSON-export files by their (already-relative,
+    same-directory) filename.
+
+    docs/explicativos/plan-almacenamiento.md Fase E: evaluated standing up a
+    full `mkdocs-material` static site for this (item 12 of the plan) and
+    deliberately chose this instead - a handful of Markdown files per site is
+    not enough volume to justify a new heavyweight dependency plus a build
+    step; a single generated Markdown index, viewable directly on GitHub or
+    in any Markdown-aware editor with zero extra tooling, solves the actual
+    "I can't find last week's run for this site" problem this was asked to
+    solve. Revisit if `docs/` output ever grows large/complex enough that a
+    real search/filter UI would earn its cost.
+
+    Pure function of `runs.json`'s already-persisted content - no `GraphStore`
+    access, no AI, no browser - same "deterministic, no ceremony" shape as
+    `component_tree.py`/`graph_export.py`'s own top-level entry points.
+    """
+    manifest_path = Path(out_dir) / "runs.json"
+    if not manifest_path.exists():
+        return "# Pragma run index\n\nNo runs recorded yet - run an analysis first.\n"
+
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        # Same "never block on a corrupted/partial manifest" discipline as
+        # record_run_manifest itself - a broken index is a degraded index,
+        # not a reason to fail whatever called this.
+        return "# Pragma run index\n\n_(runs.json could not be read - it may be corrupted)_\n"
+
+    lines = ["# Pragma run index", "", "Generated from `runs.json` - see `docs/README.md`.", ""]
+    for site in sorted(data.keys()):
+        entries = data[site]
+        lines.append(f"## {site}")
+        lines.append("")
+        lines.append("| Timestamp (UTC) | Pages (finished/total) | Components (total, unexplored) | PRD | Tree | JSON export |")
+        lines.append("|---|---|---|---|---|---|")
+        for entry in reversed(entries):  # most recent run first
+            def _link(key: str, label: str) -> str:
+                path = entry.get(key)
+                return f"[{label}]({Path(path).name})" if path else "-"
+
+            pages = f"{entry.get('pages_finished', '?')}/{entry.get('pages_total', '?')}"
+            components = f"{entry.get('components_total', '?')} ({entry.get('components_unexplored', '?')} unexplored)"
+            lines.append(
+                f"| {entry.get('timestamp', '?')} | {pages} | {components} "
+                f"| {_link('prd_path', 'PRD')} | {_link('tree_path', 'Tree')} | {_link('export_path', 'JSON')} |"
+            )
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 def get_latest_run(out_dir: str, site: str) -> Dict[str, Any]:
     """The most recently recorded `record_run_manifest` entry for `site`, or
     `{}` if none exists (no manifest file yet, or no entry for this site) -

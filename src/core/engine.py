@@ -23,7 +23,7 @@ from ..crawlers.mechanical_loop import MechanicalCrawler
 from ..generators.component_tree import generate_component_tree_document
 from ..generators.graph_export import generate_graph_export_document
 from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
-from ..utils.io import record_run_manifest, write_output
+from ..utils.io import generate_docs_index, record_run_manifest, write_output
 from .config import PragmaConfig
 from .interfaces import Agent, GraphStore
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
@@ -58,6 +58,12 @@ class EngineRunResult:
     tree_path: str
     export_path: Optional[str] = None
     manifest_path: str = ""
+    # docs/index.md - a browsable Markdown index of every run recorded in
+    # the manifest, regenerated fresh on every run (Fase E,
+    # src/utils/io.py::generate_docs_index). Always set, same as
+    # manifest_path - this is bookkeeping over runs.json, not an opt-in
+    # artifact.
+    index_path: str = ""
 
 
 class Engine:
@@ -270,7 +276,19 @@ class Engine:
             },
         )
 
+        # Regenerated unconditionally on every run, same as the manifest
+        # itself - cheap (one JSON parse + a Markdown string build over
+        # whatever's already in runs.json), and always reflects reality
+        # rather than needing a separate "please re-index" step.
+        index_doc = generate_docs_index(self.out_dir)
+        index_path = f"{self.out_dir}/index.md"
+        write_output(index_path, index_doc)
+
         self.graph_store.close()
         return EngineRunResult(
-            prd_path=prd_path, tree_path=tree_path, export_path=export_path, manifest_path=manifest_path
+            prd_path=prd_path,
+            tree_path=tree_path,
+            export_path=export_path,
+            manifest_path=manifest_path,
+            index_path=index_path,
         )

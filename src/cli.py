@@ -174,6 +174,7 @@ def main() -> None:
         if result.export_path:
             print(f"Successfully generated JSON export: {result.export_path}")
         print(f"Run recorded in manifest: {result.manifest_path}")
+        print(f"Run index updated: {result.index_path}")
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

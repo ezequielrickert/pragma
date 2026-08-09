@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.utils.io import get_latest_run, record_run_manifest
+from src.utils.io import generate_docs_index, get_latest_run, record_run_manifest
 
 
 @pytest.fixture
@@ -66,3 +66,72 @@ def test_get_latest_run_empty_when_no_manifest_or_no_entry(out_dir):
 
     record_run_manifest(out_dir, "example.com", {"timestamp": "1"})
     assert get_latest_run(out_dir, "other-site.com") == {}
+
+
+def test_generate_docs_index_with_no_manifest_yet(out_dir):
+    doc = generate_docs_index(out_dir)
+    assert "No runs recorded yet" in doc
+
+
+def test_generate_docs_index_lists_most_recent_run_first(out_dir):
+    record_run_manifest(
+        out_dir, "example.com",
+        {
+            "timestamp": "20260101T000000Z", "pages_finished": 3, "pages_total": 3,
+            "components_total": 10, "components_unexplored": 0,
+            "prd_path": f"{out_dir}/example.com_prd_20260101T000000Z.md",
+            "tree_path": f"{out_dir}/example.com_tree_20260101T000000Z.md",
+            "export_path": None,
+        },
+    )
+    record_run_manifest(
+        out_dir, "example.com",
+        {
+            "timestamp": "20260102T000000Z", "pages_finished": 5, "pages_total": 5,
+            "components_total": 20, "components_unexplored": 1,
+            "prd_path": f"{out_dir}/example.com_prd_20260102T000000Z.md",
+            "tree_path": f"{out_dir}/example.com_tree_20260102T000000Z.md",
+            "export_path": f"{out_dir}/example.com_graph_20260102T000000Z.json",
+        },
+    )
+
+    doc = generate_docs_index(out_dir)
+    assert "## example.com" in doc
+    first_row_idx = doc.index("20260102T000000Z")
+    second_row_idx = doc.index("20260101T000000Z")
+    assert first_row_idx < second_row_idx, "most recent run must be listed first"
+    assert "[PRD](example.com_prd_20260102T000000Z.md)" in doc
+    assert "[JSON](example.com_graph_20260102T000000Z.json)" in doc
+    assert "5/5" in doc
+
+
+def test_generate_docs_index_handles_missing_export_path(out_dir):
+    record_run_manifest(
+        out_dir, "example.com",
+        {
+            "timestamp": "1", "pages_finished": 1, "pages_total": 1,
+            "components_total": 1, "components_unexplored": 0,
+            "prd_path": "x_prd.md", "tree_path": "x_tree.md", "export_path": None,
+        },
+    )
+    doc = generate_docs_index(out_dir)
+    # A "-" placeholder, not a broken/empty Markdown link, when export_json was off.
+    assert "| - |" in doc
+
+
+def test_generate_docs_index_lists_multiple_sites_separately(out_dir):
+    record_run_manifest(out_dir, "a.com", {"timestamp": "1", "prd_path": "a.md"})
+    record_run_manifest(out_dir, "b.com", {"timestamp": "1", "prd_path": "b.md"})
+    doc = generate_docs_index(out_dir)
+    assert "## a.com" in doc
+    assert "## b.com" in doc
+    assert doc.index("## a.com") < doc.index("## b.com"), "sites listed alphabetically"
+
+
+def test_generate_docs_index_survives_a_corrupted_manifest(out_dir):
+    manifest_path = Path(out_dir) / "runs.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{not valid json", encoding="utf-8")
+
+    doc = generate_docs_index(out_dir)  # must not raise
+    assert "could not be read" in doc

@@ -115,10 +115,13 @@ revisable por partes.
 ### Fase D — Operabilidad (cerrada)
 10. Script de backup/restore (`neo4j-admin dump`/`load`) + documentación — resuelve #8.
 
-### Fase E — Nice-to-have
-11. Mitigación de escala para sitios grandes (#7) — solo si se justifica con evidencia, no
-    especulativamente (misma filosofía que ya usa el proyecto: ver `pendientes-futuras-fases.md`).
-12. Exploración de `mkdocs-material` para navegar el historial de `docs/`.
+### Fase E — Nice-to-have (cerrada)
+11. ~~Mitigación de escala para sitios grandes (#7)~~ — evaluado y **descartado por falta de
+    evidencia** (ver Bitácora), consistente con la filosofía que ya usa el proyecto en
+    `pendientes-futuras-fases.md` ("no se optimizó porque no hay evidencia todavía").
+12. ~~Exploración de `mkdocs-material`~~ — evaluado, **se implementó una alternativa más liviana en
+    su lugar**: `docs/index.md`, un índice Markdown generado automáticamente en cada corrida a partir
+    de `runs.json` (Fase A) — ver Bitácora para el porqué.
 
 ## Bitácora de riesgos y aprendizajes
 
@@ -305,3 +308,44 @@ ejemplos puestos ahí a propósito. Lo dejo señalado acá para que se decida ex
 que se actúe unilateralmente: si es intencional, capaz vale la pena decirlo en `docs/README.md`
 (agregado en la Fase A) para que quien lo lea no piense que es un descuido; si no lo es, es un
 `git rm --cached` chico el día que alguien confirme que sí lo es.
+
+### Fase E (cerrada)
+
+- **Punto 11 (paginación de ledgers grandes) — descartado, no implementado**: no hay evidencia real
+  de que `get_component_ledger`/`get_text_content_ledger` cargando el sitio entero en memoria sea un
+  problema en la práctica — todos los sitios crawleados hasta ahora (`empanad.app`, fixtures de test)
+  son chicos. Implementar paginación especulativamente, sin un caso real que la necesite, iría en
+  contra de la disciplina que el propio proyecto ya aplica en otros lados (ver
+  `pendientes-futuras-fases.md`: *"no se optimizó porque no hay evidencia todavía de que sea un
+  problema real a la escala de sitios que este proyecto crawlea hoy"*). Sigue documentado como
+  hallazgo #7 del plan, para retomar el día que un crawl grande de verdad lo justifique.
+- **Punto 12 (`mkdocs-material`) — evaluado y descartado a favor de una alternativa más liviana**:
+  levantar un sitio estático completo (nueva dependencia pesada + paso de build) para navegar un
+  puñado de archivos Markdown por sitio es desproporcionado para el problema real (encontrar la
+  última corrida de un sitio, comparar corridas). En su lugar: `generate_docs_index()`
+  (`src/utils/io.py`) - una tabla Markdown por sitio generada a partir de `runs.json` (ya construido
+  en la Fase A), regenerada automáticamente en cada corrida (`docs/index.md`), sin dependencias
+  nuevas, visible directamente en GitHub o cualquier visor de Markdown. Revisar esta decisión si
+  `docs/` alguna vez crece lo suficiente como para justificar una UI de búsqueda/filtro real.
+- **Inconsistencia menor encontrada y no corregida, documentada por transparencia**: `manifest_path`
+  (Fase A, `record_run_manifest`) se construye con `pathlib.Path(...) / "..."` (separador nativo de
+  la plataforma), mientras que `prd_path`/`tree_path`/`export_path`/`index_path` en `Engine._run_async`
+  se construyen con f-strings de barra `/` fija, el patrón que ya usaba el código antes de este plan.
+  Ambas formas producen paths válidos en Windows (acepta `/` y `\`), así que no es un bug funcional —
+  lo encontré porque un test nuevo (`test_engine_run_regenerates_docs_index`) asumió por error la
+  convención de `Path()` para `index_path` y falló la comparación de string exacta (no la
+  funcionalidad). Corregido el test, no el código - no vale la pena tocar `record_run_manifest` solo
+  por esto sin una razón más concreta que consistencia cosmética.
+- **Verificación**: 10 tests nuevos en `tests/test_io.py` (incluye el caso de manifiesto corrupto,
+  export ausente, múltiples sitios) + 1 test nuevo de integración en `tests/test_engine.py` — todos
+  en verde.
+
+## Cierre del plan
+
+Las cinco fases (A-E) están cerradas. Quedan dos pendientes reales, explícitamente marcados en sus
+bitácoras respectivas, ninguno bloqueante para el resto del trabajo pero sí para confiar del todo en
+lo construido en las Fases B/C/D: **validar contra una instancia real de Neo4j** (el refactor de
+Cypher de la Fase B, el nivel 2 de `testcontainers` de la Fase C, y los scripts de backup/restore de
+la Fase D) - este entorno de desarrollo no tiene Docker Desktop corriendo, así que nada de lo que
+toca un Neo4j real pudo probarse de punta a punta acá, solo por inspección de código + tests
+unitarios que no necesitan una conexión real. Recomendado como primer paso de la revisión de la PR.
