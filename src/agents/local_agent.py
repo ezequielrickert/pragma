@@ -3,14 +3,13 @@ Local agent implementation for Pragma, connecting to a local model API.
 """
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 
-from ..core.interfaces import HELP_TOPICS, TOOL_SPECS, Agent, AgentAction, parse_agent_action
+from ..core.interfaces import Agent
 from ..core.registry import AGENT_REGISTRY
 
 
@@ -44,17 +43,24 @@ class LocalConfig:
             # Unset by default (unlike OpenAIAgent's hardcoded max_tokens=1200) -
             # a local reasoning model (DeepSeek-R1 and similar) can legitimately
             # need many tokens of chain-of-thought before it reaches its actual
-            # answer/tool call, and guessing a "safe" default risks silently
-            # truncating that mid-thought, which then fails to parse as a valid
-            # action - worse than just being slow. Opt in explicitly once you
-            # know your model's real budget (see this class's docstring).
+            # answer, and guessing a "safe" default risks silently truncating
+            # that mid-thought. Opt in explicitly once you know your model's
+            # real budget (see this class's docstring).
             max_tokens=int(env_max_tokens) if env_max_tokens else None,
         )
 
 
 @AGENT_REGISTRY.register("local")
 class LocalAgent(Agent):
-    """Agent that communicates with a local model API (e.g., LM Studio)."""
+    """Agent that communicates with a local model API (e.g., LM Studio).
+
+    Post-crawl4ai-migration: this is plain text-completion only - the native
+    OpenAI-style tool-calling ladder (`act()`/`_act_native`/`_parse_tool_call`)
+    that used to live here existed solely to fill a per-step structured action
+    schema, which no longer exists (see `src/core/interfaces.py`'s docstring).
+    `generate()` is used by the fill-value (Phase 4) and synthesis (Phase 5)
+    call sites, both plain text completions.
+    """
 
     def __init__(
         self,
@@ -75,12 +81,8 @@ class LocalAgent(Agent):
         self.api_key = api_key or config.api_key
         # Unset (None) by default - see LocalConfig.max_tokens's docstring for
         # why this isn't defaulted the way OpenAIAgent's is. Only added to a
-        # request payload when actually set (see _act_native/_build_payload).
+        # request payload when actually set (see _build_payload).
         self.max_tokens = max_tokens if max_tokens is not None else config.max_tokens
-        # None = not yet tried; True/False cached after the first act() call, so a
-        # server/model that doesn't support the `tools` param only pays for one
-        # failed round trip per run, not one per iteration.
-        self._tools_supported: Optional[bool] = None
 
     def _headers(self) -> dict[str, str]:
         """Request headers, including bearer auth when an api_key is configured."""
@@ -88,74 +90,6 @@ class LocalAgent(Agent):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
-
-    def act(
-        self,
-        prompt: str,
-        tools: List[Dict[str, Any]] = TOOL_SPECS,
-        system_instruction: Optional[str] = None,
-    ) -> AgentAction:
-        """Prefer native OpenAI-style function-calling; fall back to the text protocol.
-
-        Many OpenAI-compatible local servers (LM Studio included) accept a
-        `tools` request param, but whether the loaded model actually honors it
-        (returns `tool_calls` instead of plain text) depends on the model's
-        chat template - some GGUF Gemma builds simply ignore it. Rather than
-        assume either way, try once, and remember the outcome for this
-        instance's lifetime (see `_tools_supported`).
-        """
-        if self._tools_supported is not False:
-            try:
-                action = self._act_native(prompt, tools, system_instruction)
-            except RuntimeError:
-                action = None
-            if action is not None:
-                self._tools_supported = True
-                return action
-            self._tools_supported = False
-        return super().act(prompt, tools, system_instruction)
-
-    def _act_native(
-        self, prompt: str, tools: List[Dict[str, Any]], system_instruction: Optional[str]
-    ) -> Optional[AgentAction]:
-        """Attempt one native tool-calling request. Returns None if the server/model didn't cooperate."""
-        messages = []
-        if system_instruction:
-            messages.append({"role": "system", "content": system_instruction})
-        messages.append({"role": "user", "content": prompt})
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.7,
-            "tools": [self._to_openai_tool(tool) for tool in tools],
-            "tool_choice": "required",
-        }
-        if self.max_tokens is not None:
-            payload["max_tokens"] = self.max_tokens
-        try:
-            resp = requests.post(
-                self.base_url,
-                json=payload,
-                headers=self._headers(),
-                timeout=self.timeout,
-            )
-        except requests.exceptions.RequestException as exc:
-            raise RuntimeError(f"Local API request failed: {exc}") from exc
-        if resp.status_code != 200:
-            # Server rejected the `tools` param outright - not supported, fall back.
-            return None
-        try:
-            choice = resp.json()["choices"][0]
-            message = choice["message"]
-        except (KeyError, IndexError, ValueError):
-            return None
-        self._raise_if_truncated(choice)
-        tool_calls = message.get("tool_calls")
-        if not tool_calls:
-            # Request was accepted but the model replied with plain text instead
-            # of a tool call - its chat template doesn't actually support this.
-            return None
-        return self._parse_tool_call(tool_calls[0])
 
     @staticmethod
     def _raise_if_truncated(choice: dict[str, Any]) -> None:
@@ -168,10 +102,9 @@ class LocalAgent(Agent):
         chain-of-thought into its own `reasoning_content` field or leaves it
         inline in `content`. Without this check, a reasoning model (DeepSeek-R1
         and similar) that spends its entire `max_tokens` budget "thinking"
-        returns an empty `content` with `tool_calls` absent too - which looked,
-        from every other code path's point of view, like an ordinary malformed
-        response, silently skipped every single iteration with no indication
-        the actual cause was one fixed, config-level number.
+        returns an empty `content` - which looks, from every other code path's
+        point of view, like an ordinary malformed response, silently giving no
+        indication the actual cause was one fixed, config-level number.
         """
         if choice.get("finish_reason") != "length":
             return
@@ -181,62 +114,6 @@ class LocalAgent(Agent):
             "chain-of-thought - raise agents.local.max_tokens (or LOCAL_MAX_TOKENS) in pragma.yaml/"
             ".env and try again, or unset it entirely to let the model use as much as it needs."
         )
-
-    @staticmethod
-    def _parse_tool_call(tool_call: dict[str, Any]) -> Optional[AgentAction]:
-        """Turn one OpenAI-style `tool_calls[i]` entry into an AgentAction, or None if malformed."""
-        function = tool_call.get("function", {})
-        name = {"goto": "navigate"}.get(function.get("name", ""), function.get("name", ""))
-        if name not in ("navigate", "click", "fill", "submit", "finish"):
-            return None
-        try:
-            args = json.loads(function.get("arguments") or "{}")
-        except json.JSONDecodeError:
-            args = {}
-        ref = args.get("ref")
-        try:
-            ref = int(ref) if ref is not None else None
-        except (TypeError, ValueError):
-            ref = None
-        # `raw` includes `name` (unlike `args` itself) purely so progress logs are
-        # self-describing - `Action: {"ref": 1}` alone doesn't say whether that was a
-        # click or a fill, which made a native-tool-calling model silently omitting
-        # `value` on a fill (see SimplePRDGenerator._execute_action's fallback for why
-        # that matters) much harder to spot in `progress_log_file` than it needed to be.
-        return AgentAction(
-            kind=name, ref=ref, url=args.get("url"), value=args.get("value"),
-            raw=json.dumps({"action": name, **args}),
-        )
-
-    @staticmethod
-    def _to_openai_tool(tool: dict[str, Any]) -> dict[str, Any]:
-        """Convert a Pragma tool spec (see TOOL_SPECS) into an OpenAI `tools` function entry.
-
-        `help`'s `topic` gets a real JSON-schema `enum`, not just prose in its
-        `description` - a model hallucinated "navigation" (not a real topic;
-        `navigate_usage` is) despite the valid list being spelled out in that
-        description string. A structural `enum` is a stronger signal than
-        prose for any model/server that actually honors JSON schema during
-        tool-call generation, and is strictly more correct regardless.
-        """
-        properties = {
-            name: {"type": "integer" if name == "ref" else "string", "description": desc}
-            for name, desc in tool["parameters"].items()
-        }
-        if tool["name"] == "help" and "topic" in properties:
-            properties["topic"]["enum"] = HELP_TOPICS
-        return {
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": list(properties.keys()),
-                },
-            },
-        }
 
     def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         """Generate content using the local API with fallback for system role."""

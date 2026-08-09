@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: fetch button</title></head>
+<body>
+  <h1>Fetch button (real network-request capture regression fixture)</h1>
+  <!-- No real <form> at all - mirrors a JS/SPA site (the exact case static
+       <form method/action> reading would see nothing on). -->
+  <button id="pingButton" onclick="fetch('/api/ping').then(r => r.json())">
+    Ping API
+  </button>
+</body>
+</html>

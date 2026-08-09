@@ -1,7 +1,10 @@
 """Unit tests for the deterministic component classification/grouping helpers -
 no LLM, no scraper, pure functions over plain component dicts."""
+import json
+
 from src.generators.component_classifier import (
     classify_component_type,
+    describe_options,
     find_revealed_options,
     group_choice_sets,
     group_steppers,
@@ -48,6 +51,24 @@ def test_find_revealed_options_ignores_already_present_options():
     same path) must not be reported as newly revealed."""
     same = {"tag": "div", "text": "Mi Gusto", "path": "div#opt1", "role": "option"}
     assert find_revealed_options([same], [same]) == []
+
+
+def test_find_revealed_options_catches_the_hidden_to_visible_toggle_pattern():
+    """The other common reveal pattern (a plain hidden/display:none toggle,
+    not a React-portal mount): the option was already in the DOM, just
+    CSS-hidden - this must count as revealed too, not just a path that's
+    genuinely new to the DOM."""
+    before = [{"tag": "div", "text": "Small", "path": "div#opt1", "role": "option", "visible": False}]
+    after = [{"tag": "div", "text": "Small", "path": "div#opt1", "role": "option", "visible": True}]
+    assert find_revealed_options(before, after) == [{"text": "Small", "selected": False}]
+
+
+def test_find_revealed_options_ignores_already_visible_options_with_no_visibility_change():
+    """A component present and already visible in both snapshots (or absent
+    a `visible` key in either) must not be reported as newly revealed via
+    the became-visible path - only a genuine False -> True transition counts."""
+    already_visible = {"tag": "div", "text": "Small", "path": "div#opt1", "role": "option", "visible": True}
+    assert find_revealed_options([already_visible], [already_visible]) == []
 
 
 def test_group_steppers_detects_increment_decrement_pair_with_value():
@@ -105,3 +126,41 @@ def test_group_choice_sets_groups_same_name_radios_and_drops_singletons():
     groups = group_choice_sets(components)
     assert set(groups.keys()) == {"size"}
     assert len(groups["size"]) == 2
+
+
+def test_describe_options_handles_empty_and_unparseable():
+    assert describe_options("") is None
+    assert describe_options(None) is None
+    assert describe_options("not json") is None
+    assert describe_options("42") is None  # valid JSON, not a dict
+
+
+def test_describe_options_classifies_stepper():
+    raw = json.dumps({
+        "container": "div#stepper", "increment_path": "button#plus", "decrement_path": "button#minus",
+        "value_path": "span#val", "current_value": "3",
+    })
+    result = describe_options(raw)
+    assert result == {
+        "kind": "stepper", "container": "div#stepper",
+        "increment_path": "button#plus", "decrement_path": "button#minus",
+        "value_path": "span#val", "current_value": "3",
+    }
+
+
+def test_describe_options_classifies_choice_group():
+    raw = json.dumps({"group": "size", "options": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}]})
+    result = describe_options(raw)
+    assert result == {
+        "kind": "choice_group", "group": "size",
+        "choices": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}],
+    }
+
+
+def test_describe_options_classifies_revealed_options():
+    raw = json.dumps({"trigger": "button#sizeTrigger", "revealed_options": [{"text": "Small", "selected": False}]})
+    result = describe_options(raw)
+    assert result == {
+        "kind": "revealed_options", "trigger": "button#sizeTrigger",
+        "choices": [{"text": "Small", "selected": False}],
+    }

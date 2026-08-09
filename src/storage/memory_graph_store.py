@@ -6,6 +6,7 @@ runs and tests without a live Neo4j instance behave identically to before.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,8 +20,10 @@ class _SiteData:
     edges: List[Dict[str, str]] = field(default_factory=list)
     links: Dict[Tuple[str, str], str] = field(default_factory=dict)
     # {page_url: {path: {tag, text, role, input_type, visible, layer, x, y, width,
-    # height, component_type, options, interacted, interactions}}}
+    # height, component_type, options, interacted, interactions, network_requests}}}
     components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    # {page_url: [{path, tag, text, visible, x, y, width, height}]}
+    text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -47,6 +50,8 @@ class InMemoryGraphStore(GraphStore):
         components: int = 0,
         context: str = "",
         label: str = "",
+        description: str = "",
+        title: str = "",
     ) -> None:
         routes = self._site(site).routes
         if url not in routes or status != "Pending":
@@ -56,7 +61,23 @@ class InMemoryGraphStore(GraphStore):
                 "visited": "2026-05-17" if status == "Finished" else "-",
                 "context": context or routes.get(url, {}).get("context", "-"),
                 "label": label or routes.get(url, {}).get("label", "-"),
+                "description": description or routes.get(url, {}).get("description", ""),
+                "title": title or routes.get(url, {}).get("title", ""),
             }
+
+    def get_page_descriptions(self, site: str) -> Dict[str, str]:
+        return {
+            url: data["description"]
+            for url, data in self._site(site).routes.items()
+            if data.get("description")
+        }
+
+    def get_page_titles(self, site: str) -> Dict[str, str]:
+        return {
+            url: data["title"]
+            for url, data in self._site(site).routes.items()
+            if data.get("title")
+        }
 
     def is_visited(self, site: str, url: str) -> bool:
         return self._site(site).routes.get(url, {}).get("status") == "Finished"
@@ -121,7 +142,7 @@ class InMemoryGraphStore(GraphStore):
             "visible": True, "layer": "semantic",
             "x": None, "y": None, "width": None, "height": None,
             "component_type": "", "options": "",
-            "interacted": False, "interactions": [],
+            "interacted": False, "interactions": [], "network_requests": [],
         }
 
     def record_component(
@@ -158,6 +179,7 @@ class InMemoryGraphStore(GraphStore):
             "options": existing["options"] if existing else "",
             "interacted": existing["interacted"] if existing else False,
             "interactions": existing["interactions"] if existing else [],
+            "network_requests": existing["network_requests"] if existing else [],
         }
 
     def record_component_interaction(
@@ -181,12 +203,18 @@ class InMemoryGraphStore(GraphStore):
         record = page_components.setdefault(path, self._new_component_record())
         record["options"] = options
 
+    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
+        page_components = self._site(site).components.setdefault(page_url, {})
+        record = page_components.setdefault(path, self._new_component_record())
+        record.setdefault("network_requests", []).extend(json.loads(requests_json))
+
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         return {
             path: {
                 "tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"],
                 "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                 "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                "network_requests": list(r.get("network_requests", [])),
             }
             for path, r in self._site(site).components.get(page_url, {}).items()
         }
@@ -238,8 +266,39 @@ class InMemoryGraphStore(GraphStore):
                     "interacted": r["interacted"], "interactions": list(r["interactions"]),
                     "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                     "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                    "network_requests": list(r.get("network_requests", [])),
                 }
                 for path, r in page_components.items()
             }
             for page_url, page_components in self._site(site).components.items()
+        }
+
+    def record_text_content(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        tag: str = "",
+        text: str = "",
+        visible: bool = True,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+    ) -> None:
+        entries = self._site(site).text_content.setdefault(page_url, [])
+        record = {
+            "path": path, "tag": tag, "text": text, "visible": visible,
+            "x": x, "y": y, "width": width, "height": height,
+        }
+        for i, existing in enumerate(entries):
+            if existing["path"] == path:
+                entries[i] = record
+                return
+        entries.append(record)
+
+    def get_text_content_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        return {
+            page_url: [dict(entry) for entry in entries]
+            for page_url, entries in self._site(site).text_content.items()
         }

@@ -15,7 +15,7 @@ from dotenv import dotenv_values
 
 from ..utils.io import upsert_env_vars
 from . import prompts
-from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
+from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 PRAGMA_YAML = "pragma.yaml"
 ENV_FILE = ".env"
@@ -157,35 +157,38 @@ def _prompt_provider_fields(
 
 def _prompt_pipeline_settings(existing: Dict[str, Any]) -> Dict[str, Any]:
     headless = prompts.confirm("Run browser headless?", default=existing.get("headless", True))
-    max_iterations_raw = prompts.text(
-        "Max iterations per run", default=str(existing.get("max_iterations", 12))
-    )
     wait_seconds_raw = prompts.text(
-        "Seconds to let a page settle before reading links (raise for JS-heavy/mega-menu sites)",
-        default=str(existing.get("wait_seconds", 15)),
+        "Seconds to let a page settle before discovery reads it (raise for JS-heavy/SPA sites, "
+        "where the default can otherwise see 0 components/links on a page that has real ones)",
+        default=str(existing.get("wait_seconds", 2)),
     )
-    batch_size_raw = prompts.text(
-        "Max pending routes/DNA components sent per iteration (lower = faster iterations, "
-        "but needs more of them)",
-        default=str(existing.get("batch_size", 20)),
+    element_budget_raw = prompts.text(
+        "Max components mechanically interacted with per page per visit-pass "
+        "(the backstop against a pathological reveal-chain, not a normal-case limit)",
+        default=str(existing.get("element_budget", 200)),
+    )
+    max_pages_raw = prompts.text(
+        "Max pages to visit per crawl (blank = unbounded, crawl until the URL frontier is exhausted)",
+        default=str(existing.get("max_pages", "")),
+    )
+    max_passes_per_page_raw = prompts.text(
+        "Max times to revisit the same page to keep draining its interaction frontier "
+        "(a page with more components than the element budget needs more than one pass)",
+        default=str(existing.get("max_passes_per_page", 10)),
+    )
+    tree_ascii = prompts.confirm(
+        "Render the component-tree document with plain ASCII instead of Unicode box-drawing "
+        "characters? (for terminals that mangle Unicode)",
+        default=existing.get("tree_ascii", False),
     )
     return {
         "out_dir": prompts.text("Output folder for PRDs", default=existing.get("out_dir", "docs")),
-        "logs_dir": prompts.text(
-            "Folder for research logs", default=existing.get("logs_dir", "research_logs")
-        ),
-        "progress_logs_dir": prompts.text(
-            "Folder for append-only per-iteration debug logs",
-            default=existing.get("progress_logs_dir", "progress_logs"),
-        ),
-        "graph_logs_dir": prompts.text(
-            "Folder for the navigation graph (which action led from which page to which page)",
-            default=existing.get("graph_logs_dir", "graph_logs"),
-        ),
         "headless": bool(headless),
-        "max_iterations": int(max_iterations_raw) if max_iterations_raw.isdigit() else 12,
-        "wait_seconds": float(wait_seconds_raw) if _is_number(wait_seconds_raw) else 15.0,
-        "batch_size": int(batch_size_raw) if batch_size_raw.isdigit() else 20,
+        "wait_seconds": float(wait_seconds_raw) if _is_number(wait_seconds_raw) else 2.0,
+        "element_budget": int(element_budget_raw) if element_budget_raw.isdigit() else 200,
+        "max_pages": int(max_pages_raw) if max_pages_raw.isdigit() else None,
+        "max_passes_per_page": int(max_passes_per_page_raw) if max_passes_per_page_raw.isdigit() else 10,
+        "tree_ascii": bool(tree_ascii),
     }
 
 
@@ -198,7 +201,7 @@ def _is_number(value: str) -> bool:
 
 
 def run_config_wizard() -> None:
-    """Interactively configure scraper/agent/generator wiring and persist it."""
+    """Interactively configure agent/graph-store wiring and persist it."""
     existing = _load_existing_yaml()
     existing_agents = existing.get("agents", {})
     existing_graph_stores = existing.get("graph_stores", {})
@@ -206,14 +209,8 @@ def run_config_wizard() -> None:
 
     print("Pragma setup - configure once, then just run: python3 src/cli.py <url>\n")
 
-    scraper = prompts.select(
-        "Scraper plugin:", SCRAPER_REGISTRY.names(), default=existing.get("scraper", "playwright")
-    )
     agent = prompts.select(
         "Agent / model provider:", AGENT_REGISTRY.names(), default=existing.get("agent")
-    )
-    generator = prompts.select(
-        "Generator strategy:", GENERATOR_REGISTRY.names(), default=existing.get("generator", "simple")
     )
     graph_store = prompts.select(
         "Graph store (where the navigation graph is tracked/queried):",
@@ -231,9 +228,7 @@ def run_config_wizard() -> None:
     pipeline_settings = _prompt_pipeline_settings(existing)
 
     config_data: Dict[str, Any] = {
-        "scraper": scraper,
         "agent": agent,
-        "generator": generator,
         "graph_store": graph_store,
         **pipeline_settings,
     }
