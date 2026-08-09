@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Spike Fixture</title></head>
+<body>
+  <h1>Spike fixture page</h1>
+
+  <!-- Case 1: mega-menu, submenu items present in DOM but CSS-hidden until trigger click -->
+  <nav>
+    <button id="megaTrigger" onclick="document.getElementById('megaSubmenu').style.display = (document.getElementById('megaSubmenu').style.display === 'block') ? 'none' : 'block'">Menu</button>
+    <div id="megaSubmenu" style="display:none">
+      <a href="/sub-a">Sub A</a>
+      <a href="/sub-b">Sub B</a>
+    </div>
+  </nav>
+
+  <!-- Case 2: ARIA-role custom combobox (Radix/cmdk-style), options hidden until trigger click -->
+  <div id="combo" role="combobox" aria-expanded="false" onclick="document.getElementById('comboList').hidden = !document.getElementById('comboList').hidden">Choose one</div>
+  <div id="comboList" role="listbox" hidden>
+    <div role="option" data-value="x">Option X</div>
+    <div role="option" data-value="y">Option Y</div>
+  </div>
+
+  <!-- Case 3: id with a colon (Radix-style id), must be CSS.escape'd -->
+  <button id="radix-:r0:">Escaped id button</button>
+
+  <!-- Case 4: shadow DOM widget -->
+  <div id="shadow-host"></div>
+  <script>
+    const host = document.getElementById('shadow-host');
+    const root = host.attachShadow({mode: 'open'});
+    root.innerHTML = '<button id="shadowBtn">Inside shadow root</button>';
+  </script>
+
+  <!-- Case 5: form with labelled fields (label via for=, no placeholder), submit button -->
+  <form id="contactForm">
+    <label for="emailField">Correo electrónico</label>
+    <input id="emailField" name="email" type="email">
+    <label for="nameField">Full name</label>
+    <input id="nameField" name="name" type="text">
+    <button type="submit">Send</button>
+  </form>
+
+  <!-- Case 6: iframe with its own interactive content -->
+  <iframe src="iframe.html" width="300" height="150"></iframe>
+
+  <!-- Case 7: sibling links with no id/class - must get nth-of-type disambiguation -->
+  <div id="siblingLinks">
+    <a href="/one">One</a>
+    <a href="/two">Two</a>
+    <a href="/three">Three</a>
+  </div>
+</body>
+</html>

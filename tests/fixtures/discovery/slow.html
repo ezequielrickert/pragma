@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><title>Slow response fixture</title></head>
+<body>
+  <p>The HTTP response for this page itself is deliberately delayed server-side
+  (see tests/test_crawl4ai_crawler.py's tracking handler) - simulates a
+  genuinely hung/dead request, the case page_timeout_seconds exists to bound,
+  as opposed to wait_seconds/interaction_wait_seconds (which apply only once
+  a page has already loaded).</p>
+  <button id="clickable">Click me</button>
+</body>
+</html>

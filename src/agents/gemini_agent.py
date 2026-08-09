@@ -1,122 +1,157 @@
+"""
+Gemini agent implementation for Pragma.
+"""
+from __future__ import annotations
+
 import os
-from typing import Optional, Any
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import requests
 
-from ..interfaces import Agent
+from ..core.interfaces import Agent
+
+
+@dataclass
+class GeminiConfig:
+    """Every setting the Gemini REST agent needs, and where it comes from.
+
+    This is the single place that knows about GEMINI_API_KEY/GEMINI_MODEL -
+    no other module should read those env vars directly.
+    """
+
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+    @classmethod
+    def from_env(cls) -> "GeminiConfig":
+        return cls(
+            api_key=os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY"),
+            model=os.getenv("GEMINI_MODEL"),
+        )
+
+
+def _find_text_in_common_fields(j: dict[str, Any]) -> str:
+    """Scan common top-level fields for text."""
+    for key in ("candidates", "outputs", "output", "result", "response"):
+        if key in j:
+            val = j[key]
+            if isinstance(val, list) and val:
+                return _extract_text_from_json(val[0])
+            return _extract_text_from_json(val)
+    return ""
 
 
 def _extract_text_from_json(j: Any) -> str:
-    """Heuristic: walk the JSON and return the first string-looking text found in common fields."""
+    """Heuristic to walk JSON and return the first string found."""
     if isinstance(j, str):
         return j
     if isinstance(j, dict):
-        # common top-level shapes
-        for key in ('candidates', 'outputs', 'output', 'result', 'response'):
-            if key in j:
-                v = j[key]
-                if isinstance(v, list) and len(v) > 0:
-                    # look into first item
-                    return _extract_text_from_json(v[0])
-                return _extract_text_from_json(v)
-        # otherwise scan values
-        for v in j.values():
-            t = _extract_text_from_json(v)
-            if t:
-                return t
+        text = _find_text_in_common_fields(j)
+        if text:
+            return text
+        for val in j.values():
+            text = _extract_text_from_json(val)
+            if text:
+                return text
     if isinstance(j, list):
         for item in j:
-            t = _extract_text_from_json(item)
-            if t:
-                return t
-    return ''
+            text = _extract_text_from_json(item)
+            if text:
+                return text
+    return ""
 
 
 class GeminiAgent(Agent):
-    """Gemini agent trying several request patterns to support API-key and OAuth flows.
+    """Gemini agent supporting API-key and OAuth flows."""
 
-    Strategy:
-    1. Try v1 generateContent endpoint with header X-goog-api-key (recommended for API keys tied to a project)
-    2. Fall back to v1beta2 generateText using key as query param
-    3. Fall back to v1 generateText using key as query param
-
-    This allows compatibility with a variety of account setups and model names.
-    """
-
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('OPENAI_API_KEY')
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
+        """Initialize Gemini agent with API key and model, falling back to GeminiConfig.from_env()."""
+        config = GeminiConfig.from_env()
+        self.api_key = api_key or config.api_key
         if not self.api_key:
-            raise RuntimeError('No Gemini API key found in GEMINI_API_KEY or OPENAI_API_KEY')
-        # model could be e.g. 'models/gemini-flash-latest' or 'models/text-bison-001'
-        self.model = model or os.getenv('GEMINI_MODEL', 'models/gemini-flash-latest')
+            raise RuntimeError("No Gemini API key found in environment")
 
-        # Attempt patterns in order
-        # Each entry: (base_path, method_name, use_header_key(boolean))
+        # Ensure model has 'models/' prefix if not present
+        raw_model = model or config.model or "gemini-1.5-flash-latest"
+        self.model = raw_model if raw_model.startswith("models/") else f"models/{raw_model}"
+
+        # (version, method_name, use_header_key)
         self._attempts = [
-            ('v1', 'generateContent', True),
-            ('v1beta', 'generateContent', True),
-            ('v1beta2', 'generateText', False),
-            ('v1', 'generateText', False),
+            ("v1beta", "generateContent", True),
+            ("v1", "generateContent", True),
         ]
 
-    def _build_url(self, base: str, method: str, use_query_key: bool) -> str:
-        # e.g. https://generativelanguage.googleapis.com/v1/models/gemini-flash-latest:generateContent
-        url = f'https://generativelanguage.googleapis.com/{base}/{self.model}:{method}'
-        if use_query_key:
-            url = url + f'?key={self.api_key}'
-        return url
-
-    def generate(self, prompt: str) -> str:
-        last_exc = None
+    def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
+        """Generate content using the best available Gemini endpoint."""
+        last_exc: Optional[Exception] = None
+        
         for base, method, use_header in self._attempts:
-            url = self._build_url(base, method, not use_header)
-            headers = {'Content-Type': 'application/json'}
-            if use_header:
-                headers['X-goog-api-key'] = self.api_key
-            # Build payload per method
-            if method == 'generateContent':
-                payload = {
-                    'contents': [
-                        {
-                            'parts': [
-                                {'text': prompt}
-                            ]
-                        }
-                    ]
-                }
-            else:
-                payload = {
-                    'prompt': {'text': prompt},
-                    'maxOutputTokens': 800,
-                }
-
             try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=60)
-                # If 404, try next pattern
-                if resp.status_code == 404:
-                    last_exc = RuntimeError(f'404 from {url}')
-                    continue
-                resp.raise_for_status()
-                j = resp.json()
-                text = _extract_text_from_json(j)
-                if not text:
-                    # As a last resort return raw json string
-                    return str(j)
-                return text.strip()
-            except requests.exceptions.HTTPError as he:
-                last_exc = he
-                # For auth/permission issues, include body for clarity
-                body = ''
-                try:
-                    body = resp.text
-                except Exception:
-                    body = ''
-                raise RuntimeError(f'HTTP {resp.status_code} from {url}: {body}') from he
-            except requests.exceptions.RequestException as re:
-                last_exc = re
-                # network or timeout
-                raise RuntimeError(f'Network error contacting Gemini API at {url}: {re}') from re
+                return self._try_generate(base, method, use_header, prompt, system_instruction)
+            except requests.exceptions.HTTPError as exc:
+                status = exc.response.status_code
+                # Stop on auth errors or bad requests (unless it's a 404 which might mean wrong version)
+                if status in (401, 403) or (status == 400 and "system_instruction" not in exc.response.text):
+                    raise RuntimeError(f"Gemini API Error ({status}): {exc.response.text}") from exc
+                
+                if status == 404 and base == "v1beta":
+                    last_exc = exc
+                    continue # Try v1
+                
+                raise RuntimeError(f"Gemini API Error ({status}): {exc.response.text}") from exc
+            except Exception as exc:
+                last_exc = exc
+                continue
 
-        if last_exc:
-            raise RuntimeError(f'Gemini API failed for all tried endpoints. Please check your GEMINI_MODEL and GEMINI_API_KEY. Last error: {last_exc}')
-        return ''
+        raise RuntimeError(f"Gemini API failed. Last error: {last_exc}")
+
+    def _try_generate(
+        self, base: str, method: str, use_header: bool, prompt: str, system_instruction: Optional[str]
+    ) -> str:
+        """Attempt a single API request."""
+        url = self._build_url(base, method, not use_header)
+        headers = {"Content-Type": "application/json"}
+        if use_header:
+            headers["X-goog-api-key"] = self.api_key
+
+        payload = self._build_payload(method, prompt, system_instruction)
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        if resp.status_code == 400 and system_instruction and "system_instruction" in resp.text:
+            return self._retry_without_system_field(url, headers, prompt, system_instruction)
+
+        resp.raise_for_status()
+        text = _extract_text_from_json(resp.json())
+        return text.strip() if text else str(resp.json())
+
+    def _build_url(self, version: str, method: str, include_key: bool) -> str:
+        """Construct the Gemini API URL."""
+        base_url = f"https://generativelanguage.googleapis.com/{version}/{self.model}:{method}"
+        if include_key:
+            return f"{base_url}?key={self.api_key}"
+        return base_url
+
+    def _build_payload(
+        self, method: str, prompt: str, system_instruction: Optional[str]
+    ) -> dict[str, Any]:
+        """Build request payload based on method."""
+        if method == "generateContent":
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            if system_instruction:
+                payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+            return payload
+
+        full_prompt = f"{system_instruction}\n\n{prompt}" if system_instruction else prompt
+        return {"prompt": {"text": full_prompt}, "maxOutputTokens": 800}
+
+    def _retry_without_system_field(
+        self, url: str, headers: dict[str, str], prompt: str, system_instruction: str
+    ) -> str:
+        """Fallback for models not supporting system_instruction field."""
+        fallback_prompt = f"SYSTEM INSTRUCTION:\n{system_instruction}\n\nUSER PROMPT:\n{prompt}"
+        payload = {"contents": [{"parts": [{"text": fallback_prompt}]}]}
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        text = _extract_text_from_json(resp.json())
+        return text.strip() if text else str(resp.json())

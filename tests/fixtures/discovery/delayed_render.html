@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Delayed render fixture</title>
+<meta name="description" content="Simulates a client-rendered SPA: static shell text is present immediately, interactive content is not.">
+</head>
+<body>
+  <!-- A realistic SPA shell has some static/SEO text even before hydration
+       (a hero heading, marketing copy) - a near-empty shell (just a script
+       tag) trips crawl4ai's own anti-bot heuristic ("script_heavy_shell",
+       confirmed empirically) before discovery ever gets a chance to run,
+       which would test the wrong thing entirely. -->
+  <h1>Welcome to the Delayed Render Fixture</h1>
+  <p>This page simulates a React/Vue-style SPA: this paragraph and heading are
+  present in the initial HTML document, exactly like real static/SEO content
+  often is, but the actual interactive control below is injected by
+  JavaScript after a short delay - mirroring how client-side hydration works
+  on a real site (see wiki/crawl4ai-integration-pitfalls.md's "wait_for=
+  css:body is satisfied by the pre-hydration shell" entry for the real bug
+  this fixture regression-tests).</p>
+  <div id="root"></div>
+  <script>
+    setTimeout(() => {
+      document.getElementById('root').innerHTML =
+        '<button id="lateButton">Rendered late</button>';
+    }, 1500);
+  </script>
+</body>
+</html>

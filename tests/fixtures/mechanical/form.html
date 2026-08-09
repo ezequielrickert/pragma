@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: form</title></head>
+<body>
+  <h1>Real form (contrast case - no fetch/xhr ever fires)</h1>
+  <!-- Prevent the actual submission (would navigate away / 404 in the test
+       fixture server) - the point of this fixture is just "a submit click
+       that fires no XHR/fetch", not testing real form submission. -->
+  <form method="post" action="/submit" onsubmit="return false;">
+    <label for="nameField">Name</label>
+    <input id="nameField" name="name" type="text">
+    <button type="submit">Send</button>
+  </form>
+</body>
+</html>

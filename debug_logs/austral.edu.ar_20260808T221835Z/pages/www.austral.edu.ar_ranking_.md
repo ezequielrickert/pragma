@@ -1,0 +1,411 @@
+<!-- https://www.austral.edu.ar/ranking/ -->
+
+[Ir al contenido](https://www.austral.edu.ar/ranking/#content)
+[ ](https://www.austral.edu.ar/)
+[ SEDE PILAR ](https://www.austral.edu.ar/ranking/)
+[ SEDE CABA ](https://www.austral.edu.ar/sede-caba)
+[ SEDE ROSARIO ](https://www.austral.edu.ar/rosario/)
+[ ONLINE ](https://www.austral.edu.ar/encontra-tu-programa/?filtro=products_posts&meta=atributo-modalidad:Online)
+[ ![](https://www.austral.edu.ar/wp-content/uploads/2022/09/logo-md-austral-1.png?x61429&x61429) ](https://www.austral.edu.ar/)
+[Institucional](https://www.austral.edu.ar/ranking/)
+[Acerca de la universidad](https://www.austral.edu.ar/quienes-somos/)
+[Autoridades](https://www.austral.edu.ar/autoridades/)
+[Memorias y Presentaciones](https://www.austral.edu.ar/memorias-y-presentaciones/)
+[Plan Estratégico 2030](https://www.austral.edu.ar/plan-estrategico-2030/)
+[Ranking y acreditaciones](https://www.austral.edu.ar/ranking/)
+[Profesores](https://www.austral.edu.ar/profesores-institucional/)
+[Cuerpo Docente](https://www.austral.edu.ar/profesores-institucional/)
+[Profesores en Academias](https://www.austral.edu.ar/profesores-en-academias/)
+[Desarrollo institucional](https://www.austral.edu.ar/desarrollo/)
+[Sostenibilidad](https://www.austral.edu.ar/sostenibilidad/)
+[Biblioteca](https://www.austral.edu.ar/biblioteca/)
+[Sistema de Bibliotecas](https://www.austral.edu.ar/biblioteca/)
+[Biblioteca Baires](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BAB)
+[Biblioteca Pilar](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BAP)
+[Biblioteca Hospital – FCB](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BFCB)
+[Biblioteca Rosario](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BSR)
+[Biblioteca IAE](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_IAE)
+[Internacional](https://www.austral.edu.ar/internacionales/)
+[Capellanía](https://www.austral.edu.ar/capellania/)
+[Novedades](https://www.austral.edu.ar/novedades/)
+[Eventos](https://www.austral.edu.ar/eventos/)
+[Donaciones](https://www.austral.edu.ar/donaciones/)
+[Prensa](https://www.austral.edu.ar/sala-de-prensa/)
+[Investigación](https://www.austral.edu.ar/ranking/)
+[Presentación](https://www.austral.edu.ar/investigacion/)
+[Líneas Prioritarias de Investigación](https://www.austral.edu.ar/investigacion/lineas-prioritarias-de-investigacion/)
+[Nuestros Investigadores](https://www.austral.edu.ar/investigadores/)
+[Secretarios de investigación](https://www.austral.edu.ar/investigacion/secretarios-investigacion/)
+[Informes y Documentos](https://www.austral.edu.ar/investigacion/informes/)
+[Convocatorias](https://www.austral.edu.ar/investigacion/convocatorias/)
+[Calendarios de investigación](https://www.austral.edu.ar/investigacion/calendario-investigacion/)
+[Publicaciones](https://www.austral.edu.ar/investigacion/publicaciones/)
+[Talleres de investigación](https://www.austral.edu.ar/investigacion/talleres/)
+[Cooperación con Organismos](https://www.austral.edu.ar/investigacion/cooperacion/)
+[Novedades](https://www.austral.edu.ar/investigacion/novedades/)
+[Laboratorios, Institutos y Centros](https://www.austral.edu.ar/investigacion/laboratorios/)
+[Biblioteca](https://www.austral.edu.ar/biblioteca)
+[Facultades](https://www.austral.edu.ar/ranking/)
+[Comunicación](https://www.austral.edu.ar/comunicacion)
+[Ciencias Biomédicas](https://www.austral.edu.ar/cienciasbiomedicas/)
+[Ciencias para la Familia](https://www.austral.edu.ar/familia/)
+[Derecho](https://www.austral.edu.ar/derecho/)
+[Escuela de Educación](https://www.austral.edu.ar/educacion/)
+[Escuela de Gobierno](https://www.austral.edu.ar/escueladegobierno/)
+[Ciencias Empresariales](https://www.austral.edu.ar/ranking/)
+[Pilar](https://www.austral.edu.ar/cienciasempresariales/)
+[Rosario](https://www.austral.edu.ar/cienciasempresariales/rosario/)
+[Ingeniería](https://www.austral.edu.ar/ingenieria/)
+[Instituto de Filosofía](https://www.austral.edu.ar/filosofia/?idioma=es)
+[IAE Business School](https://www.iae.edu.ar/)
+[Hospital Austral](https://www.hospitalaustral.edu.ar/)
+[Parque Empresarial](https://www.parqueaustral.org/)
+[Sede Rosario](https://www.austral.edu.ar/rosario/)
+[Oferta Académica](https://www.austral.edu.ar/ranking/)
+[Grado](https://www.austral.edu.ar/admisiones/)
+[Posgrado](https://www.austral.edu.ar/posgrado/)
+[Alumnos](https://www.austral.edu.ar/vidauniversitaria/)
+[Graduados](https://www.austral.edu.ar/graduados/)
+[Contacto](https://www.austral.edu.ar/contacto/)
+[MI AUSTRAL](http://mi.austral.edu.ar)
+[ ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20316%20114'%3E%3C/svg%3E) ](https://www.austral.edu.ar/rosario/)
+[Institucional](https://www.austral.edu.ar/ranking/)
+[Acerca de la Sede Rosario](https://www.austral.edu.ar/rosario/institucional/acerca-de-la-sede-rosario/?sede=rosario)
+[Autoridades Sede Rosario](https://www.austral.edu.ar/rosario/autoridades/)
+[Profesores](https://www.austral.edu.ar/rosario/profesores/?sede=rosario)
+[Alumnos](https://www.austral.edu.ar/rosario/alumnos/?sede=rosario)
+[Biblioteca Rosario](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BSR)
+[Trabajá con nosotros](https://www.austral.edu.ar/rosario/busquedas-externas/)
+[Graduados](https://www.austral.edu.ar/graduados/?sede=rosario)
+[Novedades](https://www.austral.edu.ar/rosario/novedades/?sede=rosario)
+[Eventos](https://www.austral.edu.ar/rosario/eventos/?sede=rosario)
+[Prensa](https://www.austral.edu.ar/impacto-austral/?sede=rosario)
+[Investigación](https://www.austral.edu.ar/ranking/)
+[Institucional Investigación](https://www.austral.edu.ar/rosario/institucional-investigacion-rosario/?sede=rosario)
+[Líneas de investigación](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/)
+[Economía](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/economia/)
+[Matemática](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/matematica/)
+[Emprendedurismo](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/emprendedurismo/)
+[Agronegocios](https://www.austral.edu.ar/rosario/agronegocios/investigacion-y-transferencia/)
+[Publicaciones](https://www.austral.edu.ar/ranking/)
+[Indicadores Regionales](https://www.austral.edu.ar/rosario/cienciasempresariales/indicadores-regionales/)
+[Revista MAT](https://www.austral.edu.ar/rosario/cienciasempresariales/revista-mat/)
+[Oferta Académica](https://www.austral.edu.ar/ranking/)
+[Pregrado](https://www.austral.edu.ar/productos-austral/tecnicatura-universitaria-en-programacion/?sede=rosario)
+[Grado](https://www.austral.edu.ar/rosario/grado)
+[Posgrado](https://www.austral.edu.ar/rosario/posgrados/)
+[Centro de Agronegocios](https://www.austral.edu.ar/ranking/)
+[Sobre el CEAG](https://www.austral.edu.ar/rosario/centro-de-agronegocios/?sede=rosario)
+[MBA en Agronegocios](https://www.austral.edu.ar/cienciasempresariales/agronegocios/mba-en-agronegocios/)
+[Programas Académicos](https://www.austral.edu.ar/rosario/agronegocios/programas/?sede=rosario)
+[Investigación y Transferencia](https://www.austral.edu.ar/rosario/agronegocios/investigacion-y-transferencia/?sede=rosario)
+[Extensión](https://www.austral.edu.ar/rosario/agronegocios/extension/?sede=rosario)
+[Laboratorio de Innovación](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/?sede=rosario)
+[Sobre el LINE](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/)
+[Incubadora](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#incubadora)
+[Academia](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#academia)
+[Investigación](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#investigacion)
+[Extensión](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#extension)
+[Centro del Deporte](https://www.austral.edu.ar/rosario/centro-estudios-deporte/)
+[ ](https://www.austral.edu.ar/)
+[ SEDE PILAR ](https://www.austral.edu.ar/ranking/)
+[ SEDE CABA ](https://www.austral.edu.ar/sede-caba)
+[ SEDE ROSARIO ](https://www.austral.edu.ar/rosario/)
+[ ONLINE ](https://www.austral.edu.ar/encontra-tu-programa/?filtro=products_posts&meta=atributo-modalidad:Online)
+[ ![](https://www.austral.edu.ar/wp-content/uploads/2022/09/logo-md-austral-1.png?x61429&x61429) ](https://www.austral.edu.ar/)
+[Institucional](https://www.austral.edu.ar/ranking/)
+[Acerca de la universidad](https://www.austral.edu.ar/quienes-somos/)
+[Autoridades](https://www.austral.edu.ar/autoridades/)
+[Memorias y Presentaciones](https://www.austral.edu.ar/memorias-y-presentaciones/)
+[Plan Estratégico 2030](https://www.austral.edu.ar/plan-estrategico-2030/)
+[Ranking y acreditaciones](https://www.austral.edu.ar/ranking/)
+[Profesores](https://www.austral.edu.ar/profesores-institucional/)
+[Cuerpo Docente](https://www.austral.edu.ar/profesores-institucional/)
+[Profesores en Academias](https://www.austral.edu.ar/profesores-en-academias/)
+[Desarrollo institucional](https://www.austral.edu.ar/desarrollo/)
+[Sostenibilidad](https://www.austral.edu.ar/sostenibilidad/)
+[Biblioteca](https://www.austral.edu.ar/biblioteca/)
+[Sistema de Bibliotecas](https://www.austral.edu.ar/biblioteca/)
+[Biblioteca Baires](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BAB)
+[Biblioteca Pilar](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BAP)
+[Biblioteca Hospital – FCB](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BFCB)
+[Biblioteca Rosario](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BSR)
+[Biblioteca IAE](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_IAE)
+[Internacional](https://www.austral.edu.ar/internacionales/)
+[Capellanía](https://www.austral.edu.ar/capellania/)
+[Novedades](https://www.austral.edu.ar/novedades/)
+[Eventos](https://www.austral.edu.ar/eventos/)
+[Donaciones](https://www.austral.edu.ar/donaciones/)
+[Prensa](https://www.austral.edu.ar/sala-de-prensa/)
+[Investigación](https://www.austral.edu.ar/ranking/)
+[Presentación](https://www.austral.edu.ar/investigacion/)
+[Líneas Prioritarias de Investigación](https://www.austral.edu.ar/investigacion/lineas-prioritarias-de-investigacion/)
+[Nuestros Investigadores](https://www.austral.edu.ar/investigadores/)
+[Secretarios de investigación](https://www.austral.edu.ar/investigacion/secretarios-investigacion/)
+[Informes y Documentos](https://www.austral.edu.ar/investigacion/informes/)
+[Convocatorias](https://www.austral.edu.ar/investigacion/convocatorias/)
+[Calendarios de investigación](https://www.austral.edu.ar/investigacion/calendario-investigacion/)
+[Publicaciones](https://www.austral.edu.ar/investigacion/publicaciones/)
+[Talleres de investigación](https://www.austral.edu.ar/investigacion/talleres/)
+[Cooperación con Organismos](https://www.austral.edu.ar/investigacion/cooperacion/)
+[Novedades](https://www.austral.edu.ar/investigacion/novedades/)
+[Laboratorios, Institutos y Centros](https://www.austral.edu.ar/investigacion/laboratorios/)
+[Biblioteca](https://www.austral.edu.ar/biblioteca)
+[Facultades](https://www.austral.edu.ar/ranking/)
+[Comunicación](https://www.austral.edu.ar/comunicacion)
+[Ciencias Biomédicas](https://www.austral.edu.ar/cienciasbiomedicas/)
+[Ciencias para la Familia](https://www.austral.edu.ar/familia/)
+[Derecho](https://www.austral.edu.ar/derecho/)
+[Escuela de Educación](https://www.austral.edu.ar/educacion/)
+[Escuela de Gobierno](https://www.austral.edu.ar/escueladegobierno/)
+[Ciencias Empresariales](https://www.austral.edu.ar/ranking/)
+[Pilar](https://www.austral.edu.ar/cienciasempresariales/)
+[Rosario](https://www.austral.edu.ar/cienciasempresariales/rosario/)
+[Ingeniería](https://www.austral.edu.ar/ingenieria/)
+[Instituto de Filosofía](https://www.austral.edu.ar/filosofia/?idioma=es)
+[IAE Business School](https://www.iae.edu.ar/)
+[Hospital Austral](https://www.hospitalaustral.edu.ar/)
+[Parque Empresarial](https://www.parqueaustral.org/)
+[Sede Rosario](https://www.austral.edu.ar/rosario/)
+[Oferta Académica](https://www.austral.edu.ar/ranking/)
+[Grado](https://www.austral.edu.ar/admisiones/)
+[Posgrado](https://www.austral.edu.ar/posgrado/)
+[Alumnos](https://www.austral.edu.ar/vidauniversitaria/)
+[Graduados](https://www.austral.edu.ar/graduados/)
+[Contacto](https://www.austral.edu.ar/contacto/)
+[MI AUSTRAL](http://mi.austral.edu.ar)
+[ ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20316%20114'%3E%3C/svg%3E) ](https://www.austral.edu.ar/rosario/)
+[Institucional](https://www.austral.edu.ar/ranking/)
+[Acerca de la Sede Rosario](https://www.austral.edu.ar/rosario/institucional/acerca-de-la-sede-rosario/?sede=rosario)
+[Autoridades Sede Rosario](https://www.austral.edu.ar/rosario/autoridades/)
+[Profesores](https://www.austral.edu.ar/rosario/profesores/?sede=rosario)
+[Alumnos](https://www.austral.edu.ar/rosario/alumnos/?sede=rosario)
+[Biblioteca Rosario](https://uaustral.primo.exlibrisgroup.com/discovery/search?vid=54IAE_INST:UA_BSR)
+[Trabajá con nosotros](https://www.austral.edu.ar/rosario/busquedas-externas/)
+[Graduados](https://www.austral.edu.ar/graduados/?sede=rosario)
+[Novedades](https://www.austral.edu.ar/rosario/novedades/?sede=rosario)
+[Eventos](https://www.austral.edu.ar/rosario/eventos/?sede=rosario)
+[Prensa](https://www.austral.edu.ar/impacto-austral/?sede=rosario)
+[Investigación](https://www.austral.edu.ar/ranking/)
+[Institucional Investigación](https://www.austral.edu.ar/rosario/institucional-investigacion-rosario/?sede=rosario)
+[Líneas de investigación](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/)
+[Economía](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/economia/)
+[Matemática](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/matematica/)
+[Emprendedurismo](https://www.austral.edu.ar/rosario/cienciasempresariales/investigacion-y-transferencia/emprendedurismo/)
+[Agronegocios](https://www.austral.edu.ar/rosario/agronegocios/investigacion-y-transferencia/)
+[Publicaciones](https://www.austral.edu.ar/ranking/)
+[Indicadores Regionales](https://www.austral.edu.ar/rosario/cienciasempresariales/indicadores-regionales/)
+[Revista MAT](https://www.austral.edu.ar/rosario/cienciasempresariales/revista-mat/)
+[Oferta Académica](https://www.austral.edu.ar/ranking/)
+[Pregrado](https://www.austral.edu.ar/productos-austral/tecnicatura-universitaria-en-programacion/?sede=rosario)
+[Grado](https://www.austral.edu.ar/rosario/grado)
+[Posgrado](https://www.austral.edu.ar/rosario/posgrados/)
+[Centro de Agronegocios](https://www.austral.edu.ar/ranking/)
+[Sobre el CEAG](https://www.austral.edu.ar/rosario/centro-de-agronegocios/?sede=rosario)
+[MBA en Agronegocios](https://www.austral.edu.ar/cienciasempresariales/agronegocios/mba-en-agronegocios/)
+[Programas Académicos](https://www.austral.edu.ar/rosario/agronegocios/programas/?sede=rosario)
+[Investigación y Transferencia](https://www.austral.edu.ar/rosario/agronegocios/investigacion-y-transferencia/?sede=rosario)
+[Extensión](https://www.austral.edu.ar/rosario/agronegocios/extension/?sede=rosario)
+[Laboratorio de Innovación](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/?sede=rosario)
+[Sobre el LINE](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/)
+[Incubadora](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#incubadora)
+[Academia](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#academia)
+[Investigación](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#investigacion)
+[Extensión](https://www.austral.edu.ar/rosario/laboratorio-de-innovacion-y-emprendimientos-rosario/#extension)
+[Centro del Deporte](https://www.austral.edu.ar/rosario/centro-estudios-deporte/)
+  * [Institucional](https://www.austral.edu.ar/)
+  * | 
+  * Rankings y acreditaciones
+
+
+# Austral en rankings
+## Somos #1 de Argentina en el Ranking Mundial
+La **Universidad Austral** fue reconocida nuevamente como la **primera universidad de la Argentina** en el **Times Higher Education World University Rankings 2026 (THE WUR 2026)** , una de las evaluaciones más prestigiosas y exhaustivas del mundo académico. Es el **segundo año consecutivo** que la Austral lidera entre las universidades argentinas en este ranking global.
+**[Ver más](https://www.austral.edu.ar/ranking-mundial-times-higher-education/ "https://www.austral.edu.ar/ranking-mundial-times-higher-education/")**
+## La Universidad Austral se destaca en:
+![](https://www.austral.edu.ar/wp-content/uploads/2025/10/THE-WUR-2026_RGB_COL.png?x61429&x61429)
+## #1
+universidad de Argentina en el Ranking Mundial. ​
+2do año consecutivo.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20885%20288'%3E%3C/svg%3E)
+## #1
+de gestión privada de Argentina y, por segundo año consecutivo, en Reputación con los Empleadores.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%202560%201029'%3E%3C/svg%3E)
+## #1
+de gestión privada de Argentina  
+Reconocimiento por 6to año consecutivo
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201350%20450'%3E%3C/svg%3E)
+### THE Latin America University Rankings 2026
+## #1
+de gestión privada de Argentina  
+Reconocimiento por 4to año consecutivo
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201920%20771'%3E%3C/svg%3E)
+### De acuerdo a la última actualización del QS World University Rankings by Subject.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20167'%3E%3C/svg%3E)
+### Facultad de Derecho
+# 1 de gestión privada en el área de Derecho por 8vo año consecutivo.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20167'%3E%3C/svg%3E)
+### Facultad de Ciencias Biomédicas
+# 1 de gestión privada en el área de Medicina por 8vo año consecutivo.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20167'%3E%3C/svg%3E)
+### Facultad de Ciencias Empresariales
+# 1 de gestión privada en el área de Negocios y Management   
+por 5to año consecutivo.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20167'%3E%3C/svg%3E)
+### Instituto de Filosofía
+# 1 de gestión privada en el área de Filosofía por 3ro año consecutivo.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20126%20189'%3E%3C/svg%3E)
+### La Maestría en Agronegocios de la Facultad de Ciencias Empresariales de la Universidad Austral ha sido rankeado por séptimo año consecutivo como N° 2 en el mundo por Eduniversal Best Masters Ranking en el área Agribusiness/ Food Industry Management.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20800%20136'%3E%3C/svg%3E)
+**Maestría en Agronegocios**  
+#1 de América Latina y #2 del Mundo   
+en el área Agribusiness/Food Industry Management desde 2019  
+  
+**Maestría en Finanzas**  
+#4 de América Latina y #1 de Argentina
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%206825%201401'%3E%3C/svg%3E)
+Maestría en Oil & Gas Management & Trade: **#3 a nivel mundial**  
+Maestría en Explotación de Datos y Gestión del Conocimiento: **#1 en gestión privada de Argentina** a nivel LATAM.  
+Maestría en Gestión de Operaciones: se ubica en el **top 10 de universidades de Latinoamérica.**
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2083%2092'%3E%3C/svg%3E)
+## IAE Business School
+### El IAE Business School de la Universidad Austral cuenta con la triple corona, expresión que se utiliza en el ámbito de las escuelas de negocios cuando una universidad obtiene las tres acreditaciones internacionales más importantes en educación ejecutiva, una distinción que solo tiene el 1% de las escuelas del mundo.
+[ ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20220%20120'%3E%3C/svg%3E) ](https://www.efmdglobal.org/accreditations/business-schools/equis/equis-accredited-schools/)
+European Quality Improvement System (EQUIS)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20220%20120'%3E%3C/svg%3E)
+Association to Advance Collegiate Schools of Business (AACSB)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20220%20120'%3E%3C/svg%3E)
+Association of MBAs (AMBA)
+### En los rankings el IAE se posiciona entre las primeras Business Schools de Argentina y LatinoAmérica.
+## Únicos en Argentina
+Financial Times
+Única Escuela argentina en el ranking global
+QS World University Ranking
+EMBA y MBA Online **#1** en Argentina​
+CEO Magazine Global Ranking
+MBA Online **#1** en Argentina​
+Eduniversal Business Schools Ranking
+**#1** en Argentina con 4 Palmes of Excellence​
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201200%20340'%3E%3C/svg%3E)
+Entre las mejores escuelas de negocios del mundo
+#24
+en Custom Programs​ (programas a medida para empresas)​
+#65
+en Custom Programs​ (programas abiertos para ejecutivos)​
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20400%20130'%3E%3C/svg%3E)
+EMBA
+**#1** en Argentina, y **#7** en Latam
+MBA FT 
+**#3** Latam 
+MBA Online
+**#1** en Argentina, y **#2** en Latam
+## Top 10  
+LATAM
+QS World University Ranking
+EMBA **#7** , MBA FT **#3** y MBA Online **#2** en Latam​
+CEO Magazine
+EMBA **#5** y MBA Online **#2** en Latam​  
+MBA FT Tier 1 (máxima categoría global)​
+Eduniversal Best Masters Ranking
+EMBA **#8** y MBA FT **#2** en General Management​
+Eduniversal Business Schools Ranking
+**#1** en Argentina y **#2** en Latam​
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20271%2083'%3E%3C/svg%3E)
+## Hospital Universitario Austral
+### Es el primer hospital de la Argentina y uno de los primeros a nivel mundial en obtener la máxima certificación en la categoría de “Hospital Académico” de Joint Commission International. Y además, es el primer hospital de la Argentina en reacreditar con Joint Commission International.
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20576%20146'%3E%3C/svg%3E)
+![LBC](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20615%20222'%3E%3C/svg%3E)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20755%20797'%3E%3C/svg%3E)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20978%20535'%3E%3C/svg%3E)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20528%20195'%3E%3C/svg%3E)
+## Novedades sobre rankings
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20580'%3E%3C/svg%3E)
+#### 17.06.2026
+RANKING QS WORLD UNIVERSITY 2027
+La Universidad Austral alcanzó el primer lugar entre...
+[ Leer ](https://www.austral.edu.ar/ranking-qs-world-university-2027/)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20580'%3E%3C/svg%3E)
+#### 25.03.2026
+Ranking QS By Subject 2026: nuevo rec...
+La Universidad Austral reafirma su posicionamiento a...
+[ Leer ](https://www.austral.edu.ar/ranking-qs-by-subject-2026-nuevo-reconocimiento-para-la-universidad-austral/)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20580'%3E%3C/svg%3E)
+#### 03.12.2025
+THE Latin America University Rankings...
+Por cuarto año consecutivo, el ranking británico Tim...
+[ Leer ](https://www.austral.edu.ar/the-latin-america-university-rankings-2026/)
+![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20580'%3E%3C/svg%3E)
+#### 08.10.2025
+Ranking mundial Times Higher Education
+La Universidad Austral fue reconocida nuevamente com...
+[ Leer ](https://www.austral.edu.ar/novedades/ranking-mundial-times-higher-education-wur-2026/)
+## [Universidad Austral en LinkedIn ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20512'%3E%3C/svg%3E) ](https://www.linkedin.com/company/universidad-austral-argentina) ## [Seguinos en Instagram ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20768%20512'%3E%3C/svg%3E) ](https://www.instagram.com/univaustral/)
+[ ![](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20185%20146'%3E%3C/svg%3E) ](https://www.austral.edu.ar/)
+## Nuestras redes
+[ ](https://www.facebook.com/UniversidadAustral)
+[ ](https://www.twitter.com/UnivAustral)
+[ ](https://www.tiktok.com/@univaustral?_t=8qz3rlS5FUE&_r=1)
+[ ](https://www.instagram.com/univaustral/)
+[ ](https://www.linkedin.com/company/universidad-austral-argentina)
+[ ](https://www.youtube.com/user/tvuniversidadaustral)
+[ ](https://open.spotify.com/user/315edmcfdzdqkblnxnnzfbsnxb7m?si=UCmAQPjJRZGp54s9ap2FEQ)
+## Institucional
+[ Acerca de la universidad ](https://www.austral.edu.ar/quienes-somos/)
+[ Autoridades ](https://www.austral.edu.ar/autoridades/)
+[ Ranking y acreditaciones ](https://www.austral.edu.ar/ranking/)
+[ Profesores ](https://www.austral.edu.ar/profesores-institucional/)
+[ Desarrollo institucional ](https://www.austral.edu.ar/desarrollo/)
+[ Sostenibilidad ](https://www.austral.edu.ar/sostenibilidad/)
+[ Biblioteca ](https://www.austral.edu.ar/ranking/)
+[ Internacional ](https://www.austral.edu.ar/internacionales/)
+[ Graduados ](https://www.austral.edu.ar/graduados/)
+[ Novedades ](https://www.austral.edu.ar/novedades/)
+[ Eventos ](https://www.austral.edu.ar/eventos/)
+[ Prensa ](https://www.austral.edu.ar/prensa/en-los-medios/)
+[ Donaciones ](https://www.austral.edu.ar/donaciones/)
+[ Capellanía ](https://www.austral.edu.ar/capellania/)
+## Investigación
+[ Presentación ](https://www.austral.edu.ar/investigacion/)
+[ Nuestros investigadores ](https://www.austral.edu.ar/investigadores/)
+[ Secretarios de investigación ](https://www.austral.edu.ar/investigacion/secretarios-investigacion/)
+[ Informes y documentos ](https://www.austral.edu.ar/investigacion/informes/)
+[ Convocatorias ](https://www.austral.edu.ar/investigacion/convocatorias/)
+[ Calendario académico y de investigación ](https://www.austral.edu.ar/investigacion/calendario-investigacion/)
+[ Recursos ](https://www.austral.edu.ar/investigacion/talleres/)
+[ Cooperación con organismos ](https://www.austral.edu.ar/investigacion/cooperacion/)
+[ Novedades ](https://www.austral.edu.ar/investigacion/novedades/)
+[ Eventos ](https://www.austral.edu.ar/investigacion/eventos/)
+[ Laboratorios ](https://www.austral.edu.ar/investigacion/laboratorios/)
+[ Biblioteca ](https://www.austral.edu.ar/ranking/)
+## Facultades
+[ Comunicación ](https://www.austral.edu.ar/comunicacion/)
+[ Ciencias Biomédicas ](https://www.austral.edu.ar/cienciasbiomedicas/)
+[ Ciencias Empresariales ](https://www.austral.edu.ar/cienciasempresariales/)
+[ Ciencias para la Familia ](https://www.austral.edu.ar/familia/)
+[ Derecho ](https://www.austral.edu.ar/derecho/)
+[ Escuela de Educación ](https://www.austral.edu.ar/educacion/)
+[ Escuela de Gobierno ](https://www.austral.edu.ar/escueladegobierno/)
+[ Ingeniería ](https://www.austral.edu.ar/ingenieria/)
+[ Instituto de Filosofía ](https://www.austral.edu.ar/filosofia/en/)
+[ IAE Business School ](https://www.iae.edu.ar/)
+[ Hospital Austral ](https://www.hospitalaustral.edu.ar/)
+[ Parque Empresarial ](https://www.parqueaustral.org/)
+## [Alumnos](https://www.austral.edu.ar/vidauniversitaria/)
+[ Vida Universitaria ](https://www.austral.edu.ar/vidauniversitaria/como-participar/)
+[ Becas ](https://www.austral.edu.ar/admisiones/becas/)
+[ Servicio de Comedor ](https://www.austral.edu.ar/comedor-y-cafeteria-campus-pilar/)
+[ Servicio de Residencias ](https://www.austral.edu.ar/residencias-y-centro-de-formacion/)
+[ Mundi ](https://www.austral.edu.ar/programas-internacionales/mundo/)
+[ Capellanía ](https://www.austral.edu.ar/capellania/)
+## Grado
+[ Ingresantes ](https://www.austral.edu.ar/admisiones/)
+## Posgrado
+[ Ingresantes ](https://www.austral.edu.ar/posgrado/)
+## Grado
+[ Ingresantes ](https://www.austral.edu.ar/admisiones/)
+## Posgrado
+[ Ingresantes ](https://www.austral.edu.ar/posgrado/)
+[ Política de Privacidad ](https://www.austral.edu.ar/politica-de-privacidad/)
+[ Terminos y Condiciones ](https://www.austral.edu.ar/terminos-y-condiciones/)
+© 2026 Universidad Austral. ASOCIACION CIVIL DE ESTUDIOS SUPERIORES ACES. Todos los derechos reservados. 
+[EN](https://www.austral.edu.ar/en/ranking/ "English") [ES](https://www.austral.edu.ar/ranking/ "Español")
