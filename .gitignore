@@ -1,6 +1,10 @@
 .env
 pragma.yaml
 
+# Playwright storage-state files (python3 src/cli.py login) contain real session
+# cookies/localStorage - never commit these, wherever the user chose to save them.
+storage_state*.json
+
 # Python
 __pycache__/
 *.pyc
