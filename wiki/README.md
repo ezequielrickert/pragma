@@ -17,6 +17,7 @@ loop, over many iterations, possibly with a small/local model.
 | [prompt-engineering-for-llm-agents.md](prompt-engineering-for-llm-agents.md) | You're writing/debugging system prompts for a multi-step agent, especially one with several distinct call sites (plan vs. act vs. summarize). |
 | [local-and-small-model-constraints.md](local-and-small-model-constraints.md) | Your agent works fine on GPT-4/Gemini but breaks, times out, hangs, or silently drops tool-call arguments on a local/small model. |
 | [browser-automation-pitfalls.md](browser-automation-pitfalls.md) | You're driving Playwright (or similar) from generated selectors, and clicks/navigation silently fail, hit the wrong element, or a dropdown/combobox seems to have nothing in it. |
+| [crawl4ai-integration-pitfalls.md](crawl4ai-integration-pitfalls.md) | You're driving crawl4ai's `AsyncWebCrawler` via hooks/`js_code`/`session_id` for custom interaction (not just its built-in extraction pipeline), and a navigating click cascades into unrelated failures, or a result's URL doesn't match what actually happened. |
 | [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) | Your agent loops, revisits the same state, needs to explain *how* it got from A to B, or a persistent store's history no longer matches reality. |
 | [tool-calling-and-execution-layers.md](tool-calling-and-execution-layers.md) | You're designing or debugging how an agent's decisions turn into real actions — native function-calling vs. text fallback, a standing execution service, or where to draw the line between execution and reference-knowledge services. |
 | [debugging-agent-systems.md](debugging-agent-systems.md) | An agent is "behaving badly" and you don't yet know if it's the model, the prompt, or the code. Read this first, before you start guessing. |
@@ -29,10 +30,23 @@ loop, over many iterations, possibly with a small/local model.
 - "Model's tool call is missing a parameter the schema marks required" → local-and-small-model-constraints, then tool-calling-and-execution-layers
 - "Model picks an invalid value for a constrained parameter" → local-and-small-model-constraints (structural enum, not prose)
 - "Click does nothing / times out / hits the wrong element" → browser-automation-pitfalls
+- "A click via crawl4ai js_code cascades into 'element not found' on every later action" → crawl4ai-integration-pitfalls
+- "A crawl4ai result's URL doesn't match the page that actually loaded" → crawl4ai-integration-pitfalls (redirected_url, not .url)
 - "Nothing to click after opening a dropdown/menu/combobox" → browser-automation-pitfalls (custom-widget ARIA roles)
 - "Agent stuck in a loop revisiting the same page(s)" → graph-based-crawl-tracking, then debugging-agent-systems
 - "Agent finishes/gives up before the page is actually done" → prompt-engineering (Principle 5/6), then graph-based-crawl-tracking
 - "A fix had no effect on the live run" → tool-calling-and-execution-layers (stale standing-service process), then debugging-agent-systems
+- "Most persisted nodes/records come out empty/blank even though interacted=true" → graph-based-crawl-tracking (ghost nodes from an auto-create fallback never getting the rich write)
+- "A page's remaining components got silently dropped once a budget/cap was hit" → graph-based-crawl-tracking (bound work as internal rounds within one session, not requeue-via-re-navigation)
+- "A revealed dropdown/menu's already-present-but-hidden options aren't detected as newly revealed" → browser-automation-pitfalls (visibility-transition diffing, not just DOM-presence diffing)
+- "A whole run of 'element not found' failures on the same page, on components that definitely existed" → crawl4ai-integration-pitfalls (failure branch needs its own re-sync, not just the success branch's)
+- "A crawl never terminates / keeps discovering 'new' pages forever on one site" → graph-based-crawl-tracking (session-token URLs need a coarser route-shape bound)
+- "The same page seems to get re-scraped / re-fetched more than once, or a crawl of a redirecting site burns way more fetches than expected" → crawl4ai-integration-pitfalls (a follow-up-pass requeue must use the *resolved* URL, not the original request)
+- "The same screen shows up as N separate near-duplicate pages in the output because its URL has a per-visit hash/token" → graph-based-crawl-tracking (route-shape as canonical storage identity, kept apart from literal-URL navigation identity)
+- "A crawl is correctness-wise fine but way too slow at scale (hours for what should be minutes)" → graph-based-crawl-tracking (Queue.join()-based concurrent frontier, not just tuning fixed waits), then crawl4ai-integration-pitfalls (which fixed waits are actually tunable)
+- "A button/interaction visibly changes the whole screen (a wizard step, an SPA route) but the crawler treats it as the same page, or merges it into the wrong page's component list" → graph-based-crawl-tracking (component-overlap-based state transitions - a same-URL DOM change can be a full replace, not just a reveal)
+- "Trying to speed up/optimize a crawl4ai-driven fetch - which config flags actually help" → crawl4ai-integration-pitfalls (some flags don't touch the phase their name implies - read the source first)
+- "A concurrent/multi-worker crawl visits, or writes a debug artifact for, the same page twice - a per-page file or browser session gets silently overwritten/raced" → graph-based-crawl-tracking (a dedup-bypassing re-queue path needs its own dequeue-time in-flight guard, not just the normal enqueue-time dedup set), then crawl4ai-integration-pitfalls (a debug snapshot must be keyed by session, not by resolved URL)
 - "Not sure where to even start" → debugging-agent-systems
 
 ## Turning this into skills

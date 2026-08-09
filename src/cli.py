@@ -21,8 +21,7 @@ from src.core import prompts
 from src.core.app import run_app
 from src.core.config import PragmaConfig
 from src.core.engine import Engine
-from src.core.login_helper import run_login_helper
-from src.core.registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
+from src.core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 from src.core.wizard import run_config_wizard
 
 
@@ -36,9 +35,6 @@ def parse_args(argv: list) -> argparse.Namespace:
     parser.add_argument("--url", "-u", dest="url_flag", help="URL to explore (same as positional)")
     parser.add_argument("--config", "-c", dest="config_path", help="Path to a pragma YAML config file")
     parser.add_argument(
-        "--scraper", help=f"Scraper plugin ({', '.join(SCRAPER_REGISTRY.names())})"
-    )
-    parser.add_argument(
         "--agent",
         "--provider",
         "-p",
@@ -46,48 +42,56 @@ def parse_args(argv: list) -> argparse.Namespace:
         help=f"Agent plugin ({', '.join(AGENT_REGISTRY.names())})",
     )
     parser.add_argument(
-        "--generator", "-g", help=f"Generator strategy ({', '.join(GENERATOR_REGISTRY.names())})"
-    )
-    parser.add_argument(
         "--graph-store",
         dest="graph_store",
         help=f"Graph store plugin ({', '.join(GRAPH_STORE_REGISTRY.names())})",
     )
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder for PRDs")
-    parser.add_argument("--logs", "-l", dest="logs_dir", help="Folder for research logs")
     parser.add_argument(
-        "--progress-logs",
-        dest="progress_logs_dir",
-        help="Folder for append-only per-iteration debug logs (default: progress_logs)",
+        "--debug-logs-dir",
+        dest="debug_logs_dir",
+        help="Folder for per-run debug artifacts: every crawl4ai hook firing, plus each page's "
+        "markdown conversion (default: debug_logs). Pass an empty string to disable.",
     )
-    parser.add_argument(
-        "--graph-logs",
-        dest="graph_logs_dir",
-        help="Folder for the navigation graph (which action led from which page to which "
-        "page), written as JSON (default: graph_logs)",
-    )
-    parser.add_argument("--max-iterations", type=int, dest="max_iterations")
     parser.add_argument(
         "--wait-seconds",
         type=float,
         dest="wait_seconds",
-        help="Seconds to let a page settle after navigation/click before reading links (default: 15)",
+        help="Seconds to let a page settle before discovery reads it (default: 2). Raise this for "
+        "JS-heavy sites (React/Vue SPAs) where components/links can otherwise read as 0 - the page's "
+        "pre-hydration HTML shell satisfies the default wait condition before real content renders.",
     )
     parser.add_argument(
-        "--batch-size",
+        "--element-budget",
         type=int,
-        dest="batch_size",
-        help="Max pending routes/DNA components sent per iteration prompt (default: 20). "
-        "Lower = faster/cheaper iterations, but needs more of them (raise --max-iterations too).",
+        dest="element_budget",
+        help="Max components MechanicalCrawler mechanically interacts with per page per visit-pass "
+        "(default: 200) - the backstop against a pathological reveal-chain, not a normal-case limit.",
+    )
+    parser.add_argument(
+        "--max-passes-per-page",
+        type=int,
+        dest="max_passes_per_page",
+        help="Max times to revisit the same page to keep draining its interaction frontier "
+        "(default: 10) - a page with more components than --element-budget needs more than one "
+        "pass; this bounds how many before giving up on a page that keeps generating new content "
+        "faster than one pass can keep up with.",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        dest="max_pages",
+        help="Total pages to visit before stopping the crawl (default: unbounded - crawl until the "
+        "URL frontier is exhausted).",
     )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     parser.add_argument(
-        "--unsafe",
+        "--tree-ascii",
+        dest="tree_ascii",
         action="store_true",
-        help="Disable safe mode: execute every action the model chooses, including one that "
-        "looks like it would mutate real state (a form submitting via POST, a buy/delete/"
-        "confirm button). Safe mode (on by default) blocks such actions and records them as "
-        "detected mutation boundaries in the final report instead of performing them.",
+        default=None,
+        help="Render the component-tree document with plain ASCII (|--, `--) instead of the "
+        "default Unicode box-drawing characters (├──, └──) - for terminals that mangle Unicode.",
     )
     parser.add_argument(
         "--fresh",
@@ -98,32 +102,6 @@ def parse_args(argv: list) -> argparse.Namespace:
         "(default: on; matters for --graph-store neo4j, which persists across runs). "
         "Use --no-fresh to resume a previous run's progress on a large, stable site instead.",
     )
-    parser.add_argument(
-        "--storage-state",
-        dest="storage_state_path",
-        help="Path to a Playwright storage-state JSON file (cookies + localStorage) to load so "
-        "the crawl starts already logged in - create one first with "
-        "`python3 src/cli.py login <url> --storage-state <path>`. Optional: omit for any site "
-        "that doesn't need login (the default, unchanged behavior).",
-    )
-    return parser.parse_args(argv)
-
-
-def parse_login_args(argv: list) -> argparse.Namespace:
-    """Parse arguments for `python3 src/cli.py login <url> [--storage-state <path>]`."""
-    parser = argparse.ArgumentParser(
-        prog="src/cli.py login",
-        description="Open a browser, log in by hand, and save the session for `--storage-state` "
-        "to reuse on later analysis runs.",
-    )
-    parser.add_argument("url", help="URL to open (e.g. the site's login page)")
-    parser.add_argument(
-        "--storage-state",
-        dest="storage_state_path",
-        default="storage_state.json",
-        help="Where to save the session (default: storage_state.json - gitignored, never commit "
-        "it, it contains real session cookies)",
-    )
     return parser.parse_args(argv)
 
 
@@ -132,20 +110,13 @@ def main() -> None:
 
     Bare `python3 src/cli.py` from a real terminal launches the interactive menu
     app (navigate between analyzing a URL and configuring the pipeline, no flags
-    needed). `python3 src/cli.py config` jumps straight to the setup wizard.
-    `python3 src/cli.py login <url>` opens a browser to log in by hand and save
-    the session for `--storage-state`/`storage_state_path` to reuse. Any other
-    invocation (flags/positional URL) runs a single analysis directly, for
+    needed). `python3 src/cli.py config` jumps straight to the setup wizard. Any
+    other invocation (flags/positional URL) runs a single analysis directly, for
     scripting/automation.
     """
     argv = sys.argv[1:]
     if argv and argv[0] == "config":
         run_config_wizard()
-        return
-
-    if argv and argv[0] == "login":
-        login_args = parse_login_args(argv[1:])
-        run_login_helper(login_args.url, login_args.storage_state_path)
         return
 
     if not argv:
@@ -164,8 +135,6 @@ def main() -> None:
     }
     if overrides.pop("headed", False):
         overrides["headless"] = False
-    if overrides.pop("unsafe", False):
-        overrides["safe_mode"] = False
     overrides["url"] = url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
@@ -181,13 +150,11 @@ def main() -> None:
 
     try:
         print(f"Starting autonomous archaeology for: {config.url}")
-        print(
-            f"Wiring: scraper={config.scraper} agent={config.agent} "
-            f"generator={config.generator} graph_store={config.graph_store}"
-        )
+        print(f"Wiring: agent={config.agent} graph_store={config.graph_store}")
         engine = Engine.from_config(config)
-        prd_path = engine.run(config.url)
-        print(f"Successfully generated PRD: {prd_path}")
+        result = engine.run(config.url)
+        print(f"Successfully generated PRD: {result.prd_path}")
+        print(f"Successfully generated component tree: {result.tree_path}")
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

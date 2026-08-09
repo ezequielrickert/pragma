@@ -26,28 +26,10 @@ from ..core.registry import GRAPH_STORE_REGISTRY
 # to print via Python logging's default stderr handler and read like a real error.
 logging.getLogger("neo4j").setLevel(logging.ERROR)
 
-# Predicate for the `semantic_only` component queries below - excludes the
-# cursor:pointer catch-all layer (capped, noisier than the ARIA/semantic selector)
-# from unexplored-component counts and completion-guard checks.
-_SEMANTIC_ONLY_PREDICATE = "c.layer <> 'pointer'"
-
-# Every debt-counting query below must also exclude a grouped member (e.g. one of a
-# revealed dropdown's options - see GraphStore.record_component_options'
-# `excluded_from_debt` docstring), regardless of whether `semantic_only` filtering is
-# also applied - `coalesce(..., false)` handles rows written before this property
-# existed (never set -> null -> treated as false, i.e. still counted, matching the
-# pre-existing behavior for anything not explicitly excluded).
-_NOT_EXCLUDED_PREDICATE = "NOT coalesce(c.excluded_from_debt, false)"
-
-
-def _debt_where_clause(semantic_only: bool) -> str:
-    """Build the `WHERE` clause shared by every unexplored-component query -
-    always excludes grouped members, additionally excludes the pointer layer
-    when `semantic_only` is set."""
-    predicates = [_NOT_EXCLUDED_PREDICATE]
-    if semantic_only:
-        predicates.append(_SEMANTIC_ONLY_PREDICATE)
-    return " WHERE " + " AND ".join(predicates)
+# Shared filter clause for the `semantic_only` component queries below - excludes
+# the cursor:pointer catch-all layer (capped, noisier than the ARIA/semantic
+# selector) from unexplored-component counts and completion-guard checks.
+_SEMANTIC_ONLY_CLAUSE = " WHERE c.layer <> 'pointer'"
 
 
 @dataclass
@@ -127,6 +109,11 @@ class Neo4jGraphStore(GraphStore):
                 "FOR (c:Component) REQUIRE (c.site, c.page_url, c.path) IS UNIQUE"
             )
             session.run("CREATE INDEX component_site_idx IF NOT EXISTS FOR (c:Component) ON (c.site)")
+            session.run(
+                "CREATE CONSTRAINT text_content_identity IF NOT EXISTS "
+                "FOR (t:TextContent) REQUIRE (t.site, t.page_url, t.path) IS UNIQUE"
+            )
+            session.run("CREATE INDEX text_content_site_idx IF NOT EXISTS FOR (t:TextContent) ON (t.site)")
 
     def close(self) -> None:
         if self._driver is not None:
@@ -146,6 +133,8 @@ class Neo4jGraphStore(GraphStore):
         components: int = 0,
         context: str = "",
         label: str = "",
+        description: str = "",
+        title: str = "",
     ) -> None:
         visited_at = datetime.now(timezone.utc).isoformat() if status == "Finished" else "-"
         with self._session() as session:
@@ -157,18 +146,46 @@ class Neo4jGraphStore(GraphStore):
                     p.status = $status, p.components = $components,
                     p.context = CASE WHEN $context <> '' THEN $context ELSE '-' END,
                     p.label = CASE WHEN $label <> '' THEN $label ELSE '-' END,
+                    p.description = $description,
+                    p.title = $title,
                     p.visited_at = $visited_at
                 ON MATCH SET
                     p.status = CASE WHEN $status <> 'Pending' THEN $status ELSE p.status END,
                     p.components = CASE WHEN $status <> 'Pending' THEN $components ELSE p.components END,
                     p.context = CASE WHEN $context <> '' THEN $context ELSE p.context END,
                     p.label = CASE WHEN $label <> '' THEN $label ELSE p.label END,
+                    p.description = CASE WHEN $description <> '' THEN $description ELSE p.description END,
+                    p.title = CASE WHEN $title <> '' THEN $title ELSE p.title END,
                     p.visited_at = CASE WHEN $status = 'Finished' THEN $visited_at ELSE p.visited_at END
                 MERGE (s)-[:HAS_PAGE]->(p)
                 """,
                 site=site, url=url, status=status, components=components,
-                context=context, label=label, visited_at=visited_at,
+                context=context, label=label, description=description, title=title, visited_at=visited_at,
             )
+
+    def get_page_descriptions(self, site: str) -> Dict[str, str]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.description IS NOT NULL AND p.description <> ''
+                RETURN p.url AS url, p.description AS description
+                """,
+                site=site,
+            )
+            return {r["url"]: r["description"] for r in result}
+
+    def get_page_titles(self, site: str) -> Dict[str, str]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.title IS NOT NULL AND p.title <> ''
+                RETURN p.url AS url, p.title AS title
+                """,
+                site=site,
+            )
+            return {r["url"]: r["title"] for r in result}
 
     def is_visited(self, site: str, url: str) -> bool:
         with self._session() as session:
@@ -290,17 +307,6 @@ class Neo4jGraphStore(GraphStore):
             )
             return [{"component": r["component"], "from": r["from"]} for r in result]
 
-    def get_incoming_link_counts(self, site: str) -> Dict[str, int]:
-        with self._session() as session:
-            result = session.run(
-                """
-                MATCH (a:Page {site: $site})-[:DISCOVERED_LINK {site: $site}]->(b:Page {site: $site})
-                RETURN b.url AS url, count(DISTINCT a) AS incoming
-                """,
-                site=site,
-            )
-            return {r["url"]: r["incoming"] for r in result}
-
     def clear_site(self, site: str) -> None:
         # DETACH DELETE on every Page tagged with this site removes all of its
         # incident relationships too (NAVIGATED_TO, DISCOVERED_LINK, HAS_PAGE),
@@ -313,6 +319,7 @@ class Neo4jGraphStore(GraphStore):
         with self._session() as session:
             session.run("MATCH (p:Page {site: $site}) DETACH DELETE p", site=site)
             session.run("MATCH (c:Component {site: $site}) DETACH DELETE c", site=site)
+            session.run("MATCH (t:TextContent {site: $site}) DETACH DELETE t", site=site)
             session.run("MATCH (s:Site {name: $site}) DETACH DELETE s", site=site)
 
     def record_component(
@@ -343,7 +350,7 @@ class Neo4jGraphStore(GraphStore):
                     c.visible = $visible, c.layer = $layer,
                     c.x = $x, c.y = $y, c.width = $width, c.height = $height,
                     c.component_type = $component_type, c.options = '',
-                    c.interacted = false, c.interactions = []
+                    c.interacted = false, c.interactions = [], c.network_requests = []
                 ON MATCH SET
                     c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
                     c.visible = $visible, c.layer = $layer,
@@ -375,16 +382,14 @@ class Neo4jGraphStore(GraphStore):
                 ON CREATE SET
                     c.tag = '', c.text = '', c.role = '', c.input_type = '',
                     c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '',
-                    c.interacted = false, c.interactions = []
+                    c.interacted = false, c.interactions = [], c.network_requests = []
                 SET c.interacted = true, c.interactions = c.interactions + $entry
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, entry=entry,
             )
 
-    def record_component_options(
-        self, site: str, page_url: str, path: str, options: str, excluded_from_debt: bool = False
-    ) -> None:
+    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
         with self._session() as session:
             session.run(
                 """
@@ -394,12 +399,28 @@ class Neo4jGraphStore(GraphStore):
                 ON CREATE SET
                     c.tag = '', c.text = '', c.role = '', c.input_type = '',
                     c.visible = true, c.layer = 'semantic', c.component_type = '',
-                    c.interacted = false, c.interactions = []
-                SET c.options = $options, c.excluded_from_debt = $excluded_from_debt
+                    c.interacted = false, c.interactions = [], c.network_requests = []
+                SET c.options = $options
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, options=options,
-                excluded_from_debt=excluded_from_debt,
+            )
+
+    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
+        with self._session() as session:
+            session.run(
+                """
+                MERGE (p:Page {site: $site, url: $page_url})
+                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
+                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
+                ON CREATE SET
+                    c.tag = '', c.text = '', c.role = '', c.input_type = '',
+                    c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '',
+                    c.interacted = false, c.interactions = [], c.network_requests = []
+                SET c.network_requests = c.network_requests + $entry
+                MERGE (p)-[:HAS_COMPONENT]->(c)
+                """,
+                site=site, page_url=page_url, path=path, entry=requests_json,
             )
 
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
@@ -411,7 +432,7 @@ class Neo4jGraphStore(GraphStore):
                        c.interacted AS interacted, c.visible AS visible,
                        c.component_type AS component_type, c.options AS options,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
-                       c.excluded_from_debt AS excluded_from_debt
+                       c.network_requests AS network_requests
                 """,
                 site=site, page_url=page_url,
             )
@@ -421,13 +442,15 @@ class Neo4jGraphStore(GraphStore):
                     "interacted": r["interacted"], "visible": r["visible"],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
-                    "excluded_from_debt": bool(r["excluded_from_debt"]),
+                    "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
                 }
                 for r in result
             }
 
     def count_unexplored_components(self, site: str, semantic_only: bool = True) -> Tuple[int, int]:
-        query = "MATCH (c:Component {site: $site})" + _debt_where_clause(semantic_only)
+        query = "MATCH (c:Component {site: $site})"
+        if semantic_only:
+            query += _SEMANTIC_ONLY_CLAUSE
         query += (
             " RETURN sum(CASE WHEN c.interacted THEN 0 ELSE 1 END) AS unexplored, count(c) AS total"
         )
@@ -438,9 +461,9 @@ class Neo4jGraphStore(GraphStore):
     def get_pages_with_unexplored_components(
         self, site: str, limit: Optional[int] = None, semantic_only: bool = True
     ) -> List[Dict[str, Any]]:
-        query = (
-            "MATCH (c:Component {site: $site, interacted: false})" + _debt_where_clause(semantic_only)
-        )
+        query = "MATCH (c:Component {site: $site, interacted: false})"
+        if semantic_only:
+            query += _SEMANTIC_ONLY_CLAUSE
         query += (
             " RETURN c.page_url AS url, count(c) AS unexplored_count"
             " ORDER BY unexplored_count DESC"
@@ -453,10 +476,9 @@ class Neo4jGraphStore(GraphStore):
             return [dict(r) for r in session.run(query, **params)]
 
     def page_has_unexplored_components(self, site: str, url: str, semantic_only: bool = True) -> bool:
-        query = (
-            "MATCH (c:Component {site: $site, page_url: $url, interacted: false})"
-            + _debt_where_clause(semantic_only)
-        )
+        query = "MATCH (c:Component {site: $site, page_url: $url, interacted: false})"
+        if semantic_only:
+            query += _SEMANTIC_ONLY_CLAUSE
         query += " RETURN c LIMIT 1"
         with self._session() as session:
             return session.run(query, site=site, url=url).single() is not None
@@ -470,7 +492,7 @@ class Neo4jGraphStore(GraphStore):
                        c.interacted AS interacted, c.interactions AS interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.component_type AS component_type, c.options AS options,
-                       c.excluded_from_debt AS excluded_from_debt
+                       c.network_requests AS network_requests
                 """,
                 site=site,
             )
@@ -484,6 +506,57 @@ class Neo4jGraphStore(GraphStore):
                     "interactions": [json.loads(e) for e in (r["interactions"] or [])],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
-                    "excluded_from_debt": bool(r["excluded_from_debt"]),
+                    "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
                 }
+            return ledger
+
+    def record_text_content(
+        self,
+        site: str,
+        page_url: str,
+        path: str,
+        tag: str = "",
+        text: str = "",
+        visible: bool = True,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        width: Optional[float] = None,
+        height: Optional[float] = None,
+    ) -> None:
+        with self._session() as session:
+            session.run(
+                """
+                MERGE (p:Page {site: $site, url: $page_url})
+                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
+                MERGE (t:TextContent {site: $site, page_url: $page_url, path: $path})
+                ON CREATE SET
+                    t.tag = $tag, t.text = $text, t.visible = $visible,
+                    t.x = $x, t.y = $y, t.width = $width, t.height = $height
+                ON MATCH SET
+                    t.tag = $tag, t.text = $text, t.visible = $visible,
+                    t.x = $x, t.y = $y, t.width = $width, t.height = $height
+                MERGE (p)-[:HAS_TEXT]->(t)
+                """,
+                site=site, page_url=page_url, path=path, tag=tag, text=text,
+                visible=visible, x=x, y=y, width=width, height=height,
+            )
+
+    def get_text_content_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (t:TextContent {site: $site})
+                RETURN t.page_url AS page_url, t.path AS path, t.tag AS tag, t.text AS text,
+                       t.visible AS visible, t.x AS x, t.y AS y, t.width AS width, t.height AS height
+                """,
+                site=site,
+            )
+            ledger: Dict[str, List[Dict[str, Any]]] = {}
+            for r in result:
+                ledger.setdefault(r["page_url"], []).append(
+                    {
+                        "path": r["path"], "tag": r["tag"], "text": r["text"], "visible": r["visible"],
+                        "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
+                    }
+                )
             return ledger

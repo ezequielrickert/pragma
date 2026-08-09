@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-import openai
+from openai import OpenAI
 
 from ..core.interfaces import Agent
 
@@ -29,24 +29,29 @@ class OpenAIConfig:
 
 
 class OpenAIAgent(Agent):
-    """OpenAI agent utilizing ChatCompletion API."""
+    """OpenAI agent using the current (>=1.0) `openai` SDK's client-object API.
+
+    Ported from the pre-1.0 `openai.ChatCompletion.create(...)` module-level
+    call style during the crawl4ai migration - installing crawl4ai transitively
+    upgraded the `openai` package (1.0.0 -> 2.53.0+ in this venv), which
+    removed `openai.ChatCompletion`/module-level `openai.api_key` entirely.
+    Not a design change, just following the SDK's own client-instance model.
+    """
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
         """Initialize OpenAI agent with API key and model, falling back to OpenAIConfig.from_env()."""
         config = OpenAIConfig.from_env()
-        key = api_key or config.api_key
-        if key:
-            openai.api_key = key
+        self._client = OpenAI(api_key=api_key or config.api_key)
         self.model = model or config.model or "gpt-3.5-turbo"
 
     def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
-        """Generate response using OpenAI ChatCompletion."""
+        """Generate response using the OpenAI chat completions API."""
         messages = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
         messages.append({"role": "user", "content": prompt})
 
-        resp = openai.ChatCompletion.create(
+        resp = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
             max_tokens=1200,

@@ -31,7 +31,5 @@ class Registry(Generic[T]):
         return sorted(self._factories)
 
 
-SCRAPER_REGISTRY: "Registry[Any]" = Registry("scraper")
 AGENT_REGISTRY: "Registry[Any]" = Registry("agent")
-GENERATOR_REGISTRY: "Registry[Any]" = Registry("generator")
 GRAPH_STORE_REGISTRY: "Registry[Any]" = Registry("graph_store")

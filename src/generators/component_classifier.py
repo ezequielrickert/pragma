@@ -10,6 +10,7 @@ prose; it never has to *notice* them itself.
 """
 from __future__ import annotations
 
+import json
 import unicodedata
 from typing import Any, Dict, List, Optional
 
@@ -23,23 +24,6 @@ _OPTION_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab
 # component's own text/aria-label after accent-stripping and lowercasing.
 _INCREMENT_WORDS = {"agregar", "sumar", "mas", "add", "increase", "increment", "plus", "+"}
 _DECREMENT_WORDS = {"restar", "quitar", "menos", "remove", "decrease", "decrement", "minus", "-"}
-
-# Business-mutation verb vocabulary, English + Spanish, for `classify_mutation_risk`'s
-# text-based signal - see that function's docstring for why generic verbs like
-# "enviar"/"submit"/"send" are deliberately excluded (they'd flag nearly every
-# contact/newsletter form on the internet, not just real state-changing actions).
-# Deliberately a flat set of substrings, not a regex/NLP model - matches this
-# project's established preference for a small, auditable, extendable-by-hand
-# vocabulary (see _INCREMENT_WORDS/_DECREMENT_WORDS above, and
-# wiki/local-and-small-model-constraints.md's broader case for determinism over
-# heavier machinery wherever the underlying facts are already knowable this simply).
-_MUTATION_VERBS = {
-    "comprar", "pagar", "confirmar", "eliminar", "borrar", "cancelar", "inscribir",
-    "inscribirme", "suscribir", "suscribirme", "finalizar compra", "confirmar pedido",
-    "confirmar compra", "dar de baja", "realizar pedido", "realizar pago",
-    "buy", "purchase", "pay", "checkout", "confirm", "delete", "remove", "cancel",
-    "subscribe", "unsubscribe", "place order", "sign up", "register", "enroll",
-}
 
 
 def _normalize(text: str) -> str:
@@ -87,84 +71,45 @@ def classify_component_type(comp: Dict[str, Any]) -> str:
     return "element"
 
 
-def classify_mutation_risk(comp: Dict[str, Any]) -> Optional[str]:
-    """Best-effort, deterministic signal that acting on `comp` (a click or submit -
-    never a fill, which only types text and never itself submits anything) would
-    likely mutate real state - place an order, submit a payment, delete
-    something, register for a real service - rather than just navigate or reveal
-    more UI in place. Used by `SimplePRDGenerator`'s safe mode
-    (`_is_mutating_action`) to decide whether to actually perform an action or
-    only record that a mutation point exists there, never executing it.
-
-    Two independent signals, either is enough to flag - this is exactly the
-    "if it's a POST, mark that there's an operation there without doing it"
-    behavior from this project's own backlog (feedback.md):
-
-    1. The component's enclosing form uses `method="post"` (`comp["form_method"]`,
-       set by `PlaywrightScraper._discover_components` from the browser's own
-       computed `form.method`, which defaults to `"get"` per the HTML spec when
-       unspecified in markup - so this is a real, verified signal, not a guess).
-       A GET-based form (a search box, an in-page filter) is not flagged - GET is
-       conventionally non-mutating, matching feedback.md's own framing ("para
-       poder mandar, por ejemplo, en modo get").
-    2. The component's own visible text matches a curated business-mutation verb
-       (`_MUTATION_VERBS`) - covers the common SPA pattern of a button with no
-       real `<form>` at all, wired to call an API directly from an `onClick`
-       handler, which the POST-form signal alone could never see. Deliberately
-       excludes generic verbs like "enviar"/"submit"/"send" (English "send"
-       included) - those appear on essentially every contact/newsletter form on
-       the internet, and flagging on them would block harmless, common
-       exploration far more than the mutations this exists to catch.
-
-    Deliberately conservative in the direction of over-flagging: a missed real
-    mutation (false negative) is a worse outcome for this feature's purpose than
-    blocking something that turns out to be harmless (false positive) - there is
-    no way to know a click handler's real server-side effect from static
-    analysis alone, so this is an approximation, not a guarantee. See
-    docs/explicativos/pendientes-futuras-fases.md for known false-positive/
-    false-negative cases.
-
-    Returns a short human-readable reason string if flagged, `None` otherwise.
-    """
-    if (comp.get("form_method") or "").lower() == "post":
-        return "its enclosing form submits via POST"
-    text = _normalize(comp.get("text") or "")
-    aria_label = _normalize((comp.get("attributes") or {}).get("aria-label", ""))
-    for verb in _MUTATION_VERBS:
-        if verb in text or verb in aria_label:
-            return f"its text matches a business-mutation verb ({verb!r})"
-    return None
-
-
 def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[str, Any]]:
-    """Components with an "option"-family role present in `after` but not `before`
-    (matched by CSS path) - the choices a trigger's click just revealed.
+    """Components with an "option"-family role that a trigger's click/fill
+    just made available - either genuinely new to the DOM (matched by CSS
+    path not present in `before` at all - a React/Radix-portal widget that
+    mounts its popover content on open), OR already present in `before` but
+    CSS-hidden (`visible: False`) and now `visible: True` in `after` - the
+    other common pattern (a plain `hidden`/`display:none` toggle, the same
+    "present in the DOM the whole time, just hidden until a trigger" shape
+    `PlaywrightScraper._discover_components`'s own mega-menu handling already
+    assumes elsewhere). Both are "the user can now see and act on this that
+    they couldn't a moment ago" - the property this function actually exists
+    to detect - so both count as revealed.
 
-    Called from `SimplePRDGenerator._handle_iteration_result` comparing the page's
-    component list immediately before vs. after a click - this is the concrete
-    "clicking 'Tercera Docena' revealed a 9-item bakery picker" case: the trigger
-    itself doesn't carry its own options in a single DOM snapshot, they only exist
-    once it's been opened, so this has to be a before/after diff, not a
-    single-snapshot classification like the other functions here.
+    A component with no `visible` key at all in either snapshot (a caller
+    that doesn't track it) is never treated as newly-revealed via the
+    became-visible path - only the by-path-absence check applies for it -
+    preserving this function's original behavior for such callers.
+
+    Called from `MechanicalCrawler._visit_page` comparing a page's component
+    list immediately before vs. after a same-page interaction - this is the
+    concrete "clicking 'Tercera Docena' revealed a 9-item bakery picker" case:
+    the trigger itself doesn't carry its own options in a single DOM
+    snapshot, they only exist once it's been opened, so this has to be a
+    before/after diff, not a single-snapshot classification like the other
+    functions here.
     """
-    before_paths = {c.get("path") for c in before}
-    return [
-        {
-            "text": (c.get("text") or "").strip(),
-            "selected": bool(c.get("selected")),
-            # Added so the caller (SimplePRDGenerator._handle_iteration_result) can
-            # tag each revealed option's own Component node as a grouped member of
-            # the trigger that revealed it (see GraphStore.record_component_options'
-            # `excluded_from_debt`) - without this, a dropdown with N options would
-            # persist N independently-required-to-interact components merely from
-            # being displayed once, in addition to the trigger's own consolidated
-            # `choices` list, forcing the model to individually click every option
-            # (e.g. every empanada flavor) before `finish` would be allowed.
-            "path": c.get("path"),
-        }
-        for c in after
-        if (c.get("role") or "").lower() in _OPTION_ROLES and c.get("path") not in before_paths
-    ]
+    before_by_path = {c.get("path"): c for c in before}
+    revealed = []
+    for c in after:
+        if (c.get("role") or "").lower() not in _OPTION_ROLES:
+            continue
+        prior = before_by_path.get(c.get("path"))
+        if prior is None:
+            is_new = True
+        else:
+            is_new = prior.get("visible") is False and c.get("visible") is True
+        if is_new:
+            revealed.append({"text": (c.get("text") or "").strip(), "selected": bool(c.get("selected"))})
+    return revealed
 
 
 def _parent_path(path: str) -> str:
@@ -248,3 +193,60 @@ def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
             continue
         groups.setdefault(name, []).append(comp)
     return {name: members for name, members in groups.items() if len(members) >= 2}
+
+
+def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
+    """Parse a Component's raw `options` JSON blob (`GraphStore`'s
+    `record_component_options` field) and classify which of the three known
+    shapes it is, returning a normalized `{"kind", ...}` dict, or `None` if
+    empty/unparseable/unrecognized. The single place every consumer of this
+    field (`graph_prd_synthesizer.py`'s catalog narration,
+    `component_tree.py`'s deterministic renderer) goes to interpret it, so
+    the three-shape disambiguation logic exists exactly once:
+
+    - `{"kind": "stepper", "container", "increment_path", "decrement_path",
+       "value_path", "current_value"}` - `group_steppers`' output, written by
+      `GraphStoreSink.record_inventory`.
+    - `{"kind": "choice_group", "group", "choices": [{"text", "selected"}]}`
+      - `group_choice_sets`' output, same writer.
+    - `{"kind": "revealed_options", "trigger", "choices": [{"text",
+       "selected"}]}` - `find_revealed_options`' output, written by
+      `GraphStoreSink.record_revealed_options` (Phase 1).
+    """
+    if not options_json:
+        return None
+    try:
+        options = json.loads(options_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(options, dict):
+        return None
+
+    if "increment_path" in options and "decrement_path" in options:
+        return {
+            "kind": "stepper",
+            "container": options.get("container"),
+            "increment_path": options.get("increment_path"),
+            "decrement_path": options.get("decrement_path"),
+            "value_path": options.get("value_path"),
+            "current_value": options.get("current_value"),
+        }
+    if "group" in options and "options" in options:
+        return {
+            "kind": "choice_group",
+            "group": options["group"],
+            "choices": [
+                {"text": o.get("text"), "selected": bool(o.get("selected"))}
+                for o in options.get("options", [])
+            ],
+        }
+    if "trigger" in options and "revealed_options" in options:
+        return {
+            "kind": "revealed_options",
+            "trigger": options.get("trigger"),
+            "choices": [
+                {"text": o.get("text"), "selected": bool(o.get("selected"))}
+                for o in options.get("revealed_options", [])
+            ],
+        }
+    return None

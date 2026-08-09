@@ -40,13 +40,16 @@ SECRET_ENV_VARS: Dict[str, List[str]] = {
 
 def _print_config(config: PragmaConfig) -> None:
     print("\nCurrent configuration:")
-    print(f"  scraper:        {config.scraper}")
     print(f"  agent:          {config.agent}")
-    print(f"  generator:      {config.generator}")
+    print(f"  graph_store:    {config.graph_store}")
     print(f"  out_dir:        {config.out_dir}")
-    print(f"  logs_dir:       {config.logs_dir}")
     print(f"  headless:       {config.headless}")
-    print(f"  max_iterations: {config.max_iterations}")
+    print(f"  wait_seconds:   {config.wait_seconds}")
+    print(f"  debug_logs_dir: {config.debug_logs_dir or '(disabled)'}")
+    print(f"  tree_ascii:     {config.tree_ascii}")
+    print(f"  element_budget: {config.element_budget}")
+    print(f"  max_pages:      {config.max_pages}")
+    print(f"  max_passes_per_page: {config.max_passes_per_page}")
 
     provider_options = config.agents.get(config.agent, {})
     if provider_options:

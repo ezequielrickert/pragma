@@ -1,14 +1,31 @@
-"""The Engine: Pragma's micro-kernel. Resolves plugins and runs one job."""
+"""The Engine: Pragma's micro-kernel. Resolves plugins and runs one crawl+synthesize job.
+
+Post-crawl4ai-migration: `run()` is two steps, not one - `MechanicalCrawler.crawl_site()`
+writes only to `GraphStore` (via `GraphStoreSink`), then `GraphPRDSynthesizer.synthesize()`
+reads only from `GraphStore` to produce the final markdown. `Crawl4AICrawler`/
+`MechanicalCrawler`/`GraphPRDSynthesizer` are wired directly here rather than through a
+registry - unlike agents/graph stores, there's exactly one crawling implementation now.
+"""
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
+from ..crawlers.crawl4ai_crawler import Crawl4AICrawler
+from ..crawlers.debug_log import CrawlDebugLog
+from ..crawlers.fill_value_agent import make_ai_fill_value_fn
+from ..crawlers.fill_values import default_placeholder_fill_value
+from ..crawlers.graph_sink import GraphStoreSink
+from ..crawlers.mechanical_loop import MechanicalCrawler
+from ..generators.component_tree import generate_component_tree_document
+from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
 from ..utils.io import write_output
 from .config import PragmaConfig
-from .interfaces import Agent, GraphStore, PRDGenerator, Scraper
-from .registry import AGENT_REGISTRY, GENERATOR_REGISTRY, GRAPH_STORE_REGISTRY, SCRAPER_REGISTRY
+from .interfaces import Agent, GraphStore
+from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
 def _slugify(url: str) -> str:
@@ -21,45 +38,84 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+@dataclass
+class EngineRunResult:
+    """`Engine.run()`'s return value - two separate output documents from one
+    crawl, per the component-tree feature's explicit "separate output file,
+    not merged into the existing prose PRD" requirement."""
+
+    prd_path: str
+    tree_path: str
+
+
 class Engine:
-    """Wires a scraper, an agent, and a generator strategy, then runs them."""
+    """Wires an agent and a graph store, then crawls a URL and synthesizes its PRD."""
 
     def __init__(
         self,
-        scraper: Scraper,
         agent: Agent,
-        generator: PRDGenerator,
+        graph_store: GraphStore,
         out_dir: str = "docs",
-        graph_store: Optional[GraphStore] = None,
+        site: str = "",
+        element_budget: int = 200,
+        max_pages: Optional[int] = None,
+        headless: bool = True,
+        wait_seconds: float = 2.0,
+        interaction_wait_seconds: Optional[float] = None,
+        debug_logs_dir: str = "debug_logs",
+        tree_ascii: bool = False,
+        max_passes_per_page: int = 10,
+        max_visits_per_route_shape: int = 1,
+        ai_fill_values: bool = True,
+        page_concurrency: int = 1,
+        page_timeout_seconds: float = 15.0,
+        prefetch: bool = False,
+        block_images: bool = False,
+        allow_subdomains: bool = False,
     ) -> None:
-        self.scraper = scraper
         self.agent = agent
-        self.generator = generator
-        self.out_dir = out_dir
         self.graph_store = graph_store
+        self.out_dir = out_dir
+        self.site = site
+        self.element_budget = element_budget
+        self.max_pages = max_pages
+        self.headless = headless
+        self.wait_seconds = wait_seconds
+        self.interaction_wait_seconds = interaction_wait_seconds
+        self.debug_logs_dir = debug_logs_dir
+        # See PragmaConfig's matching fields / Crawl4AICrawler's constructor
+        # docstrings for what each of these actually changes and their
+        # tradeoffs (page_timeout_seconds bounds a different phase than
+        # wait_seconds; prefetch empties debug markdown snapshots;
+        # block_images is a real behavior change some sites may depend on).
+        self.page_timeout_seconds = page_timeout_seconds
+        self.prefetch = prefetch
+        self.block_images = block_images
+        # Scope boundary for MechanicalCrawler's URL frontier - a link (or a
+        # redirect a click lands on) that leaves this crawl's own site is out
+        # of scope and never itself visited, even though the interaction/edge
+        # that led there is still recorded. See MechanicalCrawler's own
+        # base_url/allow_subdomains docstring and src/utils/urls.py's
+        # is_in_scope() for what "same site" means here.
+        self.allow_subdomains = allow_subdomains
+        self.tree_ascii = tree_ascii
+        self.max_passes_per_page = max_passes_per_page
+        self.max_visits_per_route_shape = max_visits_per_route_shape
+        # False skips the per-fillable-field AI call entirely (falls back to
+        # MechanicalCrawler's fast deterministic placeholder) - the AI call
+        # is a real network+generation round trip per field (more so for a
+        # remote/local model), worth cutting for a speed-focused run that
+        # doesn't need realistic fill values in the output.
+        self.ai_fill_values = ai_fill_values
+        # How many pages MechanicalCrawler.crawl_site visits concurrently.
+        # Default 1 keeps the original fully-sequential behavior - see
+        # MechanicalCrawler's own docstring for what raising this actually
+        # changes and its tradeoffs.
+        self.page_concurrency = page_concurrency
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
         """Resolve and wire plugins named in config via the registries."""
-        slug = _slugify(config.url)
-        timestamp = _timestamp()
-        log_path = f"{config.logs_dir}/{slug}_research_{timestamp}.md"
-        progress_log_path = f"{config.progress_logs_dir}/{slug}_progress_{timestamp}.md"
-        graph_log_path = f"{config.graph_logs_dir}/{slug}_graph_{timestamp}.json"
-        # Same folder as the navigation graph - both are machine-readable JSON
-        # debug artifacts written once at the end of a run; a new config
-        # dimension (its own dir/CLI flag) for one more file felt like more
-        # ceremony than the addition warranted.
-        components_log_path = f"{config.graph_logs_dir}/{slug}_components_{timestamp}.json"
-        components_catalog_path = f"{config.graph_logs_dir}/{slug}_component_catalog_{timestamp}.md"
-
-        scraper = SCRAPER_REGISTRY.create(
-            config.scraper,
-            headless=config.headless,
-            wait_seconds=config.wait_seconds,
-            storage_state_path=config.storage_state_path,
-        )
-
         provider_options = config.agents.get(config.agent, {})
         try:
             agent = AGENT_REGISTRY.create(config.agent, **provider_options)
@@ -76,44 +132,91 @@ class Engine:
             graph_store = GRAPH_STORE_REGISTRY.create("memory")
             graph_store.connect()
 
-        if config.fresh:
-            site = urlparse(config.url).netloc
-            if site:
-                # No-op for InMemoryGraphStore (nothing persists across runs there
-                # anyway) - matters for graph_store: neo4j, see PragmaConfig.fresh's
-                # docstring for why this defaults to on.
-                graph_store.clear_site(site)
+        site = urlparse(config.url).netloc if config.url else ""
+        if config.fresh and site:
+            # No-op for InMemoryGraphStore (nothing persists across runs there
+            # anyway) - matters for graph_store: neo4j, see PragmaConfig.fresh's
+            # docstring for why this defaults to on.
+            graph_store.clear_site(site)
 
-        generator = GENERATOR_REGISTRY.create(
-            config.generator,
-            agent=agent,
-            scraper=scraper,
-            graph_store=graph_store,
-            progress_file=log_path,
-            progress_log_file=progress_log_path,
-            graph_log_file=graph_log_path,
-            components_log_file=components_log_path,
-            components_catalog_file=components_catalog_path,
-            max_iterations=config.max_iterations,
-            batch_size=config.batch_size,
-            pending_batch_size=config.pending_batch_size,
-            component_batch_size=config.component_batch_size,
+        return cls(
+            agent,
+            graph_store,
+            out_dir=config.out_dir,
+            site=site,
+            element_budget=config.element_budget,
+            max_pages=config.max_pages,
+            headless=config.headless,
+            wait_seconds=config.wait_seconds,
+            interaction_wait_seconds=config.interaction_wait_seconds,
+            debug_logs_dir=config.debug_logs_dir,
+            tree_ascii=config.tree_ascii,
+            max_passes_per_page=config.max_passes_per_page,
+            max_visits_per_route_shape=config.max_visits_per_route_shape,
+            ai_fill_values=config.ai_fill_values,
+            page_concurrency=config.page_concurrency,
+            page_timeout_seconds=config.page_timeout_seconds,
+            prefetch=config.prefetch,
+            block_images=config.block_images,
             allow_subdomains=config.allow_subdomains,
-            max_stalled_finish_attempts=config.max_stalled_finish_attempts,
-            deep_context=config.deep_context,
-            context_max_chars=config.context_max_chars,
-            dynamic_url_segments=config.dynamic_url_segments,
-            strip_query_params=config.strip_query_params,
-            keep_query_params=config.keep_query_params,
-            use_sitemap=config.use_sitemap,
-            skeleton_fraction=config.skeleton_fraction,
-            safe_mode=config.safe_mode,
         )
-        return cls(scraper, agent, generator, out_dir=config.out_dir, graph_store=graph_store)
 
-    def run(self, url: str) -> str:
-        """Run the wired strategy on a URL; write and return the PRD path."""
-        prd = self.generator.generate_prd(url)
+    def run(self, url: str) -> EngineRunResult:
+        """Crawl `url`, synthesize its PRD and component tree, write both,
+        and return their output paths.
+
+        Synchronous entry point (unchanged shape for the CLI) bridging to the
+        async crawl underneath via `asyncio.run` - crawl4ai owns an async
+        browser lifecycle, but nothing above `Engine` needs to know that.
+        """
+        return asyncio.run(self._run_async(url))
+
+    async def _run_async(self, url: str) -> EngineRunResult:
+        site = self.site or urlparse(url).netloc
+        sink = GraphStoreSink(self.graph_store, site)
+
+        debug_log: Optional[CrawlDebugLog] = None
+        if self.debug_logs_dir:
+            run_dir = f"{self.debug_logs_dir}/{_slugify(url)}_{_timestamp()}"
+            debug_log = CrawlDebugLog(run_dir, site=site)
+
+        async with Crawl4AICrawler(
+            headless=self.headless,
+            wait_seconds=self.wait_seconds,
+            interaction_wait_seconds=self.interaction_wait_seconds,
+            debug_log=debug_log,
+            page_timeout_seconds=self.page_timeout_seconds,
+            prefetch=self.prefetch,
+            block_images=self.block_images,
+        ) as crawler:
+            fill_value_fn = (
+                make_ai_fill_value_fn(self.agent) if self.ai_fill_values else default_placeholder_fill_value
+            )
+            mechanical = MechanicalCrawler(
+                crawler,
+                sink=sink,
+                element_budget=self.element_budget,
+                fill_value_fn=fill_value_fn,
+                max_pages=self.max_pages,
+                max_passes_per_page=self.max_passes_per_page,
+                max_visits_per_route_shape=self.max_visits_per_route_shape,
+                page_concurrency=self.page_concurrency,
+                base_url=url,
+                allow_subdomains=self.allow_subdomains,
+            )
+            await mechanical.crawl_site(url)
+
+        if debug_log:
+            debug_log.close()
+
+        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store)
+        prd = synthesizer.synthesize(site)
         prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{_timestamp()}.md"
         write_output(prd_path, prd)
-        return prd_path
+
+        tree_doc = generate_component_tree_document(self.graph_store, site, use_box_drawing=not self.tree_ascii)
+        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{_timestamp()}.md"
+        write_output(tree_path, tree_doc)
+
+        self.graph_store.close()
+        return EngineRunResult(prd_path=prd_path, tree_path=tree_path)

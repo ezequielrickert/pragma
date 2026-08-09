@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: reveal</title></head>
+<body>
+  <h1>Reveal (ghost-node regression fixture)</h1>
+
+  <!-- Combobox trigger: opening it reveals a role="listbox" of role="option"
+       choices with real, distinguishable text - the canonical case the
+       ghost-node bug hit (a Radix-style searchable picker). None of this
+       exists in the DOM's initial, visible state. -->
+  <button id="sizeTrigger" role="combobox" aria-expanded="false"
+          onclick="document.getElementById('sizeList').hidden = false">
+    Choose a size
+  </button>
+  <div id="sizeList" role="listbox" hidden>
+    <div role="option" data-value="s">Small</div>
+    <div role="option" data-value="m">Medium</div>
+    <div role="option" data-value="l">Large</div>
+    <a href="/size-details">Size guide</a>
+  </div>
+
+  <!-- A stepper pair that ALSO only appears after a reveal - regression
+       coverage for "steppers/choice-groups detected in a revealed snapshot,
+       not just the initial one" (falls out of the same record_inventory fix
+       for free, per the plan). -->
+  <button id="qtyTrigger" onclick="document.getElementById('qtyBox').hidden = false">
+    Choose quantity
+  </button>
+  <div id="qtyBox" hidden>
+    <button id="qtyMinus" aria-label="decrease">-</button>
+    <span id="qtyValue">1</span>
+    <button id="qtyPlus" aria-label="increase">+</button>
+  </div>
+</body>
+</html>
