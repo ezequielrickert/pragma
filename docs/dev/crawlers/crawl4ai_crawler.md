@@ -61,6 +61,59 @@ Matched by substring since Playwright doesn't expose this as a distinct
 exception type; the message text itself is Playwright's own, stable
 diagnostic wording for exactly this condition.
 
+## _adaptive_wait_step_seconds
+
+`_wait_for_new_content`'s poll step (`_ADAPTIVE_WAIT_STEP_SECONDS`,
+100ms) - a module-level constant, not a config field, since it's the
+resolution of the poll itself, not a per-site tuning decision the way
+`wait_seconds` is.
+
+## _wait_for_new_content
+
+Replaces a flat `asyncio.sleep(ceiling_seconds)` with a short-step poll
+that returns the moment new content appears, still bounded by the same
+`ceiling_seconds` a flat sleep would have spent regardless.
+
+**A first attempt at this used plain DOM-stability (stop once the DOM
+stops changing) and was wrong** - reverted after it broke both
+`test_wait_seconds_finds_content_rendered_after_a_delay` and
+`test_interaction_wait_seconds_controls_post_click_settle_delay`.
+`delayed_render.html`'s content arrives via a one-shot `setTimeout`, not
+continuous mutation - the DOM is perfectly static for the 1.5s *before*
+the timer fires, which looks identical to "already settled" to a
+stability check. No amount of DOM-diffing can tell those two states
+apart before the timer actually fires - this is a hard limit, not a
+tuning problem. Kept as a lesson here since the same mistake is easy to
+re-derive from a plain intent to "detect when the page is settled."
+
+The actual signal used instead: `DISCOVER_COMPONENTS_JS`'s own component
+count, checked against `baseline_count`.
+- `baseline_count=None` (used by `_before_retrieve_html`, a fresh
+  navigation with no prior snapshot for this session) - any component
+  count above zero is real forward progress, safe to stop on
+  immediately. This is what makes `test_wait_seconds_finds_content_
+  rendered_after_a_delay` finish in ~1.5s instead of the full configured
+  ceiling once `delayed_render.html`'s button actually appears.
+- `baseline_count=<pre-click count>` (used by `_on_execution_ended`) -
+  a page already has components before any interaction (the very
+  element that was just clicked, at minimum), so "any content" would
+  trivially satisfy on the *first* poll and exit before a delayed reveal
+  ever had a chance to appear. Comparing against the exact pre-click
+  count (read from `self._stash[session_id]`, the snapshot
+  `_before_retrieve_html` or the previous interaction left behind)
+  instead requires a genuine *change*, which is what
+  `test_interaction_wait_seconds_controls_post_click_settle_delay`
+  actually exercises.
+
+A page whose component count never changes (a click that reveals
+nothing, or a page with no delayed content at all) simply spends the
+full `ceiling_seconds`, identical to the original flat-sleep behavior -
+never worse, only faster when there's something to detect early.
+Returns silently (no exception) on a torn-down execution context -
+`page.evaluate` failing here almost always means a navigation happened
+mid-poll, and the caller's own extraction (`run_extraction`, called
+right after) is what actually needs to react to that, not this check.
+
 ## Crawl4AICrawlerConfig
 
 Every tuning knob `Crawl4AICrawler` accepts. Bundled into one object
@@ -68,30 +121,33 @@ Every tuning knob `Crawl4AICrawler` accepts. Bundled into one object
 of a long constructor argument list.
 
 - `headless`: Run the browser without a visible UI.
-- `wait_seconds`: Extra time to let the page settle before running
-  discovery on a plain navigation (`_before_retrieve_html`) - carried
-  over from `PlaywrightScraper`'s own `wait_seconds` (same name, same
-  purpose), which this module's initial port dropped by mistake.
+- `wait_seconds`: **Ceiling** on how long to let the page settle before
+  running discovery on a plain navigation (`_before_retrieve_html`) -
+  carried over from `PlaywrightScraper`'s own `wait_seconds` (same name,
+  same purpose), which this module's initial port dropped by mistake.
   Confirmed live against empanad.app (a React SPA): `wait_for="css:body"`
   alone is satisfied by the pre-hydration HTML shell, so discovery ran
   against effectively empty content - `<title>`/meta description/tags
   were all present (server-rendered/static), but `components`/`links`
   came back at 0 every time, on a page that stably has real interactive
-  elements once actually rendered. Default is deliberately small
-  (fixture/test pages need none of this); raise it (or pass a
-  site-specific value) for JS-heavy real sites - see
+  elements once actually rendered. Not a flat sleep - see
+  `_wait_for_new_content` above: a page that renders fast rarely spends
+  this in full, one that needs the whole ceiling still gets it. Default
+  is deliberately small (fixture/test pages need none of this); raise it
+  (or pass a site-specific value) for JS-heavy real sites - see
   `PragmaConfig.wait_seconds`.
 - `interaction_wait_seconds`: Same purpose, applied after a
   click/fill/resync's own re-discovery (`_on_execution_ended`) instead.
-  Split out from `wait_seconds` because the two aren't the same cost in
-  practice: a full page's first hydration is genuinely slow, but a
-  same-page DOM update from one click is usually much faster to settle -
-  paying the *full* first-load wait on every single interaction
-  (confirmed live: ~145 interactions in one real crawl, each paying
-  `wait_seconds` twice - once here, once in `_before_retrieve_html`'s own
-  sleep that a post-interaction re-discovery doesn't even use - dominated
-  that run's wall-clock time) is real, measured waste on an otherwise-fast
-  site. `None` (default) falls back to `wait_seconds` unchanged - existing
+  Also a ceiling, not a flat sleep - same `_wait_for_new_content`
+  mechanism, keyed off the pre-click component count instead of "any
+  content." Split out from `wait_seconds` because the two aren't the same
+  cost in practice: a full page's first hydration is genuinely slow, but
+  a same-page DOM update from one click is usually much faster to settle
+  - confirmed live: ~145 interactions in one real crawl, each paying
+  `wait_seconds` twice before this knob existed - once here, once in
+  `_before_retrieve_html`'s own sleep that a post-interaction
+  re-discovery doesn't even use - dominated that run's wall-clock time.
+  `None` (default) falls back to `wait_seconds` unchanged - existing
   callers that only ever set one knob keep identical behavior; set this
   explicitly, lower than `wait_seconds`, once a site's interaction updates
   are confirmed to settle faster than its initial hydration.

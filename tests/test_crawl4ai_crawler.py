@@ -133,6 +133,27 @@ def test_interaction_wait_seconds_controls_post_click_settle_delay(fixture_serve
     assert any(c["text"] == "Revealed late" for c in long_state.components)
 
 
+def test_wait_seconds_exits_as_soon_as_content_appears_not_the_full_ceiling(fixture_server):
+    """wait_seconds/interaction_wait_seconds are a ceiling, not a flat sleep -
+    `_wait_for_new_content` polls in short steps and returns the moment new
+    content is found, rather than always sleeping the full configured amount.
+    `delayed_render.html`'s content appears at 1.5s; a 5s ceiling must still
+    finish well under 5s once it does, not just eventually return correct
+    content at the full ceiling's cost."""
+
+    async def timed_discover(ceiling: float) -> float:
+        start = asyncio.get_event_loop().time()
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=ceiling)) as crawler:
+            await crawler.discover_page(f"{fixture_server}/delayed_render.html")
+        return asyncio.get_event_loop().time() - start
+
+    elapsed = asyncio.run(timed_discover(5))
+    # 1.5s content delay + poll granularity + real browser/extraction
+    # overhead, comfortably short of the 5s ceiling it would take if this
+    # were still a flat sleep.
+    assert elapsed < 3.0
+
+
 def test_sibling_links_get_unique_disambiguated_paths(fixture_server):
     """Sibling <a> tags with no id/class must not collapse to the same
     selector (the original strict-mode-violation bug)."""

@@ -88,7 +88,6 @@ class MechanicalCrawler:
         # Single scope choke-point for every discovered/navigated-to URL.
         # Details: docs/dev/crawlers/mechanical_loop.md#_enqueue-scope-gate
         if self.base_url and not is_in_scope(url, self.base_url, self.allow_subdomains):
-            print(f"Out of scope (different site than {self.base_url!r}): {url}, skipping.")
             return
         shape = route_shape(url)
         visits = self._route_shape_visits.get(shape, 0)
