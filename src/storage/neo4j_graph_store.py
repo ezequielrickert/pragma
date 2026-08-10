@@ -1,9 +1,5 @@
 """Neo4j-backed GraphStore implementation.
-
-This is the single place that knows about NEO4J_HOST/PORT/USER/PASSWORD/
-DATABASE - no other module should read those env vars directly, mirroring
-the per-provider Config pattern used by every agent (e.g. LocalConfig in
-src/agents/local_agent.py).
+Details: docs/dev/storage/neo4j_graph_store.md#module
 """
 from __future__ import annotations
 
@@ -19,43 +15,17 @@ from neo4j import GraphDatabase
 from ..core.interfaces import GraphStore
 from ..core.registry import GRAPH_STORE_REGISTRY
 
-# The driver logs a WARNING-level "unknown relationship type/property" notification
-# whenever a query references NAVIGATED_TO/component before any edge has ever been
-# created (e.g. the very first get_loop_signals call on a fresh site) - expected on
-# a new site's first pages, not an actual problem, so it's silenced rather than left
-# to print via Python logging's default stderr handler and read like a real error.
+# Silences a harmless WARNING seen on a fresh site's first pages.
+# Details: docs/dev/storage/neo4j_graph_store.md#logging-silence
 logging.getLogger("neo4j").setLevel(logging.ERROR)
 
-# Shared filter clause for the `semantic_only` component queries below - excludes
-# the cursor:pointer catch-all layer (capped, noisier than the ARIA/semantic
-# selector) from unexplored-component counts and completion-guard checks.
+# Excludes the noisy cursor:pointer catch-all layer from component counts.
 _SEMANTIC_ONLY_CLAUSE = " WHERE c.layer <> 'pointer'"
 
 
 def _page_ensure_clause(var: str, url_param: str) -> str:
-    """Cypher fragment: `MERGE` a `Page` node keyed by `(site, url_param)`,
-    defaulting every field a bare rediscovery would otherwise leave unset for
-    a brand-new node (docs/explicativos/plan-almacenamiento.md Fase B -
-    "repeated Cypher patterns" finding: this exact block used to be
-    hand-copied into 7 different methods, 9 occurrences counting `record_link`/
-    `record_edge`'s two endpoints each - a real risk that a future field
-    added to a fresh Page's defaults gets updated in some copies and missed
-    in others).
-
-    Every write below that touches a `Component`/`TextContent`/edge whose
-    `Page` endpoint might not exist yet reuses this, so every call site
-    defaults a newly-implied `Page` the same way - not because a `Component`
-    write should ever be the thing that "creates" a page (that's
-    `GraphStoreSink.record_page_arrival`'s job in the normal case), but
-    because `GraphStore`'s own contract already documents several auto-create
-    paths (e.g. `record_component_interaction`'s own docstring: "mirrors
-    `record_edge`'s auto-create of its endpoint Page nodes") that this
-    project intentionally keeps.
-
-    `var` is the Cypher variable to bind (`p`, `a`, `b`, ...); `url_param` is
-    the query parameter name holding that node's `url` (`page_url`,
-    `from_url`, `to_url`, ...) - both vary by call site, the defaulted fields
-    never do.
+    """MERGE a Page node keyed by (site, url_param), defaulting unset fields.
+    Details: docs/dev/storage/neo4j_graph_store.md#_page_ensure_clause
     """
     return (
         f"MERGE ({var}:Page {{site: $site, url: ${url_param}}}) "
@@ -64,19 +34,8 @@ def _page_ensure_clause(var: str, url_param: str) -> str:
     )
 
 
-# Shared ON CREATE stub for a Component node reached only through an
-# auto-create path (an interaction/options/network write for a `path` that
-# was never `record_component`-ed first) - blank descriptive fields, since
-# nothing here actually knows the component's real tag/text/role, unlike
-# `record_component` itself which always has real values to set. Reused
-# across record_component_interaction/record_component_options/
-# record_component_network (docs/explicativos/plan-almacenamiento.md Fase B)
-# - previously three near-identical copies, one of which (record_component_
-# options) omitted `c.options = ''` since it's about to SET that field
-# unconditionally right after anyway; including it here uniformly is
-# behavior-preserving (the unconditional SET always wins as the final value
-# regardless of whether ON CREATE or ON MATCH just ran) and removes the one
-# accidental point of divergence between the three copies.
+# ON CREATE stub for a Component reached only via an auto-create path.
+# Details: docs/dev/storage/neo4j_graph_store.md#_component_blank_stub
 _COMPONENT_BLANK_STUB = (
     "ON CREATE SET "
     "c.tag = '', c.text = '', c.role = '', c.input_type = '', "
@@ -109,10 +68,7 @@ class Neo4jConfig:
 @GRAPH_STORE_REGISTRY.register("neo4j")
 class Neo4jGraphStore(GraphStore):
     """GraphStore backed by a real Neo4j database, scoped per site via a `site` property.
-
-    Neo4j Community Edition only supports a single user database, so per-site
-    isolation is done by tagging every node/edge with a `site` property and
-    scoping every query with it, rather than one database per site.
+    Details: docs/dev/storage/neo4j_graph_store.md#neo4jgraphstore
     """
 
     def __init__(
@@ -133,15 +89,8 @@ class Neo4jGraphStore(GraphStore):
 
     def connect(self) -> None:
         if not self.password:
-            # Sending auth=(user, None) doesn't fail client-side - the driver happily ships
-            # a malformed token and lets the *server* reject it, logging a cryptic
-            # "Unsupported authentication token, missing key `credentials`" WARN with no
-            # indication of why (seen repeatedly in practice: every code path that touches
-            # Neo4jGraphStore without first going through `src/cli.py`'s load_dotenv() -
-            # e.g. a bare `python -c` script, or pytest collecting this module - hits this
-            # if NEO4J_PASSWORD is only set in .env and not the shell). Failing fast here
-            # with an actionable message is strictly better than one more silent retry
-            # against the server.
+            # Fail fast with an actionable message instead of a cryptic server WARN.
+            # Details: docs/dev/storage/neo4j_graph_store.md#connect-no-password
             raise RuntimeError(
                 "Neo4jGraphStore.connect(): no password configured (NEO4J_PASSWORD is unset "
                 "and none was passed explicitly). Set it in .env (see .env.example) or export "
@@ -217,28 +166,24 @@ class Neo4jGraphStore(GraphStore):
             )
 
     def get_page_descriptions(self, site: str) -> Dict[str, str]:
-        with self._session() as session:
-            result = session.run(
-                """
-                MATCH (p:Page {site: $site})
-                WHERE p.description IS NOT NULL AND p.description <> ''
-                RETURN p.url AS url, p.description AS description
-                """,
-                site=site,
-            )
-            return {r["url"]: r["description"] for r in result}
+        return self._get_nonempty_page_field(site, "description")
 
     def get_page_titles(self, site: str) -> Dict[str, str]:
+        return self._get_nonempty_page_field(site, "title")
+
+    def _get_nonempty_page_field(self, site: str, field: str) -> Dict[str, str]:
+        """Shared by `get_page_descriptions`/`get_page_titles`: both wanted the
+        identical query, differing only in which `Page` property they read."""
         with self._session() as session:
             result = session.run(
-                """
-                MATCH (p:Page {site: $site})
-                WHERE p.title IS NOT NULL AND p.title <> ''
-                RETURN p.url AS url, p.title AS title
+                f"""
+                MATCH (p:Page {{site: $site}})
+                WHERE p.{field} IS NOT NULL AND p.{field} <> ''
+                RETURN p.url AS url, p.{field} AS value
                 """,
                 site=site,
             )
-            return {r["url"]: r["title"] for r in result}
+            return {r["url"]: r["value"] for r in result}
 
     def is_visited(self, site: str, url: str) -> bool:
         with self._session() as session:
@@ -357,14 +302,8 @@ class Neo4jGraphStore(GraphStore):
             return [{"component": r["component"], "from": r["from"]} for r in result]
 
     def clear_site(self, site: str) -> None:
-        # DETACH DELETE on every Page tagged with this site removes all of its
-        # incident relationships too (NAVIGATED_TO, DISCOVERED_LINK, HAS_PAGE),
-        # regardless of which node "owns" them - no separate relationship
-        # query needed. The Site node is deleted in the same pass since
-        # nothing else references it once its pages are gone. Component nodes
-        # are a separate label, so a Page-scoped DETACH DELETE does not reach
-        # them - they'd otherwise survive (orphaned, still matching this
-        # site's Component queries) after every "fresh" purge.
+        # DETACH DELETE removes incident relationships too; see doc for labels.
+        # Details: docs/dev/storage/neo4j_graph_store.md#clear_site
         with self._session() as session:
             session.run("MATCH (p:Page {site: $site}) DETACH DELETE p", site=site)
             session.run("MATCH (c:Component {site: $site}) DETACH DELETE c", site=site)

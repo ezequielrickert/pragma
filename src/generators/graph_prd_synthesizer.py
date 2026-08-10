@@ -1,21 +1,5 @@
-"""Phase 5 of the crawl4ai migration: post-hoc PRD synthesis from `GraphStore`.
-
-With Neo4j (or `InMemoryGraphStore`) as the crawl's primary source of truth
-(Phase 3), this is the step that reads it back and produces the final
-markdown blueprint - the same output artifact `SimplePRDGenerator.generate_prd`
-produced, but sourced entirely from persisted graph state rather than an
-in-process research log. Runs independently of any live crawl: given a
-`site` whose graph was populated by an earlier `MechanicalCrawler` run (or
-even one from hours/days ago against a persisted Neo4j store), `synthesize()`
-needs nothing else.
-
-Two-stage synthesis, the same *shape* `SimplePRDGenerator._write_component_catalog`
-+ `_synthesize_tree_report` already used (per-page narration batched into one
-`agent.generate()` call each, then one final call over the aggregate) - not a
-literal port, since the input here is four `GraphStore` queries, not an
-accumulated markdown string. Each stage gets its own system_instruction, per
-wiki/prompt-engineering-for-llm-agents.md Principle 1 - neither is shared with
-the fill-value call (Phase 4) or with each other.
+"""Post-hoc PRD synthesis from `GraphStore`: map, batch-summarize, reduce.
+Details: docs/dev/generators/graph_prd_synthesizer.md#module
 """
 from __future__ import annotations
 
@@ -33,33 +17,30 @@ CATALOG_SYSTEM_INSTRUCTION = (
     "looking at the rendered page would."
 )
 
+# Batch-summarize stage: one bounded group of pages' facts into a short section.
+# Details: docs/dev/generators/graph_prd_synthesizer.md#synthesis_system_instruction
 SYNTHESIS_SYSTEM_INSTRUCTION = (
-    "You are producing a Digital Blueprint: a Markdown document describing a web application's "
-    "structure for someone who has never seen it, from a structured summary of every page crawled "
-    "(its route, description, and documented components) and the navigation graph connecting them. "
-    "Produce a hierarchical overview - group related pages/flows, explain what the application does "
-    "overall, then describe each significant page/section and how a user moves between them. Include "
-    "the provided Mermaid flowchart verbatim in an appropriate section. Do not invent pages, routes, "
-    "or components not present in the provided data."
+    "You are documenting one section of a larger web application - a group of pages, each with its "
+    "route, description, and already-documented components - as part of a Digital Blueprint. Write a "
+    "short, readable Markdown section summarizing what these pages do and how they fit together. Do "
+    "not invent pages, routes, or components not present in the provided data."
+)
+
+# Reduce stage: combines already-condensed section summaries, never raw facts.
+# Details: docs/dev/generators/graph_prd_synthesizer.md#reduce_system_instruction
+REDUCE_SYSTEM_INSTRUCTION = (
+    "You are producing the overview narrative of a Digital Blueprint: a Markdown document describing "
+    "a web application's structure for someone who has never seen it, from several already-condensed "
+    "section summaries (not raw page data) covering different parts of the application. Combine them "
+    "into one coherent hierarchical overview - explain what the application does overall, then how its "
+    "sections/flows relate and how a user moves between them. Do not restate the summaries verbatim; "
+    "synthesize them. Do not invent pages, routes, or components not present in the provided summaries."
 )
 
 
 def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One catalog-ready fact dict per distinct control on a page, collapsing
-    a stepper's increment/decrement/value trio or a choice-group's N members
-    into a single entry - matches the `options` JSON shape
-    `GraphStoreSink.record_inventory` actually persists (Phase 3), not the
-    older `SimplePRDGenerator._build_page_catalog_facts`'s schema, since the
-    two were never the same data source (see this module's docstring).
-
-    The three-shape `options` disambiguation itself lives in
-    `component_classifier.py::describe_options` - shared with
-    `component_tree.py`'s deterministic renderer (Phase 5) rather than
-    duplicated. `revealed_options` (Phase 1's dropdown-variant capture) has
-    no branch here - it falls through to the generic case below, unchanged
-    from before this field existed - `component_tree.py` is where revealed
-    options actually get surfaced; this function's job is narration text,
-    not a full inventory of every options shape.
+    """One catalog-ready fact dict per distinct control on a page.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#_build_page_facts
     """
     facts: List[Dict[str, Any]] = []
     seen_stepper_containers = set()
@@ -119,10 +100,7 @@ def _render_fact_line(index: int, fact: Dict[str, Any]) -> str:
 
 
 def build_mermaid_graph(edges: List[Dict[str, str]]) -> str:
-    """Render `edges` ({from, component, action, to}) as a Mermaid flowchart -
-    ported unchanged from `SimplePRDGenerator._build_mermaid_graph`, a pure
-    function with no dependency on the old class's internals.
-    """
+    """Render `edges` ({from, component, action, to}) as a Mermaid flowchart."""
     node_ids: Dict[str, str] = {}
 
     def node_id(node_url: str) -> str:
@@ -140,21 +118,20 @@ def build_mermaid_graph(edges: List[Dict[str, str]]) -> str:
 
 
 class GraphPRDSynthesizer:
-    """Reads `site`'s crawl graph and produces the final PRD markdown -
-    writes nothing back to `GraphStore`, the inverse of `MechanicalCrawler`.
+    """Reads `site`'s crawl graph and produces the final PRD markdown.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#graphprdsynthesizer
     """
 
-    def __init__(self, agent: Agent, graph_store: GraphStore) -> None:
+    def __init__(self, agent: Agent, graph_store: GraphStore, batch_size: int = 5) -> None:
         self.agent = agent
         self.graph_store = graph_store
+        # Pages per batch-summarize call; deliberately small - see doc.
+        # Details: docs/dev/generators/graph_prd_synthesizer.md#batch_size
+        self.batch_size = batch_size
 
     def _narrate_page_catalog(self, site: str) -> Dict[str, str]:
-        """One `agent.generate()` call per page (batched across all of that
-        page's components, not one call per component - same small-model-
-        conscious discipline wiki/local-and-small-model-constraints.md
-        established). A narration failure on one page degrades to its raw
-        facts rather than aborting the whole catalog - documentation
-        enrichment, not something correctness depends on.
+        """One `agent.generate()` call per page; a failure degrades to raw facts.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_narrate_page_catalog
         """
         ledger = self.graph_store.get_component_ledger(site)
         narrations: Dict[str, str] = {}
@@ -170,18 +147,9 @@ class GraphPRDSynthesizer:
                 narrations[page_url] = f"_(narration unavailable: {exc})_\n\nRaw facts:\n```\n{facts_block}\n```"
         return narrations
 
-    def synthesize(self, site: str) -> str:
-        """Produce the final PRD markdown for `site` - the only method
-        callers need. Reads, in order: the page/route table, the navigation
-        edges, per-page component narrations (derived from the ledger), and
-        recorded page descriptions - then one final `agent.generate()` call
-        over their aggregate.
-        """
-        rows = self.graph_store.get_progress_table_rows(site)
-        edges = self.graph_store.get_edges(site)
-        descriptions = self.graph_store.get_page_descriptions(site)
-        catalog = self._narrate_page_catalog(site)
-
+    @staticmethod
+    def _build_page_lines(rows: List[Dict[str, Any]], descriptions: Dict[str, str], catalog: Dict[str, str]) -> List[str]:
+        """One text block per page: route/status/count, description, catalog."""
         page_lines = []
         for row in rows:
             url = row["url"]
@@ -191,13 +159,55 @@ class GraphPRDSynthesizer:
             if catalog.get(url):
                 line += f"\n  Components:\n{catalog[url]}"
             page_lines.append(line)
+        return page_lines
 
-        mermaid = build_mermaid_graph(edges)
+    def _summarize_batches(self, site: str, page_lines: List[str]) -> List[str]:
+        """Group into `batch_size` chunks, one bounded call per chunk.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_summarize_batches
+        """
+        batches = [page_lines[i : i + self.batch_size] for i in range(0, len(page_lines), self.batch_size)]
+        summaries: List[str] = []
+        for batch in batches:
+            batch_block = "\n".join(batch)
+            prompt = (
+                f"Site: {site}\n\n"
+                f"Pages in this section ({len(batch)}):\n{batch_block}\n\n"
+                "Write the section summary."
+            )
+            try:
+                summaries.append(self.agent.generate(prompt, system_instruction=SYNTHESIS_SYSTEM_INSTRUCTION))
+            except Exception as exc:  # noqa: BLE001 - degrade this one batch, not the whole run
+                summaries.append(f"_(section summary unavailable: {exc})_\n\n{batch_block}")
+        return summaries
 
+    def _reduce(self, site: str, section_summaries: List[str]) -> str:
+        """Combine condensed section summaries into the overview narrative.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_reduce
+        """
         prompt = (
             f"Site: {site}\n\n"
-            f"Pages ({len(rows)}):\n" + "\n".join(page_lines) + "\n\n"
-            f"Navigation graph:\n{mermaid}\n\n"
-            "Generate the Digital Blueprint."
+            f"Section summaries ({len(section_summaries)}):\n\n" + "\n\n---\n\n".join(section_summaries) + "\n\n"
+            "Write the overview narrative."
         )
-        return self.agent.generate(prompt, system_instruction=SYNTHESIS_SYSTEM_INSTRUCTION)
+        try:
+            return self.agent.generate(prompt, system_instruction=REDUCE_SYSTEM_INSTRUCTION)
+        except Exception as exc:  # noqa: BLE001 - degrade to raw sections, don't abort the run
+            headers = (f"## Section {i}\n\n{s}" for i, s in enumerate(section_summaries, 1))
+            return f"_(overview synthesis unavailable: {exc})_\n\n" + "\n\n".join(headers)
+
+    def synthesize(self, site: str) -> str:
+        """Produce the final PRD markdown for `site` - the only method callers need.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#synthesize
+        """
+        rows = self.graph_store.get_progress_table_rows(site)
+        edges = self.graph_store.get_edges(site)
+        descriptions = self.graph_store.get_page_descriptions(site)
+        catalog = self._narrate_page_catalog(site)
+
+        page_lines = self._build_page_lines(rows, descriptions, catalog)
+        section_summaries = self._summarize_batches(site, page_lines)
+        overview = self._reduce(site, section_summaries)
+
+        # Rendered deterministically, never asked of the model - see module doc.
+        mermaid = build_mermaid_graph(edges)
+        return f"{overview}\n\n## Navigation Graph\n\n{mermaid}\n"

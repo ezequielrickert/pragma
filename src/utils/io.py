@@ -1,6 +1,4 @@
-"""
-Input/Output utilities for Pragma.
-"""
+"""Input/Output utilities for Pragma."""
 from __future__ import annotations
 
 import json
@@ -9,27 +7,14 @@ from typing import Any, Dict, List
 
 
 def write_output(path_str: str, content: str) -> None:
-    """Write content to a file, creating parent directories if needed.
-
-    Args:
-        path_str: Destination file path.
-        content: String content to write.
-    """
+    """Write content to a file, creating parent directories if needed."""
     path = Path(path_str)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
 def append_output(path_str: str, content: str) -> None:
-    """Append content to a file, creating parent directories/file if needed.
-
-    Unlike write_output, prior content is preserved - each call adds to the
-    end rather than overwriting, for building an append-only log/history file.
-
-    Args:
-        path_str: Destination file path.
-        content: String content to append.
-    """
+    """Append content to a file (not overwrite), creating parents/file if needed."""
     path = Path(path_str)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -37,15 +22,7 @@ def append_output(path_str: str, content: str) -> None:
 
 
 def upsert_env_vars(path_str: str, values: Dict[str, str]) -> None:
-    """Set one or more KEY=value lines in a .env-style file, preserving the rest.
-
-    Existing `KEY=` lines (and any comments/blank lines) are left untouched except
-    for the keys being updated; new keys are appended at the end.
-
-    Args:
-        path_str: Path to the .env file (created if it doesn't exist).
-        values: Mapping of env var name to new value.
-    """
+    """Set one or more KEY=value lines in a .env-style file, preserving the rest."""
     path = Path(path_str)
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     remaining = dict(values)
@@ -66,28 +43,8 @@ def upsert_env_vars(path_str: str, values: Dict[str, str]) -> None:
 
 
 def record_run_manifest(out_dir: str, site: str, entry: Dict[str, Any]) -> str:
-    """Append one run's metadata to a shared, git-diffable manifest under
-    `out_dir` (`{out_dir}/runs.json`) - {site: [entry, ...]}, oldest first.
-
-    Every other output document `Engine` writes (PRD, component tree, JSON
-    export) is timestamped in its own *filename*, which is enough to keep
-    runs from colliding but not enough to answer "what's the latest run for
-    this site" or "what runs exist at all" without listing the directory and
-    parsing filenames - this manifest is that missing index, cheap to keep
-    since `Engine` already builds every field it needs as a side effect of
-    finishing a run.
-
-    Deliberately one shared file across every site (not one manifest per
-    site) - a single small JSON file is easy to `git diff`/inspect whole,
-    and the number of sites one project tracks is small enough that this
-    never becomes a hot file the way `docs/{site}_*` output files already
-    aren't (those keep growing with every run regardless of this manifest).
-
-    Not safe against two processes writing concurrently (read-modify-write,
-    no file lock) - acceptable for how this project runs today (one `Engine`
-    per process, one CLI invocation at a time); if concurrent runs against
-    the same `out_dir` ever become a real usage pattern, this needs a lock
-    or a per-run-file-plus-rebuild scheme instead of a single shared file.
+    """Append one run's metadata to a shared, git-diffable manifest.
+    Details: docs/dev/utils/io.md#record_run_manifest
     """
     manifest_path = Path(out_dir) / "runs.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,11 +53,7 @@ def record_run_manifest(out_dir: str, site: str, entry: Dict[str, Any]) -> str:
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            # A corrupted/partial manifest must never block a real crawl from
-            # finishing and writing its actual output - start a fresh
-            # manifest instead of raising, same "documentation enrichment,
-            # not something correctness depends on" discipline
-            # GraphPRDSynthesizer's narration failure handling already uses.
+            # A corrupted manifest must never block a crawl from finishing.
             data = {}
     data.setdefault(site, []).append(entry)
     manifest_path.write_text(
@@ -110,24 +63,8 @@ def record_run_manifest(out_dir: str, site: str, entry: Dict[str, Any]) -> str:
 
 
 def generate_docs_index(out_dir: str) -> str:
-    """Render `{out_dir}/runs.json` (`record_run_manifest`) as a browsable
-    Markdown index - one table per site, most recent run first, linking to
-    each run's own PRD/tree/JSON-export files by their (already-relative,
-    same-directory) filename.
-
-    docs/explicativos/plan-almacenamiento.md Fase E: evaluated standing up a
-    full `mkdocs-material` static site for this (item 12 of the plan) and
-    deliberately chose this instead - a handful of Markdown files per site is
-    not enough volume to justify a new heavyweight dependency plus a build
-    step; a single generated Markdown index, viewable directly on GitHub or
-    in any Markdown-aware editor with zero extra tooling, solves the actual
-    "I can't find last week's run for this site" problem this was asked to
-    solve. Revisit if `docs/` output ever grows large/complex enough that a
-    real search/filter UI would earn its cost.
-
-    Pure function of `runs.json`'s already-persisted content - no `GraphStore`
-    access, no AI, no browser - same "deterministic, no ceremony" shape as
-    `component_tree.py`/`graph_export.py`'s own top-level entry points.
+    """Render `runs.json` as a browsable Markdown index, one table per site.
+    Details: docs/dev/utils/io.md#generate_docs_index
     """
     manifest_path = Path(out_dir) / "runs.json"
     if not manifest_path.exists():
@@ -136,9 +73,7 @@ def generate_docs_index(out_dir: str) -> str:
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        # Same "never block on a corrupted/partial manifest" discipline as
-        # record_run_manifest itself - a broken index is a degraded index,
-        # not a reason to fail whatever called this.
+        # Same "never block on a corrupted manifest" discipline as above.
         return "# Pragma run index\n\n_(runs.json could not be read - it may be corrupted)_\n"
 
     lines = ["# Pragma run index", "", "Generated from `runs.json` - see `docs/README.md`.", ""]
@@ -164,11 +99,7 @@ def generate_docs_index(out_dir: str) -> str:
 
 
 def get_latest_run(out_dir: str, site: str) -> Dict[str, Any]:
-    """The most recently recorded `record_run_manifest` entry for `site`, or
-    `{}` if none exists (no manifest file yet, or no entry for this site) -
-    the read-side counterpart, for tooling that wants "the last output for
-    this site" without re-crawling or parsing `docs/` filenames.
-    """
+    """Most recently recorded manifest entry for `site`, or `{}` if none exists."""
     manifest_path = Path(out_dir) / "runs.json"
     if not manifest_path.exists():
         return {}

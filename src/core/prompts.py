@@ -1,8 +1,5 @@
-"""Thin interactive-prompt wrapper.
-
-Uses `questionary` for arrow-key select menus and edit-in-place text/password
-fields when attached to a real terminal; otherwise falls back to plain
-`input()` so non-interactive contexts (scripts, tests, CI) never hang.
+"""Thin interactive-prompt wrapper: questionary if attached to a TTY, else input().
+Details: docs/dev/core/prompts.md#module
 """
 from __future__ import annotations
 

@@ -24,9 +24,9 @@ from typing import Any, Dict, List
 import pytest
 
 from src.core.interfaces import PageState
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler
+from src.crawlers.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
 from src.storage.memory_graph_store import InMemoryGraphStore
 from src.utils.urls import route_shape
 
@@ -49,8 +49,8 @@ def fixture_server():
 
 def _crawl(start_url: str, **kwargs):
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, **kwargs)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(**kwargs))
             results = await mech.crawl_site(start_url)
             return mech, results
 
@@ -146,10 +146,10 @@ def test_already_interacted_components_are_skipped_on_full_revisit(fixture_serve
     tracker = InMemoryInteractionTracker()
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, tracker=tracker, max_pages=15)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, tracker=tracker, config=MechanicalCrawlerConfig(max_pages=15))
             await mech.crawl_site(f"{fixture_server}/index.html")
-            mech2 = MechanicalCrawler(crawler, tracker=tracker, max_pages=15)
+            mech2 = MechanicalCrawler(crawler, tracker=tracker, config=MechanicalCrawlerConfig(max_pages=15))
             return await mech2.crawl_site(f"{fixture_server}/index.html")
 
     results = asyncio.run(run())
@@ -255,7 +255,7 @@ def test_stale_selector_after_remount_is_resynced_and_remapped():
 
     fake.discover_page = discover_with_d
 
-    mech = MechanicalCrawler(fake, max_pages=1)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=1))
     results = asyncio.run(mech.crawl_site(fake.url))
     interactions = results[0].interactions
 
@@ -350,7 +350,7 @@ def test_same_route_shape_pages_collapse_to_one_canonical_graph_node():
     store = InMemoryGraphStore()
     store.connect()
     sink = GraphStoreSink(store, "fixture")
-    mech = MechanicalCrawler(fake, sink=sink, max_pages=5, max_visits_per_route_shape=2)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, max_pages=5, max_visits_per_route_shape=2))
     results = asyncio.run(mech.crawl_site(fake.url1))
 
     # Both literal pages really were visited...
@@ -378,12 +378,12 @@ def test_route_shape_bounding_stops_unbounded_session_token_growth():
     start_url = "http://fixture/o/" + "A" * 20
 
     fake_default = _FakeTokenSiteCrawler()
-    mech_default = MechanicalCrawler(fake_default, max_pages=1000, max_visits_per_route_shape=1)
+    mech_default = MechanicalCrawler(fake_default, config=MechanicalCrawlerConfig(max_pages=1000, max_visits_per_route_shape=1))
     results_default = asyncio.run(mech_default.crawl_site(start_url))
     assert len(results_default) <= 3  # bounded - would run to max_pages (1000) if unbounded
 
     fake_raised = _FakeTokenSiteCrawler()
-    mech_raised = MechanicalCrawler(fake_raised, max_pages=1000, max_visits_per_route_shape=4)
+    mech_raised = MechanicalCrawler(fake_raised, config=MechanicalCrawlerConfig(max_pages=1000, max_visits_per_route_shape=4))
     results_raised = asyncio.run(mech_raised.crawl_site(start_url))
     assert len(results_raised) > len(results_default)  # raising the knob samples more instances
     assert len(results_raised) <= 6
@@ -435,7 +435,7 @@ def test_page_concurrency_default_is_fully_sequential():
     single-worker behavior exactly - every page still visited, but never more
     than one `discover_page` in flight at once."""
     fake = _FakeFanOutCrawler(num_leaves=5, work_seconds=0.05)
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.start_url))
     assert len(results) == 6  # hub + 5 leaves
     assert fake.max_in_flight == 1
@@ -447,7 +447,7 @@ def test_page_concurrency_raised_visits_pages_in_parallel():
     this is the only lever that gets a large crawl's wall-clock time down
     (see MechanicalCrawler's class docstring)."""
     fake = _FakeFanOutCrawler(num_leaves=5, work_seconds=0.05)
-    mech = MechanicalCrawler(fake, max_pages=10, page_concurrency=4)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10, page_concurrency=4))
     results = asyncio.run(mech.crawl_site(fake.start_url))
     assert len(results) == 6  # every page still visited, same as sequential
     assert {r.url for r in results} == {"fixture/hub"} | {f"fixture/leaf{i}" for i in range(5)}
@@ -552,7 +552,7 @@ def test_full_screen_replace_becomes_a_new_state_node_not_a_merged_reveal():
     store = InMemoryGraphStore()
     store.connect()
     sink = GraphStoreSink(store, "fixture")
-    mech = MechanicalCrawler(fake, sink=sink, max_pages=1)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, max_pages=1))
     results = asyncio.run(mech.crawl_site(fake.url))
 
     result = results[0]
@@ -610,7 +610,7 @@ def test_interrupted_navigation_requeues_resolved_url_not_original_request():
     abandoning its undrained frontier and burning a real, unnecessary extra
     fetch in the process."""
     fake = _FakeRedirectingEntryCrawler()
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     asyncio.run(mech.crawl_site(fake.bare_url))
 
     # The bare, redirecting entry point was only ever requested once - the
@@ -661,7 +661,7 @@ def test_external_domain_link_is_never_visited():
     entirely must never get crawled, even though it's a completely ordinary,
     successfully-discovered link - only the same-host page gets visited."""
     fake = _FakeExternalLinkCrawler()
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.start_url))
 
     visited_urls = {r.url for r in results}
@@ -718,7 +718,7 @@ def test_redirect_to_external_domain_stops_the_pass_but_never_gets_crawled():
     same-site navigation interruption - but the external destination itself
     must never be enqueued/visited."""
     fake = _FakeExternalRedirectCrawler()
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.start_url))
 
     assert not any("evil.example" in r.url for r in results)
@@ -757,12 +757,12 @@ def test_allow_subdomains_wiring_through_mechanical_crawler():
             raise AssertionError("not exercised")
 
     fake_default = _FakeSubdomainCrawler()
-    mech_default = MechanicalCrawler(fake_default, max_pages=10)
+    mech_default = MechanicalCrawler(fake_default, config=MechanicalCrawlerConfig(max_pages=10))
     results_default = asyncio.run(mech_default.crawl_site(fake_default.start_url))
     assert not any("blog.example.fixture" in r.url for r in results_default)
 
     fake_allowed = _FakeSubdomainCrawler()
-    mech_allowed = MechanicalCrawler(fake_allowed, max_pages=10, allow_subdomains=True)
+    mech_allowed = MechanicalCrawler(fake_allowed, config=MechanicalCrawlerConfig(max_pages=10, allow_subdomains=True))
     results_allowed = asyncio.run(mech_allowed.crawl_site(fake_allowed.start_url))
     assert any("blog.example.fixture" in r.url for r in results_allowed)
 
@@ -842,7 +842,7 @@ def test_two_pages_redirecting_to_the_same_destination_never_visit_it_concurrent
     `_enqueue`'s own `_queued` guard structurally cannot (it's never
     consulted on that path)."""
     fake = _FakeConvergingEntryRedirectsCrawler(work_seconds=0.05)
-    mech = MechanicalCrawler(fake, max_pages=20, page_concurrency=4)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=20, page_concurrency=4))
     asyncio.run(mech.crawl_site(fake.hub))
 
     # Both entry points genuinely, independently triggered the vulnerable
@@ -927,7 +927,7 @@ def test_failed_click_that_silently_navigated_is_detected_and_not_retried_after_
     because the component's *content* identity, not its path, is what's
     remembered."""
     fake = _FakeChurningNavLinkCrawler()
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.page_url))
 
     # The nav link's failure was only ever attempted ONCE across the whole
@@ -1011,7 +1011,7 @@ def test_stale_selector_recovery_does_not_starve_a_later_silent_navigation_check
     silent-navigation check needs - each failure kind gets its own
     independent one-per-streak allowance."""
     fake = _FakeMixedFailureCrawler()
-    mech = MechanicalCrawler(fake, max_pages=10)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     asyncio.run(mech.crawl_site(fake.page_url))
 
     # The nav link was attempted, and its content identity was learned from
@@ -1068,7 +1068,7 @@ def test_churning_same_page_widget_converges_instead_of_looping_forever():
     would otherwise never converge (bounded only by element_budget *
     max_passes_per_page, i.e. up to 2000 by default)."""
     fake = _FakeChurningWidgetCrawler()
-    mech = MechanicalCrawler(fake, max_pages=5)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=5))
     results = asyncio.run(mech.crawl_site(fake.page_url))
 
     # Converged after exactly one real click - the second, "freshly
@@ -1076,3 +1076,72 @@ def test_churning_same_page_widget_converges_instead_of_looping_forever():
     # content identity and never re-offered.
     assert fake.click_count == 1
     assert not any(r.budget_exhausted_with_frontier_remaining for r in results)
+
+
+class _FakeDeadSessionCrawler:
+    """Reproduces the third austral.edu.ar bug found live (debug_logs/
+    austral.edu.ar_20260810T152449Z/debug.md - one `_visit_page()` call still
+    running after 40+ minutes and 40+ identical failures when last read): a
+    click navigates the session to a page that never finishes loading (a WAF
+    holding the response open as an anti-automation measure - the real
+    destination was an 8653-byte, `<body>`-less shell), so EVERY subsequent
+    interaction against that session - including `resync()`'s own attempt to
+    confirm the navigation - fails the exact same, unexplained way. Unlike
+    `_FakeChurningNavLinkCrawler` above (where `resync()` reliably confirms
+    the navigation, letting the pass stop cleanly after one check), here
+    `resync()` itself is just another doomed interaction against the same
+    dead session - the one recovery built to catch this can never fire.
+    """
+
+    def __init__(self, n_remaining: int = 20) -> None:
+        self.page_url = "http://fixture/page"
+        self.n_remaining = n_remaining
+        self.click_attempts = 0
+        self.resync_attempts = 0
+
+    def _components(self) -> List[Dict[str, Any]]:
+        return [_component("body > a#nav", "Go", tag="a")] + [
+            _component(f"body > button#item{i}", f"Item {i}") for i in range(self.n_remaining)
+        ]
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        return PageState(url=self.page_url, components=self._components())
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.click_attempts += 1
+        # Every click - including whichever one actually navigated - fails
+        # the same generic way a slow/dead destination's marker read-back
+        # does (see Crawl4AICrawler._interact's docstring).
+        raise RuntimeError("interaction failed: Timeout 30000ms exceeded")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        # The one check meant to confirm "did we silently navigate" is
+        # itself just another interaction against the same dead session - it
+        # fails identically, every single time, never confirming anything.
+        self.resync_attempts += 1
+        raise RuntimeError("interaction failed: Timeout 30000ms exceeded")
+
+
+def test_consecutive_unexplained_failures_stop_the_pass_when_silent_nav_check_is_also_inconclusive():
+    """The circuit-breaker fix: when the silent-navigation check itself can
+    never confirm anything (because it's just another interaction against a
+    session that's genuinely dead), the pass must still give up well before
+    attempting every remaining frontier item one at a time - not grind
+    through all of them, each burning a full interaction timeout, for
+    however many components the page happens to have."""
+    fake = _FakeDeadSessionCrawler(n_remaining=20)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=1))
+    results = asyncio.run(mech.crawl_site(fake.page_url))
+
+    # Nowhere near all 21 components (1 nav link + 20 "item" buttons) were
+    # attempted - the circuit breaker cut the pass short instead of grinding
+    # through the whole frontier.
+    assert fake.click_attempts < 10
+
+    # The pass is honestly marked as interrupted (not silently "finished"
+    # with most of the page never actually explored).
+    page_results = [r for r in results if r.url.endswith("fixture/page")]
+    assert any(r.interrupted_by_navigation for r in page_results)

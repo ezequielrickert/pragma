@@ -14,15 +14,7 @@ class MockAgent(Agent):
     """A heuristic mock agent that returns static PRD structures."""
 
     def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
-        """Return a mock PRD based on simple prompt heuristics.
-
-        Args:
-            prompt: The user prompt containing scraped data.
-            system_instruction: Ignored in the mock implementation.
-
-        Returns:
-            A static Markdown string.
-        """
+        """Return a static mock PRD; `system_instruction` is ignored."""
         links = [line for line in prompt.split("\n") if line.startswith("http")]
         return (
             "# PRD (Mock)\n\n"

@@ -1,8 +1,5 @@
 """In-memory GraphStore: the default backend, and the reference for the Neo4j one.
-
-Reproduces the exact dict-based tracking Pragma used before Neo4j support was
-added (one flat routes/edges pair per site instead of one shared pair), so
-runs and tests without a live Neo4j instance behave identically to before.
+Details: docs/dev/storage/memory_graph_store.md#module
 """
 from __future__ import annotations
 
@@ -132,11 +129,9 @@ class InMemoryGraphStore(GraphStore):
 
     @staticmethod
     def _new_component_record() -> Dict[str, Any]:
-        """A fresh default record for a path first touched via
-        `record_component_interaction`/`record_component_options` rather than
-        `record_component` - a plain dict literal, not a shared class-level
-        default, since `interactions` is a mutable list every record needs
-        its own instance of, not one aliased across every auto-created path."""
+        """Fresh default record for a path first touched via an auto-create path.
+        Details: docs/dev/storage/memory_graph_store.md#_new_component_record
+        """
         return {
             "tag": "", "text": "", "role": "", "input_type": "",
             "visible": True, "layer": "semantic",

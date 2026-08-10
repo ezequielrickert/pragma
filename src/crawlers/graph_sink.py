@@ -1,26 +1,5 @@
-"""Phase 3 of the crawl4ai migration: live `GraphStore` wiring for
-`MechanicalCrawler` - Neo4j (or `InMemoryGraphStore`) becomes the crawl's
-source of truth, written to as the crawl happens rather than batched by an
-in-process orchestrator afterward.
-
-Two small, separately-testable pieces:
-- `GraphStoreInteractionTracker` - the `InteractionTracker` seam
-  `mechanical_loop.py` already defines, backed by `GraphStore` reads instead
-  of an in-memory dict, so "have I already interacted with this" survives
-  across a persisted multi-run crawl, not just within one process (see
-  wiki/graph-based-crawl-tracking.md's "the ledger must be consulted, not
-  write-only"). Its `mark_interacted`/`mark_visited` never perform the real,
-  detail-rich write - see their docstrings - because `GraphStoreSink` below
-  is what actually does that (with `action`/`value`/`resulting_url` the
-  plain `InteractionTracker` protocol has no room for); routing a real write
-  through here too would mean recording every interaction twice, once thin
-  and once rich. They do, however, update this tracker's own local read
-  cache (see docs/explicativos/plan-almacenamiento.md Fase B) - a cache
-  update, not a second store write.
-- `GraphStoreSink` - the detail-rich writer `MechanicalCrawler` calls
-  directly at each point in the plan's hook-mapping table (page arrival,
-  full component/link inventory, each interaction, navigation edges, page
-  completion).
+"""Live `GraphStore` wiring for `MechanicalCrawler` - a tracker and a writer.
+Details: docs/dev/crawlers/graph_sink.md#module
 """
 from __future__ import annotations
 
@@ -38,57 +17,15 @@ from ..utils.urls import clean_url
 
 class GraphStoreInteractionTracker:
     """`InteractionTracker` backed by `GraphStore` reads, with a per-instance
-    local cache (docs/explicativos/plan-almacenamiento.md Fase B - "the N+1
-    read pattern" finding).
-
-    **Why the cache exists**: `GraphStore.get_component_states` is documented
-    (see its docstring on `GraphStore`) as "one query per page visit, not one
-    per component" - but before this cache, `is_interacted` called it fresh
-    on *every single call*, and `MechanicalCrawler._visit_page`'s frontier
-    loop calls `is_interacted` once per component considered, every pass -
-    so a page with N components did N full `GraphStore` round-trips (network
-    round-trips for `graph_store: neo4j`) just to answer the same "have I
-    interacted with this yet" question the loop already asked moments ago
-    for a barely-changed page. This directly contradicted the documented
-    "one query per page visit" contract rather than merely being slow by
-    coincidence. `is_visited` had the same shape for `_enqueue`/`_worker`
-    (called once per discovered link / per dequeue). Caching turns both into
-    one real `GraphStore` read per page for the lifetime of this tracker
-    instance (one per `MechanicalCrawler`, i.e. one per crawl) instead of one
-    per check - a real reduction in `GraphStore` round-trips, and (for
-    `graph_store: neo4j`) a real reduction in how often this crawl's own
-    event loop is blocked waiting on the synchronous Neo4j driver (see the
-    plan doc's Fase B section for why eliminating that blocking *entirely*
-    was scoped out of this change - it would require awaiting through
-    `mechanical_loop.py` methods explicitly documented as synchronous by
-    design, e.g. `_transition_to_new_state`).
-
-    **Why this is safe** (no interface/behavior change from `MechanicalCrawler`'s
-    point of view - same sync methods, same signatures, same semantics):
-    every real write this crawl makes to "interacted"/"visited" state goes
-    through `mark_interacted`/`mark_visited`, called at the *same* call sites
-    as the paired `GraphStoreSink.record_interaction`/`record_page_finished`
-    real writes (see `mechanical_loop.py`) - so the cache is updated in
-    lockstep with the real store, for every write *this* tracker instance's
-    crawl performs. A path never seen before (new to this page's cache, e.g.
-    a just-revealed component) correctly falls through to "not interacted"
-    via a plain dict miss - identical to what a fresh `GraphStore` read would
-    say for a path that was never written. The only actor that could make
-    this cache stale is a *different* process/tracker instance writing to the
-    same site concurrently while this crawl runs - not a new risk this cache
-    introduces: the existing architecture already assumes single-writer-per-
-    site-per-crawl (see `PragmaConfig.fresh`/`clear_site`'s own docstring).
+    local read cache. Details: docs/dev/crawlers/graph_sink.md#graphstoreinteractiontracker
     """
 
     def __init__(self, graph_store: GraphStore, site: str) -> None:
         self.graph_store = graph_store
         self.site = site
-        # page_url -> {path: {..., "interacted": bool}} - populated lazily,
-        # one real GraphStore.get_component_states call per page, the first
-        # time any path on it is checked.
+        # page_url -> {path: {..., "interacted": bool}}, populated lazily.
         self._states_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        # page_url -> bool - same lazy-populate-once discipline as above.
-        self._visited_cache: Dict[str, bool] = {}
+        self._visited_cache: Dict[str, bool] = {}  # page_url -> bool, same discipline.
 
     def _states_for(self, page_url: str) -> Dict[str, Dict[str, Any]]:
         if page_url not in self._states_cache:
@@ -99,19 +36,8 @@ class GraphStoreInteractionTracker:
         return bool(self._states_for(page_url).get(path, {}).get("interacted"))
 
     def mark_interacted(self, page_url: str, path: str) -> None:
-        """Never the real write - `GraphStoreSink.record_interaction` is what
-        actually calls `GraphStore.record_component_interaction` for every
-        attempted interaction (success or failure), with the full `action`/
-        `value`/`resulting_url` detail this protocol method doesn't carry.
-        Updates this tracker's own local cache only, so a same-pass re-check
-        of the same path (e.g. the frontier loop revisiting a path already
-        marked earlier in this same pass) sees it without a redundant
-        `GraphStore` round-trip - `dict.setdefault` rather than requiring the
-        path to already be cached, since a component can be marked
-        interacted (e.g. a failed-interaction path, or one auto-created via
-        `record_component_interaction`'s own `ON CREATE`) without ever having
-        gone through `record_component`/being present in an already-cached
-        page's initial read.
+        """Cache-only; `GraphStoreSink.record_interaction` does the real write.
+        Details: docs/dev/crawlers/graph_sink.md#mark_interacted
         """
         self._states_cache.setdefault(page_url, {}).setdefault(path, {})["interacted"] = True
 
@@ -121,22 +47,15 @@ class GraphStoreInteractionTracker:
         return self._visited_cache[page_url]
 
     def mark_visited(self, page_url: str) -> None:
-        """Never the real write - `GraphStoreSink.record_page_finished` is
-        what actually calls `GraphStore.upsert_page(..., status="Finished",
-        ...)` - see that method's docstring for why it needs the final
-        component count, which this protocol method doesn't carry. Updates
-        the local cache only, same reasoning as `mark_interacted` above.
+        """Cache-only; `GraphStoreSink.record_page_finished` does the real write.
+        Details: docs/dev/crawlers/graph_sink.md#mark_visited
         """
         self._visited_cache[page_url] = True
 
 
 class GraphStoreSink:
-    """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they
-    happen. Every method maps directly to one row of the plan's "which
-    crawl4ai hook maps to which GraphStore call" table, just invoked from
-    `MechanicalCrawler`'s own Python-side orchestration (not a crawl4ai hook
-    itself) since it needs the actual interaction *result* (did the URL
-    change), which only exists once `crawler.click()`/`fill()` returns.
+    """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they happen.
+    Details: docs/dev/crawlers/graph_sink.md#graphstoresink
     """
 
     def __init__(self, graph_store: GraphStore, site: str) -> None:
@@ -144,25 +63,14 @@ class GraphStoreSink:
         self.site = site
 
     def record_page_arrival(self, page_key: str, description: str = "", title: str = "") -> None:
-        """Cheapest possible "this page exists" signal - called the moment a
-        page is reached, before discovery/interaction. A bare rediscovery
-        (status="Pending") never clobbers an already-Finished page, per
-        `GraphStore.upsert_page`'s own contract - same discipline now applies
-        to `description` (added for the PRD synthesizer, which reads it back
-        via `get_page_descriptions` instead of an in-process attribute that
-        would die with the crawling process) and to `title` (the page's own
-        `<title>`, read back via `get_page_titles` - the document renderer's
-        "name of this page," distinct from `label`'s per-incoming-link anchor
-        text).
+        """Cheapest "this page exists" signal, called before discovery/interaction.
+        Details: docs/dev/crawlers/graph_sink.md#record_page_arrival
         """
         self.graph_store.upsert_page(self.site, page_key, status="Pending", description=description, title=title)
 
     def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
-        """Full, unconditional static-text inventory - called once per page
-        visit (see `MechanicalCrawler._visit_page`), not re-called on
-        same-page reveals the way `record_inventory` now is for `Component`
-        (see `GraphStore.record_text_content`'s docstring for why that's a
-        deliberate, documented cut rather than an oversight).
+        """Full static-text inventory, called once per page visit (not per reveal).
+        Details: docs/dev/crawlers/graph_sink.md#record_text_content
         """
         for entry in text_content:
             path = entry.get("path")
@@ -185,15 +93,8 @@ class GraphStoreSink:
     def record_inventory(
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
     ) -> None:
-        """Full, unconditional component + link inventory for one discovery
-        pass - every component gets a `record_component` call (idempotent,
-        safe to call again on rediscovery) regardless of whether anything on
-        it changed, mirroring the old `_record_page_inventory`'s
-        "unconditional, not gated by any per-turn cap" discipline. Detected
-        steppers/choice-sets get their structured facts attached via
-        `record_component_options`, reusing `component_classifier.py`
-        unchanged - the same deterministic, no-LLM classification the old
-        catalog narration pass already relied on.
+        """Full, unconditional component + link inventory for one discovery pass.
+        Details: docs/dev/crawlers/graph_sink.md#record_inventory
         """
         for comp in components:
             path = comp.get("path")
@@ -249,50 +150,32 @@ class GraphStoreSink:
             self.graph_store.record_link(self.site, page_key, clean_url(href), link.get("text", ""))
 
     def record_interaction(self, page_key: str, path: str, action: str, value: str, resulting_url: str) -> None:
-        """One call per *attempted* interaction (success or failure) - the
-        component-level ledger's whole value is knowing what was tried, not
-        just what worked. `resulting_url` is `""` for a failed interaction
-        (nothing to report) or a same-page one (no navigation).
+        """One call per *attempted* interaction, success or failure.
+        Details: docs/dev/crawlers/graph_sink.md#record_interaction
         """
         self.graph_store.record_component_interaction(
             self.site, page_key, path, action=action, value=value, resulting_url=resulting_url
         )
 
     def record_component_network(self, page_key: str, path: str, requests: List[Dict[str, Any]]) -> None:
-        """One call per interaction that triggered >=1 meaningful (xhr/fetch)
-        network request (see `src/crawlers/network_filter.py`) - the
-        "request information" a real JS/SPA site's submit-like control needs,
-        since it has no static `<form method/action>` to read instead.
+        """One call per interaction that triggered >=1 meaningful (xhr/fetch) request.
+        Details: docs/dev/crawlers/graph_sink.md#record_component_network
         """
         self.graph_store.record_component_network(self.site, page_key, path, json.dumps(requests))
 
     def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
-        """Attach a before/after-diff-detected set of newly revealed
-        role="option"-family components (`component_classifier.
-        find_revealed_options`) to the *trigger* component's `options` field
-        - the click that opens a combobox/listbox doesn't carry its own
-        choices in any single discovery snapshot, unlike every other field
-        `record_component` refreshes; they only exist once the widget has
-        actually been opened. Mirrors `group_steppers`/`group_choice_sets`'
-        own `record_component_options` call in `record_inventory` above, but
-        keyed by the specific interaction that produced it rather than a
-        single-snapshot classification, since this fact genuinely isn't
-        derivable from one snapshot alone.
+        """Attach a before/after-diff-detected set of revealed options to the trigger.
+        Details: docs/dev/crawlers/graph_sink.md#record_revealed_options
         """
         payload = json.dumps({"trigger": trigger_path, "revealed_options": revealed})
         self.graph_store.record_component_options(self.site, page_key, trigger_path, payload)
 
     def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
-        """Only called when an interaction's resulting URL differs from the
-        page it was attempted on - a real navigation, not a same-page reveal.
-        """
+        """Only called when an interaction's resulting URL differs from the page it ran on."""
         self.graph_store.record_edge(self.site, from_key, to_key, component=path, action=action)
 
     def record_page_finished(self, page_key: str, component_count: int) -> None:
-        """Called once a page's interaction pass completes *without* being
-        cut short by a navigation (see `PageVisitResult.interrupted_by_navigation`)
-        - an interrupted pass leaves the page genuinely incomplete, so it must
-        stay `Pending` for its guaranteed follow-up pass, not be marked
-        `Finished` prematurely.
+        """Called once a page's pass completes without being cut short by navigation.
+        Details: docs/dev/crawlers/graph_sink.md#record_page_finished
         """
         self.graph_store.upsert_page(self.site, page_key, status="Finished", components=component_count)

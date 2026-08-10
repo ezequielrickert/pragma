@@ -1,9 +1,5 @@
-"""Interactive, menu-driven front end for Pragma.
-
-Launched when `python3 src/cli.py` is run with no arguments from a real
-terminal. Lets you navigate between running an analysis and (re)configuring
-the pipeline without needing to remember flags or subcommands - like the
-menu-driven UX of the Claude Code / GitHub Copilot CLIs.
+"""Interactive, menu-driven front end for Pragma, launched with no CLI args.
+Details: docs/dev/core/app.md#module
 """
 from __future__ import annotations
 
@@ -17,10 +13,8 @@ from . import prompts
 from .config import PragmaConfig
 from .wizard import run_config_wizard
 
-# The actual scrape+generate work always runs in a subprocess (`src/cli.py <url>`)
-# rather than in-process. Playwright's sync API leaves this process's asyncio
-# event loop in a state that breaks subsequent questionary prompts if a scrape
-# runs directly in the menu process - a known Playwright/prompt_toolkit conflict.
+# Always runs in a subprocess - a scrape in-process breaks later prompts.
+# Details: docs/dev/core/app.md#cli_path
 CLI_PATH = Path(__file__).resolve().parents[2] / "src" / "cli.py"
 
 ANALYZE = "Analyze a URL"
@@ -28,8 +22,7 @@ CONFIGURE = "Configure (provider, model, api key, ...)"
 VIEW = "View current configuration"
 EXIT = "Exit"
 
-# Which env vars are relevant secrets for each provider, purely for the "View
-# current configuration" status display (never printed, only "set"/"not set").
+# Relevant secrets per provider, for "View current configuration" only.
 SECRET_ENV_VARS: Dict[str, List[str]] = {
     "gemini": ["GEMINI_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
     "openai": ["OPENAI_API_KEY"],

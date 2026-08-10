@@ -10,11 +10,12 @@ from typing import List, Optional
 import pytest
 
 from src.core.interfaces import Agent
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import MechanicalCrawler
+from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from src.generators.graph_prd_synthesizer import (
     CATALOG_SYSTEM_INSTRUCTION,
+    REDUCE_SYSTEM_INSTRUCTION,
     SYNTHESIS_SYSTEM_INSTRUCTION,
     GraphPRDSynthesizer,
     build_mermaid_graph,
@@ -26,6 +27,12 @@ SITE = "synth-test-site"
 
 
 class RecordingAgent(Agent):
+    """Fake agent that records every call and returns a response distinguishable
+    by which stage asked for it - CATALOG (per-page narration), SYNTHESIS (per-batch
+    summarize), or REDUCE (final combine) - so tests can assert not just that a call
+    happened, but which stage it belonged to and what it saw.
+    """
+
     def __init__(self) -> None:
         self.calls: List[tuple] = []
 
@@ -33,6 +40,8 @@ class RecordingAgent(Agent):
         self.calls.append((prompt, system_instruction))
         if system_instruction == CATALOG_SYSTEM_INSTRUCTION:
             return f"Narrated {len(self.calls)} component(s)."
+        if system_instruction == SYNTHESIS_SYSTEM_INSTRUCTION:
+            return f"Section summary #{len(self.calls)}."
         return "# Digital Blueprint\n\nSynthesized report."
 
 
@@ -72,20 +81,27 @@ def test_synthesize_reads_from_graph_store_with_no_live_crawl():
     synthesizer = GraphPRDSynthesizer(agent, store)
     prd = synthesizer.synthesize(SITE)
 
-    assert prd == "# Digital Blueprint\n\nSynthesized report."
-    # Two calls: one catalog narration (the page has a component), one final synthesis.
+    # One page (well under the batch_size default) still goes through all three
+    # stages: catalog narration, one batch-summarize call, one reduce call.
+    assert prd.startswith("# Digital Blueprint\n\nSynthesized report.")
     system_instructions = [c[1] for c in agent.calls]
     assert CATALOG_SYSTEM_INSTRUCTION in system_instructions
     assert SYNTHESIS_SYSTEM_INSTRUCTION in system_instructions
-    # The final synthesis prompt must include the page's description and the mermaid graph.
-    final_prompt = next(p for p, si in agent.calls if si == SYNTHESIS_SYSTEM_INSTRUCTION)
-    assert "A test site." in final_prompt
-    assert "flowchart LR" in final_prompt
+    assert REDUCE_SYSTEM_INSTRUCTION in system_instructions
+    # The batch-summarize prompt must include the page's description.
+    batch_prompt = next(p for p, si in agent.calls if si == SYNTHESIS_SYSTEM_INSTRUCTION)
+    assert "A test site." in batch_prompt
+    # The mermaid graph is appended to the returned document in code, not asked
+    # of the model - it must never appear in any prompt sent to the agent.
+    assert not any("flowchart LR" in prompt for prompt, _ in agent.calls)
+    assert "flowchart LR" in prd
 
 
 def test_synthesize_uses_its_own_dedicated_system_instructions_not_shared():
     """Per wiki/prompt-engineering-for-llm-agents.md Principle 1."""
     assert CATALOG_SYSTEM_INSTRUCTION != SYNTHESIS_SYSTEM_INSTRUCTION
+    assert CATALOG_SYSTEM_INSTRUCTION != REDUCE_SYSTEM_INSTRUCTION
+    assert SYNTHESIS_SYSTEM_INSTRUCTION != REDUCE_SYSTEM_INSTRUCTION
 
 
 def test_narration_failure_on_one_page_does_not_abort_synthesis():
@@ -102,7 +118,45 @@ def test_narration_failure_on_one_page_does_not_abort_synthesis():
 
     synthesizer = GraphPRDSynthesizer(FailingCatalogAgent(), store)
     prd = synthesizer.synthesize(SITE)
-    assert prd == "# Blueprint (degraded catalog still included)"
+    assert prd.startswith("# Blueprint (degraded catalog still included)")
+
+
+def test_synthesize_batches_pages_when_over_batch_size():
+    """Regression for the unbounded single-prompt crash (see
+    docs/explicativos/avance-corridas-gemma-empanadapp.md): with more pages than
+    batch_size, synthesis must issue multiple bounded batch-summarize calls plus
+    one small reduce call over the condensed summaries - never one call that sees
+    every page's raw facts at once.
+    """
+    store = InMemoryGraphStore()
+    store.connect()
+    n_pages = 7
+    for i in range(n_pages):
+        url = f"example.com/page{i}"
+        store.upsert_page(SITE, url, status="Finished", components=0, description=f"Page {i} description.")
+
+    agent = RecordingAgent()
+    synthesizer = GraphPRDSynthesizer(agent, store, batch_size=3)
+    prd = synthesizer.synthesize(SITE)
+
+    batch_calls = [p for p, si in agent.calls if si == SYNTHESIS_SYSTEM_INSTRUCTION]
+    reduce_calls = [p for p, si in agent.calls if si == REDUCE_SYSTEM_INSTRUCTION]
+
+    # ceil(7 / 3) = 3 batch-summarize calls, exactly one reduce call.
+    assert len(batch_calls) == 3
+    assert len(reduce_calls) == 1
+
+    # No single batch call saw every page - each is bounded to <= batch_size pages.
+    for prompt in batch_calls:
+        assert sum(f"Page {i} description." in prompt for i in range(n_pages)) <= 3
+
+    # The reduce call consumes the already-condensed batch summaries, not the raw
+    # per-page descriptions again - proves the "reduce" stage is genuinely smaller.
+    reduce_prompt = reduce_calls[0]
+    assert "Section summary #" in reduce_prompt
+    assert "Page 0 description." not in reduce_prompt
+
+    assert prd
 
 
 def test_end_to_end_crawl_then_synthesize(fixture_server):
@@ -115,8 +169,8 @@ def test_end_to_end_crawl_then_synthesize(fixture_server):
     sink = GraphStoreSink(store, site)
 
     async def crawl():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, sink=sink, max_pages=15)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
             return await mech.crawl_site(f"{fixture_server}/index.html")
 
     asyncio.run(crawl())

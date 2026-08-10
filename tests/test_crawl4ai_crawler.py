@@ -20,7 +20,7 @@ from typing import List
 
 import pytest
 
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "discovery"
 
@@ -44,7 +44,7 @@ def fixture_server():
 
 def _discover(url: str):
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
             return await crawler.discover_page(url)
 
     return asyncio.run(run())
@@ -104,7 +104,7 @@ def test_wait_seconds_finds_content_rendered_after_a_delay(fixture_server):
     the pre-hydration shell" entry."""
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=3) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=3)) as crawler:
             return await crawler.discover_page(f"{fixture_server}/delayed_render.html")
 
     state = asyncio.run(run())
@@ -122,7 +122,7 @@ def test_interaction_wait_seconds_controls_post_click_settle_delay(fixture_serve
     url = f"{fixture_server}/delayed_reveal_on_click.html"
 
     async def click_with(interaction_wait_seconds: float):
-        async with Crawl4AICrawler(wait_seconds=0, interaction_wait_seconds=interaction_wait_seconds) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, interaction_wait_seconds=interaction_wait_seconds)) as crawler:
             await crawler.discover_page(url, session_id=url)
             return await crawler.click(url, url, "body > button#trigger")
 
@@ -215,7 +215,7 @@ def test_block_images_false_by_default_still_fetches_images(tracking_fixture_ser
     base_url, requested_paths = tracking_fixture_server
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0, block_images=False) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, block_images=False)) as crawler:
             return await crawler.discover_page(f"{base_url}/image_page.html")
 
     state = asyncio.run(run())
@@ -232,7 +232,7 @@ def test_block_images_true_aborts_the_image_network_request(tracking_fixture_ser
     base_url, requested_paths = tracking_fixture_server
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0, block_images=True) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, block_images=True)) as crawler:
             return await crawler.discover_page(f"{base_url}/image_page.html")
 
     state = asyncio.run(run())
@@ -249,7 +249,7 @@ def test_page_timeout_seconds_aborts_a_genuinely_hung_request(tracking_fixture_s
     base_url, _ = tracking_fixture_server
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0, page_timeout_seconds=1) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, page_timeout_seconds=1)) as crawler:
             return await crawler.discover_page(f"{base_url}/slow.html")
 
     with pytest.raises(RuntimeError):
@@ -263,7 +263,7 @@ def test_page_timeout_seconds_generous_enough_still_succeeds(tracking_fixture_se
     base_url, _ = tracking_fixture_server
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0, page_timeout_seconds=10) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, page_timeout_seconds=10)) as crawler:
             return await crawler.discover_page(f"{base_url}/slow.html")
 
     state = asyncio.run(run())

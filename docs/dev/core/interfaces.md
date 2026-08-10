@@ -1,0 +1,264 @@
+# `src/core/interfaces.py`
+
+## module
+
+Post-crawl4ai-migration: the per-step decision vocabulary that used to
+live here (`Action`/`AgentAction`/`TOOL_SPECS`/`parse_agent_action`/
+`Agent.act()`) is gone along with the per-step LLM decision loop it
+served - there is no longer a numbered "Clickable elements" list for a
+model to pick from, since `MechanicalCrawler`
+(`src/crawlers/mechanical_loop.py`) interacts with every discovered
+element mechanically. `Scraper`/`PRDGenerator` are gone too: they
+modeled a synchronous, lazily-started, single-`Page`/single-call-return
+shape that doesn't fit `Crawl4AICrawler`'s async, `AsyncWebCrawler`-owns-
+the-browser-lifecycle model, or the new crawl()-then-synthesize() split
+(see `Engine`). `PageState`, `Agent` (now just `generate()`), and
+`GraphStore` remain - the contracts that are still genuinely shared
+across implementations.
+
+## PageState.description
+
+Short (~300 char) description of what this page is about - meta
+description if the site has one, else heading + first substantial
+paragraph. `""` for backends/tests that don't extract it. See
+`page_extraction.run_extraction` for how this is built and
+`GraphStoreSink.record_page_arrival`/`GraphStore.get_page_descriptions`
+for how it ends up in the final PRD via `GraphPRDSynthesizer`.
+
+## PageState.network_requests
+
+Meaningful (xhr/fetch) network requests triggered by the interaction that
+produced this `PageState` - see
+`src/crawlers/network_filter.py::filter_meaningful_requests` for exactly
+what "meaningful" means and what each dict contains. Always `[]` for a
+plain navigation (`Crawl4AICrawler.discover_page` never enables capture -
+a page load's own requests aren't attributable to one component's
+interaction the way a click/fill's are); only populated by
+`Crawl4AICrawler._interact`.
+
+## PageState.text_content
+
+Non-interactive prose (`<p>`/`<h1-6>`/`<li>`/...), captured once per page
+visit alongside `components` - see `src/crawlers/js/extract_text_content.js`
+for exactly what's captured and excluded (anything that's an interactive
+component's own label text). Each entry: `{tag, text, path, visible, rect}`.
+
+## GraphStore
+
+Interface for the crawl graph's persistence/query backend.
+
+Every method is scoped by `site` (the crawled domain) so multiple sites
+can be tracked side by side without their data mixing - the tool is
+expected to crawl many different websites over time, each analyzed
+independently. `url` values passed in and returned are always the
+already-normalized, scheme-stripped node key (see `src.utils.urls.clean_url`)
+- the store itself does not re-normalize.
+
+## upsert_page
+
+Create or update a page node for `site`.
+
+A bare rediscovery (`status="Pending"`) must never clobber an already
+Finished page's recorded status/components, mirroring the old
+`_add_route` behavior - only a non-Pending status overwrites.
+
+`description`: a short page-level summary (meta description, or heading
++ first paragraph - see `page_extraction.run_extraction`'s `description`
+extraction), stored so it survives past the crawling process that
+discovered it. Empty string never overwrites a previously-recorded
+non-empty value, same "don't clobber with less information" discipline
+as `context`/`label` above. Retrieved in bulk via `get_page_descriptions`,
+not per-page, since synthesis reads every page's description once at the
+end of a run.
+
+`title`: the page's own `<title>` (`PageState.title`, already extracted
+by `page_extraction.run_extraction` but previously never persisted) -
+distinct from `label` (the anchor text of whichever link happened to
+lead here, which is absent for the crawl's own start URL and can vary
+per discovering page) and from `description` (a sentence-length summary,
+not a short name). This is what a document renderer should show as "the
+name of this page" - see `get_page_titles`. Same
+empty-string-never-clobbers discipline as every other optional field
+here.
+
+## get_page_titles
+
+`{url: title}` for every page of `site` that has one recorded (pages
+with no/empty title are omitted, not included as `""`) - mirrors
+`get_page_descriptions` exactly, for the same reason: a document
+renderer reads every page's title once in bulk, not one query per page.
+
+## record_link
+
+Record that a link from `from_url` to `to_url` was discovered, with its
+visible text.
+
+Distinct from `record_edge` (an actually-taken navigation): this
+captures every discovered link association per source page, so a later
+navigation's component description can be verified against the specific
+page it claims to have come from. A single page can be linked to from
+many different source pages with different anchor text - collapsing
+that into one label per destination page (rather than one per from/to
+pair) previously caused a navigation's reported component to describe a
+link that exists on some other page entirely, not the page actually
+being navigated from.
+
+## clear_site
+
+Delete every page/edge/link/component tracked for `site`, leaving other
+sites untouched.
+
+For a backend that persists across runs (Neo4j), this is what actually
+resets state between crawls - `Engine.from_config` calls it by default
+(`PragmaConfig.fresh`) before wiring the crawl. Without it, a site whose
+URLs are per-session tokens (e.g. a `/o/<random-id>` order flow) silently
+accumulates a "visited" node for every past run's session, forever - none
+of which will ever be seen again, but all of which the next run's
+synthesis step still reads back as real history. A process-local store
+(`InMemoryGraphStore`) never persists across runs regardless, so this is
+a no-op there - implemented uniformly anyway so callers stay
+backend-agnostic.
+
+## component-level-frontier
+
+A Page node tracks whether a page was ever visited; the methods below
+track the finer-grained question of whether an individual interactive
+element on that page was ever acted on. Without this, a component's
+"have I touched this" state either lives only in the calling process's
+memory (lost the moment the crawler moves on, and never present at all
+on turn one of a later run against the same persisted site) or isn't
+tracked at all. `page_url` here is always the already-`clean_url`-
+canonicalized page key, exactly like every `url` elsewhere in this
+interface; `path` is the CSS selector the crawler itself produces for
+the element (its `gp()` helper), reused as-is rather than inventing a
+second identity scheme.
+
+## record_component
+
+Create or refresh a Component node for `site`/`page_url`/`path`.
+
+Idempotent, same discipline as `upsert_page`: descriptive fields
+(tag/text/role/input_type/visible/layer/x/y/width/height/component_type)
+refresh on every call since they can legitimately change page to page
+(e.g. text, or a layout shift moving an element) - but `interacted`, its
+interaction history, and `options` (see `record_component_options`) are
+never touched here - only their own dedicated setters do, and a
+rediscovery must never clobber state that isn't recomputed every call.
+
+`x`/`y`/`width`/`height` are the element's viewport-relative bounding box
+in CSS pixels at the moment it was discovered (see `Crawl4AICrawler`'s
+discovery JS), `None` when unknown. This is what makes the stored
+checklist a *precise* map of the page - not just "this exists somewhere"
+but "this exists right here."
+
+`component_type` is a short, deterministic classification (see
+`src.generators.component_classifier.classify_component_type`) - e.g.
+"checkbox," "text field (email)," "combobox (searchable dropdown)" -
+computed from tag/role/input_type alone, safe to recompute and overwrite
+every call like the other descriptive fields.
+
+## record_component_options
+
+Set (fully overwrite) the JSON-encoded `options` field on a Component
+node - structured facts beyond simple existence: a revealed dropdown's
+choices and which one is selected, a stepper's paired
+increment/decrement paths and current value, or a radio/checkbox group's
+sibling members. See `component_classifier.py` for what actually
+computes these; this method only persists whatever JSON string it's
+given, keyed the same way as `record_component`.
+
+Deliberately a *separate* method from `record_component`, not one more
+parameter on it: `options` is really only knowable at specific moments
+(e.g. right after a click reveals a dropdown's items - a before/after
+diff, not something present in any single discovery snapshot), unlike
+every field `record_component` refreshes, which is recomputable from the
+current DOM alone on every single call. Folding `options` into that same
+call would mean every ordinary rediscovery (most of which have no idea
+what a component's options are) would overwrite it back to empty,
+permanently erasing something more expensive to learn than to lose.
+
+Auto-creates the Component node if it doesn't already exist, mirroring
+`record_component_interaction`'s auto-create (a caller with options to
+record for a path it hasn't explicitly `record_component`-ed yet should
+still succeed, not silently no-op).
+
+## record_component_interaction
+
+Mark a component as interacted with and append one interaction record.
+
+Auto-creates the Component node if it doesn't already exist (mirrors
+`record_edge`'s auto-create of its endpoint Page nodes) - an interaction
+can be recorded even if `record_component` wasn't called first in some
+code path.
+
+## record_component_network
+
+Append one JSON-encoded batch of meaningful network requests
+(`src/crawlers/network_filter.py::filter_meaningful_requests`'s output
+for one interaction) to a Component's `network_requests` list - same
+append-only-list-of-JSON-strings shape as
+`record_component_interaction`'s `interactions`, not an overwrite like
+`record_component_options`' `options`: an interaction can only happen
+once per path today (the tracker's consult-before-act guard forbids
+re-interacting an already-interacted path), but modeling this as append
+is safe-by-construction if that invariant ever changes, rather than
+silently losing an earlier batch. Auto-creates the Component node if
+missing, same discipline as
+`record_component_interaction`/`record_component_options`.
+
+## get_component_states
+
+All known components for one page: `{path: {tag, text, interacted,
+visible, x, y, width, height, component_type, options}}`.
+
+One query per page visit, not one per component -
+`GraphStoreInteractionTracker` (`src/crawlers/graph_sink.py`) is the
+caller. `x`/`y`/`width`/`height` are `None` for components recorded
+before position tracking existed, or by a test double that doesn't
+report it. `options` is the raw JSON string set by
+`record_component_options`, `""` if never set - callers that need the
+structured value should `json.loads` it themselves.
+
+## count_unexplored_components
+
+`(unexplored_count, total_count)` of components tracked across all of
+`site`.
+
+`semantic_only=True` excludes `layer="pointer"` components (the
+cursor:pointer catch-all, capped and noisier than the semantic/ARIA
+selector) from both counts.
+
+## get_component_ledger
+
+`{page_url: {path: {tag, text, interacted, interactions, x, y, width,
+height, component_type, options, network_requests}}}` for all of `site`.
+`network_requests` is a list of `filter_meaningful_requests`-shaped dicts
+(already-decoded, not raw JSON strings) - `[]` if the component never
+triggered a meaningful request or predates this field's existence.
+
+The durable, human-inspectable "what did I do on this page, and to
+what" record, sourced from real persisted state - what
+`GraphPRDSynthesizer` reads to build its component catalog.
+
+## static-text-content
+
+A separate node kind from Component, deliberately: Component carries an
+entire interaction-tracking surface (interacted/interactions/options/
+network_requests, plus every frontier/tracker query that filters by it)
+that non-interactive text has no use for. Folding text into Component
+means either every text node permanently carries meaningless blank
+fields (the exact "ghost node" smell the Phase 0 ghost-node bug fix
+exists to eliminate) or every interaction-frontier query needs a `kind
+!= 'text'` filter bolted on. A second, purpose-built node kind with its
+own identity keeps the interaction surface untouched by construction.
+
+## record_text_content
+
+Create or refresh a text-content record - idempotent upsert, same
+discipline as `record_component`'s descriptive fields, but with no
+interaction state to preserve (none exists for non-interactive text).
+Called once per page visit (see `docs/dev/crawlers/page_visitor.md#visit`),
+*not* re-called on same-page reveals the way `record_inventory` now is
+for `Component` - text revealed only by an interaction is a real,
+structurally-symmetric gap to the ghost-node bug, but out of scope for
+this feature by explicit design.
