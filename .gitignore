@@ -1,6 +1,10 @@
 .env
 pragma.yaml
 
+# Playwright storage-state files (python3 src/cli.py login) contain real session
+# cookies/localStorage - never commit these, wherever the user chose to save them.
+storage_state*.json
+
 # Python
 __pycache__/
 *.pyc
@@ -16,3 +20,7 @@ venv/
 research_logs/*.md
 progress_logs/*.md
 graph_logs/*.json
+
+# Neo4j backups (scripts/neo4j_backup.sh) - binary dumps of a full crawled
+# graph, potentially large, never worth version-controlling.
+backups/

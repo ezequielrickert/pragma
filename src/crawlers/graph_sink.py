@@ -9,12 +9,14 @@ Two small, separately-testable pieces:
   of an in-memory dict, so "have I already interacted with this" survives
   across a persisted multi-run crawl, not just within one process (see
   wiki/graph-based-crawl-tracking.md's "the ledger must be consulted, not
-  write-only"). Its `mark_interacted`/`mark_visited` are deliberate no-ops -
-  see their docstrings - because `GraphStoreSink` below is what actually
-  performs the detail-rich write in each case (with `action`/`value`/
-  `resulting_url` the plain `InteractionTracker` protocol has no room for);
-  routing "mark" through here too would mean recording every interaction
-  twice, once thin and once rich.
+  write-only"). Its `mark_interacted`/`mark_visited` never perform the real,
+  detail-rich write - see their docstrings - because `GraphStoreSink` below
+  is what actually does that (with `action`/`value`/`resulting_url` the
+  plain `InteractionTracker` protocol has no room for); routing a real write
+  through here too would mean recording every interaction twice, once thin
+  and once rich. They do, however, update this tracker's own local read
+  cache (see docs/explicativos/plan-almacenamiento.md Fase B) - a cache
+  update, not a second store write.
 - `GraphStoreSink` - the detail-rich writer `MechanicalCrawler` calls
   directly at each point in the plan's hook-mapping table (page arrival,
   full component/link inventory, each interaction, navigation edges, page
@@ -35,34 +37,97 @@ from ..utils.urls import clean_url
 
 
 class GraphStoreInteractionTracker:
-    """`InteractionTracker` backed by `GraphStore` reads - see module
-    docstring for why its write methods are no-ops."""
+    """`InteractionTracker` backed by `GraphStore` reads, with a per-instance
+    local cache (docs/explicativos/plan-almacenamiento.md Fase B - "the N+1
+    read pattern" finding).
+
+    **Why the cache exists**: `GraphStore.get_component_states` is documented
+    (see its docstring on `GraphStore`) as "one query per page visit, not one
+    per component" - but before this cache, `is_interacted` called it fresh
+    on *every single call*, and `MechanicalCrawler._visit_page`'s frontier
+    loop calls `is_interacted` once per component considered, every pass -
+    so a page with N components did N full `GraphStore` round-trips (network
+    round-trips for `graph_store: neo4j`) just to answer the same "have I
+    interacted with this yet" question the loop already asked moments ago
+    for a barely-changed page. This directly contradicted the documented
+    "one query per page visit" contract rather than merely being slow by
+    coincidence. `is_visited` had the same shape for `_enqueue`/`_worker`
+    (called once per discovered link / per dequeue). Caching turns both into
+    one real `GraphStore` read per page for the lifetime of this tracker
+    instance (one per `MechanicalCrawler`, i.e. one per crawl) instead of one
+    per check - a real reduction in `GraphStore` round-trips, and (for
+    `graph_store: neo4j`) a real reduction in how often this crawl's own
+    event loop is blocked waiting on the synchronous Neo4j driver (see the
+    plan doc's Fase B section for why eliminating that blocking *entirely*
+    was scoped out of this change - it would require awaiting through
+    `mechanical_loop.py` methods explicitly documented as synchronous by
+    design, e.g. `_transition_to_new_state`).
+
+    **Why this is safe** (no interface/behavior change from `MechanicalCrawler`'s
+    point of view - same sync methods, same signatures, same semantics):
+    every real write this crawl makes to "interacted"/"visited" state goes
+    through `mark_interacted`/`mark_visited`, called at the *same* call sites
+    as the paired `GraphStoreSink.record_interaction`/`record_page_finished`
+    real writes (see `mechanical_loop.py`) - so the cache is updated in
+    lockstep with the real store, for every write *this* tracker instance's
+    crawl performs. A path never seen before (new to this page's cache, e.g.
+    a just-revealed component) correctly falls through to "not interacted"
+    via a plain dict miss - identical to what a fresh `GraphStore` read would
+    say for a path that was never written. The only actor that could make
+    this cache stale is a *different* process/tracker instance writing to the
+    same site concurrently while this crawl runs - not a new risk this cache
+    introduces: the existing architecture already assumes single-writer-per-
+    site-per-crawl (see `PragmaConfig.fresh`/`clear_site`'s own docstring).
+    """
 
     def __init__(self, graph_store: GraphStore, site: str) -> None:
         self.graph_store = graph_store
         self.site = site
+        # page_url -> {path: {..., "interacted": bool}} - populated lazily,
+        # one real GraphStore.get_component_states call per page, the first
+        # time any path on it is checked.
+        self._states_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        # page_url -> bool - same lazy-populate-once discipline as above.
+        self._visited_cache: Dict[str, bool] = {}
+
+    def _states_for(self, page_url: str) -> Dict[str, Dict[str, Any]]:
+        if page_url not in self._states_cache:
+            self._states_cache[page_url] = self.graph_store.get_component_states(self.site, page_url)
+        return self._states_cache[page_url]
 
     def is_interacted(self, page_url: str, path: str) -> bool:
-        states = self.graph_store.get_component_states(self.site, page_url)
-        return bool(states.get(path, {}).get("interacted"))
+        return bool(self._states_for(page_url).get(path, {}).get("interacted"))
 
     def mark_interacted(self, page_url: str, path: str) -> None:
-        """No-op: `GraphStoreSink.record_interaction` is what actually calls
-        `GraphStore.record_component_interaction` for every attempted
-        interaction (success or failure), with the full `action`/`value`/
-        `resulting_url` detail this protocol method doesn't carry. Marking
-        here too would be a second, thinner write for the same fact.
+        """Never the real write - `GraphStoreSink.record_interaction` is what
+        actually calls `GraphStore.record_component_interaction` for every
+        attempted interaction (success or failure), with the full `action`/
+        `value`/`resulting_url` detail this protocol method doesn't carry.
+        Updates this tracker's own local cache only, so a same-pass re-check
+        of the same path (e.g. the frontier loop revisiting a path already
+        marked earlier in this same pass) sees it without a redundant
+        `GraphStore` round-trip - `dict.setdefault` rather than requiring the
+        path to already be cached, since a component can be marked
+        interacted (e.g. a failed-interaction path, or one auto-created via
+        `record_component_interaction`'s own `ON CREATE`) without ever having
+        gone through `record_component`/being present in an already-cached
+        page's initial read.
         """
+        self._states_cache.setdefault(page_url, {}).setdefault(path, {})["interacted"] = True
 
     def is_visited(self, page_url: str) -> bool:
-        return self.graph_store.is_visited(self.site, page_url)
+        if page_url not in self._visited_cache:
+            self._visited_cache[page_url] = self.graph_store.is_visited(self.site, page_url)
+        return self._visited_cache[page_url]
 
     def mark_visited(self, page_url: str) -> None:
-        """No-op: `GraphStoreSink.record_page_finished` is what actually
-        calls `GraphStore.upsert_page(..., status="Finished", ...)` - see
-        that method's docstring for why it needs the final component count,
-        which this protocol method doesn't carry.
+        """Never the real write - `GraphStoreSink.record_page_finished` is
+        what actually calls `GraphStore.upsert_page(..., status="Finished",
+        ...)` - see that method's docstring for why it needs the final
+        component count, which this protocol method doesn't carry. Updates
+        the local cache only, same reasoning as `mark_interacted` above.
         """
+        self._visited_cache[page_url] = True
 
 
 class GraphStoreSink:

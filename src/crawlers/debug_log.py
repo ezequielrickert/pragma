@@ -35,8 +35,9 @@ and `Engine._run_async`):
 from __future__ import annotations
 
 import os
+import shutil
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 
 def _timestamp() -> str:
@@ -153,3 +154,43 @@ class CrawlDebugLog:
 
     def close(self) -> None:
         self._fh.close()
+
+
+def prune_old_runs(debug_logs_dir: str, slug: str, keep_last: Optional[int]) -> List[str]:
+    """Delete this site's oldest `debug_logs/{slug}_{timestamp}/` run
+    directories beyond `keep_last`, keeping the most recent ones. `None` or
+    a non-positive `keep_last` is a no-op (returns `[]`) - unbounded
+    retention is the existing, unchanged default; this is opt-in.
+
+    Scoped to `slug` (not a global cap across every site this project has
+    ever crawled) by only matching directories named `{slug}_<timestamp>` -
+    crawling one site a lot must never evict another site's debug history
+    just because it happened to run more recently. `_timestamp()`'s format
+    (`%Y%m%dT%H%M%SZ`) sorts correctly as a plain string, so directory name
+    order is chronological order - no need to parse it into a real datetime
+    just to decide which ones are oldest.
+
+    Called once a run finishes (see `Engine._run_async`), after
+    `CrawlDebugLog.close()` - pruning mid-run would risk deleting the very
+    directory the current run is still writing into if `keep_last` were ever
+    set to something small enough to include it.
+    """
+    if not keep_last or keep_last <= 0:
+        return []
+    if not os.path.isdir(debug_logs_dir):
+        return []
+
+    prefix = f"{slug}_"
+    candidates = sorted(
+        name
+        for name in os.listdir(debug_logs_dir)
+        if name.startswith(prefix) and os.path.isdir(os.path.join(debug_logs_dir, name))
+    )
+    to_delete = candidates[:-keep_last] if keep_last < len(candidates) else []
+
+    removed: List[str] = []
+    for name in to_delete:
+        path = os.path.join(debug_logs_dir, name)
+        shutil.rmtree(path, ignore_errors=True)
+        removed.append(path)
+    return removed

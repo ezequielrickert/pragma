@@ -3,6 +3,7 @@ pipeline against a real fixture site, asserting both output documents (the
 prose PRD and the new component-tree, Phase 5) get written with real content.
 """
 import http.server
+import json
 import os
 import shutil
 import tempfile
@@ -102,5 +103,86 @@ def test_ai_fill_values_false_skips_the_per_field_agent_call(fixture_server):
         )
         engine.run(f"{fixture_server}/index.html")
         assert FILL_VALUE_SYSTEM_INSTRUCTION not in agent.system_instructions_used
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_engine_run_records_manifest_and_skips_export_by_default(fixture_server):
+    """docs/explicativos/plan-almacenamiento.md Fase A: every run is recorded
+    in docs/runs.json unconditionally, but the JSON graph export is opt-in -
+    off by default must mean genuinely absent, not just unmentioned."""
+    out_dir = tempfile.mkdtemp()
+    try:
+        agent = AGENT_REGISTRY.create("mock")
+        graph_store = GRAPH_STORE_REGISTRY.create("memory")
+        graph_store.connect()
+        engine = Engine(
+            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            wait_seconds=0, debug_logs_dir="",
+        )
+        result = engine.run(f"{fixture_server}/index.html")
+
+        assert result.export_path is None
+        assert not list(Path(out_dir).glob("*_graph_*.json"))
+
+        assert result.manifest_path == str(Path(out_dir) / "runs.json")
+        manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+        site = next(iter(manifest))
+        entry = manifest[site][-1]
+        assert entry["prd_path"] == result.prd_path
+        assert entry["tree_path"] == result.tree_path
+        assert entry["export_path"] is None
+        assert entry["pages_total"] >= 1
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_engine_run_export_json_writes_a_third_document(fixture_server):
+    out_dir = tempfile.mkdtemp()
+    try:
+        agent = AGENT_REGISTRY.create("mock")
+        graph_store = GRAPH_STORE_REGISTRY.create("memory")
+        graph_store.connect()
+        engine = Engine(
+            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            wait_seconds=0, debug_logs_dir="", export_json=True,
+        )
+        result = engine.run(f"{fixture_server}/index.html")
+
+        assert result.export_path is not None
+        assert os.path.exists(result.export_path)
+        export_data = json.loads(Path(result.export_path).read_text(encoding="utf-8"))
+        assert export_data["pages"]
+
+        manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+        site = next(iter(manifest))
+        assert manifest[site][-1]["export_path"] == result.export_path
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_engine_run_regenerates_docs_index(fixture_server):
+    """docs/explicativos/plan-almacenamiento.md Fase E: docs/index.md must be
+    (re)written every run, unconditionally, linking to this run's own PRD."""
+    out_dir = tempfile.mkdtemp()
+    try:
+        agent = AGENT_REGISTRY.create("mock")
+        graph_store = GRAPH_STORE_REGISTRY.create("memory")
+        graph_store.connect()
+        engine = Engine(
+            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            wait_seconds=0, debug_logs_dir="",
+        )
+        result = engine.run(f"{fixture_server}/index.html")
+
+        # index_path is built the same forward-slash-f-string way as
+        # prd_path/tree_path/export_path elsewhere in Engine._run_async, not
+        # via Path() joining (which would use the platform's native
+        # separator) - match that convention here rather than Path().
+        assert result.index_path == f"{out_dir}/index.md"
+        assert os.path.exists(result.index_path)
+        index_text = Path(result.index_path).read_text(encoding="utf-8")
+        assert "# Pragma run index" in index_text
+        assert Path(result.prd_path).name in index_text
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)

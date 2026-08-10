@@ -1,46 +1,148 @@
-"""Integration tests against a real Neo4j instance - skipped unless one is reachable.
+"""Integration tests against a real Neo4j instance - skipped unless one is
+reachable by any of three means (docs/explicativos/plan-almacenamiento.md
+Fase C), tried in order:
 
-Run `docker compose up -d neo4j` first (see docker-compose.yml). Not part of
-the default fast test suite; CI/local runs without Neo4j simply skip this file.
+1. An already-reachable instance via the usual env vars (NEO4J_HOST/PORT/...)
+   - e.g. `docker compose up -d neo4j` run by hand first (see
+   docker-compose.yml), or a shared CI service. Zero extra cost - this file's
+   original, pre-Fase-C behavior, unchanged.
+2. An ephemeral `testcontainers`-managed Neo4j container, started once for
+   this test session and torn down at the end, when Docker is available but
+   no instance is already up - `pip install testcontainers` (deliberately
+   *not* the `testcontainers[neo4j]` extra: that extra hard-requires
+   `neo4j>=6`, which would force-upgrade this project's pinned
+   `neo4j==5.24.0` driver as a side effect of installing a test-only tool -
+   see the plan doc's Fase C bitácora for the version conflict this was
+   found to actually cause. Using testcontainers' generic `DockerContainer`
+   instead means every actual query still goes through this project's own
+   pinned `Neo4jGraphStore`/driver, identical to tier 1 - only *how the
+   server got started* differs).
+3. Skip - no Neo4j available by any means in this environment. Every
+   individual test skips (not the whole module at collection time) so a
+   plain `pytest --collect-only` never pays a container-startup cost just to
+   list tests.
 """
+import os
+from typing import Any, Dict, Optional
+
 import pytest
 
 neo4j = pytest.importorskip("neo4j")
 
+_TEST_SITE_CLEANUP_QUERIES = (
+    "MATCH (p:Page {site: 'pragma-test.local'}) DETACH DELETE p",
+    "MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c",
+    "MATCH (t:TextContent {site: 'pragma-test.local'}) DETACH DELETE t",
+    "MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s",
+)
 
-def _neo4j_reachable() -> bool:
+
+def _existing_instance_reachable() -> bool:
+    """Tier 1 - the fast path, no container startup at all."""
     try:
         from src.storage.neo4j_graph_store import Neo4jGraphStore
 
-        store = Neo4jGraphStore()
-        store.connect()
-        store.close()
+        s = Neo4jGraphStore()
+        s.connect()
+        s.close()
         return True
     except Exception:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _neo4j_reachable(), reason="Neo4j not reachable at localhost:7687"
-)
+@pytest.fixture(scope="session")
+def _neo4j_connection() -> Optional[Dict[str, Any]]:
+    """Kwargs for `Neo4jGraphStore(**...)` for whichever tier resolved, or
+    `None` if none did - session-scoped so an ephemeral container (tier 2)
+    is started at most once per test run, not once per test function.
+    """
+    if _existing_instance_reachable():
+        yield {
+            "host": os.getenv("NEO4J_HOST", "localhost"),
+            "port": int(os.getenv("NEO4J_PORT", "7687")),
+            "user": os.getenv("NEO4J_USER", "neo4j"),
+            "password": os.getenv("NEO4J_PASSWORD"),
+            "database": os.getenv("NEO4J_DATABASE", "neo4j"),
+        }
+        return
+
+    try:
+        from testcontainers.core.container import DockerContainer
+        from testcontainers.core.waiting_utils import wait_for_logs
+    except ImportError:
+        yield None
+        return
+
+    password = "pragma-test-container"  # nosec - throwaway, ephemeral container, never persisted
+    container = None
+    try:
+        # Constructing DockerContainer (not just .start()) can itself raise
+        # docker.errors.DockerException - confirmed live while building this:
+        # it eagerly talks to the Docker client, so "Docker installed but the
+        # daemon isn't actually running" (a real state seen in this project's
+        # own dev sandbox) fails right here, before .start() is ever reached.
+        # Everything from construction through readiness must share one
+        # try/except for tier 2 to degrade to tier 3 instead of erroring the
+        # whole fixture.
+        container = (
+            DockerContainer("neo4j:5.24-community")  # same image pinned in docker-compose.yml
+            .with_env("NEO4J_AUTH", f"neo4j/{password}")
+            .with_exposed_ports(7687)
+        )
+        container.start()
+        # "Bolt enabled on" is the Neo4j startup script's own readiness line
+        # once the bolt listener is actually up - the same signal
+        # testcontainers' own (unused here, see module docstring) Neo4j
+        # module waits for.
+        wait_for_logs(container, "Bolt enabled on", timeout=90)
+    except Exception:
+        # Docker installed but the daemon unreachable, image pull failed, or
+        # the container never became ready in time - same end result as "no
+        # Neo4j available" (tier 3), not a hard test failure.
+        if container is not None:
+            try:
+                container.stop()
+            except Exception:
+                pass
+        yield None
+        return
+
+    try:
+        yield {
+            "host": container.get_container_host_ip(),
+            "port": int(container.get_exposed_port(7687)),
+            "user": "neo4j",
+            "password": password,
+            "database": "neo4j",
+        }
+    finally:
+        container.stop()
 
 
 @pytest.fixture
-def store():
+def store(_neo4j_connection):
+    if _neo4j_connection is None:
+        pytest.skip(
+            "No Neo4j available: not reachable via NEO4J_HOST/PORT, and testcontainers/Docker "
+            "unavailable to start an ephemeral one. Run `docker compose up -d neo4j`, or install "
+            "`testcontainers` with a running Docker daemon, to exercise this file."
+        )
+
     from src.storage.neo4j_graph_store import Neo4jGraphStore
 
-    s = Neo4jGraphStore(database="neo4j")
+    s = Neo4jGraphStore(**_neo4j_connection)
     s.connect()
-    # Clean slate for the test's site namespace so re-runs don't accumulate.
+    # Clean slate for the test's site namespace so re-runs don't accumulate
+    # (matters most for tier 1, a long-lived instance reused across runs -
+    # a fresh tier-2 container has nothing to clean, but running the same
+    # queries there is harmless).
     with s._session() as session:
-        session.run("MATCH (p:Page {site: 'pragma-test.local'}) DETACH DELETE p")
-        session.run("MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c")
-        session.run("MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s")
+        for query in _TEST_SITE_CLEANUP_QUERIES:
+            session.run(query)
     yield s
     with s._session() as session:
-        session.run("MATCH (p:Page {site: 'pragma-test.local'}) DETACH DELETE p")
-        session.run("MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c")
-        session.run("MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s")
+        for query in _TEST_SITE_CLEANUP_QUERIES:
+            session.run(query)
     s.close()
 
 

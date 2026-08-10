@@ -146,6 +146,21 @@ class PragmaConfig:
     # Set to "" (empty string) to disable debug logging entirely - see
     # src/crawlers/debug_log.py and Engine._run_async.
     debug_logs_dir: str = "debug_logs"
+    # Max number of past debug_logs_dir run directories to keep for this same
+    # site+URL (see src/crawlers/debug_log.py::prune_old_runs), oldest
+    # deleted first. None (default) keeps every run forever, unchanged from
+    # before this setting existed - opt in once unbounded debug_logs/ growth
+    # becomes a real disk-space concern for a site crawled repeatedly. A
+    # no-op whenever debug_logs_dir is disabled (there's nothing to prune).
+    debug_logs_keep_last: Optional[int] = None
+    # Also write docs/{slug}_graph_{timestamp}.json - the full crawl graph
+    # (pages, edges, component ledger, text content) as structured JSON,
+    # alongside the prose PRD and the ASCII component tree - for a downstream
+    # tool that wants to consume the crawl's facts as data instead of
+    # documents meant for a person to read. Off by default so existing
+    # `out_dir` layouts don't suddenly grow an extra file per run without
+    # opting in. See src/generators/graph_export.py.
+    export_json: bool = False
     # Component-tree document (docs/{slug}_tree_{timestamp}.md) rendering
     # mode - Unicode box-drawing characters (tree command style) by default;
     # True falls back to plain ASCII for terminals/environments that mangle

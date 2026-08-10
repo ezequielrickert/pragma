@@ -94,6 +94,22 @@ def parse_args(argv: list) -> argparse.Namespace:
         "default Unicode box-drawing characters (├──, └──) - for terminals that mangle Unicode.",
     )
     parser.add_argument(
+        "--debug-logs-keep-last",
+        type=int,
+        dest="debug_logs_keep_last",
+        help="Keep only the N most recent debug_logs/ run directories for this site+URL, deleting "
+        "older ones once a run finishes (default: unbounded - keep every run forever).",
+    )
+    parser.add_argument(
+        "--export-json",
+        dest="export_json",
+        action="store_true",
+        default=None,
+        help="Also write docs/{slug}_graph_{timestamp}.json - the full crawl graph (pages, edges, "
+        "component ledger, text content) as structured JSON, alongside the prose PRD and the "
+        "component tree - for a downstream tool that wants the crawl's facts as data.",
+    )
+    parser.add_argument(
         "--fresh",
         dest="fresh",
         action=argparse.BooleanOptionalAction,
@@ -155,6 +171,10 @@ def main() -> None:
         result = engine.run(config.url)
         print(f"Successfully generated PRD: {result.prd_path}")
         print(f"Successfully generated component tree: {result.tree_path}")
+        if result.export_path:
+            print(f"Successfully generated JSON export: {result.export_path}")
+        print(f"Run recorded in manifest: {result.manifest_path}")
+        print(f"Run index updated: {result.index_path}")
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

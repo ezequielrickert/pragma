@@ -55,6 +55,16 @@ max_visits_per_route_shape: 1  # backstop for a site that mints a fresh, per-vis
 allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
                           # of example.com and its links get queued too (naive last-two-label match,
                           # not a full public-suffix-list lookup)
+# debug_logs_keep_last: 5  # keep only the N most recent debug_logs/ run directories for this site+URL,
+                       # deleting older ones once a run finishes. unset = unbounded (keep every run
+                       # forever, unchanged default) - opt in once debug_logs/ disk usage becomes a
+                       # real concern for a site crawled repeatedly. See src/crawlers/debug_log.py.
+export_json: false    # also write docs/{slug}_graph_{timestamp}.json - the full crawl graph (pages,
+                       # edges, component ledger, text content) as structured JSON, alongside the
+                       # prose PRD and the component tree - for a downstream tool that wants the
+                       # crawl's facts as data instead of documents meant for a person to read. See
+                       # src/generators/graph_export.py. Every run is always recorded (regardless of
+                       # this flag) in docs/runs.json - see src/utils/io.py::record_run_manifest.
 # page_timeout_seconds: 15.0  # crawl4ai's raw navigation/goto dead-page timeout - a DIFFERENT phase
                        # than wait_seconds/interaction_wait_seconds above (those apply after a page
                        # has already loaded; this bounds the underlying fetch itself). crawl4ai's own
