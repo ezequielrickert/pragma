@@ -12,9 +12,25 @@ and `Engine._run_async`):
   research log. This is what to open when a crawl behaved unexpectedly and
   `GraphStore`'s final state alone doesn't explain *how* it got there.
 - `pages/{page-slug}.md` - crawl4ai's own readable-markdown conversion of each
-  page as last seen (overwritten on revisit, not appended - a live snapshot,
-  not a history), so the actual textual content driving the crawl is directly
-  inspectable without re-running anything.
+  page *as most recently seen* (overwritten on every save for that
+  session/page - a live snapshot, for "what does this page look like right
+  now" at a glance), so the actual textual content driving the crawl is
+  directly inspectable without re-running anything.
+- `pages/{page-slug}.history.md` - the append-only companion to the file
+  above: every snapshot ever saved for that session/page, in order, each
+  under its own timestamped heading, never overwritten. **Update — added
+  after a real symptom on austral.edu.ar**: a single page visit calls
+  `save_page_markdown` once per interaction within that session (every
+  `discover_page`/`_interact`/`resync` call - see `Crawl4AICrawler._save_markdown`),
+  not just once per page. When one interaction reveals rich content (e.g. a
+  component with a list of items) and a *later* interaction in the same pass
+  changes the DOM again (even an unrelated one elsewhere on the page), the
+  live `.md` file above - being overwrite-only - silently loses the earlier,
+  more-interesting snapshot with no trace it ever existed. This is exactly
+  wiki/graph-based-crawl-tracking.md's "separate the live snapshot from the
+  append-only audit trail" principle, applied here: the live file alone
+  cannot answer "what did this page look like at the moment component X's
+  items were discovered," only the history file can.
 """
 from __future__ import annotations
 
@@ -99,19 +115,38 @@ class CrawlDebugLog:
         self._fh.flush()
 
     def save_page_markdown(self, url: str, markdown: str) -> str:
-        """Save crawl4ai's own markdown conversion of `url`'s current content
-        to `pages/{slug}.md` (overwriting any previous snapshot of the same
-        page - a live snapshot, not a history, since re-reading a page's
-        current text is what's useful, not every past revision of it) and log
-        a reference to it in `debug.md`. Returns the file path written.
+        """Save crawl4ai's own markdown conversion of `url`'s current content.
+
+        Writes two files (see this module's docstring for the full rationale):
+        - `pages/{slug}.md` - overwritten every call, the current-content
+          convenience snapshot.
+        - `pages/{slug}.history.md` - appended every call, never overwritten,
+          so a snapshot that showed real discovered content (e.g. a
+          component's revealed items) survives even if a *later* call in the
+          same session overwrites the live file with different content -
+          this is the file to open when the live snapshot doesn't show
+          something you saw earlier in a real crawl run.
+
+        Logs a reference to both in `debug.md`. Returns the live file's path
+        (unchanged return contract from before the history file was added).
         """
-        path = os.path.join(self.pages_dir, _page_slug(url))
+        slug = _page_slug(url)
+        path = os.path.join(self.pages_dir, slug)
         with open(path, "w", encoding="utf-8") as f:
             f.write(f"<!-- {url} -->\n\n{markdown}")
+
+        # `_page_slug` always returns a name ending in ".md" - swap that
+        # suffix for ".history.md" rather than appending onto it.
+        history_slug = slug[:-len(".md")] + ".history.md" if slug.endswith(".md") else slug + ".history.md"
+        history_path = os.path.join(self.pages_dir, history_slug)
+        with open(history_path, "a", encoding="utf-8") as f:
+            f.write(f"\n\n---\n\n<!-- [{_timestamp()}] {url} -->\n\n{markdown}")
+
         self.log_hook(
             "page_markdown_saved",
             url=url,
             path=os.path.relpath(path, self.run_dir),
+            history_path=os.path.relpath(history_path, self.run_dir),
             length=f"{len(markdown)} chars",
         )
         return path

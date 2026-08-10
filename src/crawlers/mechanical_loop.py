@@ -448,6 +448,54 @@ class MechanicalCrawler:
         self.page_results: List[PageVisitResult] = []
         self.errors: List[ComponentInteraction] = []
         self._pages_visited = 0
+        # page_key -> set of _component_identity() tuples already *proven*
+        # to navigate away from that page (either cleanly, via the success
+        # branch, or detected after an interaction failure - see
+        # `_check_for_silent_navigation`). A component's exact `path` churns
+        # across separate `discover_page()` reloads on sites where a
+        # persistent, site-wide element (a main-nav link, present on every
+        # page) gets a framework-assigned id/selector that regenerates on
+        # every render - confirmed live on austral.edu.ar: a nav-menu link
+        # to a large, slow-to-settle page looked "never tried" on every
+        # fresh resume (its path was different every time), so the same
+        # navigating click got re-attempted forever, each attempt paying the
+        # same failure. `path`-keyed `tracker.is_interacted` alone can never
+        # catch this (it's a *different* key each reload, by construction);
+        # content identity is stable across the reload precisely because
+        # it's independent of any assigned id. Once a component's identity
+        # is known to navigate away, `_visit_page` never offers it again for
+        # that page_key, regardless of what path it shows up under next.
+        self._navigation_trigger_identities: Dict[str, Set[tuple]] = {}
+        # page_key -> set of _component_identity() tuples ever successfully
+        # or unsuccessfully *interacted with* on that page_key, regardless of
+        # path - the same path-churn problem as `_navigation_trigger_identities`
+        # above, but for the *ordinary same-page reveal* path instead of the
+        # navigation path (a case that set doesn't cover, since nothing here
+        # ever navigates at all). Confirmed live on austral.edu.ar: an
+        # interactive book-viewer widget (libro_UA30) kept the *exact* same
+        # book page open (navigated: False, success: True, ~20-100 components
+        # each time) for 155+ separate interactions in one run - a same-page
+        # widget (a thumbnail strip/page-turn control) re-renders its DOM
+        # under fresh ids on every interaction, so path-based "already
+        # interacted" never recognizes the reappearing control as the one
+        # just clicked, and the "append newly-revealed components" step (see
+        # below) kept treating each fresh render as genuinely new work.
+        #
+        # Deliberate tradeoff, and worth stating plainly: unlike
+        # `_navigation_trigger_identities` (narrowly scoped to a *proven*
+        # one-way-door fact), this is a broader rule - two components that
+        # happen to share the exact same (tag, role, name, form, text) but
+        # are otherwise legitimately distinct (e.g. two "Leer más" cards
+        # linking to different articles, both generically labelled) would
+        # also collapse under this check, and the second would never be
+        # offered. Accepted because the alternative - the crawl never
+        # terminating on a churning widget - is unambiguously worse than an
+        # occasional missed near-duplicate-looking component; this mirrors
+        # the same "decline redundant work over risk overriding a real
+        # choice" calculus wiki/graph-based-crawl-tracking.md already
+        # documents, applied to a session-local heuristic instead of a
+        # cross-run one.
+        self._interacted_identities: Dict[str, Set[tuple]] = {}
 
     def _enqueue(self, url: str) -> None:
         key = clean_url(url)
@@ -652,6 +700,79 @@ class MechanicalCrawler:
         self._enqueue_links(fresh_state.links)
         return fresh_state.components
 
+    async def _check_for_silent_navigation(
+        self, url: str, session_id: str, page_literal: str
+    ) -> Optional[str]:
+        """After an interaction failure that wasn't cleanly identified as
+        either a stale-selector remount (`_is_element_not_found`) or a
+        successful navigation (the success branch's own `new_literal !=
+        page_literal` check), check whether the live browser session
+        actually moved anyway.
+
+        Confirmed live on austral.edu.ar: a real `<a href>` click can
+        physically navigate the browser, but if the destination page is slow
+        enough to settle that reading back this module's own success marker
+        times out first, `_interact()` raises a plain failure with no
+        `resulting_url` at all - from `_visit_page`'s point of view this
+        looks identical to an ordinary broken selector, so the loop kept
+        attempting every remaining frontier item against a page the session
+        had already left, each one *also* doomed the same way, for as many
+        components as the original page had - confirmed live: 90+ minutes,
+        one single `_visit_page()` call that never returned.
+
+        Uses `resync()` - the same no-op-`js_code` re-discovery
+        `_recover_stale_frontier` already uses - purely as a way to read the
+        live session's *current* URL; best-effort, since the destination
+        page might still be slow enough that even this call fails, in which
+        case the caller falls back to its pre-existing behavior (this is a
+        strict improvement over that fallback, never worse).
+
+        Returns the live session's current URL if it differs from
+        `page_literal` (a real, silently-missed navigation), or `None` if
+        the session is confirmed still on the same page, or if the check
+        itself couldn't complete.
+        """
+        try:
+            current_state = await self.crawler.resync(url, session_id)
+        except Exception as resync_exc:
+            print(f"Warning: silent-navigation check failed for {page_literal!r}: {resync_exc}")
+            return None
+        current_literal = clean_url(current_state.url)
+        return current_state.url if current_literal != page_literal else None
+
+    async def _handle_possible_silent_navigation(
+        self,
+        url: str,
+        session_id: str,
+        page_key: str,
+        page_literal: str,
+        component: Dict[str, Any],
+        path: str,
+        failed: "ComponentInteraction",
+        result: "PageVisitResult",
+    ) -> bool:
+        """Called from `_visit_page`'s except-block for a failure that isn't
+        the stale-remount case - see `_check_for_silent_navigation`'s
+        docstring for the real symptom this fixes. Performs the check and,
+        if it confirms a silent navigation, all the same bookkeeping the
+        success-branch's navigation case does (enqueue the destination, mark
+        `interrupted_by_navigation`, remember the content identity, record
+        the edge) - kept as its own method purely to keep `_visit_page`
+        itself from growing an even deeper nested branch.
+
+        Returns whether `_visit_page`'s interaction loop should stop
+        (`True`) - mirroring the success branch's own `break`.
+        """
+        silently_navigated_to = await self._check_for_silent_navigation(url, session_id, page_literal)
+        if silently_navigated_to is None:
+            return False
+        self._enqueue(silently_navigated_to)
+        result.interrupted_by_navigation = True
+        self._navigation_trigger_identities.setdefault(page_key, set()).add(_component_identity(component))
+        if self.sink:
+            self.sink.record_navigation_edge(page_key, route_shape(silently_navigated_to), path, failed.action)
+        return True
+
     def _transition_to_new_state(
         self,
         page_key: str,
@@ -702,9 +823,14 @@ class MechanicalCrawler:
         # triggered this branch in the first place - so abandoning them here
         # is correct, not a loss: attempting them would raise "element not
         # found" the moment the pass reached them anyway.
+        new_page_nav_triggers = self._navigation_trigger_identities.get(new_page_key, set())
+        new_page_interacted_identities = self._interacted_identities.get(new_page_key, set())
         frontier = [
             c for c in new_state.components
-            if c.get("visible") and not self.tracker.is_interacted(new_page_key, c.get("path"))
+            if c.get("visible")
+            and not self.tracker.is_interacted(new_page_key, c.get("path"))
+            and _component_identity(c) not in new_page_nav_triggers
+            and _component_identity(c) not in new_page_interacted_identities
         ]
         seen_paths_this_pass = {c.get("path") for c in frontier}
         return new_page_key, frontier, seen_paths_this_pass
@@ -773,9 +899,19 @@ class MechanicalCrawler:
             links_discovered=len(state.links),
         )
 
+        known_nav_triggers = self._navigation_trigger_identities.get(page_key, set())
+        already_interacted_identities = self._interacted_identities.get(page_key, set())
         frontier: List[Dict[str, Any]] = [
             c for c in state.components
-            if c.get("visible") and not self.tracker.is_interacted(page_key, c["path"])
+            if c.get("visible")
+            and not self.tracker.is_interacted(page_key, c["path"])
+            # Content-identity exclusions, on top of the path-based one above -
+            # see `_navigation_trigger_identities`'s and
+            # `_interacted_identities`'s docstrings for why a freshly-reloaded
+            # page's own churned selectors can't be caught by the path check
+            # alone.
+            and _component_identity(c) not in known_nav_triggers
+            and _component_identity(c) not in already_interacted_identities
         ]
         seen_paths_this_pass: Set[str] = {c["path"] for c in frontier}
         idx = 0
@@ -795,6 +931,22 @@ class MechanicalCrawler:
         # told us that; repeating it before any progress is made again would
         # just burn more wait_seconds for the same answer.
         stale_resynced_since_success = False
+        # A SEPARATE guard for the silent-navigation check below - kept
+        # independent of `stale_resynced_since_success` on purpose. These
+        # answer two different questions ("is the rest of my frontier stale"
+        # vs. "did THIS specific failing click silently navigate away") and
+        # a pass can hit both kinds of failure for different, unrelated
+        # components. Confirmed live on austral.edu.ar: a shared flag meant
+        # an early "element not found" elsewhere in the same pass silently
+        # starved the silent-navigation check for a *later*, different
+        # failing component - its content identity never got learned (see
+        # `_navigation_trigger_identities`), so every future resume kept
+        # re-discovering and re-failing on it, indefinitely, even though the
+        # very same component had already been proven, once, to navigate
+        # away. Two independent guards is what actually makes both
+        # recoveries available within one pass, exactly as each was
+        # designed to be used on its own.
+        silent_navigation_checked_since_success = False
 
         while idx < len(frontier) and interactions_done < max_total_interactions:
             component = frontier[idx]
@@ -823,6 +975,7 @@ class MechanicalCrawler:
                 self.errors.append(failed)
                 result.interactions.append(failed)
                 self.tracker.mark_interacted(page_key, path)  # don't retry a proven-broken target forever
+                self._interacted_identities.setdefault(page_key, set()).add(_component_identity(component))
                 if self.sink:
                     self.sink.record_interaction(page_key, path, failed.action, value="", resulting_url="")
 
@@ -843,10 +996,28 @@ class MechanicalCrawler:
                     )
                     if fresh_components is not None:
                         known_components = fresh_components
+                    continue
+
+                if not silent_navigation_checked_since_success:
+                    # Not an "element not found" (the stale-remount case
+                    # above) - this failure could instead mean the click DID
+                    # physically navigate the session away, but timed out
+                    # before ever reporting that cleanly. Check once per
+                    # failure streak, its OWN guard (independent of
+                    # `stale_resynced_since_success` - see this variable's
+                    # docstring for why) - this is the fix, not a retry-count
+                    # cap: see `_handle_possible_silent_navigation`'s docstring.
+                    silent_navigation_checked_since_success = True
+                    if await self._handle_possible_silent_navigation(
+                        url, session_id, page_key, page_literal, component, path, failed, result
+                    ):
+                        break
                 continue
 
             stale_resynced_since_success = False
+            silent_navigation_checked_since_success = False
             self.tracker.mark_interacted(page_key, path)
+            self._interacted_identities.setdefault(page_key, set()).add(_component_identity(component))
             new_literal = clean_url(new_state.url)
             new_key = route_shape(new_state.url)
             interaction.resulting_url = new_literal
@@ -872,6 +1043,17 @@ class MechanicalCrawler:
                 # pass can be safely acted on.
                 self._enqueue(new_state.url)
                 result.interrupted_by_navigation = True
+                # Remember this component's *content* identity, not just its
+                # path, as a proven one-way door out of this page_key - see
+                # `_navigation_trigger_identities`'s docstring. A persistent,
+                # site-wide element (a main-nav link) always leads to the
+                # same place regardless of which page you click it from or
+                # what selector it happens to render with this time, so this
+                # is safe to remember permanently for this page_key, not just
+                # for this one pass.
+                self._navigation_trigger_identities.setdefault(page_key, set()).add(
+                    _component_identity(component)
+                )
                 if self.sink:
                     # Canonical-to-canonical edge - if new_key == page_key
                     # (a same-route_shape "restart", per the docstring above)
@@ -928,7 +1110,12 @@ class MechanicalCrawler:
 
                 # Append genuinely-new, visible, not-yet-interacted components
                 # to *this pass's* frontier, still bounded by the same
-                # element_budget counter.
+                # element_budget counter. `page_key` here, not a stale outer
+                # value - see `_transition_to_new_state`'s docstring: a state
+                # transition earlier in this same pass can have already
+                # swapped it.
+                current_nav_triggers = self._navigation_trigger_identities.get(page_key, set())
+                current_interacted_identities = self._interacted_identities.get(page_key, set())
                 for candidate in new_state.components:
                     cpath = candidate.get("path")
                     if not candidate.get("visible"):
@@ -936,6 +1123,16 @@ class MechanicalCrawler:
                     if cpath in seen_paths_this_pass:
                         continue
                     if self.tracker.is_interacted(page_key, cpath):
+                        continue
+                    if _component_identity(candidate) in current_nav_triggers:
+                        continue
+                    if _component_identity(candidate) in current_interacted_identities:
+                        # Confirmed live on austral.edu.ar (libro_UA30 book
+                        # viewer): a same-page widget re-renders under a
+                        # fresh path on every interaction, so the path-based
+                        # checks above never recognize it as the one just
+                        # clicked - see `_interacted_identities`'s docstring
+                        # for the tradeoff this accepts.
                         continue
                     seen_paths_this_pass.add(cpath)
                     frontier.append(candidate)

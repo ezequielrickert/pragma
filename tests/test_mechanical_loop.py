@@ -859,3 +859,220 @@ def test_two_pages_redirecting_to_the_same_destination_never_visit_it_concurrent
     # inside it at the same time.
     assert fake.shared_discover_calls == 1
     assert fake.max_in_flight_shared == 1
+
+
+class _FakeChurningNavLinkCrawler:
+    """Reproduces the real austral.edu.ar bug directly (confirmed live via
+    debug_logs/austral.edu.ar_20260808T224204Z/debug.md - a single
+    `_visit_page()` call never returned across 90+ minutes and 70+ attempts):
+    a persistent, site-wide nav link's `click()` call fails outright (its
+    resulting-URL never gets reported cleanly - the shape a timed-out
+    marker read-back on a slow destination page produces) even though the
+    live browser genuinely navigated, confirmed here by `resync()` reporting
+    a different URL. The SAME logical link also gets a *different* selector
+    path on every fresh `discover_page()` call (framework-assigned id churn)
+    - so pure path-based dedup can never recognize it as already-tried on a
+    later resume.
+    """
+
+    def __init__(self) -> None:
+        self.page_url = "http://fixture/page"
+        self.other_url = "http://fixture/other"
+        self.discover_calls = 0
+        self.nav_click_attempts = 0
+        self.other_component_clicked = False
+
+    def _nav_path(self) -> str:
+        return f"body > a#nav-{self.discover_calls}"  # a fresh id every reload
+
+    def _components(self) -> List[Dict[str, Any]]:
+        return [
+            _component(self._nav_path(), "Encontra tu programa", tag="a"),
+            _component("body > button#other", "Other"),
+        ]
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url != self.page_url:
+            return PageState(url=url, components=[])
+        self.discover_calls += 1
+        return PageState(url=self.page_url, components=self._components())
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        if selector.startswith("body > a#nav-"):
+            self.nav_click_attempts += 1
+            # The real symptom: a plain failure, no resulting_url at all -
+            # even though (per resync() below) the browser really did move.
+            raise RuntimeError("interaction failed: could not read back action result")
+        if selector == "body > button#other":
+            self.other_component_clicked = True
+            return PageState(url=self.page_url, components=self._components())
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        # Ground truth: the live session really did navigate away, even
+        # though click() above never got to report it.
+        return PageState(url=self.other_url, components=[])
+
+
+def test_failed_click_that_silently_navigated_is_detected_and_not_retried_after_resume():
+    """The actual fix: a click failure that turns out to be a silently-missed
+    navigation must (1) stop the pass immediately - not grind through the
+    rest of a large frontier against a page the session already left - and
+    (2) never be re-attempted on a later resume, even though the same
+    logical component gets a brand-new selector path on every fresh
+    discover_page() call. Not a retry-count cap - the crawl must converge
+    because the component's *content* identity, not its path, is what's
+    remembered."""
+    fake = _FakeChurningNavLinkCrawler()
+    mech = MechanicalCrawler(fake, max_pages=10)
+    results = asyncio.run(mech.crawl_site(fake.page_url))
+
+    # The nav link's failure was only ever attempted ONCE across the whole
+    # crawl - not once per resume (which, before the fix, would grow
+    # without bound as long as its selector kept churning).
+    assert fake.nav_click_attempts == 1
+
+    # The pass that hit the silent navigation stopped immediately - it did
+    # not also try the (still-there) "other" component in that same doomed
+    # attempt against the wrong live page.
+    page_results = [r for r in results if r.url.endswith("fixture/page")]
+    assert any(r.interrupted_by_navigation for r in page_results)
+
+    # The resumed pass, on its fresh discover_page() (a new nav-N path),
+    # correctly skipped the known-navigating link and reached the other,
+    # harmless component instead - the crawl actually converges.
+    assert fake.other_component_clicked is True
+    assert fake.discover_calls == 2  # initial visit + exactly one resume, not dozens
+
+
+class _FakeMixedFailureCrawler:
+    """Reproduces the second-order bug found live on austral.edu.ar
+    (debug_logs/austral.edu.ar_20260809T011221Z/debug.md): a pass with an
+    EARLIER "element not found" failure (which consumes the stale-selector
+    resync's own guard) must not starve a LATER, unrelated silent-navigation
+    check for a *different* failing component in the same pass - stale-
+    selector recovery and silent-navigation detection are two different
+    recoveries and need two independent "once per streak" guards, not one
+    shared one.
+    """
+
+    def __init__(self) -> None:
+        self.page_url = "http://fixture/page"
+        self.other_url = "http://fixture/other"
+        self.discover_calls = 0
+        self.resync_calls = 0
+        self.nav_click_attempts = 0
+        self.stale_path = "body > button#stale"
+
+    def _nav_path(self) -> str:
+        return f"body > a#nav-{self.discover_calls}"  # churns every reload
+
+    def _components(self) -> List[Dict[str, Any]]:
+        return [
+            _component(self.stale_path, "Stale"),
+            _component(self._nav_path(), "Encontra tu programa", tag="a"),
+        ]
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url != self.page_url:
+            return PageState(url=url, components=[])
+        self.discover_calls += 1
+        return PageState(url=self.page_url, components=self._components())
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        if selector == self.stale_path:
+            raise RuntimeError(f"element not found: {selector}")
+        if selector.startswith("body > a#nav-"):
+            self.nav_click_attempts += 1
+            raise RuntimeError("interaction failed: could not read back action result")
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        self.resync_calls += 1
+        if self.resync_calls == 1:
+            # The stale-selector recovery's own resync, called right after
+            # the "element not found" failure above - the browser hasn't
+            # moved yet at this point, still on page_url.
+            return PageState(url=self.page_url, components=self._components())
+        # A later resync (from the silent-navigation check, after the nav
+        # link's own failure) - the browser has genuinely moved by now.
+        return PageState(url=self.other_url, components=[])
+
+
+def test_stale_selector_recovery_does_not_starve_a_later_silent_navigation_check():
+    """The actual second-order fix: an "element not found" failure earlier
+    in a pass must not consume the *same* guard a later, unrelated
+    silent-navigation check needs - each failure kind gets its own
+    independent one-per-streak allowance."""
+    fake = _FakeMixedFailureCrawler()
+    mech = MechanicalCrawler(fake, max_pages=10)
+    asyncio.run(mech.crawl_site(fake.page_url))
+
+    # The nav link was attempted, and its content identity was learned from
+    # that single attempt - not re-attempted on the resumed pass, even
+    # though an unrelated stale-selector failure happened earlier in the
+    # very same pass.
+    assert fake.nav_click_attempts == 1
+    assert fake.discover_calls == 2  # initial visit + exactly one resume
+
+
+class _FakeChurningWidgetCrawler:
+    """Reproduces the real austral.edu.ar bug directly (the libro_UA30 book
+    viewer, confirmed via
+    debug_logs/austral.edu.ar_20260809T144836Z/debug.md - 155+ same-page
+    interactions in a row, `navigated: False`, `success: True` every single
+    time): a same-page widget (e.g. a page-turn/thumbnail-strip control)
+    re-renders under a *fresh* path on every interaction, but with the
+    identical content identity - so the ordinary same-page-reveal frontier,
+    which only tracks *paths*, keeps treating every fresh render as
+    genuinely new, never-before-seen work, forever.
+    """
+
+    def __init__(self) -> None:
+        self.page_url = "http://fixture/page"
+        self.click_count = 0
+
+    def _widget_path(self) -> str:
+        return f"body > button#widget-{self.click_count}"
+
+    def _components(self) -> List[Dict[str, Any]]:
+        return [_component(self._widget_path(), "Next", tag="button")]
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        return PageState(url=self.page_url, components=self._components())
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.click_count += 1
+        # Same page, same URL - but a "new" (freshly-pathed) instance of the
+        # identical widget reappears every time, exactly like a re-rendered
+        # thumbnail-strip control.
+        return PageState(url=self.page_url, components=self._components())
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_churning_same_page_widget_converges_instead_of_looping_forever():
+    """The actual fix: a same-page widget that re-renders under a fresh path
+    on every interaction must be recognized, by content identity, as already
+    handled - not re-offered as "new" work on every single reveal, which
+    would otherwise never converge (bounded only by element_budget *
+    max_passes_per_page, i.e. up to 2000 by default)."""
+    fake = _FakeChurningWidgetCrawler()
+    mech = MechanicalCrawler(fake, max_pages=5)
+    results = asyncio.run(mech.crawl_site(fake.page_url))
+
+    # Converged after exactly one real click - the second, "freshly
+    # rendered" instance was correctly recognized as the same widget by
+    # content identity and never re-offered.
+    assert fake.click_count == 1
+    assert not any(r.budget_exhausted_with_frontier_remaining for r in results)
