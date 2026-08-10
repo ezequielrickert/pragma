@@ -79,6 +79,27 @@ overriding a real choice" calculus wiki/graph-based-crawl-tracking.md
 already documents, applied to a session-local heuristic instead of a
 cross-run one.
 
+## _fill_value_cache
+
+`(page_key, component_identity())` -> the value already generated for
+that field. Every fillable component reappears at least twice within one
+`visit()` (the pre-interaction snapshot and the post-interaction
+re-extraction both walk the same, unchanged form), and the same field
+shape can also recur across separate passes on one page - without this,
+`fill_value_fn` (a live AI call by default - see
+`docs/dev/crawlers/fill_value_agent.md#make_ai_fill_value_fn`) reruns for
+a field this pass has already generated a value for. Scoped to one
+`PageVisitor` instance (one crawl run), not persisted - see `_fill_value`.
+
+## _fill_value
+
+Look up `_fill_value_cache` before calling `fill_value_fn`; store the
+result on a miss. Keyed by `(page_key, component_identity(component))`,
+not `component_identity(component)` alone - two different pages can share
+a field shape (e.g. every page's "email" input), and caching across pages
+would incorrectly reuse one page's generated value for an unrelated
+field on another.
+
 ## _recover_stale_frontier
 
 Resync current DOM state after an "element not found" failure and

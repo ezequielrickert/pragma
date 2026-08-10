@@ -203,7 +203,7 @@ class Engine:
             await mechanical.crawl_site(url)
 
         if debug_log:
-            debug_log.close()
+            await debug_log.close()
             # Prune only after close() - see prune_old_runs's own doc.
             prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
 

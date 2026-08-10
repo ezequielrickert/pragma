@@ -14,7 +14,7 @@ from crawl4ai.async_configs import CacheMode
 from ..core.interfaces import PageState
 from .debug_log import CrawlDebugLog
 from .network_filter import filter_meaningful_requests
-from .page_extraction import run_extraction
+from .page_extraction import DISCOVER_COMPONENTS_JS, run_extraction
 
 # Hands a click/fill's own success/failure back to Python.
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_action_mark
@@ -24,6 +24,10 @@ _ACTION_MARK = "window.__pragma_last_action__"
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_blocked_resource_types
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
+# _wait_for_new_content's poll step.
+# Details: docs/dev/crawlers/crawl4ai_crawler.md#_adaptive_wait_step_seconds
+_ADAPTIVE_WAIT_STEP_SECONDS = 0.1
+
 
 def _is_navigation_context_error(exc: Exception) -> bool:
     """Whether `exc` is Playwright's "JS execution context was torn down" error.
@@ -31,6 +35,25 @@ def _is_navigation_context_error(exc: Exception) -> bool:
     """
     msg = str(exc).lower()
     return "context was destroyed" in msg and "navigation" in msg
+
+
+async def _wait_for_new_content(page, ceiling_seconds: float, baseline_count: Optional[int]) -> None:
+    """Poll in short steps for the first sign of new content, instead of
+    always sleeping the full ceiling.
+    Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
+    """
+    if ceiling_seconds <= 0:
+        return
+    deadline = asyncio.get_running_loop().time() + ceiling_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
+        try:
+            count = len(await page.evaluate(DISCOVER_COMPONENTS_JS))
+        except Exception:
+            return  # torn-down context - let the caller's own extraction handle it
+        settled = count > 0 if baseline_count is None else count != baseline_count
+        if settled:
+            return
 
 
 @dataclass
@@ -134,8 +157,9 @@ class Crawl4AICrawler:
         """Discovery point for a plain navigation pass (no `js_code` this call).
         Details: docs/dev/crawlers/crawl4ai_crawler.md#_before_retrieve_html
         """
-        if self.wait_seconds:
-            await asyncio.sleep(self.wait_seconds)
+        # No prior snapshot for a fresh navigation - any content counts.
+        # Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
+        await _wait_for_new_content(page, self.wait_seconds, baseline_count=None)
         session_id = config.session_id or "default"
         data = await run_extraction(page)
         self._stash[session_id] = data
@@ -155,8 +179,11 @@ class Crawl4AICrawler:
         Details: docs/dev/crawlers/crawl4ai_crawler.md#_on_execution_ended
         """
         session_id = config.session_id or "default"
-        if self.interaction_wait_seconds:
-            await asyncio.sleep(self.interaction_wait_seconds)
+        # Pre-click count, so only a genuine change counts as settled.
+        # Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
+        pre_click = self._stash.get(session_id)
+        baseline_count = len(pre_click["components"]) if pre_click else None
+        await _wait_for_new_content(page, self.interaction_wait_seconds, baseline_count)
         try:
             data = await run_extraction(page)
         except Exception as exc:

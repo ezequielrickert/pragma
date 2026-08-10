@@ -3,10 +3,11 @@ Details: docs/dev/crawlers/debug_log.md#module
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 def loggable_hook_details(args: tuple, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -62,6 +63,30 @@ class CrawlDebugLog:
             self._fh.write(f"# Crawl debug log{f' — {site}' if site else ''}\n\n")
             self._fh.write(f"Started: {datetime.now(timezone.utc).isoformat()}\n")
         self._fh.flush()
+        self._queue: asyncio.Queue[Callable[[], None]] = asyncio.Queue()
+        self._writer_task: Optional[asyncio.Task] = None
+
+    def _ensure_writer(self) -> None:
+        """Start the background drain task on first use, not at construction.
+        Details: docs/dev/crawlers/debug_log.md#_ensure_writer
+        """
+        if self._writer_task is None:
+            self._writer_task = asyncio.create_task(self._drain())
+
+    async def _drain(self) -> None:
+        """Run queued write jobs off the event loop, one at a time, in order.
+        Details: docs/dev/crawlers/debug_log.md#_drain
+        """
+        while True:
+            job = await self._queue.get()
+            try:
+                await asyncio.to_thread(job)
+            finally:
+                self._queue.task_done()
+
+    def _enqueue(self, job: Callable[[], None]) -> None:
+        self._ensure_writer()
+        self._queue.put_nowait(job)
 
     def log_hook_from_raw(self, hook_name: str, args: tuple, kwargs: Dict[str, Any]) -> None:
         """`log_hook` for a hook registered purely for its logging side effect.
@@ -70,48 +95,56 @@ class CrawlDebugLog:
         self.log_hook(hook_name, **loggable_hook_details(args, kwargs))
 
     def log_hook(self, hook_name: str, **details: Any) -> None:
-        """Append one entry for a single hook firing, as a flat bullet list.
+        """Queue one entry for a single hook firing, as a flat bullet list.
         Details: docs/dev/crawlers/debug_log.md#log_hook
         """
-        self._fh.write(f"\n## [{_timestamp()}] `{hook_name}`\n\n")
-        for key, value in details.items():
-            self._fh.write(f"- **{key}**: {value}\n")
-        self._fh.flush()
+        self._enqueue(lambda: self._append_entry(f"`{hook_name}`", details))
 
     def log_event(self, message: str, **details: Any) -> None:
-        """Append a free-text entry not tied to a specific crawl4ai hook.
+        """Queue a free-text entry not tied to a specific crawl4ai hook.
         Details: docs/dev/crawlers/debug_log.md#log_event
         """
-        self._fh.write(f"\n## [{_timestamp()}] {message}\n\n")
+        self._enqueue(lambda: self._append_entry(message, details))
+
+    def _append_entry(self, heading: str, details: Dict[str, Any]) -> None:
+        """Write one debug.md entry - runs inside the background writer thread.
+        Details: docs/dev/crawlers/debug_log.md#_append_entry
+        """
+        self._fh.write(f"\n## [{_timestamp()}] {heading}\n\n")
         for key, value in details.items():
             self._fh.write(f"- **{key}**: {value}\n")
         self._fh.flush()
 
     def save_page_markdown(self, url: str, markdown: str) -> str:
-        """Save crawl4ai's own markdown conversion of `url`'s current content.
+        """Queue `url`'s current markdown snapshot onto this run's history file.
         Details: docs/dev/crawlers/debug_log.md#save_page_markdown
         """
         slug = _page_slug(url)
-        path = os.path.join(self.pages_dir, slug)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(f"<!-- {url} -->\n\n{markdown}")
-
-        # ".md" -> ".history.md", not appended onto - see doc for both files' roles.
         history_slug = slug[:-len(".md")] + ".history.md" if slug.endswith(".md") else slug + ".history.md"
         history_path = os.path.join(self.pages_dir, history_slug)
-        with open(history_path, "a", encoding="utf-8") as f:
-            f.write(f"\n\n---\n\n<!-- [{_timestamp()}] {url} -->\n\n{markdown}")
 
-        self.log_hook(
-            "page_markdown_saved",
-            url=url,
-            path=os.path.relpath(path, self.run_dir),
-            history_path=os.path.relpath(history_path, self.run_dir),
-            length=f"{len(markdown)} chars",
-        )
-        return path
+        def write() -> None:
+            with open(history_path, "a", encoding="utf-8") as f:
+                f.write(f"\n\n---\n\n<!-- [{_timestamp()}] {url} -->\n\n{markdown}")
+            self._append_entry(
+                "page_markdown_saved",
+                {
+                    "url": url,
+                    "history_path": os.path.relpath(history_path, self.run_dir),
+                    "length": f"{len(markdown)} chars",
+                },
+            )
 
-    def close(self) -> None:
+        self._enqueue(write)
+        return history_path
+
+    async def close(self) -> None:
+        """Drain every queued write, then release this run's resources.
+        Details: docs/dev/crawlers/debug_log.md#close
+        """
+        await self._queue.join()
+        if self._writer_task is not None:
+            self._writer_task.cancel()
         self._fh.close()
 
 

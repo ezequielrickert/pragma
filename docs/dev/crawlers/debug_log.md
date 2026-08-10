@@ -13,27 +13,27 @@ and `Engine._run_async`):
   append-only audit trail" principle, applied to hook events instead of a
   research log. This is what to open when a crawl behaved unexpectedly and
   `GraphStore`'s final state alone doesn't explain *how* it got there.
-- `pages/{page-slug}.md` - crawl4ai's own readable-markdown conversion of each
-  page *as most recently seen* (overwritten on every save for that
-  session/page - a live snapshot, for "what does this page look like right
-  now" at a glance), so the actual textual content driving the crawl is
-  directly inspectable without re-running anything.
-- `pages/{page-slug}.history.md` - the append-only companion to the file
-  above: every snapshot ever saved for that session/page, in order, each
-  under its own timestamped heading, never overwritten.
+- `pages/{page-slug}.history.md` - crawl4ai's own readable-markdown
+  conversion of each page, every snapshot ever saved for that session/page,
+  in order, each under its own timestamped heading, never overwritten - so
+  the actual textual content driving the crawl is directly inspectable
+  without re-running anything, and an earlier, more-interesting snapshot
+  (e.g. a component's revealed items) survives even if a *later* call in
+  the same session would otherwise have overwritten it.
 
 **Added after a real symptom on austral.edu.ar**: a single page visit calls
 `save_page_markdown` once per interaction within that session (every
 `discover_page`/`_interact`/`resync` call - see `Crawl4AICrawler._save_markdown`),
-not just once per page. When one interaction reveals rich content (e.g. a
-component with a list of items) and a *later* interaction in the same pass
-changes the DOM again (even an unrelated one elsewhere on the page), the
-live `.md` file above - being overwrite-only - silently loses the earlier,
-more-interesting snapshot with no trace it ever existed. This is exactly
-wiki/graph-based-crawl-tracking.md's "separate the live snapshot from the
-append-only audit trail" principle, applied here: the live file alone
-cannot answer "what did this page look like at the moment component X's
-items were discovered," only the history file can.
+not just once per page. An earlier live-snapshot design (one file per page,
+overwritten on every call) silently lost the earlier, more-interesting
+snapshot the moment a later interaction changed the DOM again - this is
+exactly wiki/graph-based-crawl-tracking.md's "separate the live snapshot
+from the append-only audit trail" principle: only an append-only history
+can answer "what did this page look like at the moment component X's items
+were discovered." The overwrite-only live file was dropped entirely (see
+`save_page_markdown` below) once nothing in the extraction pipeline was
+found to read it - it was pure debug convenience, fully subsumed by the
+history file's last entry.
 
 ## loggable_hook_details
 
@@ -56,27 +56,39 @@ replacing path separators, since a URL is not a valid filename as-is.
 
 Owns both debug artifacts for one crawl run.
 
-**Update — this class predates `page_concurrency` (`MechanicalCrawler` can
-now run several `PageVisitor.visit()` coroutines at once) and the note that
-used to stand here ("a single crawl is driven by one sequential coroutine,
-no concurrent `arun()` calls") is no longer true - kept only as history for
-why the plain-buffered-file-handle design below is still fine despite
-that:** every `log_hook`/`log_event`/`save_page_markdown` call here is a
-single synchronous method with no `await` inside it, so asyncio's
-cooperative scheduling (never preempts mid-call, only at an `await` point)
-makes each individual call atomic - concurrent workers' calls interleave
-in time, appending whole entries in whatever order they actually complete,
-never mid-write. `debug.md`'s append-only shape is genuinely safe under
-concurrency for exactly this reason.
+**Writes are queued, not inline.** Every public method (`log_hook`,
+`log_event`, `save_page_markdown`) builds a job and returns immediately;
+a single background task (`_drain`, started lazily on first use by
+`_ensure_writer`) pulls jobs off `self._queue` in FIFO order and runs each
+one via `asyncio.to_thread`, so the actual `open`/`write`/`flush` work
+never blocks the coroutine that's mid-navigation or mid-extraction in
+`Crawl4AICrawler`. One writer task processing the queue serially is what
+keeps `debug.md` and `pages/*.history.md` in the same chronological order
+they were enqueued in, and is also what makes concurrent `PageVisitor`
+workers safe to call into without interleaving mid-write - see
+`MechanicalCrawler._in_flight` (`mechanical_loop.py`) for the unrelated,
+already-fixed race this class used to be exposed to before `session_id`
+keying (kept as history, not current risk).
 
-`pages/{slug}.md` was a real exception, since it isn't append-only:
-confirmed live on a real crawl (mapadeprofesionales.com,
-`page_concurrency=10`) that many distinct pages redirecting to the same
-destination could, before `Crawl4AICrawler._save_markdown` started keying
-by `session_id` instead of the post-redirect URL, overwrite one another's
-snapshot - a real information loss, not just interleaved output. See
-`MechanicalCrawler._in_flight` (`mechanical_loop.py`) for the deeper fix
-of the underlying race this symptom came from.
+## _ensure_writer
+
+Starts `_drain` as a background task on first enqueue, not in `__init__` -
+`asyncio.create_task` needs a running event loop, and `CrawlDebugLog` is
+constructed before one is guaranteed to exist at every call site (e.g. a
+future sync test harness). Every current production call site only
+enqueues from inside `Crawl4AICrawler`'s async hook machinery, which never
+runs without a live loop, so this is a formality that also keeps the
+constructor itself loop-agnostic.
+
+## _drain
+
+Runs forever, pulling one job at a time off `self._queue` and executing it
+via `asyncio.to_thread` so its blocking file I/O doesn't stall the event
+loop. Processing strictly one job at a time (not fanned out) is what
+preserves enqueue order across `debug.md` and the history files, and
+avoids two writer threads racing on the same open file handle. Stopped by
+`close()` cancelling this task after everything already queued has
+drained.
 
 ## log_hook_from_raw
 
@@ -88,34 +100,38 @@ specific of their own to pass in.
 
 ## log_hook
 
-Append one entry for a single hook firing. `details` is rendered as a
+Queue one entry for a single hook firing. `details` is rendered as a
 flat bullet list, in insertion order - callers pass whatever's
 relevant/available for that specific hook (see `Crawl4AICrawler`'s
 per-hook logging calls), not a fixed schema every hook must fill in.
 
 ## log_event
 
-Append a free-text entry not tied to a specific crawl4ai hook - e.g. a
+Queue a free-text entry not tied to a specific crawl4ai hook - e.g. a
 page-visit summary from `MechanicalCrawler` itself, so the log reads as
 one continuous timeline rather than only ever showing raw hook noise with
-no higher-level narrative.
+no higher-level narrative. Currently unused anywhere in this project - kept
+for parity with `log_hook`, not because anything calls it today.
 
 ## save_page_markdown
 
-Save crawl4ai's own markdown conversion of `url`'s current content.
+Queue crawl4ai's own markdown conversion of `url`'s current content onto
+`pages/{slug}.history.md` (see this doc's `module` section for why only
+the history file exists). Also queues a `page_markdown_saved` entry in
+`debug.md`, as part of the same job, so the two stay in relative order
+without a second round trip through the queue. Returns the history file's
+path immediately - it's a deterministic string join, no I/O required to
+compute it, so callers don't have to wait on the queued write to get it.
 
-Writes two files (see this doc's `module` section for the full rationale):
-- `pages/{slug}.md` - overwritten every call, the current-content
-  convenience snapshot.
-- `pages/{slug}.history.md` - appended every call, never overwritten, so a
-  snapshot that showed real discovered content (e.g. a component's
-  revealed items) survives even if a *later* call in the same session
-  overwrites the live file with different content - this is the file to
-  open when the live snapshot doesn't show something you saw earlier in a
-  real crawl run.
+## close
 
-Logs a reference to both in `debug.md`. Returns the live file's path
-(unchanged return contract from before the history file was added).
+Drain every job already queued (`await self._queue.join()`), cancel the
+background writer task, then close the file handle. Awaiting `join()`
+before cancelling is what guarantees every write requested before `close()`
+was called actually lands on disk - cancelling first could drop whatever
+was still in flight. `Engine._run_async` awaits this before calling
+`prune_old_runs`, same ordering requirement as before this class's writes
+became queued.
 
 ## prune_old_runs
 
@@ -133,6 +149,6 @@ order is chronological order - no need to parse it into a real datetime
 just to decide which ones are oldest.
 
 Called once a run finishes (see `Engine._run_async`), after
-`CrawlDebugLog.close()` - pruning mid-run would risk deleting the very
-directory the current run is still writing into if `keep_last` were ever
-set to something small enough to include it.
+`await CrawlDebugLog.close()` - pruning mid-run would risk deleting the
+very directory the current run is still writing into if `keep_last` were
+ever set to something small enough to include it.

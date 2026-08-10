@@ -58,6 +58,9 @@ class PageVisitor:
         # page_key -> identities ever interacted with, regardless of path.
         # Details: docs/dev/crawlers/page_visitor.md#_interacted_identities
         self._interacted_identities: Dict[str, Set[tuple]] = {}
+        # (page_key, component_identity) -> value already generated for that field.
+        # Details: docs/dev/crawlers/page_visitor.md#_fill_value_cache
+        self._fill_value_cache: Dict[tuple, str] = {}
 
     async def _recover_stale_frontier(
         self,
@@ -240,6 +243,17 @@ class PageVisitor:
 
         return new_state.components
 
+    async def _fill_value(self, page_key: str, component: Dict[str, Any], page_description: str) -> str:
+        """Reuse a previously generated value for the same field on this page.
+        Details: docs/dev/crawlers/page_visitor.md#_fill_value
+        """
+        key = (page_key, component_identity(component))
+        if key in self._fill_value_cache:
+            return self._fill_value_cache[key]
+        value = await self.fill_value_fn(component, page_description)
+        self._fill_value_cache[key] = value
+        return value
+
     async def visit(self, url: str) -> PageVisitResult:
         """Visit `url` and mechanically interact with its frontier.
         Details: docs/dev/crawlers/page_visitor.md#visit
@@ -303,7 +317,7 @@ class PageVisitor:
 
             try:
                 if fillable:
-                    value = await self.fill_value_fn(component, state.description)
+                    value = await self._fill_value(page_key, component, state.description)
                     new_state = await self.crawler.fill(url, session_id, path, value)
                     interaction = ComponentInteraction(page_key, path, "fill", value=value)
                 else:
