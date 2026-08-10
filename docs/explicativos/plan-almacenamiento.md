@@ -294,7 +294,18 @@ revisable por partes.
   si vale la pena agregar eso, o dejarlo como está dado que este proyecto corre crawls bajo demanda,
   no como un servicio siempre-activo con datos acumulándose continuamente.
 
-### Observación general (no accionada, solo documentada — decisión de otro alcance)
+### Observación general (decisión tomada después, ver actualización)
+
+> **Actualización posterior al cierre de la Fase E**: el usuario decidió explícitamente que sí -
+> mantener en el repo solo la corrida más reciente por sitio, no cada intento. Se limpiaron a mano
+> los pares PRD/tree viejos de `empanad.app` (dos corridas de ejemplo del 2026-08-08) y los
+> `debug_logs/` de 4 intentos fallidos de una comparación de modelos (ver
+> `docs/explicativos/avance-corridas-gemma-empanadapp.md`), dejando solo la corrida exitosa más
+> reciente de cada uno. Sigue sin haber una **política automática** de retención para `docs/` (a
+> diferencia de `debug_logs/`, que sí tiene `debug_logs_keep_last` desde la Fase A) - esta limpieza
+> fue manual, a pedido puntual. Candidato real para una fase futura si el patrón se repite seguido:
+> extender la idea de `debug_logs_keep_last` a `docs/`, o un comando explícito
+> (`python3 src/cli.py docs prune`) en vez de limpieza manual cada vez.
 
 Revisando `.gitignore` para agregar `backups/`, noté algo que no estaba en el plan original: `docs/`
 (los PRDs/trees/exports generados por corridas reales) y `debug_logs/` (snapshots de corridas reales
