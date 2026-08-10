@@ -16,9 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
-from src.crawlers.mechanical_loop import MechanicalCrawler
+from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from src.storage.memory_graph_store import InMemoryGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
@@ -80,8 +80,8 @@ def _crawl_with_graph_store(start_url: str, **kwargs):
     sink = GraphStoreSink(store, SITE)
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, sink=sink, **kwargs)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, **kwargs))
             results = await mech.crawl_site(start_url)
             return mech, results
 
@@ -146,10 +146,10 @@ def test_graph_backed_tracker_prevents_re_interaction_across_a_fresh_mechanical_
     sink = GraphStoreSink(store, SITE)
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech1 = MechanicalCrawler(crawler, sink=sink, max_pages=15)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech1 = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
             await mech1.crawl_site(f"{fixture_server}/index.html")
-            mech2 = MechanicalCrawler(crawler, sink=sink, max_pages=15)
+            mech2 = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
             return await mech2.crawl_site(f"{fixture_server}/index.html")
 
     results = asyncio.run(run())
@@ -164,8 +164,8 @@ def test_default_tracker_derives_from_sink_when_no_explicit_tracker_given(fixtur
     sink = GraphStoreSink(store, SITE)
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, sink=sink, max_pages=1)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=1))
             assert isinstance(mech.tracker, GraphStoreInteractionTracker)
             return mech.tracker
 

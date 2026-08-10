@@ -1,9 +1,5 @@
 """Registered builders for agents whose construction needs env-based logic.
-
-Each provider owns its config (a dataclass colocated with its Agent implementation,
-e.g. GeminiConfig in gemini_agent.py). These builders only decide *which* concrete
-class to instantiate and forward any explicit overrides (e.g. from pragma.yaml's
-`agents:` block) on top of that provider's own env-derived defaults.
+Details: docs/dev/agents/providers.md#module
 """
 from __future__ import annotations
 
@@ -42,11 +38,7 @@ def _apply_overrides(config: Any, overrides: Dict[str, Any]) -> Any:
 
 @AGENT_REGISTRY.register("gemini")
 def build_gemini_agent(**overrides: Any) -> Agent:
-    """Instantiate Gemini agent with appropriate auth.
-
-    Uses OAuth (service account) if a credentials file is configured, otherwise
-    falls back to the API-key REST flow.
-    """
+    """Instantiate Gemini agent: OAuth if a credentials file is configured, else API-key."""
     creds_file = overrides.get("creds_file") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
     if creds_file:

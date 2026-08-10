@@ -1,12 +1,5 @@
-"""Deterministic component classification and grouping - the "what is this, what does
-it offer, what state is it in" facts an LLM narration pass (see
-`SimplePRDGenerator._write_component_catalog`) turns into readable documentation.
-
-Every function here is pure and DOM-attribute-driven, no model call involved - matches
-this project's established preference (see wiki/local-and-small-model-constraints.md)
-for deterministic, code-side signals over model judgment wherever the underlying facts
-are already mechanically knowable. A small/weak local model narrates these facts into
-prose; it never has to *notice* them itself.
+"""Deterministic component classification and grouping for the PRD narration pass.
+Details: docs/dev/generators/component_classifier.md#module
 """
 from __future__ import annotations
 
@@ -14,31 +7,23 @@ import json
 import unicodedata
 from typing import Any, Dict, List, Optional
 
-# role values that mark a member of an enumerable list (a dropdown/combobox/menu's
-# individual choices) - see `find_revealed_options`.
+# role values marking a member of an enumerable list (dropdown/combobox/menu).
 _OPTION_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab"}
 
-# Increment/decrement label vocabulary, English + Spanish (this project already
-# crawls Spanish-labelled sites - see SimplePRDGenerator._generate_field_value's
-# equivalent accent-stripped matching for text field values) - matched against a
-# component's own text/aria-label after accent-stripping and lowercasing.
+# Increment/decrement vocabulary, English + Spanish (matched after normalize()).
 _INCREMENT_WORDS = {"agregar", "sumar", "mas", "add", "increase", "increment", "plus", "+"}
 _DECREMENT_WORDS = {"restar", "quitar", "menos", "remove", "decrease", "decrement", "minus", "-"}
 
 
 def _normalize(text: str) -> str:
-    """Lowercase, accent-stripped comparison key - mirrors
-    SimplePRDGenerator._generate_field_value's normalization so both stay
-    consistent for the same vocabulary-matching purpose."""
+    """Lowercase, accent-stripped comparison key for vocabulary matching."""
     text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
     return text.strip().lower()
 
 
 def classify_component_type(comp: Dict[str, Any]) -> str:
-    """A short, human-readable type label from tag/role/input_type alone -
-    no LLM call, no page context needed. This is the label the component
-    catalog's narration prompt is built around; the model is told what kind
-    of thing it's describing rather than asked to guess from raw HTML.
+    """A short, human-readable type label from tag/role/input_type alone.
+    Details: docs/dev/generators/component_classifier.md#classify_component_type
     """
     tag = (comp.get("tag") or "").lower()
     role = (comp.get("role") or "").lower()
@@ -72,30 +57,8 @@ def classify_component_type(comp: Dict[str, Any]) -> str:
 
 
 def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[str, Any]]:
-    """Components with an "option"-family role that a trigger's click/fill
-    just made available - either genuinely new to the DOM (matched by CSS
-    path not present in `before` at all - a React/Radix-portal widget that
-    mounts its popover content on open), OR already present in `before` but
-    CSS-hidden (`visible: False`) and now `visible: True` in `after` - the
-    other common pattern (a plain `hidden`/`display:none` toggle, the same
-    "present in the DOM the whole time, just hidden until a trigger" shape
-    `PlaywrightScraper._discover_components`'s own mega-menu handling already
-    assumes elsewhere). Both are "the user can now see and act on this that
-    they couldn't a moment ago" - the property this function actually exists
-    to detect - so both count as revealed.
-
-    A component with no `visible` key at all in either snapshot (a caller
-    that doesn't track it) is never treated as newly-revealed via the
-    became-visible path - only the by-path-absence check applies for it -
-    preserving this function's original behavior for such callers.
-
-    Called from `MechanicalCrawler._visit_page` comparing a page's component
-    list immediately before vs. after a same-page interaction - this is the
-    concrete "clicking 'Tercera Docena' revealed a 9-item bakery picker" case:
-    the trigger itself doesn't carry its own options in a single DOM
-    snapshot, they only exist once it's been opened, so this has to be a
-    before/after diff, not a single-snapshot classification like the other
-    functions here.
+    """Option-family components a trigger's click/fill just made available.
+    Details: docs/dev/generators/component_classifier.md#find_revealed_options
     """
     before_by_path = {c.get("path"): c for c in before}
     revealed = []
@@ -113,9 +76,7 @@ def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[st
 
 
 def _parent_path(path: str) -> str:
-    """The CSS path of `path`'s immediate parent (see `gp()` in
-    PlaywrightScraper._discover_components - paths are ' > '-joined segments),
-    used as a same-container grouping key for sibling elements."""
+    """CSS path of `path`'s immediate parent, used as a sibling-grouping key."""
     segments = (path or "").split(" > ")
     return " > ".join(segments[:-1])
 
@@ -128,15 +89,8 @@ def _looks_numeric(text: str) -> bool:
 
 
 def group_steppers(components: List[dict]) -> List[Dict[str, Any]]:
-    """Detect increment/decrement button pairs sharing a common parent container
-    (a quantity stepper: "-" / count / "+") and, if present, the numeric-looking
-    sibling between them.
-
-    Grouping key is the shared *parent* CSS path, not any single component's own
-    identity - a stepper's "+"/"-" buttons are siblings under one container, and
-    grouping by that container is what ties them together as one logical control
-    rather than three unrelated buttons/text. Returns one entry per detected
-    stepper; a page with no such pattern returns an empty list, cheaply.
+    """Detect increment/decrement button pairs sharing a common parent container.
+    Details: docs/dev/generators/component_classifier.md#group_steppers
     """
     groups: Dict[str, List[dict]] = {}
     for comp in components:
@@ -176,13 +130,8 @@ def group_steppers(components: List[dict]) -> List[Dict[str, Any]]:
 
 
 def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
-    """Radio/checkbox components sharing the same `name` attribute - the standard
-    HTML pattern for "these inputs are one logical choice, not independent
-    fields" (a single radio input alone isn't meaningfully describable without
-    its siblings; a whole named group is what a human would call "one control").
-
-    Groups of size 1 are dropped - nothing to group without at least one
-    sibling sharing the same `name`.
+    """Radio/checkbox components sharing the same `name` attribute.
+    Details: docs/dev/generators/component_classifier.md#group_choice_sets
     """
     groups: Dict[str, List[dict]] = {}
     for comp in components:
@@ -196,22 +145,8 @@ def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
 
 
 def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
-    """Parse a Component's raw `options` JSON blob (`GraphStore`'s
-    `record_component_options` field) and classify which of the three known
-    shapes it is, returning a normalized `{"kind", ...}` dict, or `None` if
-    empty/unparseable/unrecognized. The single place every consumer of this
-    field (`graph_prd_synthesizer.py`'s catalog narration,
-    `component_tree.py`'s deterministic renderer) goes to interpret it, so
-    the three-shape disambiguation logic exists exactly once:
-
-    - `{"kind": "stepper", "container", "increment_path", "decrement_path",
-       "value_path", "current_value"}` - `group_steppers`' output, written by
-      `GraphStoreSink.record_inventory`.
-    - `{"kind": "choice_group", "group", "choices": [{"text", "selected"}]}`
-      - `group_choice_sets`' output, same writer.
-    - `{"kind": "revealed_options", "trigger", "choices": [{"text",
-       "selected"}]}` - `find_revealed_options`' output, written by
-      `GraphStoreSink.record_revealed_options` (Phase 1).
+    """Parse a Component's raw `options` JSON blob into a normalized `{"kind", ...}` dict.
+    Details: docs/dev/generators/component_classifier.md#describe_options
     """
     if not options_json:
         return None

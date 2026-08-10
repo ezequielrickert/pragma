@@ -1,6 +1,4 @@
-"""
-Local agent implementation for Pragma, connecting to a local model API.
-"""
+"""Local agent implementation for Pragma, connecting to a local model API."""
 from __future__ import annotations
 
 import os
@@ -16,10 +14,7 @@ from ..core.registry import AGENT_REGISTRY
 @dataclass
 class LocalConfig:
     """Every setting the local agent needs, and where it comes from.
-
-    This is the single place that knows about LOCAL_API_URL/LOCAL_MODEL/
-    LOCAL_API_KEY/LOCAL_MAX_TOKENS - no other module should read those env
-    vars directly.
+    Details: docs/dev/agents/local_agent.md#localconfig
     """
 
     base_url: Optional[str] = None
@@ -36,16 +31,10 @@ class LocalConfig:
             base_url=os.getenv("LOCAL_API_URL"),
             model=os.getenv("LOCAL_MODEL"),
             timeout=int(env_timeout) if env_timeout else 300,
-            # Only needed when the server isn't a bare localhost/LAN endpoint -
-            # e.g. an LM Studio instance exposed through a Tailscale tunnel,
-            # which fronts it with bearer-token auth (see LocalAgent._headers).
+            # Only needed for a server fronted by tunnel auth (see _headers).
             api_key=os.getenv("LOCAL_API_KEY"),
-            # Unset by default (unlike OpenAIAgent's hardcoded max_tokens=1200) -
-            # a local reasoning model (DeepSeek-R1 and similar) can legitimately
-            # need many tokens of chain-of-thought before it reaches its actual
-            # answer, and guessing a "safe" default risks silently truncating
-            # that mid-thought. Opt in explicitly once you know your model's
-            # real budget (see this class's docstring).
+            # Unset by default, unlike OpenAIAgent's hardcoded max_tokens.
+            # Details: docs/dev/agents/local_agent.md#max_tokens
             max_tokens=int(env_max_tokens) if env_max_tokens else None,
         )
 
@@ -53,13 +42,7 @@ class LocalConfig:
 @AGENT_REGISTRY.register("local")
 class LocalAgent(Agent):
     """Agent that communicates with a local model API (e.g., LM Studio).
-
-    Post-crawl4ai-migration: this is plain text-completion only - the native
-    OpenAI-style tool-calling ladder (`act()`/`_act_native`/`_parse_tool_call`)
-    that used to live here existed solely to fill a per-step structured action
-    schema, which no longer exists (see `src/core/interfaces.py`'s docstring).
-    `generate()` is used by the fill-value (Phase 4) and synthesis (Phase 5)
-    call sites, both plain text completions.
+    Details: docs/dev/agents/local_agent.md#localagent
     """
 
     def __init__(
@@ -75,13 +58,10 @@ class LocalAgent(Agent):
         self.base_url = base_url or config.base_url or "http://192.168.68.76:1234/v1/chat/completions"
         self.model = model or config.model or "google/gemma-4-e2b"
         self.timeout = timeout or config.timeout
-        # Optional bearer token - LM Studio itself doesn't need one on a bare
-        # LAN/localhost endpoint, but a server fronted by a tunnel (e.g.
-        # Tailscale Funnel/Serve) commonly requires `Authorization: Bearer ...`.
+        # Optional bearer token, for a server fronted by a tunnel (Tailscale).
         self.api_key = api_key or config.api_key
-        # Unset (None) by default - see LocalConfig.max_tokens's docstring for
-        # why this isn't defaulted the way OpenAIAgent's is. Only added to a
-        # request payload when actually set (see _build_payload).
+        # Unset by default - see LocalConfig.max_tokens; added to the
+        # payload only when actually set (see _build_payload).
         self.max_tokens = max_tokens if max_tokens is not None else config.max_tokens
 
     def _headers(self) -> dict[str, str]:
@@ -93,18 +73,8 @@ class LocalAgent(Agent):
 
     @staticmethod
     def _raise_if_truncated(choice: dict[str, Any]) -> None:
-        """Raise a clear, actionable error if the server cut the response off
-        for running out of `max_tokens`, rather than let it masquerade as
-        something else downstream.
-
-        `finish_reason == "length"` is the OpenAI-compatible signal for this -
-        present regardless of whether the server separates a reasoning model's
-        chain-of-thought into its own `reasoning_content` field or leaves it
-        inline in `content`. Without this check, a reasoning model (DeepSeek-R1
-        and similar) that spends its entire `max_tokens` budget "thinking"
-        returns an empty `content` - which looks, from every other code path's
-        point of view, like an ordinary malformed response, silently giving no
-        indication the actual cause was one fixed, config-level number.
+        """Raise a clear error if the server truncated the response at max_tokens.
+        Details: docs/dev/agents/local_agent.md#_raise_if_truncated
         """
         if choice.get("finish_reason") != "length":
             return
@@ -121,7 +91,7 @@ class LocalAgent(Agent):
             return self._generate_request(prompt, system_instruction)
         except RuntimeError as exc:
             if "Local API Error (400)" in str(exc) and system_instruction:
-                # Fallback: Merge system instruction into user prompt
+                # Fallback: merge system instruction into the user prompt.
                 fallback_prompt = f"SYSTEM:\n{system_instruction}\n\nUSER:\n{prompt}"
                 return self._generate_request(fallback_prompt, None)
             raise

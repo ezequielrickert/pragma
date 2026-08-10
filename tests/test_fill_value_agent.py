@@ -10,13 +10,13 @@ from typing import List, Optional, Tuple
 import pytest
 
 from src.core.interfaces import Agent
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.fill_value_agent import (
     FILL_VALUE_SYSTEM_INSTRUCTION,
     generate_fill_value,
     make_ai_fill_value_fn,
 )
-from src.crawlers.mechanical_loop import MechanicalCrawler
+from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -100,11 +100,13 @@ def test_mechanical_crawler_fills_with_ai_generated_value_end_to_end(fixture_ser
     agent = RecordingAgent(["Ada Lovelace"])
 
     async def run():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
             mech = MechanicalCrawler(
                 crawler,
-                max_pages=15,
-                fill_value_fn=make_ai_fill_value_fn(agent),
+                config=MechanicalCrawlerConfig(
+                    max_pages=15,
+                    fill_value_fn=make_ai_fill_value_fn(agent),
+                ),
             )
             return await mech.crawl_site(f"{fixture_server}/index.html")
 

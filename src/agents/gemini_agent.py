@@ -15,9 +15,7 @@ from ..core.interfaces import Agent
 @dataclass
 class GeminiConfig:
     """Every setting the Gemini REST agent needs, and where it comes from.
-
-    This is the single place that knows about GEMINI_API_KEY/GEMINI_MODEL -
-    no other module should read those env vars directly.
+    Details: docs/dev/agents/gemini_agent.md#geminiconfig
     """
 
     api_key: Optional[str] = None

@@ -10,9 +10,9 @@ from typing import List, Optional
 import pytest
 
 from src.core.interfaces import Agent
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import MechanicalCrawler
+from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from src.generators.graph_prd_synthesizer import (
     CATALOG_SYSTEM_INSTRUCTION,
     REDUCE_SYSTEM_INSTRUCTION,
@@ -169,8 +169,8 @@ def test_end_to_end_crawl_then_synthesize(fixture_server):
     sink = GraphStoreSink(store, site)
 
     async def crawl():
-        async with Crawl4AICrawler(wait_seconds=0) as crawler:
-            mech = MechanicalCrawler(crawler, sink=sink, max_pages=15)
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
             return await mech.crawl_site(f"{fixture_server}/index.html")
 
     asyncio.run(crawl())
