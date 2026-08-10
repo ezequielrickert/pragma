@@ -1,16 +1,16 @@
 {
-  "www.empanad.app": [
+  "empanad.app": [
     {
-      "components_total": 150,
-      "components_unexplored": 125,
+      "components_total": 151,
+      "components_unexplored": 126,
       "export_path": null,
       "graph_store": "Neo4jGraphStore",
       "pages_finished": 1,
       "pages_total": 4,
-      "prd_path": "docs/www.empanad.app__prd_20260809T232740Z.md",
-      "timestamp": "20260809T232740Z",
-      "tree_path": "docs/www.empanad.app__tree_20260809T232740Z.md",
-      "url": "https://www.empanad.app/"
+      "prd_path": "docs/empanad.app_prd_20260810T152010Z.md",
+      "timestamp": "20260810T152010Z",
+      "tree_path": "docs/empanad.app_tree_20260810T152010Z.md",
+      "url": "https://empanad.app"
     }
   ]
 }

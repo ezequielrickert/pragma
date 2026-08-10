@@ -42,6 +42,17 @@ from .graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 # click targets even though they're <input> tags.
 _FILLABLE_INPUT_TYPES = {"", "text", "email", "search", "tel", "url", "number", "password"}
 
+# Circuit breaker for `_visit_page`'s interaction loop - see
+# `consecutive_unexplained_failures`'s introduction there for the exact
+# symptom this bounds (a session parked on a page that never finishes
+# loading makes the silent-navigation check itself fail the same way every
+# real interaction does, so nothing else stops the pass from burning the
+# entire remaining frontier one interaction-timeout at a time). Deliberately
+# small and deliberately not the same knob as `element_budget`/
+# `max_passes_per_page` (those bound normal, working exploration; this bounds
+# a pass that's already shown it isn't converging).
+_MAX_CONSECUTIVE_UNEXPLAINED_FAILURES = 3
+
 
 def _is_element_not_found(exc: Exception) -> bool:
     """Whether `exc` is specifically the "selector didn't resolve to a live
@@ -947,6 +958,23 @@ class MechanicalCrawler:
         # recoveries available within one pass, exactly as each was
         # designed to be used on its own.
         silent_navigation_checked_since_success = False
+        # Circuit breaker, independent of both guards above - confirmed live
+        # on austral.edu.ar: a session that lands on a page whose own
+        # `domcontentloaded` never fires (a WAF holding the response open)
+        # makes `_handle_possible_silent_navigation`'s own `resync()` call
+        # fail the *exact* same way every subsequent real interaction does -
+        # the ONE check built to catch "did we silently navigate away" is
+        # exactly the one guaranteed to also come back inconclusive here, and
+        # since it only runs once per failure streak, every remaining
+        # frontier item then gets attempted anyway, each independently
+        # burning a full interaction-timeout before failing the same way -
+        # confirmed live: 40+ consecutive identical `Timeout 30000ms
+        # exceeded` failures over 40+ minutes, still climbing, on one single
+        # page. This counts *consecutive* failures that reach this specific
+        # branch (not stale-selector remounts, which are a different, already
+        # -understood recovery) and gives up on the pass - not silently, not
+        # forever - once continuing clearly isn't converging on anything.
+        consecutive_unexplained_failures = 0
 
         while idx < len(frontier) and interactions_done < max_total_interactions:
             component = frontier[idx]
@@ -998,24 +1026,48 @@ class MechanicalCrawler:
                         known_components = fresh_components
                     continue
 
+                # Not an "element not found" (the stale-remount case above) -
+                # counts toward the circuit breaker below regardless of
+                # whether the silent-navigation check itself runs this
+                # iteration (its own guard only allows one attempt per
+                # streak - see that guard's docstring) or was already
+                # consumed by an earlier, unrelated failure this pass.
+                consecutive_unexplained_failures += 1
+
                 if not silent_navigation_checked_since_success:
-                    # Not an "element not found" (the stale-remount case
-                    # above) - this failure could instead mean the click DID
-                    # physically navigate the session away, but timed out
-                    # before ever reporting that cleanly. Check once per
-                    # failure streak, its OWN guard (independent of
-                    # `stale_resynced_since_success` - see this variable's
-                    # docstring for why) - this is the fix, not a retry-count
-                    # cap: see `_handle_possible_silent_navigation`'s docstring.
+                    # This failure could instead mean the click DID physically
+                    # navigate the session away, but timed out before ever
+                    # reporting that cleanly. Check once per failure streak,
+                    # its OWN guard (independent of `stale_resynced_since_
+                    # success` - see this variable's docstring for why) - this
+                    # is the fix, not a retry-count cap: see
+                    # `_handle_possible_silent_navigation`'s docstring.
                     silent_navigation_checked_since_success = True
                     if await self._handle_possible_silent_navigation(
                         url, session_id, page_key, page_literal, component, path, failed, result
                     ):
                         break
+
+                if consecutive_unexplained_failures >= _MAX_CONSECUTIVE_UNEXPLAINED_FAILURES:
+                    # The silent-navigation check above is itself just another
+                    # interaction against this same session - if the session
+                    # is genuinely dead (parked on a page that never finishes
+                    # loading), that check fails the identical way every real
+                    # interaction does, so it can never confirm what it exists
+                    # to confirm. Give up on this pass rather than burning the
+                    # rest of the frontier the same way, one interaction-
+                    # timeout at a time - not a confirmed navigation, but the
+                    # same recovery (requeue this page for a fresh visit later
+                    # - see PageVisitResult.interrupted_by_navigation) is the
+                    # right honest outcome: this pass isn't converging, and a
+                    # fresh session may not be stuck the same way.
+                    result.interrupted_by_navigation = True
+                    break
                 continue
 
             stale_resynced_since_success = False
             silent_navigation_checked_since_success = False
+            consecutive_unexplained_failures = 0
             self.tracker.mark_interacted(page_key, path)
             self._interacted_identities.setdefault(page_key, set()).add(_component_identity(component))
             new_literal = clean_url(new_state.url)

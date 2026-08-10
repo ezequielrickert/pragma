@@ -92,6 +92,8 @@ class Engine:
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
         export_json: bool = False,
+        prd_synth_batch_size: int = 5,
+        interaction_timeout_seconds: Optional[float] = None,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -111,6 +113,9 @@ class Engine:
         self.page_timeout_seconds = page_timeout_seconds
         self.prefetch = prefetch
         self.block_images = block_images
+        # A third timeout phase, distinct from page_timeout_seconds - see
+        # Crawl4AICrawler's own interaction_timeout_seconds docstring.
+        self.interaction_timeout_seconds = interaction_timeout_seconds
         # Scope boundary for MechanicalCrawler's URL frontier - a link (or a
         # redirect a click lands on) that leaves this crawl's own site is out
         # of scope and never itself visited, even though the interaction/edge
@@ -138,6 +143,9 @@ class Engine:
         # "unbounded" (unchanged prior behavior).
         self.debug_logs_keep_last = debug_logs_keep_last
         self.export_json = export_json
+        # Pages per GraphPRDSynthesizer batch-summarize call - see PragmaConfig.
+        # prd_synth_batch_size's docstring for what this fixes and why.
+        self.prd_synth_batch_size = prd_synth_batch_size
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -187,6 +195,8 @@ class Engine:
             allow_subdomains=config.allow_subdomains,
             debug_logs_keep_last=config.debug_logs_keep_last,
             export_json=config.export_json,
+            prd_synth_batch_size=config.prd_synth_batch_size,
+            interaction_timeout_seconds=config.interaction_timeout_seconds,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -216,6 +226,7 @@ class Engine:
             page_timeout_seconds=self.page_timeout_seconds,
             prefetch=self.prefetch,
             block_images=self.block_images,
+            interaction_timeout_seconds=self.interaction_timeout_seconds,
         ) as crawler:
             fill_value_fn = (
                 make_ai_fill_value_fn(self.agent) if self.ai_fill_values else default_placeholder_fill_value
@@ -242,7 +253,7 @@ class Engine:
             prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
 
         run_timestamp = _timestamp()
-        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store)
+        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store, batch_size=self.prd_synth_batch_size)
         prd = synthesizer.synthesize(site)
         prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{run_timestamp}.md"
         write_output(prd_path, prd)

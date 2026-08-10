@@ -197,6 +197,68 @@ conditions occur in the same pass - and because each recovery works perfectly in
 specific composition bug is easy to miss in review and looks, from the outside, exactly like "the fix
 didn't work," when the fix is actually fine and the bug is in what it now shares state with.
 
+**Update — a *third*, structurally different root cause in this same family: crawl4ai's own anti-bot
+heuristic can discard a signal this project's own code already correctly captured, moments earlier:**
+confirmed live on austral.edu.ar - one `_visit_page()` call still running after 40+ minutes and 40+
+identical failures when found. Not a stale selector (the first fix above), not a slow-to-report real
+navigation (the second), but something new: `async_webcrawler.py::is_blocked` runs *after every hook*
+- including `on_execution_ended`, where this project's own `action_result` (see the "single-script
+act-then-mark-success" entry below) had *already* correctly recorded `success: True, navigated: True`
+for a genuinely successful navigating click - and unconditionally vetoes the whole `arun()` call's
+top-level `result.success` to `False` whenever the *resulting* page's content structurally looks like a
+block/challenge page (no `<body>` tag, near-empty content, etc.). `Crawl4AICrawler._interact()` only
+ever checked that later, blunter `result.success` and raised unconditionally on `False` - discarding
+the earlier, more specific, already-correct navigation signal it had itself just captured. Confirmed
+directly (not just inferred from the live log): a real local-fixture test navigating to a deliberately
+`<body>`-less HTML page reproduced the exact `"Blocked by anti-bot protection: Near-empty content..."`
+`RuntimeError` even though the click itself worked perfectly.
+
+**Why this cascades into the exact same "many minutes stuck" symptom as the first fix above, even
+though the direct cause is different**: the resulting `RuntimeError` doesn't match `_is_element_not_found`,
+so it falls to the silent-navigation check (`_handle_possible_silent_navigation` → `resync()`) - but
+`resync()` is *itself* just another interaction against the same "blocked-looking" destination, so it
+hits the *identical* anti-bot veto and *also* raises, caught by `_check_for_silent_navigation`'s own
+try/except, returning `None` (inconclusive). The one check built to resolve "did we silently navigate"
+is exactly the one guaranteed to also fail here - and since it only runs once per failure streak, every
+remaining frontier item then gets attempted anyway, each independently failing the same way.
+
+**Fix pattern**: read this project's own, earlier signal before trusting a later, blunter one -
+`action_result` was captured *before* the anti-bot check could veto anything, so it's still trustworthy
+even when `result.success` isn't:
+
+```python
+data = self._stash.pop(session_id, {})
+action_result = data.get("action_result")
+action_succeeded = bool(action_result and action_result.get("success"))
+
+if not result.success and not action_succeeded:
+    raise RuntimeError(f"crawl4ai interaction failed for {url!r}: {result.error_message}")
+if not action_succeeded:
+    raise RuntimeError(f"interaction failed on {url!r}: {(action_result or {}).get('error', '...')}")
+# else: proceed normally - redirected_url is untouched by the anti-bot check
+# (only success/error_message are), so PageState.url still resolves correctly.
+```
+
+**Defense-in-depth, for whenever the ambiguity genuinely can't be resolved**: even with the fix above,
+a session can still be in a state where *both* the real interaction *and* its own verification attempt
+are doomed (e.g. the destination's `domcontentloaded` event never fires at all - see this doc's own
+"some config flags..." entry below for the matching `page.set_default_timeout()` fix for *that* half).
+For exactly that case, a circuit breaker independent of the existing "once per streak" guards - not a
+blanket retry-count cap on the whole page, just a bound on *consecutive, unexplained* failures within
+one pass:
+
+```python
+consecutive_unexplained_failures += 1
+if consecutive_unexplained_failures >= _MAX_CONSECUTIVE_UNEXPLAINED_FAILURES:  # 3
+    result.interrupted_by_navigation = True  # honest "not finished", not a confirmed navigation
+    break
+```
+
+Give up on the pass rather than grinding through the rest of a large frontier one interaction-timeout
+at a time when nothing is converging - the same "decline redundant/unproductive work" calculus
+[graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) already applies elsewhere, here scoped
+to "this session looks dead" rather than "this exact thing was already tried."
+
 ## `AsyncCrawlResponse.url` is not the URL you ended up at - `redirected_url` is
 
 **Symptom observed**: even after fixing the navigation-interruption bug above, a click that had
@@ -459,3 +521,26 @@ bound a real, different phase than this project's own `wait_seconds`/`interactio
   [debugging-agent-systems.md](debugging-agent-systems.md)'s "read the raw debug log" discipline)
   reads. Shipped as an explicit off-by-default opt-in, not an unconditional flip, so an active
   debugging session doesn't silently lose that artifact.
+
+**Update — a fourth phase found later, this time not a `CrawlerRunConfig` flag at all**: neither
+`page_timeout` nor `wait_seconds`/`interaction_wait_seconds` bounds crawl4ai's *own internal* waits
+inside a single interaction round-trip - e.g. `robust_execute_user_script` calling `page.wait_for_load_state
+("domcontentloaded")` with **no explicit timeout of its own**, confirmed by reading crawl4ai's source
+(this is the mechanism behind this doc's own "anti-bot heuristic can discard a signal already
+captured" entry above: a session parked on a page whose `domcontentloaded` never fires - a WAF holding
+the response open as an anti-automation measure - makes *every* subsequent interaction against that
+session silently inherit Playwright's own hardcoded 30000ms default, one full 30s wait per attempt).
+None of this project's own timeout knobs touch it, because it's Playwright's own *implicit* per-call
+default, not anything `CrawlerRunConfig` exposes. `page.set_default_timeout()`, called once per
+`arun()` in `on_page_context_created`, is what actually changes it - it only affects calls with no
+explicit timeout of their own, so it's additive, not a conflict with `page_timeout`'s own already-
+explicit value:
+
+```python
+async def _on_page_context_created(self, page, context, config, **kwargs):
+    if self.interaction_timeout_seconds is not None:
+        page.set_default_timeout(self.interaction_timeout_seconds * 1000)
+```
+
+Shrinks the cost of every wasted attempt against a dead/frozen session - complementary to, not a
+substitute for, the circuit breaker above (which stops the *retrying*, not just the per-attempt cost).

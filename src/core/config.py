@@ -53,6 +53,18 @@ class PragmaConfig:
     # killed before it ever finishes). See Crawl4AICrawler's own
     # page_timeout_seconds docstring.
     page_timeout_seconds: float = 15.0
+    # A THIRD timeout phase, distinct from both page_timeout_seconds above
+    # and wait_seconds/interaction_wait_seconds - bounds Playwright's own
+    # otherwise-unbounded-by-default internal waits inside one interaction
+    # round-trip (e.g. crawl4ai's robust_execute_user_script calling
+    # page.wait_for_load_state("domcontentloaded") with no explicit timeout
+    # at all). None (default) leaves Playwright's own 30000ms default in
+    # place. Confirmed live on austral.edu.ar: once a session lands on a page
+    # whose domcontentloaded event never fires (a WAF holding the response
+    # open as an anti-automation measure), every subsequent interaction
+    # against that session silently ate a full 30s before failing - see
+    # Crawl4AICrawler's own interaction_timeout_seconds docstring.
+    interaction_timeout_seconds: Optional[float] = None
     # Skips crawl4ai's own markdown-generation/content-scraping pipeline
     # (crawl4ai's `prefetch` option) - real savings, since this project never
     # reads that pipeline's output (all facts come from this project's own
@@ -90,6 +102,16 @@ class PragmaConfig:
     # same "backstop against a pathological case" philosophy as
     # element_budget itself.
     max_passes_per_page: int = 10
+    # Max pages' worth of section content GraphPRDSynthesizer.synthesize batches
+    # into a single "batch summarize" agent.generate() call before a final, much
+    # smaller "reduce" call combines the per-batch summaries - the fix for a
+    # single unbounded synthesis prompt hitting a local model's max_tokens
+    # truncation on real sites (confirmed live on empanad.app, 4/4 runs: see
+    # docs/explicativos/avance-corridas-gemma-empanadapp.md). Kept small
+    # deliberately - each page's block already includes a full narrated
+    # component catalog, not just a short label, so this is a heavier per-item
+    # budget than element_budget/max_passes_per_page above.
+    prd_synth_batch_size: int = 5
     # Backstop against a site that mints a fresh, per-visit-token URL (e.g. a
     # `/o/<random-hash>` order flow) on essentially every top-level visit -
     # confirmed live on empanad.app: each token is a distinct real identity

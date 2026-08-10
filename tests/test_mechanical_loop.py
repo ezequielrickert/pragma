@@ -1076,3 +1076,72 @@ def test_churning_same_page_widget_converges_instead_of_looping_forever():
     # content identity and never re-offered.
     assert fake.click_count == 1
     assert not any(r.budget_exhausted_with_frontier_remaining for r in results)
+
+
+class _FakeDeadSessionCrawler:
+    """Reproduces the third austral.edu.ar bug found live (debug_logs/
+    austral.edu.ar_20260810T152449Z/debug.md - one `_visit_page()` call still
+    running after 40+ minutes and 40+ identical failures when last read): a
+    click navigates the session to a page that never finishes loading (a WAF
+    holding the response open as an anti-automation measure - the real
+    destination was an 8653-byte, `<body>`-less shell), so EVERY subsequent
+    interaction against that session - including `resync()`'s own attempt to
+    confirm the navigation - fails the exact same, unexplained way. Unlike
+    `_FakeChurningNavLinkCrawler` above (where `resync()` reliably confirms
+    the navigation, letting the pass stop cleanly after one check), here
+    `resync()` itself is just another doomed interaction against the same
+    dead session - the one recovery built to catch this can never fire.
+    """
+
+    def __init__(self, n_remaining: int = 20) -> None:
+        self.page_url = "http://fixture/page"
+        self.n_remaining = n_remaining
+        self.click_attempts = 0
+        self.resync_attempts = 0
+
+    def _components(self) -> List[Dict[str, Any]]:
+        return [_component("body > a#nav", "Go", tag="a")] + [
+            _component(f"body > button#item{i}", f"Item {i}") for i in range(self.n_remaining)
+        ]
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        return PageState(url=self.page_url, components=self._components())
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.click_attempts += 1
+        # Every click - including whichever one actually navigated - fails
+        # the same generic way a slow/dead destination's marker read-back
+        # does (see Crawl4AICrawler._interact's docstring).
+        raise RuntimeError("interaction failed: Timeout 30000ms exceeded")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        # The one check meant to confirm "did we silently navigate" is
+        # itself just another interaction against the same dead session - it
+        # fails identically, every single time, never confirming anything.
+        self.resync_attempts += 1
+        raise RuntimeError("interaction failed: Timeout 30000ms exceeded")
+
+
+def test_consecutive_unexplained_failures_stop_the_pass_when_silent_nav_check_is_also_inconclusive():
+    """The circuit-breaker fix: when the silent-navigation check itself can
+    never confirm anything (because it's just another interaction against a
+    session that's genuinely dead), the pass must still give up well before
+    attempting every remaining frontier item one at a time - not grind
+    through all of them, each burning a full interaction timeout, for
+    however many components the page happens to have."""
+    fake = _FakeDeadSessionCrawler(n_remaining=20)
+    mech = MechanicalCrawler(fake, max_pages=1)
+    results = asyncio.run(mech.crawl_site(fake.page_url))
+
+    # Nowhere near all 21 components (1 nav link + 20 "item" buttons) were
+    # attempted - the circuit breaker cut the pass short instead of grinding
+    # through the whole frontier.
+    assert fake.click_attempts < 10
+
+    # The pass is honestly marked as interrupted (not silently "finished"
+    # with most of the page never actually explored).
+    page_results = [r for r in results if r.url.endswith("fixture/page")]
+    assert any(r.interrupted_by_navigation for r in page_results)

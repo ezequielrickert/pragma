@@ -71,6 +71,14 @@ export_json: false    # also write docs/{slug}_graph_{timestamp}.json - the full
                        # default is 60s; lower this to drop a genuinely hung/dead request faster. Keep
                        # it comfortably above wait_seconds's own scale, or a slow-but-alive real page
                        # gets killed before it ever finishes rendering.
+# interaction_timeout_seconds: 10.0  # a THIRD timeout phase - bounds Playwright's own otherwise-
+                       # unbounded-by-default internal waits inside one interaction round-trip (e.g.
+                       # crawl4ai's own domcontentloaded wait with no explicit timeout). Unset by
+                       # default (Playwright's own 30000ms default stays in effect). Confirmed live on
+                       # austral.edu.ar: once a session lands on a page whose domcontentloaded event
+                       # never fires (a WAF holding the response open), every subsequent interaction
+                       # against that session ate a full 30s before failing - see Crawl4AICrawler's
+                       # own interaction_timeout_seconds docstring.
 # prefetch: false       # skip crawl4ai's own markdown-generation pipeline entirely - real savings,
                        # since this project never reads that output (all facts come from its own
                        # discovery JS instead). Side effect: debug_logs/*/pages/*.md snapshots come

@@ -104,6 +104,7 @@ class Crawl4AICrawler:
         page_timeout_seconds: float = 15.0,
         prefetch: bool = False,
         block_images: bool = False,
+        interaction_timeout_seconds: Optional[float] = None,
     ) -> None:
         """
         Args:
@@ -194,6 +195,35 @@ class Crawl4AICrawler:
                 component discovery could then see differently) - opt in
                 once you've confirmed the target site's interactive elements
                 don't depend on images actually loading.
+            interaction_timeout_seconds: A *third* timeout phase, distinct
+                from both `page_timeout_seconds` (bounds the raw `goto()`/
+                `js_only` fetch) and `wait_seconds`/`interaction_wait_seconds`
+                (our own settle sleep *after* a load already succeeded) - this
+                one bounds Playwright's own *unbounded-by-default* internal
+                waits inside a single interaction round-trip, which neither of
+                the above ever touches. Confirmed live on austral.edu.ar
+                (see wiki/crawl4ai-integration-pitfalls.md's "a session parked
+                on a page that never finishes loading" entry): once a click
+                navigates the session to a page whose `domcontentloaded` event
+                never fires (a WAF holding the response open as an anti-
+                automation measure, observed serving a body-less "no <body>
+                tag" 8653-byte shell), crawl4ai's own `robust_execute_user_
+                script` calls `page.wait_for_load_state("domcontentloaded")`
+                with **no explicit timeout at all** - every single subsequent
+                interaction against that session then silently inherits
+                Playwright's own hardcoded 30000ms default, one full 30s wait
+                per attempt, for as many components as the page has left.
+                `page.set_default_timeout()` (called once per `arun()` call,
+                in `_on_page_context_created`) changes what *that* implicit
+                default resolves to - it only affects calls with no explicit
+                timeout of their own, so `page_timeout_seconds`'s own already-
+                explicit `goto()`/`js_only` timeout is untouched. `None`
+                (default) leaves Playwright's own 30000ms default in place -
+                opt in once a site's shown this exact failure shape; see
+                `MechanicalCrawler`'s consecutive-failure circuit breaker for
+                the complementary fix that actually stops burning attempts
+                once a session looks dead, rather than just making each dead
+                attempt cheaper.
         """
         self.headless = headless
         self.interaction_wait_seconds = (
@@ -204,6 +234,7 @@ class Crawl4AICrawler:
         self.page_timeout_seconds = page_timeout_seconds
         self.prefetch = prefetch
         self.block_images = block_images
+        self.interaction_timeout_seconds = interaction_timeout_seconds
         self._crawler: Optional[AsyncWebCrawler] = None
         # session_id -> {"components", "links", "description", "metadata", "title"}
         # populated by whichever hook last ran for that session, read back by
@@ -316,6 +347,15 @@ class Crawl4AICrawler:
         if self.block_images and not getattr(page, "_pragma_image_block_installed", False):
             await page.route("**/*", self._maybe_abort_media_request)
             page._pragma_image_block_installed = True
+        if self.interaction_timeout_seconds is not None:
+            # Changes what Playwright's *own* internal waits (e.g.
+            # robust_execute_user_script's un-timed `wait_for_load_state
+            # ("domcontentloaded")`) fall back to when they carry no explicit
+            # timeout of their own - see this class's __init__ docstring for
+            # the exact failure this fixes. Safe to call on every arun() (no
+            # "already installed" guard needed, unlike the route handler
+            # above - this is a plain property set, not a stacking handler).
+            page.set_default_timeout(self.interaction_timeout_seconds * 1000)
         if self.debug_log:
             details = self._loggable_hook_details((page,), {"context": context, "config": config, **kwargs})
             self.debug_log.log_hook("on_page_context_created", **details)
@@ -616,12 +656,36 @@ class Crawl4AICrawler:
             prefetch=self.prefetch,
         )
         result = await self._crawler.arun(url=url, config=config)
-        if not result.success:
-            raise RuntimeError(f"crawl4ai interaction failed for {url!r}: {result.error_message}")
 
+        # `result.success` can be False for a reason that has nothing to do
+        # with whether *our* interaction succeeded: crawl4ai's own anti-bot
+        # heuristic (`async_webcrawler.py::is_blocked`) runs *after* every
+        # hook - including `on_execution_ended`, where `self._stash`'s
+        # `action_result` below already got set - and vetoes the whole
+        # call's `success` to False whenever the resulting page's content
+        # looks like a block/challenge page (confirmed live on
+        # austral.edu.ar: a click that genuinely, correctly navigated - our
+        # own `on_execution_ended` hook logged `success: True, navigated:
+        # True` for it - still turned into an unconditional `RuntimeError`
+        # here, discarding the navigation this class's own code had already
+        # captured, because the destination happened to be an anti-bot
+        # challenge shell with no `<body>` tag). `redirected_url` itself is
+        # untouched by that check (only `success`/`error_message` are - see
+        # `async_webcrawler.py`), so `_resolved_url()` below still resolves
+        # correctly even when this happens.
+        #
+        # `action_result` is this class's own, earlier, more specific signal
+        # (see `_on_execution_ended`'s docstring) - read it before deciding
+        # whether `result.success == False` is actually fatal, so a real
+        # navigation that crawl4ai's own later heuristic second-guesses isn't
+        # silently thrown away as an unexplained failure.
         data = self._stash.pop(session_id, {})
         action_result = data.get("action_result")
-        if not action_result or not action_result.get("success"):
+        action_succeeded = bool(action_result and action_result.get("success"))
+
+        if not result.success and not action_succeeded:
+            raise RuntimeError(f"crawl4ai interaction failed for {url!r}: {result.error_message}")
+        if not action_succeeded:
             error = (action_result or {}).get("error", "no action result captured")
             raise RuntimeError(f"interaction failed on {url!r}: {error}")
 
