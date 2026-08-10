@@ -86,6 +86,117 @@ requests, against a fake whose redirect target changes on every call. A fake tha
 the *same* fixed destination can't distinguish "requeued the resolved URL" from "requeued the
 original request" - they'd look identical.
 
+**Update — the "must stop immediately" contract above only covers the *success* path; the failure
+path needs the exact same care, and a second, separate gap sits behind it:** confirmed live on
+austral.edu.ar: a real crawl got stuck on a single page for 90+ minutes - one `_visit_page()` call
+that never returned across 70+ `arun()` attempts, each slower than the last (34s growing past 600s).
+Reading the raw debug log (not guessing) showed why: a persistent, site-wide nav-menu link (present
+on every page of the site) was clicked; the click physically navigated the browser to a large,
+slow-to-settle destination page; reading back this project's own success marker (a plain
+`page.evaluate()`, no explicit timeout override) then hit *Playwright's own default action timeout*
+against that slow page - 30000ms, a different knob entirely from this project's own `page_timeout`
+(which bounds the raw `goto()`/`js_only` fetch, an earlier phase). Because the failure surfaced as a
+plain exception with no `resulting_url` at all, the except-block built for a broken/stale selector
+(the fix earlier in this doc) had no way to know a navigation had actually happened - it just marked
+that one path interacted and kept attempting the *rest* of that page's frontier (283 components)
+against a live browser page that had already moved on, each one doomed the same way.
+
+**Why the follow-up-pass resume didn't save it**: even once that doomed pass finally exhausted its
+frontier and got resumed via the mechanism above, the resumed page's own fresh `discover_page()`
+re-encountered the *identical* nav link under a brand-new selector path - a common pattern for
+persistent site-wide nav/mega-menu widgets built with a JS templating framework that assigns a fresh
+generated id on every render. Path-based "already interacted" tracking can never recognize that as
+the same link twice, so the whole failure repeated from scratch on every single resume, unbounded -
+the same root shape as [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md)'s
+stale-selector-remap entry (a `path` that churns across reloads needs a content-based identity to
+survive it), just one level up: across separate page *reloads*, not within one remount.
+
+**Fix pattern**: two parts, deliberately not a retry-count cap (a cap doesn't explain *why* it loops,
+it just hides the symptom under a bigger number).
+
+1. On any failure that isn't the already-handled "element not found" case, check whether the live
+   session navigated anyway - reuse `resync()` (the same no-op-`js_code` re-discovery the
+   stale-selector fix already uses) purely to read the session's *current* URL:
+
+   ```python
+   if not _is_element_not_found(exc):
+       current = await crawler.resync(url, session_id)
+       if clean_url(current.url) != page_literal:
+           # A silently-missed navigation, not an ordinary broken selector -
+           # treat it exactly like the success branch's own navigation case.
+           enqueue(current.url)
+           interrupted_by_navigation = True
+           break
+   ```
+
+2. Remember *which* interaction, by content identity (`_component_identity` - tag/role/name/form/text,
+   the exact tuple the stale-selector fix already established, reused here for a different purpose)
+   is now *proven* to navigate away from a given canonical page, keyed per page - checked when
+   building every future frontier for that page, regardless of what path the same logical component
+   shows up under next time:
+
+   ```python
+   known_navigators = navigation_trigger_identities.get(page_key, set())
+   frontier = [
+       c for c in components
+       if not is_interacted(page_key, c["path"]) and identity(c) not in known_navigators
+   ]
+   ```
+
+   A persistent, site-wide element always leads to the same real destination regardless of which page
+   it's clicked from or what selector it renders with today, so once one click proves that fact, it's
+   correct to never offer that exact logical interaction again for that page - converging in two
+   resumes (learn it, then skip it) instead of never converging at all.
+
+**Update — the fix above shipped and worked, then the exact same site still looped, because the new
+recovery shared a guard flag with an older, unrelated one:** confirmed by reading a *second* live
+debug log from the same site, taken after the fix above had already landed. The symptom looked
+identical to the original bug (the same `before_retrieve_html` url/session_id mismatch, repeating for
+~20 minutes) - which made it briefly look like the fix simply hadn't worked. Reading the log closely
+showed otherwise: the *very first* navigating click in the sequence succeeded cleanly and *was*
+correctly learned - proving the fix's core mechanism was right. Every failure after that was a
+different story: the new "check for a silent navigation" recovery was gated by
+`stale_resynced_since_success` - the *same* boolean the pre-existing, unrelated stale-selector-remount
+resync already used for its own "only once per failure streak" throttle. The two guards answer
+genuinely different questions ("is the rest of my frontier built from a now-stale snapshot" vs. "did
+*this* failing click silently navigate away") and can both legitimately need to fire, for different
+components, within one pass - but sharing one flag meant an earlier, completely unrelated "element not
+found" failure elsewhere in the pass consumed the guard, so a *later*, different component's
+silent-navigation check never ran at all. That component's failure was swallowed as an ordinary error,
+its content identity was never learned, and it kept getting re-discovered and re-failing identically on
+every future resume - with no error and nothing looking obviously broken from the outside.
+
+**Fix pattern**: split the shared guard into two independent booleans, each reset only on the pass's
+own next successful interaction, each consulted only by its own recovery branch:
+
+```python
+stale_resynced_since_success = False           # guards the stale-selector resync, only
+silent_navigation_checked_since_success = False # guards the silent-navigation check, only
+
+# ... on a stale-selector ("element not found") failure:
+if is_element_not_found(exc) and not stale_resynced_since_success:
+    stale_resynced_since_success = True
+    ...  # resync and remap, as before
+
+# ... on any OTHER failure - independent guard, not gated by the one above:
+elif not silent_navigation_checked_since_success:
+    silent_navigation_checked_since_success = True
+    ...  # check for a silent navigation, as before
+
+# ... on a successful interaction, reset BOTH:
+stale_resynced_since_success = False
+silent_navigation_checked_since_success = False
+```
+
+**General, reusable lesson beyond this one instance**: when adding a second recovery to a function
+that already has a "run this recovery at most once per streak" guard for a *different*, pre-existing
+recovery, don't reach for that existing guard just because both recoveries happen to live in the same
+`except` block and both want the same "not too often" throttling. Two different questions asked in the
+same place need two different flags, or the older one silently starves the newer one the moment both
+conditions occur in the same pass - and because each recovery works perfectly in isolation, this
+specific composition bug is easy to miss in review and looks, from the outside, exactly like "the fix
+didn't work," when the fix is actually fine and the bug is in what it now shares state with.
+
 ## `AsyncCrawlResponse.url` is not the URL you ended up at - `redirected_url` is
 
 **Symptom observed**: even after fixing the navigation-interruption bug above, a click that had

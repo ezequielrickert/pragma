@@ -106,6 +106,41 @@ read:
   debug *why* a run behaved the way it did. It should never be read back into the agent's own
   prompts (it grows unbounded); it exists purely for post-hoc inspection.
 
+**Update — this project's own per-page markdown snapshot violated this principle for a long time,
+because "one snapshot per page" was the wrong mental model:** `CrawlDebugLog.save_page_markdown`
+(`src/crawlers/debug_log.py`) was built overwrite-only, on the reasoning that a page's markdown
+snapshot is a "live snapshot" concept — reasonable-sounding, and correct for the case of a literal
+page *revisit*. What that reasoning missed: `save_page_markdown` isn't called once per page visit,
+it's called once per **interaction** within a session (`discover_page`, every `_interact`, every
+`resync` — see `Crawl4AICrawler._save_markdown`'s call sites). A single page visit with, say, 40
+interactions saves the same file 40 times. If interaction #12 reveals a component's items (a rich,
+diagnostically valuable DOM state) and interaction #13 is a completely unrelated click elsewhere on
+the page, the overwrite silently destroys interaction #12's snapshot with no trace it ever existed —
+confirmed live on austral.edu.ar as exactly the symptom a human would describe as "the states are
+being stepped on... if a component with items is discovered, then another iteration steps over what
+was written."
+
+**Fix pattern**: keep the overwrite-only file for its real, legitimate use (quick "what does this
+page look like right now" convenience), but add a second, append-only companion file that every
+`save_page_markdown` call also writes to, never overwritten:
+
+```python
+def save_page_markdown(self, url: str, markdown: str) -> str:
+    # Live: overwritten every call, current-content convenience.
+    write(pages_dir / f"{slug}.md", markdown)
+    # History: appended every call, never overwritten - the actual
+    # append-only audit trail for this artifact.
+    append(pages_dir / f"{slug}.history.md", f"\n\n---\n\n<!-- [{timestamp()}] -->\n\n{markdown}")
+```
+
+**General, reusable lesson**: "does this event happen once per logical unit of work" is the
+question to ask before deciding an artifact is safe to make overwrite-only — it's easy to reach for
+"live snapshot" as soon as the *key* (a URL, a page) is stable across calls, without checking
+whether the *call frequency* is actually higher-resolution than that key implies. Any artifact
+that's saved more often than the granularity a human would naturally think of it at ("once per
+page") needs the append-only treatment, or every intermediate state between the first save and the
+last becomes unrecoverable.
+
 ## Attach a human-readable "why"/"via what" to every edge, not just the raw action
 
 Recording `GOTO https://example.com/x` tells you *where*, not *why* — was it a nav link, a footer
@@ -512,3 +547,56 @@ if it's still not done, exactly as it would have anyway. The general lesson: **a
 second producer path that bypasses the first path's dedup on purpose, dequeue-time membership becomes
 the only thing that can still catch a collision** - a bypass that was safe for a single consumer is not
 automatically safe once a second one can race it.
+
+## A same-page reveal chain needs the same churned-selector defense a cross-reload frontier already has
+
+**Symptom observed**: a real crawl of austral.edu.ar got stuck interacting with a single interactive
+widget (a book-page-viewer control) for 155+ consecutive interactions in one continuous session -
+confirmed via a real debug log, where *every single* interaction event showed a clean, successful,
+non-navigating result (no errors, no timeouts, nothing that looked broken) and yet the crawl never
+progressed past it. This is a genuinely different shape from the two path-churn bugs above: no
+navigation happened at all, and no dedup-bypass path was involved - the ordinary, entirely-intended
+same-page-reveal mechanism (the one that lets a dropdown opening chain into exploring its own newly
+revealed options) is what kept running.
+
+**Why it happens**: a same-page widget can re-render its own DOM under a *fresh* selector path on every
+interaction while its actual identity (tag/role/name/text) stays the same - the identical churned-id
+pattern documented elsewhere in this doc for a page reload, just happening on every single same-page
+interaction instead. The "append newly-revealed components to this pass's frontier" step only checked
+*path*-based interacted status, with no content-identity fallback at all (unlike the navigation-specific
+case, which by then already had one) - so every freshly-rendered instance of the identical widget looked
+like genuinely new, never-before-seen work, and kept getting appended and clicked. Not literally infinite
+(bounded by `element_budget * max_passes_per_page`, 2000 by default) but indistinguishable from stuck in
+practice - each attempt costs a real network round trip, so 2000 of them against one uncooperative widget
+consumes the time budget of an entire large crawl.
+
+**Fix pattern**: track every component identity ever interacted with (success or failure) for a given
+canonical page/state key - not just the ones proven to trigger navigation (a separate, narrower set kept
+for that specific purpose) - and consult it everywhere components get added to a pass's frontier, not
+just at the top of a fresh visit:
+
+```python
+interacted_identities[page_key].add(identity(component))  # recorded on every interaction, success or fail
+
+# ... anywhere a "newly revealed" candidate is considered for the frontier:
+if identity(candidate) in interacted_identities.get(page_key, set()):
+    continue  # already handled once, under some other now-stale path
+```
+
+**The tradeoff, worth stating plainly rather than leaving implicit**: this is a broader, less airtight
+rule than a "proven navigation trigger" fact - two components that happen to share the exact same
+identity but are otherwise legitimately distinct (two generically-labelled "read more" cards linking to
+different articles) would also collapse under this check, silently under-exploring the second one.
+Accepted because the alternative - the crawl never terminating on a churning widget - is unambiguously
+worse than an occasional missed near-duplicate-looking component; the same "decline redundant work"
+calculus this doc's "Prefer decline over override" section already applies, scoped to a session-local
+heuristic instead of a cross-run one.
+
+**General, reusable lesson**: a "same-page reveal chains into further exploration" mechanism needs the
+identical churned-selector defense a cross-reload/cross-page mechanism already has, the moment the thing
+revealing content is itself capable of re-rendering under new ids on every interaction - which is close
+to the *expected* case, not a rare edge case, for exactly the kind of rich, stateful same-page widget
+(carousels, paginated viewers, virtualized lists) a same-page reveal chain exists to explore in the first
+place. Don't assume a fix already shipped for "the same problem" at the page-reload granularity
+automatically covers the same-page-interaction granularity too - each place components get added to a
+frontier needs its own check.
