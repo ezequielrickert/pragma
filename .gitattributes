@@ -1,0 +1,8 @@
+# Shell scripts must always check out with LF line endings, regardless of a
+# platform's core.autocrlf setting - a CRLF-mangled shebang/script silently
+# breaks under bash (Git Bash on Windows included, confirmed relevant here:
+# this repo's own git config has core.autocrlf=true). See
+# docs/explicativos/plan-almacenamiento.md Fase D, which is what first
+# added tracked .sh files (scripts/neo4j_backup.sh, scripts/neo4j_restore.sh)
+# to this repo.
+*.sh text eol=lf

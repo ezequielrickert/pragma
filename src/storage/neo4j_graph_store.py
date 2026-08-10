@@ -32,6 +32,59 @@ logging.getLogger("neo4j").setLevel(logging.ERROR)
 _SEMANTIC_ONLY_CLAUSE = " WHERE c.layer <> 'pointer'"
 
 
+def _page_ensure_clause(var: str, url_param: str) -> str:
+    """Cypher fragment: `MERGE` a `Page` node keyed by `(site, url_param)`,
+    defaulting every field a bare rediscovery would otherwise leave unset for
+    a brand-new node (docs/explicativos/plan-almacenamiento.md Fase B -
+    "repeated Cypher patterns" finding: this exact block used to be
+    hand-copied into 7 different methods, 9 occurrences counting `record_link`/
+    `record_edge`'s two endpoints each - a real risk that a future field
+    added to a fresh Page's defaults gets updated in some copies and missed
+    in others).
+
+    Every write below that touches a `Component`/`TextContent`/edge whose
+    `Page` endpoint might not exist yet reuses this, so every call site
+    defaults a newly-implied `Page` the same way - not because a `Component`
+    write should ever be the thing that "creates" a page (that's
+    `GraphStoreSink.record_page_arrival`'s job in the normal case), but
+    because `GraphStore`'s own contract already documents several auto-create
+    paths (e.g. `record_component_interaction`'s own docstring: "mirrors
+    `record_edge`'s auto-create of its endpoint Page nodes") that this
+    project intentionally keeps.
+
+    `var` is the Cypher variable to bind (`p`, `a`, `b`, ...); `url_param` is
+    the query parameter name holding that node's `url` (`page_url`,
+    `from_url`, `to_url`, ...) - both vary by call site, the defaulted fields
+    never do.
+    """
+    return (
+        f"MERGE ({var}:Page {{site: $site, url: ${url_param}}}) "
+        f"ON CREATE SET {var}.status = 'Pending', {var}.components = 0, "
+        f"{var}.context = '-', {var}.label = '-'"
+    )
+
+
+# Shared ON CREATE stub for a Component node reached only through an
+# auto-create path (an interaction/options/network write for a `path` that
+# was never `record_component`-ed first) - blank descriptive fields, since
+# nothing here actually knows the component's real tag/text/role, unlike
+# `record_component` itself which always has real values to set. Reused
+# across record_component_interaction/record_component_options/
+# record_component_network (docs/explicativos/plan-almacenamiento.md Fase B)
+# - previously three near-identical copies, one of which (record_component_
+# options) omitted `c.options = ''` since it's about to SET that field
+# unconditionally right after anyway; including it here uniformly is
+# behavior-preserving (the unconditional SET always wins as the final value
+# regardless of whether ON CREATE or ON MATCH just ran) and removes the one
+# accidental point of divergence between the three copies.
+_COMPONENT_BLANK_STUB = (
+    "ON CREATE SET "
+    "c.tag = '', c.text = '', c.role = '', c.input_type = '', "
+    "c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '', "
+    "c.interacted = false, c.interactions = [], c.network_requests = []"
+)
+
+
 @dataclass
 class Neo4jConfig:
     """Every setting the Neo4j store needs, and where it comes from."""
@@ -218,12 +271,10 @@ class Neo4jGraphStore(GraphStore):
     def record_link(self, site: str, from_url: str, to_url: str, label: str) -> None:
         with self._session() as session:
             session.run(
-                """
-                MERGE (a:Page {site: $site, url: $from_url})
-                    ON CREATE SET a.status = 'Pending', a.components = 0, a.context = '-', a.label = '-'
-                MERGE (b:Page {site: $site, url: $to_url})
-                    ON CREATE SET b.status = 'Pending', b.components = 0, b.context = '-', b.label = '-'
-                MERGE (a)-[r:DISCOVERED_LINK {site: $site}]->(b)
+                f"""
+                {_page_ensure_clause("a", "from_url")}
+                {_page_ensure_clause("b", "to_url")}
+                MERGE (a)-[r:DISCOVERED_LINK {{site: $site}}]->(b)
                 SET r.label = $label
                 """,
                 site=site, from_url=from_url, to_url=to_url, label=label,
@@ -245,14 +296,12 @@ class Neo4jGraphStore(GraphStore):
         created_at = datetime.now(timezone.utc).isoformat()
         with self._session() as session:
             session.run(
-                """
-                MERGE (a:Page {site: $site, url: $from_url})
-                    ON CREATE SET a.status = 'Pending', a.components = 0, a.context = '-', a.label = '-'
-                MERGE (b:Page {site: $site, url: $to_url})
-                    ON CREATE SET b.status = 'Pending', b.components = 0, b.context = '-', b.label = '-'
-                CREATE (a)-[:NAVIGATED_TO {
+                f"""
+                {_page_ensure_clause("a", "from_url")}
+                {_page_ensure_clause("b", "to_url")}
+                CREATE (a)-[:NAVIGATED_TO {{
                     component: $component, action: $action, site: $site, created_at: $created_at
-                }]->(b)
+                }}]->(b)
                 """,
                 site=site, from_url=from_url, to_url=to_url,
                 component=component, action=action, created_at=created_at,
@@ -341,10 +390,9 @@ class Neo4jGraphStore(GraphStore):
     ) -> None:
         with self._session() as session:
             session.run(
-                """
-                MERGE (p:Page {site: $site, url: $page_url})
-                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
-                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
                 ON CREATE SET
                     c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
                     c.visible = $visible, c.layer = $layer,
@@ -375,14 +423,10 @@ class Neo4jGraphStore(GraphStore):
         entry = json.dumps({"action": action, "value": value, "resulting_url": resulting_url})
         with self._session() as session:
             session.run(
-                """
-                MERGE (p:Page {site: $site, url: $page_url})
-                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
-                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
-                ON CREATE SET
-                    c.tag = '', c.text = '', c.role = '', c.input_type = '',
-                    c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '',
-                    c.interacted = false, c.interactions = [], c.network_requests = []
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
+                {_COMPONENT_BLANK_STUB}
                 SET c.interacted = true, c.interactions = c.interactions + $entry
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
@@ -392,14 +436,10 @@ class Neo4jGraphStore(GraphStore):
     def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
         with self._session() as session:
             session.run(
-                """
-                MERGE (p:Page {site: $site, url: $page_url})
-                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
-                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
-                ON CREATE SET
-                    c.tag = '', c.text = '', c.role = '', c.input_type = '',
-                    c.visible = true, c.layer = 'semantic', c.component_type = '',
-                    c.interacted = false, c.interactions = [], c.network_requests = []
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
+                {_COMPONENT_BLANK_STUB}
                 SET c.options = $options
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
@@ -409,14 +449,10 @@ class Neo4jGraphStore(GraphStore):
     def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
         with self._session() as session:
             session.run(
-                """
-                MERGE (p:Page {site: $site, url: $page_url})
-                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
-                MERGE (c:Component {site: $site, page_url: $page_url, path: $path})
-                ON CREATE SET
-                    c.tag = '', c.text = '', c.role = '', c.input_type = '',
-                    c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '',
-                    c.interacted = false, c.interactions = [], c.network_requests = []
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
+                {_COMPONENT_BLANK_STUB}
                 SET c.network_requests = c.network_requests + $entry
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
@@ -525,10 +561,9 @@ class Neo4jGraphStore(GraphStore):
     ) -> None:
         with self._session() as session:
             session.run(
-                """
-                MERGE (p:Page {site: $site, url: $page_url})
-                    ON CREATE SET p.status = 'Pending', p.components = 0, p.context = '-', p.label = '-'
-                MERGE (t:TextContent {site: $site, page_url: $page_url, path: $path})
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                MERGE (t:TextContent {{site: $site, page_url: $page_url, path: $path}})
                 ON CREATE SET
                     t.tag = $tag, t.text = $text, t.visible = $visible,
                     t.x = $x, t.y = $y, t.width = $width, t.height = $height

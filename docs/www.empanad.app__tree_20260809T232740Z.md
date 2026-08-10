@@ -1,38 +1,37 @@
-# Component Tree: empanad.app
+# Component Tree: www.empanad.app
 
-Generated: 2026-08-08T22:15:56.383519+00:00
+Generated: 2026-08-09T23:29:09.618224+00:00
 
-4 pages, 151 components, 35 text blocks
+4 pages, 150 components, 35 text blocks
 
 ```
-empanad.app/
+www.empanad.app/
 ├── empanad.app (empanad.app)
 ├── EmpanadApp · Pedidos de empanadas en grupo (empanad.app/o/{token})
-│   ├── [button]
-│   ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.WoQfDAc53jinXuGkfrf0ppB6RCSAzlXT -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.2e743038-0769-4194-b7d8-690ab2118a6e -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.2e743038-0769-4194-b7d8-690ab2118a6e -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.2e743038-0769-4194-b7d8-690ab2118a6e -> 200] -> "empanad.app/o/WoQfDAc53jinXuGkfrf0ppB6RCSAzlXT" (empanad.app/o/WoQfDAc53jinXuGkfrf0ppB6RCSAzlXT)
-│   ├── [button] "Copiar link" -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Invitar por WhatsApp" -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [submit button] "Crear pedido" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.bd62e947-e39e-491b-a507-b0b7c4a7cd86 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.bd62e947-e39e-491b-a507-b0b7c4a7cd86 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.bd62e947-e39e-491b-a507-b0b7c4a7cd86 -> 200] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [combobox (searchable dropdown)] "Otra / No sé" variants=[Mi Gusto (selected), Solo Empanadas, 1810 Cocina Regional, La Continental, El Noble, El Hornero, Morita, La Leñita, El Sanjuanino, La Morada, La Cocina, El Gauchito, Cumaná, La Paceña, Las Cabras, El Santa Evita, Roma del Abasto, Empanadas Tremendas, El Cuartito, Maná Empanadas, Tercera Docena, Otra / No sé] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [text field (text)] placeholder='Juan' -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Agregar variedad" variants=[Carne picante (selected), Lomo, Carne cortada a cuchillo, Salteña, Tucumana, Jamón, queso y huevo, Matambre a la pizza, Vacío y provoleta, Jamón crudo y rúcula, Cebolla y queso, Napolitana, Humita, Choclo, Espinaca, Acelga y muzzarella, Roquefort, Champignon y queso, Cuatro quesos, Panceta y ciruela, Pollo al verdeo, Pollo al champignon, Queso y albahaca, Caprese, Calabaza, Atún, Bondiola, Cordero, Carne dulce, Hamburguesa con cheddar, Salchicha con cheddar, Cerdo a la barbacoa, Dulce de leche, Manzana, Carne con aceituna, Carne catamarqueña, Lomito y cheddar, Lomo picante, Osobuco, Mondongo, Mollejas al verdeo, Matambrito al verdeo, Cantimpalo y queso, Jamón y roquefort, Jamón, queso y cebolla, Cebolla caramelizada y queso, Provolone, Fugazzeta, Albahaca, Panceta y queso, Choclo y queso, Espinaca y queso, Acelga y salsa blanca, Pollo picante, Pollo y salsa blanca, Pollo a la leña, Pollo y cheddar, Queso y verdeo, Queso y hongos, Hongos, Berenjena ahumada y provoleta, Tomate, albahaca y muzzarella, Pascualina, Brócoli y champignon, Calabaza y choclo, Calabaza y queso, Criolla dulce, Peras y roquefort, Roquefort y cebolla, Roquefort y queso, Roquefort, apio y nuez, Vacío cheddar] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.0sCNzYLPme-wTYaXiWOQLoe5vto2KMrt -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.99be9c81-cd9f-44c4-9ab3-226732bd3d18 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.99be9c81-cd9f-44c4-9ab3-226732bd3d18 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.99be9c81-cd9f-44c4-9ab3-226732bd3d18 -> 200] -> "empanad.app/o/0sCNzYLPme-wTYaXiWOQLoe5vto2KMrt" (empanad.app/o/0sCNzYLPme-wTYaXiWOQLoe5vto2KMrt)
+│   ├── [button] "Copiar link" -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Invitar por WhatsApp" -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [submit button] "Crear pedido" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.884c8197-29c1-41ca-a48a-2343b09f5d98 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.884c8197-29c1-41ca-a48a-2343b09f5d98 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.884c8197-29c1-41ca-a48a-2343b09f5d98 -> 200] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [combobox (searchable dropdown)] "Otra / No sé" variants=[Mi Gusto (selected), Solo Empanadas, 1810 Cocina Regional, La Continental, El Noble, El Hornero, Morita, La Leñita, El Sanjuanino, La Morada, La Cocina, El Gauchito, Cumaná, La Paceña, Las Cabras, El Santa Evita, Roma del Abasto, Empanadas Tremendas, El Cuartito, Maná Empanadas, Tercera Docena, Otra / No sé] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [text field (text)] placeholder='Juanito' -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Agregar variedad" variants=[Carne picante (selected), Lomo, Carne cortada a cuchillo, Salteña, Tucumana, Jamón, queso y huevo, Matambre a la pizza, Vacío y provoleta, Jamón crudo y rúcula, Cebolla y queso, Napolitana, Humita, Choclo, Espinaca, Acelga y muzzarella, Roquefort, Champignon y queso, Cuatro quesos, Panceta y ciruela, Pollo al verdeo, Pollo al champignon, Queso y albahaca, Caprese, Calabaza, Atún, Bondiola, Cordero, Carne dulce, Hamburguesa con cheddar, Salchicha con cheddar, Cerdo a la barbacoa, Dulce de leche, Manzana, Carne con aceituna, Carne catamarqueña, Lomito y cheddar, Lomo picante, Osobuco, Mondongo, Mollejas al verdeo, Matambrito al verdeo, Cantimpalo y queso, Jamón y roquefort, Jamón, queso y cebolla, Cebolla caramelizada y queso, Provolone, Fugazzeta, Albahaca, Panceta y queso, Choclo y queso, Espinaca y queso, Acelga y salsa blanca, Pollo picante, Pollo y salsa blanca, Pollo a la leña, Pollo y cheddar, Queso y verdeo, Queso y hongos, Hongos, Berenjena ahumada y provoleta, Tomate, albahaca y muzzarella, Pascualina, Brócoli y champignon, Calabaza y choclo, Calabaza y queso, Criolla dulce, Peras y roquefort, Roquefort y cebolla, Roquefort y queso, Roquefort, apio y nuez, Vacío cheddar] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [button] "Agregar variedad"
 │   ├── [button] "Finalizar mi pedido"
-│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.558439c0-e902-4e45-916c-da8dee6ff2ec -> 204] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.0c703a78-6587-4d62-97f6-6dca86176159 -> 204] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [button] "Sumar" variants=[stepper]
-│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.3080be83-258d-40af-a2d6-7c3a42a171ab -> 204] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.bd670303-5796-402b-a46a-3a000e49441c -> 204] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [button] "Sumar" variants=[stepper]
-│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.3fab9b3e-a912-47d8-8e91-932f0bf1b4e2 -> 204] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.a21156af-e14b-4c2a-a380-fbaf178b03bc -> 204] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [button] "Sumar" variants=[stepper]
-│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.36731d11-f740-4512-a808-a24381137e26 -> 204] -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [button] "Agregar" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=* -> 201] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Restar" requests=[DELETE https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?id=eq.b45e0fcb-f883-4a28-bd94-e961cbd7b875 -> 204] -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [button] "Sumar" variants=[stepper]
-│   ├── [button] "Detalle por persona" -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [button] "Agregar pedido de alguien más" -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
-│   ├── [text field (number)] placeholder='5000' -> "empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe" (empanad.app/o/aOdqtdQkUUYOtYRSM3TUS55SULOuGKOe)
+│   ├── [button] "Detalle por persona" -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [button] "Agregar pedido de alguien más" -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
+│   ├── [text field (number)] placeholder='12000' -> "empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug" (empanad.app/o/0t_ix9kmLZS925UwsCWP5mbSK5bSa3Ug)
 │   ├── [list/menu option] "Mi Gusto"
 │   ├── [list/menu option] "Solo Empanadas"
 │   ├── [list/menu option] "1810 Cocina Regional"
@@ -131,7 +130,7 @@ empanad.app/
 │   ├── [text: p] Pedí empanadas con amigos sin vueltas
 │   ├── [text: h2] ¿Cómo funciona?
 │   ├── [text: p] Acá vas a encontrar todos los sabores que hay en la app. Revisá que el sabor que elegís esté en la carta real para no pedir algo que no haya.
-│   ├── [text: h2] Pedido de  Juan
+│   ├── [text: h2] Pedido de  Juanito
 │   ├── [text: p] 4 empanadas elegidas
 │   ├── [text: h2] Pedido del grupo
 │   ├── [text: p] de   confirmados · vas a ver el pedido completo cuando finalicen todos
@@ -145,7 +144,7 @@ empanad.app/
 │   ├── [button] "Cancelar"
 │   ├── [submit button] "Crear"
 │   ├── [text field (text)]
-│   ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.HqpO1kQEECXJ3ZGUL2s9EanguO2LySYh -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.b821856c-535f-4c2b-b498-836ffa1130ad -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.b821856c-535f-4c2b-b498-836ffa1130ad -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.b821856c-535f-4c2b-b498-836ffa1130ad -> 200] -> "empanad.app/o/HqpO1kQEECXJ3ZGUL2s9EanguO2LySYh" (empanad.app/o/HqpO1kQEECXJ3ZGUL2s9EanguO2LySYh)
+│   ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.iVeQN-Vvz7EkuH9OIZyQc7QDtjc2QxzF -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.ae73280d-5145-404d-a78e-7c74930c14db -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.ae73280d-5145-404d-a78e-7c74930c14db -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.ae73280d-5145-404d-a78e-7c74930c14db -> 200] -> "empanad.app/o/iVeQN-Vvz7EkuH9OIZyQc7QDtjc2QxzF" (empanad.app/o/iVeQN-Vvz7EkuH9OIZyQc7QDtjc2QxzF)
 │   ├── [button] "Copiar link"
 │   ├── [button] "Invitar por WhatsApp"
 │   ├── [button] "Agregar variedad"
@@ -165,7 +164,7 @@ empanad.app/
 │   ├── [text: p] ¿A nombre de quién vas a cargar las empanadas?
 │   ├── [text: p] Pedí empanadas con amigos sin vueltas
 │   ├── [text: p] Acá vas a encontrar todos los sabores que hay en la app. Revisá que el sabor que elegís esté en la carta real para no pedir algo que no haya.
-│   ├── [text: h2] Pedido de  Juan
+│   ├── [text: h2] Pedido de  Juanito
 │   ├── [text: p] 4 empanadas elegidas
 │   ├── [text: h2] Pedido del grupo
 │   ├── [text: p] de   confirmados · vas a ver el pedido completo cuando finalicen todos
@@ -174,7 +173,7 @@ empanad.app/
 │   ├── [text: p] Cargá el total y partimos la cuenta entre los que pidieron
 │   └── [text: p] Lo que pagaste en total. Se divide proporcional a cuántas pidió cada uno.
 └── EmpanadApp · Pedidos de empanadas en grupo (empanad.app/o/{token}#state:7c270e58a2)
-    ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.d-tJDGgTIa_50o356FcIIDZD93XiDTlq -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.df9b4332-0129-4d66-948d-a6d8b8064ea7 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.df9b4332-0129-4d66-948d-a6d8b8064ea7 -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.df9b4332-0129-4d66-948d-a6d8b8064ea7 -> 200] -> "empanad.app/o/d-tJDGgTIa_50o356FcIIDZD93XiDTlq" (empanad.app/o/d-tJDGgTIa_50o356FcIIDZD93XiDTlq)
+    ├── [link] "EmpanadApp" requests=[POST https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=* -> 201; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/orders?select=*&share_token=eq.KyZ6b1edM_Vs50MOWdKVTzabts8mI91h -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/global_flavors?select=*&is_active=eq.true&order=sort_order.asc -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/order_custom_flavors?select=*&order_id=eq.e6991d8c-3b36-45d2-b5b4-384eec3a901d -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participant_selections?select=*&order_id=eq.e6991d8c-3b36-45d2-b5b4-384eec3a901d -> 200; GET https://obvwnqnvzifrzyklvqdf.supabase.co/rest/v1/participants?select=*&order_id=eq.e6991d8c-3b36-45d2-b5b4-384eec3a901d -> 200] -> "empanad.app/o/KyZ6b1edM_Vs50MOWdKVTzabts8mI91h" (empanad.app/o/KyZ6b1edM_Vs50MOWdKVTzabts8mI91h)
     ├── [button] "Copiar link"
     ├── [button] "Invitar por WhatsApp"
     ├── [button] "Agregar variedad"
@@ -187,7 +186,7 @@ empanad.app/
     ├── [text field (number)]
     ├── [text: p] Pedí empanadas con amigos sin vueltas
     ├── [text: p] Acá vas a encontrar todos los sabores que hay en la app. Revisá que el sabor que elegís esté en la carta real para no pedir algo que no haya.
-    ├── [text: h2] Pedido de  Juan
+    ├── [text: h2] Pedido de  Juanito
     ├── [text: p] Tocá + para sumar al pedido
     ├── [text: h2] Pedido del grupo
     ├── [text: p] de   confirmados · vas a ver el pedido completo cuando finalicen todos
