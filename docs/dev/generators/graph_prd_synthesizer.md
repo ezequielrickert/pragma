@@ -67,7 +67,12 @@ a stepper's increment/decrement/value trio or a choice-group's N
 members into a single entry - matches the `options` JSON shape
 `GraphStoreSink.record_inventory` actually persists (Phase 3), not the
 older `SimplePRDGenerator._build_page_catalog_facts`'s schema, since the
-two were never the same data source (see `module` above).
+two were never the same data source (see `module` above). Since
+2026-08-11 this collapse is no longer just a dedup of what would
+otherwise be N redundant facts (`seen_choice_groups`) - the ledger
+itself only ever has 1 node for the whole group now (see
+`docs/dev/crawlers/graph_sink.md#record_inventory`), so there's only
+ever 1 to iterate in the first place.
 
 The three-shape `options` disambiguation itself lives in
 `component_classifier.py::describe_options` - shared with
@@ -77,6 +82,18 @@ no branch here - it falls through to the generic case below, unchanged
 from before this field existed - `component_tree.py` is where revealed
 options actually get surfaced; this function's job is narration text,
 not a full inventory of every options shape.
+
+## _choices_leading_elsewhere
+
+A `choice_group` fact's `leads_elsewhere` (present only when non-empty):
+`"choice text -> resulting_url"` for every consolidated member whose own
+interaction navigated somewhere, resolved back to its choice's label via
+the group's own `options` JSON (`describe_options`' `path`-per-choice
+addition). The one thing a group's single node must not let the LLM
+catalog narration miss just because 5 nodes became 1: a choice behaving
+differently from its siblings (e.g. one dropdown option leading to a
+details page the others don't) is still a fact worth writing prose
+about.
 
 ## GraphPRDSynthesizer
 

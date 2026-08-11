@@ -27,6 +27,14 @@ Two small, separately-testable pieces:
   full component/link inventory, each interaction, navigation edges, page
   completion).
 
+`GraphStoreSink` also owns `_representative_for` (2026-08-11): a
+per-page `{member_path: representative_path}` map built by
+`record_inventory` whenever it collapses a dropdown/menu/radio/checkbox
+group into one `Component` node, and consulted by `record_interaction`/
+`record_component_network` to redirect a later write on any of that
+group's members onto the same node instead of creating a new one. See
+`record_inventory`/`_record_choice_group`/`_resolve_write_path` below.
+
 ## GraphStoreInteractionTracker
 
 `InteractionTracker` backed by `GraphStore` reads, with a per-instance
@@ -129,27 +137,77 @@ deliberate, documented cut rather than an oversight).
 ## record_inventory
 
 Full, unconditional component + link inventory for one discovery pass -
-every component gets a `record_component` call (idempotent, safe to call
-again on rediscovery) regardless of whether anything on it changed,
-mirroring the old `_record_page_inventory`'s "unconditional, not gated by
-any per-turn cap" discipline. Detected steppers/choice-sets get their
+every *ungrouped* component gets a `record_component` call (idempotent,
+safe to call again on rediscovery) regardless of whether anything on it
+changed, mirroring the old `_record_page_inventory`'s "unconditional, not
+gated by any per-turn cap" discipline. Detected steppers get their
 structured facts attached via `record_component_options`, reusing
 `component_classifier.py` unchanged - the same deterministic, no-LLM
 classification the old catalog narration pass already relied on.
+
+A *grouped* component - a member of `group_choice_sets` (radio/checkbox
+sharing a `name`) or `group_option_families` (a dropdown/menu's
+`role="option"`-family siblings, new 2026-08-11) - never gets its own
+`record_component` call at all. Instead `_record_choice_group` writes
+exactly one representative node per group (real tag/text/component_type,
+not a blank stub - see `_write_component`) carrying the whole group's
+choices as one `options` JSON blob. This is a deliberate node-count
+reduction: before this, a 5-choice dropdown produced 5 near-identical
+`Component` nodes differing only by which choice they are; now it
+produces 1. See `component_classifier.md#group_option_families` for why
+`role="tab"` is excluded from this collapse.
+
+## _write_component
+
+One component's descriptive fields -> `GraphStore.record_component`.
+Factored out so the main inventory loop and `_record_choice_group`'s
+representative write go through the exact same code - a group's
+representative node gets real fields the same way an ordinary ungrouped
+component does, never the `_COMPONENT_BLANK_STUB` ghost-node shape
+(the 2026-08-08 bug this file's regression test used to guard narrowly
+against 3 separate option nodes; it now guards 1 consolidated one).
+
+## _record_choice_group
+
+Persists one member-list (a `group_choice_sets`/`group_option_families`
+group) as a single `Component` node. `members[0]` is the representative:
+its own path becomes the node's identity, and every member's path -
+including the representative's own - gets recorded into
+`_representative_for` for `_resolve_write_path` to redirect later writes
+to.
+
+## _resolve_write_path
+
+Where a path's write actually lands, and which exact member caused it.
+Called by `record_interaction`/`record_component_network` before every
+write: a path that `_record_choice_group` grouped redirects to its
+group's representative node instead of creating its own (the whole point
+- an option that only gets *clicked*, not just discovered, must still
+not spawn a fresh node); an ungrouped path, or the representative's own
+path, passes through unchanged. Returns `(write_path, source_path)` -
+`source_path` is `""` unless a redirect happened, in which case it's the
+original path, so which specific choice acted is relocated onto the
+representative's own interaction record, never silently lost. See
+`component_tree.md#_build_option_redirects` for where that fact
+resurfaces in the generated output.
 
 ## record_interaction
 
 One call per *attempted* interaction (success or failure) - the
 component-level ledger's whole value is knowing what was tried, not just
 what worked. `resulting_url` is `""` for a failed interaction (nothing to
-report) or a same-page one (no navigation).
+report) or a same-page one (no navigation). Redirects through
+`_resolve_write_path` first - see above.
 
 ## record_component_network
 
 One call per interaction that triggered ≥1 meaningful (xhr/fetch) network
 request (see `src/crawlers/network_filter.py`) - the "request
 information" a real JS/SPA site's submit-like control needs, since it has
-no static `<form method/action>` to read instead.
+no static `<form method/action>` to read instead. Redirects through
+`_resolve_write_path` first; when redirected, each request dict in the
+batch gets a `source_path` key added before serializing, same reasoning
+as `record_interaction`.
 
 ## record_revealed_options
 

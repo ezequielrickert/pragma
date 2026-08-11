@@ -191,6 +191,15 @@ Auto-creates the Component node if it doesn't already exist (mirrors
 can be recorded even if `record_component` wasn't called first in some
 code path.
 
+`source_path` (added 2026-08-11, default `""`): set by
+`GraphStoreSink.record_interaction` when `path` is a consolidated
+dropdown/choice-group's representative node rather than the specific
+member that actually acted (see
+`docs/dev/crawlers/graph_sink.md#_resolve_write_path`) - both backends
+embed it into the interaction entry only when non-empty, so an ordinary
+(ungrouped) interaction's JSON shape is byte-for-byte unchanged from
+before this field existed.
+
 ## record_component_network
 
 Append one JSON-encoded batch of meaningful network requests
