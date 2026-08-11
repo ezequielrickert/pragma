@@ -83,6 +83,21 @@
         const r = e.getBoundingClientRect();
         return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     };
+    // Small, curated subset of getComputedStyle() - just enough for a future
+    // visual-reconstruction pass (Modulo 3) to tell "this looks like a heading"
+    // from "this looks like a disabled button" without re-crawling the site.
+    // Not the full CSSStyleDeclaration: most properties are noise for that use.
+    const getStyleFacts = (e) => {
+        const s = getComputedStyle(e);
+        return {
+            color: s.color,
+            background_color: s.backgroundColor,
+            font_size: s.fontSize,
+            font_weight: s.fontWeight,
+            display: s.display,
+            position: s.position,
+        };
+    };
     const getLabel = (e) => {
         if (e.id) {
             const lbl = document.querySelector(`label[for="${CSS.escape(e.id)}"]`);
@@ -162,6 +177,7 @@
             required: ['input', 'textarea', 'select'].includes(el.tagName.toLowerCase()) ? !!el.required : false,
             visible: isVisible(el),
             rect: getRect(el),
+            style: getStyleFacts(el),
             selected: el.getAttribute('aria-selected') === 'true' ||
                 el.getAttribute('aria-checked') === 'true' ||
                 el.getAttribute('data-state') === 'checked' ||

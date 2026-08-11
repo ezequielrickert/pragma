@@ -6,14 +6,19 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from neo4j import GraphDatabase
 
-from ..core.interfaces import GraphStore
+from ..core.interfaces import ComponentFacts, GraphStore
 from ..core.registry import GRAPH_STORE_REGISTRY
+
+# ComponentFacts field names, in a fixed order - the single place the
+# Cypher RETURN/SET fragments below and the Python-side result dicts both
+# derive their field list from, so the two can't drift apart.
+_FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys())
 
 # Silences a harmless WARNING seen on a fresh site's first pages.
 # Details: docs/dev/storage/neo4j_graph_store.md#logging-silence
@@ -34,14 +39,43 @@ def _page_ensure_clause(var: str, url_param: str) -> str:
     )
 
 
+def _blank_cypher_literal(default: Any) -> str:
+    """`false` for a bool-typed ComponentFacts field, `''` for a str-typed one."""
+    return "false" if isinstance(default, bool) else "''"
+
+
+# Blank default for every ComponentFacts field, Cypher-literal form - shared
+# by _COMPONENT_BLANK_STUB (ghost nodes) below.
+_BLANK_FACTS_ASSIGNMENTS = ", ".join(
+    f"c.{f.name} = {_blank_cypher_literal(f.default)}"
+    for f in ComponentFacts.__dataclass_fields__.values()
+)
+
 # ON CREATE stub for a Component reached only via an auto-create path.
 # Details: docs/dev/storage/neo4j_graph_store.md#_component_blank_stub
 _COMPONENT_BLANK_STUB = (
     "ON CREATE SET "
     "c.tag = '', c.text = '', c.role = '', c.input_type = '', "
     "c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '', "
-    "c.interacted = false, c.interactions = [], c.network_requests = []"
+    "c.interacted = false, c.interactions = [], c.network_requests = [], "
+    f"{_BLANK_FACTS_ASSIGNMENTS}"
 )
+
+# Property assignments shared verbatim between record_component's ON CREATE
+# and ON MATCH branches - a rediscovery always refreshes every descriptive/
+# style fact the same way, unlike the interaction-ledger fields ON CREATE
+# alone bootstraps (see record_component below).
+_COMPONENT_DESCRIPTIVE_SET = (
+    "c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type, "
+    "c.visible = $visible, c.layer = $layer, "
+    "c.x = $x, c.y = $y, c.width = $width, c.height = $height, "
+    "c.component_type = $component_type, "
+    + ", ".join(f"c.{name} = ${name}" for name in _FACTS_FIELDS)
+)
+
+# `c.<name> AS <name>` for every ComponentFacts field - shared by
+# get_component_states/get_component_ledger's RETURN clauses below.
+_COMPONENT_FACTS_RETURN = ", ".join(f"c.{name} AS {name}" for name in _FACTS_FIELDS)
 
 
 @dataclass
@@ -326,6 +360,7 @@ class Neo4jGraphStore(GraphStore):
         width: Optional[float] = None,
         height: Optional[float] = None,
         component_type: str = "",
+        facts: Optional[ComponentFacts] = None,
     ) -> None:
         with self._session() as session:
             session.run(
@@ -333,21 +368,16 @@ class Neo4jGraphStore(GraphStore):
                 {_page_ensure_clause("p", "page_url")}
                 MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
                 ON CREATE SET
-                    c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
-                    c.visible = $visible, c.layer = $layer,
-                    c.x = $x, c.y = $y, c.width = $width, c.height = $height,
-                    c.component_type = $component_type, c.options = '',
-                    c.interacted = false, c.interactions = [], c.network_requests = []
+                    {_COMPONENT_DESCRIPTIVE_SET},
+                    c.options = '', c.interacted = false, c.interactions = [], c.network_requests = []
                 ON MATCH SET
-                    c.tag = $tag, c.text = $text, c.role = $role, c.input_type = $input_type,
-                    c.visible = $visible, c.layer = $layer,
-                    c.x = $x, c.y = $y, c.width = $width, c.height = $height,
-                    c.component_type = $component_type
+                    {_COMPONENT_DESCRIPTIVE_SET}
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, tag=tag, text=text,
                 role=role, input_type=input_type, visible=visible, layer=layer,
                 x=x, y=y, width=width, height=height, component_type=component_type,
+                **asdict(facts or ComponentFacts()),
             )
 
     def record_component_interaction(
@@ -405,13 +435,13 @@ class Neo4jGraphStore(GraphStore):
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         with self._session() as session:
             result = session.run(
-                """
-                MATCH (c:Component {site: $site, page_url: $page_url})
+                f"""
+                MATCH (c:Component {{site: $site, page_url: $page_url}})
                 RETURN c.path AS path, c.tag AS tag, c.text AS text,
                        c.interacted AS interacted, c.visible AS visible,
                        c.component_type AS component_type, c.options AS options,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
-                       c.network_requests AS network_requests
+                       c.network_requests AS network_requests, {_COMPONENT_FACTS_RETURN}
                 """,
                 site=site, page_url=page_url,
             )
@@ -422,6 +452,7 @@ class Neo4jGraphStore(GraphStore):
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
                     "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
+                    **{name: r[name] for name in _FACTS_FIELDS},
                 }
                 for r in result
             }
@@ -465,13 +496,13 @@ class Neo4jGraphStore(GraphStore):
     def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
         with self._session() as session:
             result = session.run(
-                """
-                MATCH (c:Component {site: $site})
+                f"""
+                MATCH (c:Component {{site: $site}})
                 RETURN c.page_url AS page_url, c.path AS path, c.tag AS tag, c.text AS text,
                        c.interacted AS interacted, c.interactions AS interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.component_type AS component_type, c.options AS options,
-                       c.network_requests AS network_requests
+                       c.network_requests AS network_requests, {_COMPONENT_FACTS_RETURN}
                 """,
                 site=site,
             )
@@ -486,6 +517,7 @@ class Neo4jGraphStore(GraphStore):
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
                     "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
+                    **{name: r[name] for name in _FACTS_FIELDS},
                 }
             return ledger
 

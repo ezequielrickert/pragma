@@ -35,6 +35,22 @@ group into one `Component` node, and consulted by `record_interaction`/
 group's members onto the same node instead of creating a new one. See
 `record_inventory`/`_record_choice_group`/`_resolve_write_path` below.
 
+## _component_facts
+
+Pure mapping from one raw, JS-discovered component dict
+(`discover_components.js`'s per-element shape - `attributes`/`style`
+nested dicts, plus top-level `placeholder`/`label`/`name`/`disabled`/
+`required`/`form`) onto `GraphStore`'s `ComponentFacts`
+(`docs/dev/core/interfaces.md#ComponentFacts`), added 2026-08-11. Kept as
+a standalone function rather than inlined into `_write_component` so the
+attribute/style field-name mapping - the part actually at risk of a
+left-side/right-side typo - has its own direct unit test
+(`tests/test_graph_sink_component_facts.py`) that doesn't need a real
+browser round-trip to exercise.
+
+No I/O, no `GraphStore` dependency - same "pure function, no side
+effects" placement as `component_classifier.py`'s own functions.
+
 ## GraphStoreInteractionTracker
 
 `InteractionTracker` backed by `GraphStore` reads, with a per-instance
@@ -166,6 +182,12 @@ representative node gets real fields the same way an ordinary ungrouped
 component does, never the `_COMPONENT_BLANK_STUB` ghost-node shape
 (the 2026-08-08 bug this file's regression test used to guard narrowly
 against 3 separate option nodes; it now guards 1 consolidated one).
+
+Also passes `facts=_component_facts(comp)` (2026-08-11) - a group's
+representative gets the *representative member's own* attributes/style,
+same as its tag/text/component_type; the other members' facts are not
+separately recorded (they never had their own `Component` node to begin
+with, same as their tag/text).
 
 ## _record_choice_group
 

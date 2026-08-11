@@ -43,6 +43,30 @@ is the query parameter name holding that node's `url` (`page_url`,
 `from_url`, `to_url`, ...) - both vary by call site, the defaulted
 fields never do.
 
+## _FACTS_FIELDS / _COMPONENT_DESCRIPTIVE_SET / _COMPONENT_FACTS_RETURN
+
+`ComponentFacts.__dataclass_fields__` (`docs/dev/core/interfaces.md#ComponentFacts`)
+is the single source of truth these three module-level constants derive
+their field list from, added 2026-08-11 alongside the fifteen new
+attribute/style properties themselves:
+
+- `_FACTS_FIELDS`: the field names, in dataclass-declaration order - the
+  one place `record_component`'s `**asdict(facts)` params, the blank-stub
+  defaults, and the two read queries' Python-side result dicts all pull
+  the same fifteen names from, so a typo in one spot can't silently drift
+  from the other two.
+- `_COMPONENT_DESCRIPTIVE_SET`: `c.<name> = $<name>` for every
+  `ComponentFacts` field plus the pre-existing tag/text/role/etc. -
+  shared verbatim between `record_component`'s `ON CREATE`/`ON MATCH`
+  branches (see `_blank_cypher_literal`/`_BLANK_FACTS_ASSIGNMENTS` below
+  for why hand-writing this list twice, as the pre-2026-08-11 version
+  did for the smaller field set, is exactly the kind of divergence risk
+  `_page_ensure_clause`/`_component_blank_stub` already exist to avoid
+  elsewhere in this file).
+- `_COMPONENT_FACTS_RETURN`: `c.<name> AS <name>` for the same fifteen -
+  shared by `get_component_states`/`get_component_ledger`'s RETURN
+  clauses.
+
 ## _component_blank_stub
 
 Shared `ON CREATE` stub for a Component node reached only through an
@@ -59,6 +83,14 @@ here uniformly is behavior-preserving (the unconditional `SET` always
 wins as the final value regardless of whether `ON CREATE` or `ON MATCH`
 just ran) and removes the one accidental point of divergence between
 the three copies.
+
+Also blanks every `ComponentFacts` field (2026-08-11, via
+`_BLANK_FACTS_ASSIGNMENTS` - `_blank_cypher_literal` picks Cypher `false`
+for a bool-typed field, `''` for a str-typed one, read straight off each
+`dataclasses.Field.default`) - a ghost node created through this path has
+no more idea of a component's `css_class`/`color`/etc. than it does of
+its tag/text, so it gets the same "blank, not absent" treatment as
+every other descriptive field here.
 
 ## record_component_interaction
 
