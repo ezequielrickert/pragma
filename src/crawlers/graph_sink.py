@@ -4,12 +4,13 @@ Details: docs/dev/crawlers/graph_sink.md#module
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from ..core.interfaces import GraphStore
 from ..generators.component_classifier import (
     classify_component_type,
     group_choice_sets,
+    group_option_families,
     group_steppers,
 )
 from ..utils.urls import clean_url
@@ -61,6 +62,9 @@ class GraphStoreSink:
     def __init__(self, graph_store: GraphStore, site: str) -> None:
         self.graph_store = graph_store
         self.site = site
+        # page_url -> {member_path: representative_path}, populated by
+        # record_inventory. Details: docs/dev/crawlers/graph_sink.md#_resolve_write_path
+        self._representative_for: Dict[str, Dict[str, str]] = {}
 
     def record_page_arrival(self, page_key: str, description: str = "", title: str = "") -> None:
         """Cheapest "this page exists" signal, called before discovery/interaction.
@@ -96,27 +100,17 @@ class GraphStoreSink:
         """Full, unconditional component + link inventory for one discovery pass.
         Details: docs/dev/crawlers/graph_sink.md#record_inventory
         """
+        choice_sets = group_choice_sets(components)
+        option_families = group_option_families(components)
+        grouped_paths = {
+            member.get("path")
+            for members in (*choice_sets.values(), *option_families.values())
+            for member in members
+        }
+
         for comp in components:
-            path = comp.get("path")
-            if not path:
-                continue
-            rect = comp.get("rect") or {}
-            self.graph_store.record_component(
-                self.site,
-                page_key,
-                path,
-                tag=comp.get("tag", ""),
-                text=comp.get("text", ""),
-                role=comp.get("role", ""),
-                input_type=comp.get("input_type", ""),
-                visible=bool(comp.get("visible", True)),
-                layer=comp.get("discovery_layer", "semantic"),
-                x=rect.get("x"),
-                y=rect.get("y"),
-                width=rect.get("width"),
-                height=rect.get("height"),
-                component_type=classify_component_type(comp),
-            )
+            if comp.get("path") not in grouped_paths:
+                self._write_component(page_key, comp)
 
         for stepper in group_steppers(components):
             increment_path = stepper.get("increment_path")
@@ -125,20 +119,10 @@ class GraphStoreSink:
                     self.site, page_key, increment_path, json.dumps(stepper)
                 )
 
-        for name, members in group_choice_sets(components).items():
-            option_summary = json.dumps(
-                {
-                    "group": name,
-                    "options": [
-                        {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
-                        for m in members
-                    ],
-                }
-            )
-            for member in members:
-                path = member.get("path")
-                if path:
-                    self.graph_store.record_component_options(self.site, page_key, path, option_summary)
+        for name, members in choice_sets.items():
+            self._record_choice_group(page_key, name, members)
+        for parent_path, members in option_families.items():
+            self._record_choice_group(page_key, parent_path, members)
 
         for link in links:
             href = link.get("href", "")
@@ -149,19 +133,94 @@ class GraphStoreSink:
                 continue
             self.graph_store.record_link(self.site, page_key, clean_url(href), link.get("text", ""))
 
+    def _write_component(self, page_key: str, comp: Dict[str, Any]) -> None:
+        """One component's descriptive fields -> `GraphStore.record_component`.
+        Shared by the main inventory loop and `_record_choice_group`'s
+        representative write, so a group's node gets exactly the same real
+        tag/text/role/rect/component_type an ungrouped component would - no
+        separate "blank ghost node" code path for the representative.
+        Details: docs/dev/crawlers/graph_sink.md#_write_component
+        """
+        path = comp.get("path")
+        if not path:
+            return
+        rect = comp.get("rect") or {}
+        self.graph_store.record_component(
+            self.site,
+            page_key,
+            path,
+            tag=comp.get("tag", ""),
+            text=comp.get("text", ""),
+            role=comp.get("role", ""),
+            input_type=comp.get("input_type", ""),
+            visible=bool(comp.get("visible", True)),
+            layer=comp.get("discovery_layer", "semantic"),
+            x=rect.get("x"),
+            y=rect.get("y"),
+            width=rect.get("width"),
+            height=rect.get("height"),
+            component_type=classify_component_type(comp),
+        )
+
+    def _record_choice_group(self, page_key: str, group_name: str, members: List[Dict[str, Any]]) -> None:
+        """Persist one member-list (radio/checkbox set, or a dropdown/menu's
+        options) as a single Component node - `members[0]` is the
+        representative every member's own path redirects to from now on
+        (see `_resolve_write_path`), instead of each member getting its own
+        near-identical node differing only by which choice it is.
+        Details: docs/dev/crawlers/graph_sink.md#_record_choice_group
+        """
+        representative = members[0]
+        representative_path = representative.get("path")
+        if not representative_path:
+            return
+        self._write_component(page_key, representative)
+        option_summary = json.dumps(
+            {
+                "group": group_name,
+                "options": [
+                    {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
+                    for m in members
+                ],
+            }
+        )
+        self.graph_store.record_component_options(self.site, page_key, representative_path, option_summary)
+        page_map = self._representative_for.setdefault(page_key, {})
+        for member in members:
+            member_path = member.get("path")
+            if member_path:
+                page_map[member_path] = representative_path
+
+    def _resolve_write_path(self, page_key: str, path: str) -> Tuple[str, str]:
+        """Where a path's write actually lands, and which exact member caused
+        it. A consolidated dropdown/choice-group member redirects to its
+        group's representative node instead of creating its own - the
+        original `path` is returned as `source_path` so which specific
+        option acted is relocated, not lost.
+        Details: docs/dev/crawlers/graph_sink.md#_resolve_write_path
+        """
+        representative = self._representative_for.get(page_key, {}).get(path)
+        if representative and representative != path:
+            return representative, path
+        return path, ""
+
     def record_interaction(self, page_key: str, path: str, action: str, value: str, resulting_url: str) -> None:
         """One call per *attempted* interaction, success or failure.
         Details: docs/dev/crawlers/graph_sink.md#record_interaction
         """
+        write_path, source_path = self._resolve_write_path(page_key, path)
         self.graph_store.record_component_interaction(
-            self.site, page_key, path, action=action, value=value, resulting_url=resulting_url
+            self.site, page_key, write_path,
+            action=action, value=value, resulting_url=resulting_url, source_path=source_path,
         )
 
     def record_component_network(self, page_key: str, path: str, requests: List[Dict[str, Any]]) -> None:
         """One call per interaction that triggered >=1 meaningful (xhr/fetch) request.
         Details: docs/dev/crawlers/graph_sink.md#record_component_network
         """
-        self.graph_store.record_component_network(self.site, page_key, path, json.dumps(requests))
+        write_path, source_path = self._resolve_write_path(page_key, path)
+        payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
+        self.graph_store.record_component_network(self.site, page_key, write_path, json.dumps(payload))
 
     def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.

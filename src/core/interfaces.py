@@ -182,8 +182,12 @@ class GraphStore(ABC):
         action: str,
         value: str = "",
         resulting_url: str = "",
+        source_path: str = "",
     ) -> None:
         """Mark a component as interacted with and append one interaction record.
+        `source_path` names the specific member that acted when `path` is a
+        consolidated choice-group/dropdown's representative node rather than
+        the member itself - "" when they're the same (the ordinary case).
         Details: docs/dev/core/interfaces.md#record_component_interaction
         """
         raise NotImplementedError

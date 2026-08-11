@@ -195,7 +195,7 @@ def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
             "kind": "choice_group",
             "group": options["group"],
             "choices": [
-                {"text": o.get("text"), "selected": bool(o.get("selected"))}
+                {"path": o.get("path"), "text": o.get("text"), "selected": bool(o.get("selected"))}
                 for o in options.get("options", [])
             ],
         }

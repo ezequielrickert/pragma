@@ -358,8 +358,12 @@ class Neo4jGraphStore(GraphStore):
         action: str,
         value: str = "",
         resulting_url: str = "",
+        source_path: str = "",
     ) -> None:
-        entry = json.dumps({"action": action, "value": value, "resulting_url": resulting_url})
+        interaction: Dict[str, str] = {"action": action, "value": value, "resulting_url": resulting_url}
+        if source_path:
+            interaction["source_path"] = source_path
+        entry = json.dumps(interaction)
         with self._session() as session:
             session.run(
                 f"""

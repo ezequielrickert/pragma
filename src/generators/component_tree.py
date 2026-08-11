@@ -21,6 +21,10 @@ class TreeLeaf:
     placeholder_value: Optional[str] = None
     requests: List[str] = field(default_factory=list)
     redirect_target: Optional[str] = None
+    # One line per consolidated choice-group member that triggered its own
+    # distinct outcome - see _build_option_redirects. Empty for every leaf
+    # that isn't a consolidated dropdown/choice group.
+    option_redirects: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -54,6 +58,34 @@ def _format_variants(parsed: Optional[Dict[str, Any]]) -> List[str]:
             out.append(f"{text} (selected)" if choice.get("selected") else text)
         return out
     return []
+
+
+def _build_option_redirects(
+    record: Dict[str, Any], parsed: Optional[Dict[str, Any]], titles: Dict[str, str]
+) -> List[str]:
+    """One line per consolidated choice-group member that actually triggered
+    its own outcome - the fact a per-option Component node used to carry on
+    its own now lives here instead, on the group's single node, tagged with
+    which specific option (`source_path`, see GraphStoreSink._resolve_write_path)
+    caused it. Details: docs/dev/generators/component_tree.md#_build_option_redirects
+    """
+    if not parsed or parsed["kind"] != "choice_group":
+        return []
+    text_by_path = {c["path"]: c.get("text") for c in parsed["choices"] if c.get("path")}
+
+    lines = []
+    for interaction in record.get("interactions", []):
+        source_path = interaction.get("source_path")
+        if not source_path:
+            continue
+        label = text_by_path.get(source_path) or source_path
+        resulting_url = interaction.get("resulting_url")
+        if resulting_url:
+            target_title = titles.get(resulting_url) or resulting_url
+            lines.append(f'"{label}" -> "{target_title}" ({resulting_url})')
+        else:
+            lines.append(f'"{label}" ({interaction.get("action", "")})')
+    return lines
 
 
 def _render_request_line(request: Dict[str, Any]) -> str:
@@ -115,6 +147,7 @@ def build_component_tree(graph_store: GraphStore, site: str) -> SiteTree:
                     placeholder_value=placeholder_value,
                     requests=[_render_request_line(r) for r in record.get("network_requests", [])],
                     redirect_target=redirect_label,
+                    option_redirects=_build_option_redirects(record, parsed, titles),
                 )
             )
 
@@ -169,6 +202,11 @@ def render_ascii_tree(tree: SiteTree, use_box_drawing: bool = True) -> str:
             leaf_is_last = j == len(page.leaves) - 1
             leaf_prefix = last_branch if leaf_is_last else branch
             lines.append(f"{child_indent}{leaf_prefix}{_render_leaf_line(leaf)}")
+
+            grandchild_indent = child_indent + (space if leaf_is_last else pipe)
+            for k, redirect_line in enumerate(leaf.option_redirects):
+                redirect_is_last = k == len(leaf.option_redirects) - 1
+                lines.append(f"{grandchild_indent}{last_branch if redirect_is_last else branch}{redirect_line}")
 
     return "\n".join(lines) + "\n"
 

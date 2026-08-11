@@ -184,11 +184,20 @@ def test_describe_options_classifies_stepper():
 
 
 def test_describe_options_classifies_choice_group():
-    raw = json.dumps({"group": "size", "options": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}]})
+    raw = json.dumps({
+        "group": "size",
+        "options": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
+    })
     result = describe_options(raw)
     assert result == {
         "kind": "choice_group", "group": "size",
-        "choices": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}],
+        "choices": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
     }
 
 

@@ -38,6 +38,22 @@ REDUCE_SYSTEM_INSTRUCTION = (
 )
 
 
+def _choices_leading_elsewhere(record: Dict[str, Any], parsed: Dict[str, Any]) -> List[str]:
+    """`"choice text -> resulting_url"` for every consolidated choice-group
+    member whose own interaction navigated somewhere - a single node now
+    covers the whole group, but a specific choice behaving differently from
+    its siblings is still a fact worth narrating, not one that disappeared
+    along with its old dedicated node.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#_choices_leading_elsewhere
+    """
+    text_by_path = {c["path"]: c.get("text") for c in parsed["choices"] if c.get("path")}
+    return [
+        f"{text_by_path.get(interaction['source_path'], interaction['source_path'])} -> {interaction['resulting_url']}"
+        for interaction in record.get("interactions", [])
+        if interaction.get("source_path") and interaction.get("resulting_url")
+    ]
+
+
 def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One catalog-ready fact dict per distinct control on a page.
     Details: docs/dev/generators/graph_prd_synthesizer.md#_build_page_facts
@@ -69,14 +85,16 @@ def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[s
             if group in seen_choice_groups:
                 continue
             seen_choice_groups.add(group)
-            facts.append(
-                {
-                    "type": "radio/checkbox group",
-                    "text": f"group '{group}'",
-                    "choices": [c["text"] for c in parsed["choices"] if c.get("text")],
-                    "interacted": bool(record.get("interacted")),
-                }
-            )
+            fact = {
+                "type": "choice group (dropdown/menu/radio/checkbox)",
+                "text": f"group '{group}'",
+                "choices": [c["text"] for c in parsed["choices"] if c.get("text")],
+                "interacted": bool(record.get("interacted")),
+            }
+            leads_elsewhere = _choices_leading_elsewhere(record, parsed)
+            if leads_elsewhere:
+                fact["leads_elsewhere"] = leads_elsewhere
+            facts.append(fact)
             continue
 
         text = record.get("text") or "(no accessible label found on this element)"
@@ -96,6 +114,8 @@ def _render_fact_line(index: int, fact: Dict[str, Any]) -> str:
         parts.append(f"current_value={fact['current_value']!r}")
     if "choices" in fact:
         parts.append(f"choices={fact['choices']!r}")
+    if "leads_elsewhere" in fact:
+        parts.append(f"leads_elsewhere={fact['leads_elsewhere']!r}")
     return f"{index}. " + " ".join(parts)
 
 
