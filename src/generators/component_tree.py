@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.interfaces import GraphStore
-from .component_classifier import describe_options
+from .component_classifier import choice_text_by_path, describe_options
 
 
 @dataclass
@@ -71,7 +71,7 @@ def _build_option_redirects(
     """
     if not parsed or parsed["kind"] != "choice_group":
         return []
-    text_by_path = {c["path"]: c.get("text") for c in parsed["choices"] if c.get("path")}
+    text_by_path = choice_text_by_path(parsed)
 
     lines = []
     for interaction in record.get("interactions", []):

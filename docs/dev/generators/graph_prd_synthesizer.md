@@ -88,8 +88,9 @@ not a full inventory of every options shape.
 A `choice_group` fact's `leads_elsewhere` (present only when non-empty):
 `"choice text -> resulting_url"` for every consolidated member whose own
 interaction navigated somewhere, resolved back to its choice's label via
-the group's own `options` JSON (`describe_options`' `path`-per-choice
-addition). The one thing a group's single node must not let the LLM
+`component_classifier.choice_text_by_path` (shared with
+`component_tree.py`'s identical need). The one thing a group's single
+node must not let the LLM
 catalog narration miss just because 5 nodes became 1: a choice behaving
 differently from its siblings (e.g. one dropdown option leading to a
 details page the others don't) is still a fact worth writing prose

@@ -125,3 +125,13 @@ the three-shape disambiguation logic exists exactly once:
   `GraphStoreSink.record_revealed_options` (Phase 1). No per-choice
   `path`: `find_revealed_options` only ever diffs text/selected, it was
   never given one to carry.
+
+## choice_text_by_path
+
+The `path -> text` lookup both `component_tree.py`'s
+`_build_option_redirects` and `graph_prd_synthesizer.py`'s
+`_choices_leading_elsewhere` need, factored out here rather than each
+rebuilding the same dict comprehension over a `choice_group`'s choices -
+this module already owns every other piece of `options`-shape
+interpretation (`describe_options` above), so the one place a
+`source_path` gets resolved back to a label belongs here too.

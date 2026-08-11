@@ -209,3 +209,14 @@ def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
             ],
         }
     return None
+
+
+def choice_text_by_path(parsed: Dict[str, Any]) -> Dict[str, str]:
+    """A `describe_options`' `choice_group` result's choices, keyed by their
+    own `path` - the lookup both `component_tree.py`'s
+    `_build_option_redirects` and `graph_prd_synthesizer.py`'s
+    `_choices_leading_elsewhere` need to turn a redirected interaction's raw
+    `source_path` back into a human-readable choice label.
+    Details: docs/dev/generators/component_classifier.md#choice_text_by_path
+    """
+    return {c["path"]: c.get("text") for c in parsed["choices"] if c.get("path")}

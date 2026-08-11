@@ -3,6 +3,7 @@ no LLM, no scraper, pure functions over plain component dicts."""
 import json
 
 from src.generators.component_classifier import (
+    choice_text_by_path,
     classify_component_type,
     describe_options,
     find_revealed_options,
@@ -161,6 +162,17 @@ def test_group_option_families_excludes_tabs():
         {"tag": "div", "role": "tab", "text": "Pricing", "path": "div#tabs > div:nth-of-type(2)"},
     ]
     assert group_option_families(tabs) == {}
+
+
+def test_choice_text_by_path_keys_choices_by_their_own_path():
+    parsed = describe_options(json.dumps({
+        "group": "size",
+        "options": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
+    }))
+    assert choice_text_by_path(parsed) == {"input#s": "Small", "input#l": "Large"}
 
 
 def test_describe_options_handles_empty_and_unparseable():

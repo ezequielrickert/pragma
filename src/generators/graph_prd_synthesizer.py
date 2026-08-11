@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from ..core.interfaces import Agent, GraphStore
-from .component_classifier import describe_options
+from .component_classifier import choice_text_by_path, describe_options
 
 CATALOG_SYSTEM_INSTRUCTION = (
     "You are documenting the interactive components found on one page of a web application, from "
@@ -46,7 +46,7 @@ def _choices_leading_elsewhere(record: Dict[str, Any], parsed: Dict[str, Any]) -
     along with its old dedicated node.
     Details: docs/dev/generators/graph_prd_synthesizer.md#_choices_leading_elsewhere
     """
-    text_by_path = {c["path"]: c.get("text") for c in parsed["choices"] if c.get("path")}
+    text_by_path = choice_text_by_path(parsed)
     return [
         f"{text_by_path.get(interaction['source_path'], interaction['source_path'])} -> {interaction['resulting_url']}"
         for interaction in record.get("interactions", [])

@@ -50,10 +50,9 @@ its own leaf to show up on - that fact now lives in the group's single
 node's `interactions`, tagged with `source_path` (see
 `docs/dev/core/interfaces.md#record_component_interaction`). This
 function is where it resurfaces: one line per interaction that carries a
-`source_path`, resolving that path back to its choice's `text` via
-`describe_options`' `choice_group` shape (`{"path", "text",
-"selected"}` per choice - `path` was added alongside this function).
-Only applies to `choice_group`; `revealed_options` never carries a
+`source_path`, resolved back to its choice's `text` via
+`component_classifier.choice_text_by_path`. Only applies to
+`choice_group`; `revealed_options` never carries a
 per-choice `path` to resolve against (see
 `component_classifier.md#describe_options`), so it's skipped there, same
 as `stepper`.
