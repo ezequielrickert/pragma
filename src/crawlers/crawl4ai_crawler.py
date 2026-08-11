@@ -30,6 +30,19 @@ _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_adaptive_wait_step_seconds
 _ADAPTIVE_WAIT_STEP_SECONDS = 0.1
 
+# How long the DOM-change signal must hold steady, after it first differs
+# from where it started, before _wait_for_new_content treats it as settled.
+# Live-verified against a real crawl of empanad.app (2026-08-11): after
+# clicking into the order flow, the signal changes once at ~0.24s (a false,
+# intermediate render step - 10 chars of body text, clearly a loading
+# state) and holds there for only ~0.13s before the real destination
+# content appears at ~0.49s (445 chars of body text, the actual 3
+# components). A single 0.1s poll step of "stability" (this function's
+# first version) is shorter than that ~0.13s plateau, so it returned on the
+# fake intermediate step - this margin is chosen to comfortably outlast it.
+# Details: docs/dev/crawlers/crawl4ai_crawler.md#_stable_hold_seconds
+_STABLE_HOLD_SECONDS = 0.4
+
 # Cheap proxy for "did the DOM change", polled by _wait_for_new_content instead
 # of the full DISCOVER_COMPONENTS_JS pass (which forces a getComputedStyle()
 # per element and is far too expensive to run ~20x per interaction just to
@@ -58,39 +71,46 @@ def _is_navigation_context_error(exc: Exception) -> bool:
 
 async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
     """Poll a cheap DOM-change signal in short steps, returning once it has
-    changed from baseline AND held steady for one more full step - not on
-    the first sign of change alone.
+    changed at least once AND held steady for `_STABLE_HOLD_SECONDS` -
+    not on the first sign of change, and not after just one poll step of
+    quiet either.
     An async fetch-then-render flow (click a submit button -> optimistic
     loading state -> network round-trip -> real content swaps in) produces
-    at least two DOM changes in sequence, not one: returning on the first
-    catches the loading state, not the destination content, which is exactly
-    what happened on a real crawl (empanad.app, 2026-08-11) - 0 components
-    discovered right after a "Crear pedido" click, because this function
-    declared victory the instant the button's own loading-state class
-    toggled, long before the awaited network calls resolved and the real
-    screen rendered. Confirming stability (not just "different from
-    baseline") rides out that whole sequence within the same ceiling budget.
+    at least two DOM changes in sequence, not one, and the *first* one can
+    itself plateau just long enough to look settled before the real one
+    arrives - live-verified on empanad.app (2026-08-11): after clicking
+    into the order flow, an intermediate loading-state render held steady
+    for ~0.13s before the real destination content (445 chars of body
+    text, the actual components) appeared. A version of this function that
+    required only one poll step (0.1s) of post-change quiet returned right
+    on that intermediate plateau - shorter than the plateau itself - and
+    persisted 0 components. `last_change_time` is re-armed on *every*
+    change seen, not just the first, so a longer chain of intermediate
+    states is ridden out the same way a single one is; the fixed hold
+    window is what makes "quiet" mean "actually done," not merely
+    "unchanged for one sample."
     Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
     """
     if ceiling_seconds <= 0:
         return
     try:
-        baseline = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
+        last_signal = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
     except Exception:
         return  # torn-down context - let the caller's own extraction handle it
-    last_signal = baseline
-    changed_from_baseline = False
-    deadline = asyncio.get_running_loop().time() + ceiling_seconds
-    while asyncio.get_running_loop().time() < deadline:
+    last_change_time: Optional[float] = None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ceiling_seconds
+    while loop.time() < deadline:
         await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
         try:
             signal = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
         except Exception:
             return
-        if signal != baseline:
-            changed_from_baseline = True
-        if changed_from_baseline and signal == last_signal:
-            return  # changed at least once, and unchanged for one more full step
+        now = loop.time()
+        if signal != last_signal:
+            last_change_time = now  # re-armed on every change, not just the first
+        elif last_change_time is not None and now - last_change_time >= _STABLE_HOLD_SECONDS:
+            return  # changed at least once, quiet for the full hold window since
         last_signal = signal
 
 
