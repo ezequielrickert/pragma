@@ -75,6 +75,48 @@ def test_revealed_options_variant_renders():
     assert leaf.variants == ["A", "B"]
 
 
+def test_option_redirect_renders_under_the_consolidated_choice_group_leaf():
+    """A dropdown/choice-group option that navigated somewhere different from
+    its siblings still shows up - as a line under the group's single leaf,
+    tagged with which choice caused it, not as its own leaf."""
+    store = _store()
+    store.upsert_page(SITE, "example.com", status="Finished", title="Home")
+    store.upsert_page(SITE, "example.com/large-details", status="Finished", title="Large Details")
+    store.record_component(SITE, "example.com", "div#opt-small", tag="div", text="Small")
+    store.record_component_options(
+        SITE, "example.com", "div#opt-small",
+        json.dumps({
+            "group": "div#sizeList",
+            "options": [
+                {"path": "div#opt-small", "text": "Small", "selected": False},
+                {"path": "div#opt-large", "text": "Large", "selected": False},
+            ],
+        }),
+    )
+    store.record_component_interaction(
+        SITE, "example.com", "div#opt-small", action="click",
+        resulting_url="example.com/large-details", source_path="div#opt-large",
+    )
+
+    tree = build_component_tree(store, SITE)
+    leaf = next(l for l in tree.pages[0].leaves if l.path == "div#opt-small")
+    assert leaf.option_redirects == ['"Large" -> "Large Details" (example.com/large-details)']
+
+    rendered = render_ascii_tree(tree)
+    assert '"Large" -> "Large Details"' in rendered
+
+
+def test_option_redirect_absent_when_no_interaction_carries_a_source_path():
+    """An ordinary (non-consolidated) interaction must not spuriously produce
+    an option_redirects line."""
+    store = _store()
+    store.upsert_page(SITE, "example.com", status="Finished")
+    store.record_component_interaction(SITE, "example.com", "a#about", action="click", resulting_url="")
+    tree = build_component_tree(store, SITE)
+    leaf = next(l for l in tree.pages[0].leaves if l.path == "a#about")
+    assert leaf.option_redirects == []
+
+
 def test_placeholder_value_from_last_fill_interaction():
     store = _store()
     store.upsert_page(SITE, "example.com", status="Finished")
