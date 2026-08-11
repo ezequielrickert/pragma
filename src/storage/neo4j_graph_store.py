@@ -39,6 +39,19 @@ def _page_ensure_clause(var: str, url_param: str) -> str:
     )
 
 
+def _page_ensure_clause_from_row(var: str, row_field: str) -> str:
+    """Same as `_page_ensure_clause`, keyed off an UNWIND `row` field instead
+    of a top-level query param - for batched writes where each row names a
+    different page (e.g. record_links' distinct link targets).
+    Details: docs/dev/storage/neo4j_graph_store.md#_page_ensure_clause_from_row
+    """
+    return (
+        f"MERGE ({var}:Page {{site: $site, url: row.{row_field}}}) "
+        f"ON CREATE SET {var}.status = 'Pending', {var}.components = 0, "
+        f"{var}.context = '-', {var}.label = '-'"
+    )
+
+
 def _blank_cypher_literal(default: Any) -> str:
     """`false` for a bool-typed ComponentFacts field, `''` for a str-typed one."""
     return "false" if isinstance(default, bool) else "''"
@@ -71,6 +84,17 @@ _COMPONENT_DESCRIPTIVE_SET = (
     "c.x = $x, c.y = $y, c.width = $width, c.height = $height, "
     "c.component_type = $component_type, "
     + ", ".join(f"c.{name} = ${name}" for name in _FACTS_FIELDS)
+)
+
+# Same assignments as _COMPONENT_DESCRIPTIVE_SET, reading from an UNWIND
+# `row` instead of top-level query params - shared by record_components'
+# ON CREATE/ON MATCH branches. Details: docs/dev/storage/neo4j_graph_store.md#record_components
+_COMPONENT_DESCRIPTIVE_SET_FROM_ROW = (
+    "c.tag = row.tag, c.text = row.text, c.role = row.role, c.input_type = row.input_type, "
+    "c.visible = row.visible, c.layer = row.layer, "
+    "c.x = row.x, c.y = row.y, c.width = row.width, c.height = row.height, "
+    "c.component_type = row.component_type, "
+    + ", ".join(f"c.{name} = row.{name}" for name in _FACTS_FIELDS)
 )
 
 # `c.<name> AS <name>` for every ComponentFacts field - shared by
@@ -259,6 +283,27 @@ class Neo4jGraphStore(GraphStore):
                 site=site, from_url=from_url, to_url=to_url, label=label,
             )
 
+    def record_links(self, site: str, from_url: str, links: List[Dict[str, str]]) -> None:
+        """Batched `record_link`: one UNWIND MERGE for a page's whole link
+        list instead of one round-trip per `<a>` tag.
+        Details: docs/dev/storage/neo4j_graph_store.md#record_links
+        """
+        if not links:
+            return
+        rows = [{"to_url": item["to_url"], "label": item.get("label", "")} for item in links]
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("a", "from_url")}
+                WITH a
+                UNWIND $rows AS row
+                {_page_ensure_clause_from_row("b", "to_url")}
+                MERGE (a)-[r:DISCOVERED_LINK {{site: $site}}]->(b)
+                SET r.label = row.label
+                """,
+                site=site, from_url=from_url, rows=rows,
+            )
+
     def get_link_label(self, site: str, from_url: str, to_url: str) -> Optional[str]:
         with self._session() as session:
             record = session.run(
@@ -378,6 +423,47 @@ class Neo4jGraphStore(GraphStore):
                 role=role, input_type=input_type, visible=visible, layer=layer,
                 x=x, y=y, width=width, height=height, component_type=component_type,
                 **asdict(facts or ComponentFacts()),
+            )
+
+    def record_components(self, site: str, page_url: str, components: List[Dict[str, Any]]) -> None:
+        """Batched `record_component`: one UNWIND MERGE for a whole discovery
+        pass's components instead of one Cypher round-trip each - collapses
+        the 100-300+ individual writes a component-heavy real page produced.
+        Details: docs/dev/storage/neo4j_graph_store.md#record_components
+        """
+        if not components:
+            return
+        rows = [
+            {
+                "path": item["path"],
+                "tag": item.get("tag", ""),
+                "text": item.get("text", ""),
+                "role": item.get("role", ""),
+                "input_type": item.get("input_type", ""),
+                "visible": item.get("visible", True),
+                "layer": item.get("layer", "semantic"),
+                "x": item.get("x"), "y": item.get("y"),
+                "width": item.get("width"), "height": item.get("height"),
+                "component_type": item.get("component_type", ""),
+                **asdict(item.get("facts") or ComponentFacts()),
+            }
+            for item in components
+        ]
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                WITH p
+                UNWIND $rows AS row
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: row.path}})
+                ON CREATE SET
+                    {_COMPONENT_DESCRIPTIVE_SET_FROM_ROW},
+                    c.options = '', c.interacted = false, c.interactions = [], c.network_requests = []
+                ON MATCH SET
+                    {_COMPONENT_DESCRIPTIVE_SET_FROM_ROW}
+                MERGE (p)-[:HAS_COMPONENT]->(c)
+                """,
+                site=site, page_url=page_url, rows=rows,
             )
 
     def record_component_interaction(
@@ -549,6 +635,42 @@ class Neo4jGraphStore(GraphStore):
                 """,
                 site=site, page_url=page_url, path=path, tag=tag, text=text,
                 visible=visible, x=x, y=y, width=width, height=height,
+            )
+
+    def record_text_contents(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:
+        """Batched `record_text_content`: one UNWIND MERGE for a whole page
+        visit's text inventory instead of one round-trip per text node.
+        Details: docs/dev/storage/neo4j_graph_store.md#record_text_contents
+        """
+        if not entries:
+            return
+        rows = [
+            {
+                "path": item["path"],
+                "tag": item.get("tag", ""),
+                "text": item.get("text", ""),
+                "visible": item.get("visible", True),
+                "x": item.get("x"), "y": item.get("y"),
+                "width": item.get("width"), "height": item.get("height"),
+            }
+            for item in entries
+        ]
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                WITH p
+                UNWIND $rows AS row
+                MERGE (t:TextContent {{site: $site, page_url: $page_url, path: row.path}})
+                ON CREATE SET
+                    t.tag = row.tag, t.text = row.text, t.visible = row.visible,
+                    t.x = row.x, t.y = row.y, t.width = row.width, t.height = row.height
+                ON MATCH SET
+                    t.tag = row.tag, t.text = row.text, t.visible = row.visible,
+                    t.x = row.x, t.y = row.y, t.width = row.width, t.height = row.height
+                MERGE (p)-[:HAS_TEXT]->(t)
+                """,
+                site=site, page_url=page_url, rows=rows,
             )
 
     def get_text_content_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:

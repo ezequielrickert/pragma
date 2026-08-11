@@ -8,3 +8,4 @@ PyYAML==6.0.1
 pytest==8.2.0
 questionary==2.1.1
 neo4j==5.24.0
+psutil==7.2.2

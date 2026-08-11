@@ -3,7 +3,14 @@
 /_resolve_write_path). Calls GraphStoreSink directly against InMemoryGraphStore
 with synthetic component dicts - no browser/crawl needed, same pattern as
 tests/test_graph_sink_tracker_cache.py.
+
+GraphStoreSink's write methods are async (see graph_sink.py's `_write` -
+every write is offloaded via asyncio.to_thread so it doesn't block the crawl's
+event loop), so each test wraps its calls in asyncio.run() directly, matching
+tests/test_crawl4ai_crawler.py's no-pytest-asyncio-dependency convention.
 """
+import asyncio
+
 from src.crawlers.graph_sink import GraphStoreSink
 from src.generators.component_classifier import describe_options
 from src.storage.memory_graph_store import InMemoryGraphStore
@@ -32,7 +39,7 @@ def _dropdown_components():
 
 def test_dropdown_options_collapse_into_one_component_node():
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
+    asyncio.run(sink.record_inventory(PAGE, _dropdown_components(), links=[]))
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     option_texts = {c["text"] for c in ledger.values() if c["text"] in ("Small", "Medium", "Large")}
@@ -52,7 +59,7 @@ def test_radio_group_sharing_a_name_also_collapses_into_one_node():
         {"tag": "input", "input_type": "radio", "name": "size", "text": "Large", "path": "input#l", "rect": {}},
     ]
     sink = _sink()
-    sink.record_inventory(PAGE, components, links=[])
+    asyncio.run(sink.record_inventory(PAGE, components, links=[]))
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     assert set(ledger.keys()) == {"input#s"}, "the 2 radios must collapse into 1 representative node"
@@ -66,7 +73,7 @@ def test_ungrouped_components_are_unaffected():
         {"tag": "div", "role": "option", "text": "Only choice", "path": "div#x > div", "rect": {}},
     ]
     sink = _sink()
-    sink.record_inventory(PAGE, components, links=[])
+    asyncio.run(sink.record_inventory(PAGE, components, links=[]))
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     assert set(ledger.keys()) == {"button#submit", "div#x > div"}
@@ -74,9 +81,12 @@ def test_ungrouped_components_are_unaffected():
 
 def test_interacting_with_a_non_representative_option_redirects_not_creates_a_node():
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
 
-    sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(3)", "click", value="", resulting_url="")
+    async def run():
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])
+        await sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(3)", "click", value="", resulting_url="")
+
+    asyncio.run(run())
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     assert "div#sizeList > div:nth-of-type(3)" not in ledger, "clicking 'Large' must not create its own node"
@@ -94,9 +104,12 @@ def test_interacting_with_the_representative_option_itself_carries_no_source_pat
     nothing to redirect - source_path stays absent, same as any ordinary
     (ungrouped) interaction."""
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
 
-    sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(1)", "click", value="", resulting_url="")
+    async def run():
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])
+        await sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(1)", "click", value="", resulting_url="")
+
+    asyncio.run(run())
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     interaction = ledger["div#sizeList > div:nth-of-type(1)"]["interactions"][0]
@@ -105,12 +118,15 @@ def test_interacting_with_the_representative_option_itself_carries_no_source_pat
 
 def test_network_requests_on_a_non_representative_option_redirect_and_are_tagged():
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
 
-    sink.record_component_network(
-        PAGE, "div#sizeList > div:nth-of-type(2)",
-        [{"method": "GET", "url": "/api/sizes/medium", "resource_type": "fetch", "status": 200, "failed": False}],
-    )
+    async def run():
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])
+        await sink.record_component_network(
+            PAGE, "div#sizeList > div:nth-of-type(2)",
+            [{"method": "GET", "url": "/api/sizes/medium", "resource_type": "fetch", "status": 200, "failed": False}],
+        )
+
+    asyncio.run(run())
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     assert "div#sizeList > div:nth-of-type(2)" not in ledger
@@ -123,12 +139,15 @@ def test_navigation_edge_still_carries_the_raw_option_path_not_the_representativ
     edge is never a Component node in the first place, so there's nothing to
     redirect; it should keep naming exactly which option caused it."""
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
-    sink.graph_store.upsert_page(SITE, "example.com/large-details", status="Pending")
 
-    sink.record_navigation_edge(
-        PAGE, "example.com/large-details", "div#sizeList > div:nth-of-type(3)", "click"
-    )
+    async def run():
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])
+        sink.graph_store.upsert_page(SITE, "example.com/large-details", status="Pending")
+        await sink.record_navigation_edge(
+            PAGE, "example.com/large-details", "div#sizeList > div:nth-of-type(3)", "click"
+        )
+
+    asyncio.run(run())
 
     edges = sink.graph_store.get_edges(SITE)
     assert edges[0]["component"] == "div#sizeList > div:nth-of-type(3)"
@@ -140,9 +159,13 @@ def test_repeated_inventory_passes_do_not_forget_earlier_group_membership():
     that (for whatever reason) is given a narrower component list must not
     lose the earlier pass's redirect mapping for paths it already grouped."""
     sink = _sink()
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])
-    sink.record_inventory(PAGE, _dropdown_components(), links=[])  # second discovery pass, same shape
 
-    sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(2)", "click", value="", resulting_url="")
+    async def run():
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])
+        await sink.record_inventory(PAGE, _dropdown_components(), links=[])  # second pass, same shape
+        await sink.record_interaction(PAGE, "div#sizeList > div:nth-of-type(2)", "click", value="", resulting_url="")
+
+    asyncio.run(run())
+
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     assert "div#sizeList > div:nth-of-type(2)" not in ledger

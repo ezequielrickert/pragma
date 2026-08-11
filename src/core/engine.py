@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
-from ..crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from ..crawlers.crawl4ai_crawler import Crawl4AICrawlerConfig
+from ..crawlers.crawl4ai_crawler_pool import Crawl4AICrawlerPool
 from ..crawlers.debug_log import CrawlDebugLog, prune_old_runs
 from ..crawlers.fill_value_agent import make_ai_fill_value_fn
 from ..crawlers.fill_values import default_placeholder_fill_value
@@ -32,6 +33,17 @@ def _slugify(url: str) -> str:
 def _timestamp() -> str:
     """Generate a standard timestamp string."""
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) -> int:
+    """How many real Chromium processes Crawl4AICrawlerPool should launch.
+    Unset ties it to page_concurrency (one dedicated browser per worker);
+    set, it's clamped so no pool member ever sits idle with no worker
+    routed to it. Details: docs/dev/core/engine.md#_resolve_pool_size
+    """
+    if browser_pool_size is None:
+        return page_concurrency
+    return min(browser_pool_size, page_concurrency)
 
 
 @dataclass
@@ -61,22 +73,23 @@ class Engine:
         element_budget: int = 200,
         max_pages: Optional[int] = None,
         headless: bool = True,
-        wait_seconds: float = 2.0,
+        wait_seconds: float = 1.0,
         interaction_wait_seconds: Optional[float] = None,
         debug_logs_dir: str = "debug_logs",
         tree_ascii: bool = False,
         max_passes_per_page: int = 10,
         max_visits_per_route_shape: int = 1,
         ai_fill_values: bool = True,
-        page_concurrency: int = 1,
+        page_concurrency: int = 4,
+        browser_pool_size: Optional[int] = None,
         page_timeout_seconds: float = 15.0,
         prefetch: bool = False,
-        block_images: bool = False,
+        block_images: bool = True,
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
         export_json: bool = False,
         prd_synth_batch_size: int = 5,
-        interaction_timeout_seconds: Optional[float] = None,
+        interaction_timeout_seconds: Optional[float] = 10.0,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -104,6 +117,9 @@ class Engine:
         # Details: docs/dev/core/engine.md#__init__-ai_fill_values
         self.ai_fill_values = ai_fill_values
         self.page_concurrency = page_concurrency  # see MechanicalCrawler's own docstring
+        # None = tied to page_concurrency; see Crawl4AICrawlerPool's own docstring.
+        # Details: docs/dev/core/engine.md#__init__-browser_pool_size
+        self.browser_pool_size = browser_pool_size
         self.debug_logs_keep_last = debug_logs_keep_last
         self.export_json = export_json
         self.prd_synth_batch_size = prd_synth_batch_size
@@ -147,6 +163,7 @@ class Engine:
             max_visits_per_route_shape=config.max_visits_per_route_shape,
             ai_fill_values=config.ai_fill_values,
             page_concurrency=config.page_concurrency,
+            browser_pool_size=config.browser_pool_size,
             page_timeout_seconds=config.page_timeout_seconds,
             prefetch=config.prefetch,
             block_images=config.block_images,
@@ -182,7 +199,8 @@ class Engine:
             block_images=self.block_images,
             interaction_timeout_seconds=self.interaction_timeout_seconds,
         )
-        async with Crawl4AICrawler(crawler_config) as crawler:
+        pool_size = _resolve_pool_size(self.browser_pool_size, self.page_concurrency)
+        async with Crawl4AICrawlerPool(crawler_config, pool_size=pool_size) as crawler:
             fill_value_fn = (
                 make_ai_fill_value_fn(self.agent) if self.ai_fill_values else default_placeholder_fill_value
             )

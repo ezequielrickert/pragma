@@ -114,6 +114,85 @@ Returns silently (no exception) on a torn-down execution context -
 mid-poll, and the caller's own extraction (`run_extraction`, called
 right after) is what actually needs to react to that, not this check.
 
+## _backoff_slowdown_multiplier
+
+How many times slower than the fastest navigation seen this crawl counts
+as the *target server* straining rather than ordinary page-to-page
+variance (heavier pages are always somewhat slower than light ones, on
+any healthy server). 2.0 is deliberately generous - see `_update_backoff`
+for why a tighter multiplier would misfire on normal variance.
+
+## _backoff_step_seconds
+
+Fixed additive step backoff grows or decays by per navigation - the
+"AIMD" (additive-increase/additive-decrease) shape, the same family of
+congestion-control algorithm TCP itself uses for exactly this problem
+(a shared resource getting slower under load, with no way to know its
+true capacity in advance). Additive rather than multiplicative in both
+directions deliberately: a doubling-style backoff would either overshoot
+wildly on the first slow request or take too long to notice a real,
+sustained slowdown - a fixed step converges smoothly either way.
+
+## _backoff_seconds
+
+Lives on the `Crawl4AICrawler` instance, not per-session/per-worker -
+deliberately shared across every concurrent worker, since they're all
+hitting the *same* target server and a slowdown one worker observes is
+real evidence about that shared resource, not something scoped to just
+that worker's own tab. No lock around the read-modify-write in
+`_update_backoff`: a `page_concurrency > 1` race between two workers
+updating this concurrently can only ever under- or over-count a single
+`_BACKOFF_STEP_SECONDS` step, self-corrects on the very next navigation
+either worker makes, and Python's GIL means a plain float assignment
+can't produce a torn/corrupted value - not worth a lock for a backstop
+that was never meant to be exact (same discipline `max_pages`'s own soft
+bound already documents in `docs/dev/crawlers/mechanical_loop.md#_worker`).
+
+## _throttle_for_target_load
+
+Sleeps off the crawl's *current* backoff before every navigation - called
+unconditionally; a no-op when `_backoff_seconds` is still 0 (the common
+case for a target that isn't straining).
+
+## _update_backoff
+
+**Why this exists at all**, confirmed by bypassing this entire class -
+raw `urllib` GETs, no Playwright, no browser - against 86 distinct real
+`austral.edu.ar` URLs, reading the site's own `X-Cache` response header:
+requests the header marked `TCP_HIT`/`TCP_REMOTE_HIT` (served from the
+site's own cache) stayed under ~1s for the *entire* run, no matter how
+late; requests marked `TCP_MISS` (the site's cache had to hit its own
+origin/backend) started around 1-2s early in the run and were regularly
+6-10s+ by request 40-85, with zero browser involvement anywhere in this
+measurement. That rules out everything client-side this project owns
+(JS heap, event listeners, crawl4ai's session/context bookkeeping, this
+project's own Python state) as the cause of a real crawl's `[FETCH]`
+timing climbing over a long run - it's the *target's own backend*
+degrading under this crawl's sustained request rate, something no
+client-side fix (session recycling, heap clearing, anything else in this
+file) can touch, since the plain-HTTP measurement showed the identical
+pattern with none of that machinery even running.
+
+AIMD update, called once per navigation with its actual elapsed wall
+time: tracks the fastest navigation seen so far as the crawl's own
+estimate of "how fast this target can be, unloaded" (a floor, not an
+average - one fast sample is proof the target *can* respond that fast,
+so a single early lucky low sample is a legitimate reference point, not
+noise). A navigation more than `_BACKOFF_SLOWDOWN_MULTIPLIER` times that
+floor is treated as the target showing strain, growing backoff by one
+step (capped at `backoff_ceiling_seconds`); anything closer decays it by
+the same step (floored at 0). `backoff_ceiling_seconds=None` skips all of
+this - both the fastest-navigation tracking and the update itself -
+entirely, so a caller that never wants backoff pays nothing for it.
+Deliberately scoped to `discover_page` only, not `_interact` (the shared
+`click`/`fill`/`resync` implementation): a `js_only=True` interaction
+call almost never re-fetches the origin at all (it manipulates the
+already-loaded DOM in place), so its timing reflects local browser/JS
+cost, not target-server load - mixing the two into one signal would
+corrupt the "fastest seen" floor with numbers an order of magnitude
+smaller than a real navigation, making ordinary navigations look like a
+slowdown on every single one.
+
 ## Crawl4AICrawlerConfig
 
 Every tuning knob `Crawl4AICrawler` accepts. Bundled into one object
@@ -225,6 +304,13 @@ of a long constructor argument list.
   circuit breaker (`docs/dev/crawlers/page_visitor.md#_max_consecutive_unexplained_failures`)
   for the complementary fix that actually stops burning attempts once a
   session looks dead, rather than just making each dead attempt cheaper.
+- `backoff_ceiling_seconds`: Cap on the polite delay `_throttle_for_target_load`
+  grows between navigations once the *target server itself* is slowing
+  down under this crawl's own request load - see `_update_backoff` below
+  for the mechanism and the live measurement this default (5.0) is based
+  on. `None` disables backoff entirely (zero overhead per navigation, for
+  a target already confirmed fast/robust, or a test fixture that never
+  needs it).
 
 ## Crawl4AICrawler
 
@@ -369,12 +455,14 @@ result, which already resolved whether this was a real navigation.
 Navigate to `url` and return its `PageState` - components, links,
 description, metadata, all via read-only extraction. No interaction.
 
-`session_id` defaults to `url` (one throwaway session per call) rather
-than a shared default across every call, so concurrent/successive
-`discover_page()` calls for different URLs never race on the same
-`self._stash` key - Phase 2's mechanical crawl loop is expected to pass
-its own explicit, page-scoped `session_id` when it starts reusing a
-session across a navigate + multiple interaction follow-ups.
+`session_id` defaults to `url` when the caller doesn't pass one, so a
+call made in isolation never races another on the same `self._stash`
+key. `MechanicalCrawler` passes its own explicit `session_id` instead -
+one stable value per worker, reused across every URL that worker visits
+in turn - so a whole crawl reuses `page_concurrency` browser tabs rather
+than opening a new one per page. See
+`docs/dev/crawlers/mechanical_loop.md#_worker` and
+`docs/dev/crawlers/page_visitor.md#visit`.
 
 ## _resolved_url
 
@@ -395,23 +483,32 @@ can legitimately be `None`/absent depending on crawl4ai's config, and a
 failure here must never break the crawl itself over what's purely a
 debugging convenience.
 
-Keyed by `session_id` - the literal URL this specific call was requested
-with, i.e. `MechanicalCrawler`'s own per-visit identity - deliberately
-NOT the post-redirect `page_state.url` an earlier version of this method
-used. Confirmed live on a real crawl (mapadeprofesionales.com,
-`page_concurrency=10`): many distinct pages' own "log in" links all
-redirect to the identical resolved `/login` URL; keying by that resolved
-destination meant every one of those sessions' markdown snapshots landed
-on the exact same filename, so whichever one saved last silently
-overwrote every other one's content - losing real information, not just
-a naming collision. See `docs/dev/crawlers/mechanical_loop.md#in_flight`
-for the deeper fix (preventing two of those sessions from ever running
-concurrently in the first place) - this key change is a second,
-independent layer: even a legitimate, non-concurrent, sequential resume
-of the *same* session correctly keeps overwriting its own file (the
-intended "live snapshot" behavior), while two genuinely *different*
-sessions that happen to redirect to the same destination now keep their
-own separate, inspectable files instead of one clobbering the other.
+Keyed by `url` - the literal address this specific call was requested
+with - deliberately NOT `session_id` and NOT the post-redirect
+`page_state.url`.
+
+Not `page_state.url`: an earlier version of this method used it, and on
+a real crawl (mapadeprofesionales.com, `page_concurrency=10`) many
+distinct pages' own "log in" links all redirect to the identical
+resolved `/login` URL; keying by that resolved destination meant every
+one of those sessions' markdown snapshots landed on the exact same
+filename, so whichever one saved last silently overwrote every other
+one's content - losing real information, not just a naming collision.
+See `docs/dev/crawlers/mechanical_loop.md#in_flight` for the deeper fix
+(preventing two of those sessions from ever running concurrently in the
+first place) - this key change is a second, independent layer: even a
+legitimate, non-concurrent, sequential resume of the *same* session
+correctly keeps overwriting its own file (the intended "live snapshot"
+behavior), while two genuinely *different* sessions that happen to
+redirect to the same destination now keep their own separate,
+inspectable files instead of one clobbering the other.
+
+Not `session_id` either, now that `session_id` names a *reused browser
+tab* rather than a page: since `MechanicalCrawler` hands every worker's
+whole run of URLs the same `session_id` (see `#discover_page` above),
+using it here would collapse every page one worker ever visits onto a
+single markdown filename. `url` is the one identifier that's still
+one-per-page regardless of how many pages end up sharing a tab.
 
 ## _interact
 
@@ -496,3 +593,58 @@ Sets the value via the native property setter (not plain `el.value =
 controlled inputs to actually register the change, since those
 frameworks intercept the setter on their own rendered `value` property
 and otherwise never see a directly-assigned value.
+
+## close_session
+
+Releases the Playwright page/context crawl4ai opened for `session_id` -
+a thin wrap of `crawler_strategy.kill_session` (the same object
+`__aenter__` already reaches to register hooks), so this class stays the
+single seam this codebase touches crawl4ai through.
+
+**Three different things this method has been used for, in order** (all
+confirmed live on austral.edu.ar, all real, none of them fictional):
+
+1. *Per-URL, every distinct page* - the original design: every URL got
+   its own `session_id = url`, and crawl4ai's `BrowserManager.get_page()`
+   opens a brand-new page for any unseen `session_id` and keeps it alive
+   indefinitely. Nothing ever called this method, so tabs piled up one
+   per page for the whole crawl; `[FETCH]` timing climbed from ~1s early
+   in a run to 30-40s later in the same run.
+2. *Per-visit, every single page* - the first fix: closed after every
+   `PageVisitor.visit()`. Wrong in a different way - this project's
+   `CrawlerRunConfig` never varies per page, so every session shares one
+   config-signature-keyed browser *context*
+   (`browser_manager.py`'s `contexts_by_config`); closing a session drops
+   that context's last reference and crawl4ai tears the *whole context*
+   down, so the very next page paid for building a brand-new context from
+   scratch - more expensive than the one leaked page it replaced, and
+   with `page_concurrency=1` (the default) this happened on *every*
+   page, not just occasionally.
+3. *Periodically, every `session_recycle_after` visits* - the actual
+   fix, and the only thing that still calls this method today. See
+   `docs/dev/crawlers/mechanical_loop.md#_recycle_session_if_due` for
+   why: it isn't a tab-count problem or a context-churn problem at all,
+   it's the target *website's* own client-side JS (ads/analytics/GTM,
+   extremely common on real WordPress sites) accumulating JS heap and
+   DOM event listeners across many navigations that share one
+   long-lived tab - a full `page.goto()` does not reset this, because
+   these origins' service workers/trackers hold their own references
+   across the navigation. Measured directly against austral.edu.ar with
+   raw Playwright (bypassing crawl4ai, to rule out any crawl4ai-side
+   cause): one persistent tab climbed from ~9MB JS heap / ~90 event
+   listeners to ~700MB / ~11000 listeners over 50 real page navigations,
+   with the browser's own major garbage-collection pauses landing
+   exactly on the slowest observed navigations (a 9.15s one coincided
+   with heap collapsing from 745MB back down to 264MB mid-run). Closing
+   and reopening the *page* (not the whole context - cookies/consent-
+   banner state and the context stay alive) every 15 visits reset heap
+   to single-digit MB and listeners to double digits every time, with no
+   runaway growth and no context-rebuild tax paid per page.
+
+`kill_session` closes the page unconditionally and only tears the shared
+context down if this was that context's last active page - with
+`page_concurrency=1` that's every single recycle, same context-rebuild
+cost as approach 2 above, just paid once per `session_recycle_after`
+visits instead of once per visit. See
+`docs/dev/crawlers/mechanical_loop.md#session_recycle_after` for picking
+that number.

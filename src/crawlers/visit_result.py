@@ -11,7 +11,7 @@ from typing import List, Optional
 class ComponentInteraction:
     page_url: str
     path: str
-    action: str  # "click" | "fill"
+    action: str  # "click" | "fill" | "discover"
     value: str = ""
     resulting_url: str = ""
     error: Optional[str] = None

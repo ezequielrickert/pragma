@@ -270,9 +270,49 @@ path on every interaction, so the path-based checks above never
 recognize it as the one just clicked - see `_interacted_identities` for
 the tradeoff this accepts.
 
+## _discovery_failed
+
+**Why this exists**: `discover_page` raising was never caught anywhere in
+this method - confirmed as a real, live production hang, not a
+hypothetical: 200+ pages into a real austral.edu.ar crawl, one page
+failed discovery (`Blocked by anti-bot protection: Structural: no <body>
+tag`), the exception propagated straight out of `visit()`, and with
+nothing catching it the single worker (`page_concurrency=1`, the
+default) simply died mid-`while True` loop - not a clean crash, a silent
+one, since `_worker`'s only wrapping is a bare `finally:
+self._url_frontier.task_done()`. Every other URL still sitting in the
+frontier (including ones enqueued by pages already visited, so likely
+more than one) then had no live worker left to ever dequeue it, and
+`crawl_site`'s `await self._url_frontier.join()` waits for a
+`task_done()` count that can now never reach zero - a permanent hang,
+not a crash with a traceback, which is why it read as "stuck, no advance
+at all" rather than an error.
+
+Turns that exception into an ordinary, non-`interrupted_by_navigation`
+`PageVisitResult` instead - `_worker`'s existing else-branch (see
+`docs/dev/crawlers/mechanical_loop.md#_worker`) already knows what to do
+with one of those: mark the URL visited and move on, exactly "skip this
+one page, don't retry it forever" with no new code needed on the
+`MechanicalCrawler` side. `page_key = route_shape(url)` - the requested
+URL, not a resolved one, since discovery never got far enough to resolve
+anything. Recorded into `self.errors` as a `ComponentInteraction` with
+`action="discover"` (a third action value alongside `"click"`/`"fill"` -
+see `docs/dev/crawlers/visit_result.md#componentinteractionaction`) so a
+crawl's error report shows *which* pages never even loaded, not just
+which components failed once loaded.
+
 ## visit
 
 Visit `url` and mechanically interact with its frontier.
+
+`session_id` names the physical browser tab crawl4ai should navigate;
+defaults to `url` (a throwaway tab, one per call) so a bare `visit(url)`
+still works standalone, e.g. in tests. `MechanicalCrawler` instead passes
+one stable value per worker, reused across every URL that worker visits,
+so a crawl's open-tab count stays at `page_concurrency` rather than
+growing by one per page - periodically recycled by the worker, not by
+`visit()` itself. See `docs/dev/crawlers/mechanical_loop.md#_worker` and
+`docs/dev/crawlers/mechanical_loop.md#_recycle_session_if_due`.
 
 Stops the interaction pass immediately - does not continue to the next
 frontier item - the moment an interaction's *literal* resulting URL
@@ -487,3 +527,20 @@ only) - a page that went through same-page reveals or a state transition
 finishes with `page_key`/`known_components` both pointing at whatever
 node this pass actually ended on, and the component count recorded
 should describe that node, not the first one this visit ever saw.
+
+## why visit() never closes its own session
+
+An earlier version closed `session_id` at `visit()`'s tail, right before
+`return result`, once per call. That fixed a real leak (every distinct
+URL got its own never-closed browser tab) but, on this project's default
+`page_concurrency=1`, forced crawl4ai to tear down and rebuild its one
+shared browser context on *every single page* - context creation is far
+more expensive than the one leaked page it replaced. `session_id` now
+names a tab a worker keeps across many visits (assigned by
+`docs/dev/crawlers/mechanical_loop.md#_worker`, defaulted to `url` here
+only for a standalone call), so `visit()` itself has nothing to close -
+closing is a *worker*-level decision (how many visits a tab has carried
+so far), not something knowable from inside a single `visit()` call. See
+`docs/dev/crawlers/mechanical_loop.md#_recycle_session_if_due` for where
+that decision actually lives and why it's needed at all - the tab isn't
+merely reused now, it's reused-then-periodically-recycled.
