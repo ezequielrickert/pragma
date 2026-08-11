@@ -57,8 +57,19 @@ def _is_navigation_context_error(exc: Exception) -> bool:
 
 
 async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
-    """Poll a cheap DOM-change signal in short steps for the first sign of
-    new content, instead of always sleeping the full ceiling.
+    """Poll a cheap DOM-change signal in short steps, returning once it has
+    changed from baseline AND held steady for one more full step - not on
+    the first sign of change alone.
+    An async fetch-then-render flow (click a submit button -> optimistic
+    loading state -> network round-trip -> real content swaps in) produces
+    at least two DOM changes in sequence, not one: returning on the first
+    catches the loading state, not the destination content, which is exactly
+    what happened on a real crawl (empanad.app, 2026-08-11) - 0 components
+    discovered right after a "Crear pedido" click, because this function
+    declared victory the instant the button's own loading-state class
+    toggled, long before the awaited network calls resolved and the real
+    screen rendered. Confirming stability (not just "different from
+    baseline") rides out that whole sequence within the same ceiling budget.
     Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
     """
     if ceiling_seconds <= 0:
@@ -67,6 +78,8 @@ async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
         baseline = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
     except Exception:
         return  # torn-down context - let the caller's own extraction handle it
+    last_signal = baseline
+    changed_from_baseline = False
     deadline = asyncio.get_running_loop().time() + ceiling_seconds
     while asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
@@ -75,7 +88,10 @@ async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
         except Exception:
             return
         if signal != baseline:
-            return
+            changed_from_baseline = True
+        if changed_from_baseline and signal == last_signal:
+            return  # changed at least once, and unchanged for one more full step
+        last_signal = signal
 
 
 @dataclass

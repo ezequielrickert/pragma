@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Two-stage reveal on click fixture</title>
+<meta name="description" content="Simulates a click that produces an immediate, unrelated DOM change (a loading-state class toggle) followed by the real content change after a longer delay - regression fixture for _wait_for_new_content's 'first sign of change' false positive.">
+</head>
+<body>
+  <h1>Two-stage reveal on click</h1>
+  <p>Clicking the trigger immediately toggles a class on itself (simulating an
+  optimistic loading state, the way a real app disables/spins a submit button
+  right away), then only after a longer delay replaces the real content -
+  mirroring an async fetch-then-render flow (click -> network call ->
+  re-render). A settle-wait that returns on the *first* detected DOM change
+  would catch the class toggle and miss the real content entirely (see
+  wiki/crawl4ai-integration-pitfalls.md's hydration-wait entry for the
+  original, single-stage version of this bug this fixture extends).</p>
+  <button id="trigger" onclick="
+    this.classList.add('loading');
+    setTimeout(() => {
+      document.getElementById('root').innerHTML = '<button id=&quot;lateButton&quot;>Revealed after fetch</button>';
+    }, 1200);
+  ">Trigger</button>
+  <div id="root"></div>
+</body>
+</html>

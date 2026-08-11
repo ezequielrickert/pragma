@@ -71,43 +71,54 @@ resolution of the poll itself, not a per-site tuning decision the way
 ## _wait_for_new_content
 
 Replaces a flat `asyncio.sleep(ceiling_seconds)` with a short-step poll
-that returns the moment new content appears, still bounded by the same
-`ceiling_seconds` a flat sleep would have spent regardless.
+that returns once `_DOM_CHANGE_SIGNAL_JS` (element count | body text
+length | total class count, a cheap proxy - see that constant's own
+doc anchor for why those three specifically) has changed from baseline
+*and held steady for one more full poll step*, still bounded by the
+same `ceiling_seconds` a flat sleep would have spent regardless.
 
 **A first attempt at this used plain DOM-stability (stop once the DOM
-stops changing) and was wrong** - reverted after it broke both
-`test_wait_seconds_finds_content_rendered_after_a_delay` and
-`test_interaction_wait_seconds_controls_post_click_settle_delay`.
-`delayed_render.html`'s content arrives via a one-shot `setTimeout`, not
-continuous mutation - the DOM is perfectly static for the 1.5s *before*
-the timer fires, which looks identical to "already settled" to a
-stability check. No amount of DOM-diffing can tell those two states
-apart before the timer actually fires - this is a hard limit, not a
-tuning problem. Kept as a lesson here since the same mistake is easy to
-re-derive from a plain intent to "detect when the page is settled."
+stops changing, with no baseline comparison at all) and was wrong** -
+reverted after it broke both `test_wait_seconds_finds_content_
+rendered_after_a_delay` and `test_interaction_wait_seconds_controls_
+post_click_settle_delay`. `delayed_render.html`'s content arrives via a
+one-shot `setTimeout`, not continuous mutation - the DOM is perfectly
+static for the 1.5s *before* the timer fires, which looks identical to
+"already settled" to a stability check with no baseline to compare
+against. No amount of DOM-diffing can tell those two states apart
+before the timer actually fires - this is a hard limit, not a tuning
+problem. Kept as a lesson here since the same mistake is easy to
+re-derive from a plain intent to "detect when the page is settled";
+the current code sidesteps it by gating the stability check on
+`changed_from_baseline` first - a still-static-since-navigation page
+never reaches the stability check at all, it just keeps polling toward
+the ceiling exactly like the original flat sleep would.
 
-The actual signal used instead: `DISCOVER_COMPONENTS_JS`'s own component
-count, checked against `baseline_count`.
-- `baseline_count=None` (used by `_before_retrieve_html`, a fresh
-  navigation with no prior snapshot for this session) - any component
-  count above zero is real forward progress, safe to stop on
-  immediately. This is what makes `test_wait_seconds_finds_content_
-  rendered_after_a_delay` finish in ~1.5s instead of the full configured
-  ceiling once `delayed_render.html`'s button actually appears.
-- `baseline_count=<pre-click count>` (used by `_on_execution_ended`) -
-  a page already has components before any interaction (the very
-  element that was just clicked, at minimum), so "any content" would
-  trivially satisfy on the *first* poll and exit before a delayed reveal
-  ever had a chance to appear. Comparing against the exact pre-click
-  count (read from `self._stash[session_id]`, the snapshot
-  `_before_retrieve_html` or the previous interaction left behind)
-  instead requires a genuine *change*, which is what
-  `test_interaction_wait_seconds_controls_post_click_settle_delay`
-  actually exercises.
+**Update (2026-08-11, the empanad.app "0 components after clicking
+'Crear pedido'" bug) - returning on the *first* detected change was
+itself a narrower version of the same mistake, just one step later in
+the sequence:** a click that kicks off an async fetch-then-render flow
+(an optimistic loading-state class toggle first, the real destination
+content only after the network round-trip resolves) produces at least
+two DOM changes in sequence, not one. The pre-fix code returned the
+instant `changed_from_baseline` went true - which caught the loading-
+state toggle and never saw the real content, confirmed on a real crawl
+via the debug log: `on_execution_ended` fired ~800ms after the click
+(a couple of poll steps, not the multi-second network round-trip this
+site's order flow actually needs), and the resulting snapshot had 0
+components with a 1-char markdown body - the pre-render shell, not the
+destination screen. The fix requires the signal to hold steady across
+one additional full poll step after the first change before returning,
+which rides out a multi-stage transition (as many intermediate changes
+as occur, each one resetting the stability check) while still exiting
+well before `ceiling_seconds` once things actually settle - see
+`test_settle_wait_survives_an_early_unrelated_change_before_the_real_
+one` (`tests/test_crawl4ai_crawler.py`), built on
+`two_stage_reveal_on_click.html`.
 
-A page whose component count never changes (a click that reveals
-nothing, or a page with no delayed content at all) simply spends the
-full `ceiling_seconds`, identical to the original flat-sleep behavior -
+A page whose signal never changes (a click that reveals nothing, or a
+page with no delayed content at all) simply spends the full
+`ceiling_seconds`, identical to the original flat-sleep behavior -
 never worse, only faster when there's something to detect early.
 Returns silently (no exception) on a torn-down execution context -
 `page.evaluate` failing here almost always means a navigation happened
