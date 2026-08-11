@@ -154,6 +154,31 @@ def test_wait_seconds_exits_as_soon_as_content_appears_not_the_full_ceiling(fixt
     assert elapsed < 3.0
 
 
+def test_settle_wait_survives_an_early_unrelated_change_before_the_real_one(fixture_server):
+    """Regression test for the empanad.app bug (2026-08-11, found via a real
+    crawl: 0 components discovered right after clicking "Crear pedido", with
+    the page markdown collapsing to 1 char - see wiki/crawl4ai-integration-
+    pitfalls.md's hydration-wait entry, this is a second, later-discovered
+    instance of the same failure class). The old `_wait_for_new_content`
+    returned the instant it saw *any* DOM change - this fixture's trigger
+    toggles its own class immediately (an optimistic loading state), then
+    only after a longer delay does the real content actually appear,
+    mirroring a click that kicks off an async fetch before re-rendering. The
+    old code would catch the loading-state toggle and never see the real
+    content; the fix waits for the signal to hold steady before returning."""
+    url = f"{fixture_server}/two_stage_reveal_on_click.html"
+
+    async def click_with(interaction_wait_seconds: float):
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, interaction_wait_seconds=interaction_wait_seconds)
+        ) as crawler:
+            await crawler.discover_page(url, session_id=url)
+            return await crawler.click(url, url, "body > button#trigger")
+
+    state = asyncio.run(click_with(3))
+    assert any(c["text"] == "Revealed after fetch" for c in state.components)
+
+
 def test_sibling_links_get_unique_disambiguated_paths(fixture_server):
     """Sibling <a> tags with no id/class must not collapse to the same
     selector (the original strict-mode-violation bug)."""
