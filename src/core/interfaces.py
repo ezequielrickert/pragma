@@ -129,6 +129,16 @@ class GraphStore(ABC):
         """
         raise NotImplementedError
 
+    def record_links(self, site: str, from_url: str, links: List[Dict[str, str]]) -> None:
+        """Batched `record_link`: each item is `{"to_url", "label"}`. Not
+        abstract - the default loops the per-item call, so only a backend
+        that can do better (e.g. one round-trip covering the whole page's
+        links) needs to override it.
+        Details: docs/dev/core/interfaces.md#record_links
+        """
+        for item in links:
+            self.record_link(site, from_url, item["to_url"], item.get("label", ""))
+
     @abstractmethod
     def get_link_label(self, site: str, from_url: str, to_url: str) -> Optional[str]:
         """The label of a specific from->to link discovery, if one was ever recorded."""
@@ -194,6 +204,17 @@ class GraphStore(ABC):
         Details: docs/dev/core/interfaces.md#record_component
         """
         raise NotImplementedError
+
+    def record_components(self, site: str, page_url: str, components: List[Dict[str, Any]]) -> None:
+        """Batched `record_component`: each item is a kwargs dict matching
+        `record_component`'s own signature (minus `site`/`page_url`). Not
+        abstract - the default loops the per-item call; a backend can
+        override it to write a whole discovery pass's worth of components
+        in one round-trip instead of one per component.
+        Details: docs/dev/core/interfaces.md#record_components
+        """
+        for item in components:
+            self.record_component(site, page_url, **item)
 
     @abstractmethod
     def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
@@ -282,6 +303,15 @@ class GraphStore(ABC):
         Details: docs/dev/core/interfaces.md#record_text_content
         """
         raise NotImplementedError
+
+    def record_text_contents(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:
+        """Batched `record_text_content`: each item is a kwargs dict matching
+        `record_text_content`'s own signature (minus `site`/`page_url`). Not
+        abstract - see `record_components` for why.
+        Details: docs/dev/core/interfaces.md#record_text_contents
+        """
+        for item in entries:
+            self.record_text_content(site, page_url, **item)
 
     @abstractmethod
     def get_text_content_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:

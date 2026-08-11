@@ -184,7 +184,7 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     and GraphStoreSink._record_choice_group. The original ghost-node failure
     mode (a blank auto-created stub instead of real fields) is still guarded
     against: it must be that one real node, not a blank one."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1)
+    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger(SITE)[page_key]
 
@@ -210,7 +210,7 @@ def test_stepper_detected_in_a_revealed_snapshot_not_just_the_initial_one(fixtur
     component list it's given, so a stepper that only appears after a reveal
     (reveal.html's quantity control) must get its options field populated
     once record_inventory is called again for that reveal's snapshot."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1)
+    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger(SITE)[page_key]
 
@@ -229,7 +229,7 @@ def test_revealed_options_attributed_to_trigger_component(fixture_server):
     """Phase 1: the trigger's own `options` field must carry the diff-
     detected revealed options, keyed the way GraphStoreSink.record_revealed_options
     writes them."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1)
+    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger(SITE)[page_key]
 

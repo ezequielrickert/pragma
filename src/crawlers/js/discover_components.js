@@ -71,8 +71,20 @@
         }
         return p.join(' > ');
     };
+    // getComputedStyle() forces a style recalculation - cache it per element
+    // so the pointer-cursor scan, isVisible, and getStyleFacts each read one
+    // computed style per element instead of recomputing it 2-3x over.
+    const styleCache = new WeakMap();
+    const styleOf = (e) => {
+        let s = styleCache.get(e);
+        if (!s) {
+            s = getComputedStyle(e);
+            styleCache.set(e, s);
+        }
+        return s;
+    };
     const isVisible = (e) => {
-        const style = getComputedStyle(e);
+        const style = styleOf(e);
         if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) {
             return false;
         }
@@ -88,7 +100,7 @@
     // from "this looks like a disabled button" without re-crawling the site.
     // Not the full CSSStyleDeclaration: most properties are noise for that use.
     const getStyleFacts = (e) => {
-        const s = getComputedStyle(e);
+        const s = styleOf(e);
         return {
             color: s.color,
             background_color: s.backgroundColor,
@@ -138,6 +150,19 @@
     const semanticEls = roots.flatMap(r => Array.from(r.querySelectorAll(selector)));
     const semanticSet = new Set(semanticEls);
 
+    // Elements that contain (or are) a semantic element - precomputed by
+    // walking up from each semantic element once, instead of a nested
+    // querySelectorAll('*') per pointer-cursor candidate (was O(n*m) on a
+    // large DOM; this is O(n) in the number of semantic elements).
+    const semanticAncestors = new Set();
+    for (const el of semanticEls) {
+        let cur = el.parentElement;
+        while (cur && !semanticAncestors.has(cur)) {
+            semanticAncestors.add(cur);
+            cur = cur.parentElement;
+        }
+    }
+
     const pointerEls = [];
     outer:
     for (const r of roots) {
@@ -146,15 +171,11 @@
         for (const el of scope.querySelectorAll('*')) {
             if (pointerEls.length >= 100) break outer;
             if (semanticSet.has(el)) continue;
+            if (semanticAncestors.has(el)) continue;
             if (el.closest(selector)) continue;
-            if (getComputedStyle(el).cursor !== 'pointer') continue;
+            if (styleOf(el).cursor !== 'pointer') continue;
             const label = el.innerText?.trim() || getAccessibleLabel(el);
             if (!label) continue;
-            let wrapsSemantic = false;
-            for (const child of el.querySelectorAll('*')) {
-                if (semanticSet.has(child)) { wrapsSemantic = true; break; }
-            }
-            if (wrapsSemantic) continue;
             pointerEls.push(el);
         }
     }

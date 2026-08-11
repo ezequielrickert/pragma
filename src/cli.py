@@ -84,6 +84,24 @@ def parse_args(argv: list) -> argparse.Namespace:
         help="Total pages to visit before stopping the crawl (default: unbounded - crawl until the "
         "URL frontier is exhausted).",
     )
+    parser.add_argument(
+        "--page-concurrency",
+        type=int,
+        dest="page_concurrency",
+        help="How many pages to visit at once (default: 4) - the single biggest lever for a large "
+        "crawl's wall-clock time, since each page pays its own settle-wait/interaction cost. Paired "
+        "with a memory ceiling (MechanicalCrawlerConfig.memory_ceiling_percent, not yet exposed here) "
+        "that pauses picking up new pages under memory pressure, so raising this further trades CPU/"
+        "RAM for speed rather than risking an out-of-memory crash outright.",
+    )
+    parser.add_argument(
+        "--browser-pool-size",
+        type=int,
+        dest="browser_pool_size",
+        help="Real Chromium processes to run (default: same as --page-concurrency, one dedicated "
+        "browser per worker). Set lower to have several workers share each browser process - less "
+        "memory, less isolation between workers.",
+    )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     parser.add_argument(
         "--tree-ascii",

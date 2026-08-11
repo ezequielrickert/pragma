@@ -430,12 +430,13 @@ class _FakeFanOutCrawler:
         raise AssertionError("not exercised by this fixture")
 
 
-def test_page_concurrency_default_is_fully_sequential():
-    """page_concurrency's default (1) must reproduce the original
-    single-worker behavior exactly - every page still visited, but never more
-    than one `discover_page` in flight at once."""
+def test_page_concurrency_set_to_one_is_fully_sequential():
+    """page_concurrency=1 must still reproduce the original single-worker
+    behavior exactly - every page still visited, but never more than one
+    `discover_page` in flight at once. (The default is no longer 1 - see
+    PragmaConfig.page_concurrency for why - so this pins the explicit-1 case.)"""
     fake = _FakeFanOutCrawler(num_leaves=5, work_seconds=0.05)
-    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10, page_concurrency=1))
     results = asyncio.run(mech.crawl_site(fake.start_url))
     assert len(results) == 6  # hub + 5 leaves
     assert fake.max_in_flight == 1
@@ -452,6 +453,69 @@ def test_page_concurrency_raised_visits_pages_in_parallel():
     assert len(results) == 6  # every page still visited, same as sequential
     assert {r.url for r in results} == {"fixture/hub"} | {f"fixture/leaf{i}" for i in range(5)}
     assert fake.max_in_flight > 1  # real concurrent overlap happened
+
+
+def test_effective_concurrency_is_full_below_the_taper_start_ratio():
+    """A healthy target (target_slowdown_ratio at or under the taper start)
+    must not reduce concurrency at all - only real degradation should."""
+    fake = _FakeFanOutCrawler()
+    fake.target_slowdown_ratio = 1.3
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=4))
+
+    assert mech._effective_concurrency() == 4
+
+
+def test_effective_concurrency_tapers_linearly_between_start_and_end_ratio():
+    """Partway through the taper range, effective concurrency must sit
+    partway between page_concurrency and min_page_concurrency, not jump
+    straight to the floor - a gradual response to gradually worsening
+    conditions."""
+    fake = _FakeFanOutCrawler()
+    fake.target_slowdown_ratio = 3.0  # midpoint of the default 2.0-4.0 taper range
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=5, min_page_concurrency=1)
+    )
+
+    assert mech._effective_concurrency() == 3  # halfway between 5 and 1
+
+
+def test_effective_concurrency_floors_at_min_page_concurrency_when_severely_degraded():
+    """At or beyond the taper end ratio, effective concurrency must not drop
+    below min_page_concurrency - some progress must always be possible."""
+    fake = _FakeFanOutCrawler()
+    fake.target_slowdown_ratio = 10.0  # far past the default 4.0 taper end
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=4, min_page_concurrency=1)
+    )
+
+    assert mech._effective_concurrency() == 1
+
+
+def test_effective_concurrency_reads_as_healthy_when_crawler_has_no_slowdown_signal():
+    """A fake/test crawler with no target_slowdown_ratio attribute at all
+    must read as healthy (full concurrency), not as degraded."""
+    fake = _FakeFanOutCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=4))
+
+    assert mech._effective_concurrency() == 4
+
+
+def test_target_degradation_caps_real_concurrent_overlap_below_page_concurrency():
+    """The actual end-to-end behavior: a target already reporting severe
+    degradation before the crawl starts must keep max_in_flight at
+    min_page_concurrency, even though page_concurrency itself is much
+    higher - concurrency must genuinely shrink, not just get slower per
+    request (that's Crawl4AICrawler's own backoff, a separate mechanism)."""
+    fake = _FakeFanOutCrawler(num_leaves=5, work_seconds=0.05)
+    fake.target_slowdown_ratio = 10.0  # severely degraded from the very first check
+    mech = MechanicalCrawler(
+        fake,
+        config=MechanicalCrawlerConfig(max_pages=10, page_concurrency=4, min_page_concurrency=1),
+    )
+    results = asyncio.run(mech.crawl_site(fake.start_url))
+
+    assert len(results) == 6  # every page still visited - just not concurrently
+    assert fake.max_in_flight == 1
 
 
 class _FakeRedirectingEntryCrawler:
@@ -1145,3 +1209,153 @@ def test_consecutive_unexplained_failures_stop_the_pass_when_silent_nav_check_is
     # with most of the page never actually explored).
     page_results = [r for r in results if r.url.endswith("fixture/page")]
     assert any(r.interrupted_by_navigation for r in page_results)
+
+
+class _FakeSessionRecordingCrawler:
+    """A flat fan-out from one root: `n_pages` leaf pages, each with a
+    single non-navigating "item" component. Records the `session_id` every
+    `discover_page` call ran under, to prove distinct browser tabs stay
+    capped at `page_concurrency` instead of growing by one per page
+    (confirmed live on austral.edu.ar: crawl4ai's own [FETCH] timer climbed
+    from ~1s to ~30-40s over one run as a new tab piled up per page,
+    with nothing ever closing them)."""
+
+    def __init__(self, n_pages: int) -> None:
+        self.root_url = "http://fixture/root"
+        self.leaf_urls = [f"http://fixture/leaf{i}" for i in range(n_pages)]
+        self.session_ids_seen: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        await asyncio.sleep(0)  # yield control - lets other workers interleave, like a real await would
+        self.session_ids_seen.append(session_id)
+        if url == self.root_url:
+            links = [{"href": leaf, "scheme": "http"} for leaf in self.leaf_urls]
+            return PageState(url=self.root_url, links=links)
+        return PageState(url=url, components=[_component("body > button#item", "Item")])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        # No-op click: page settles with the same single item, nothing new revealed.
+        return PageState(url=url, components=[_component("body > button#item", "Item")])
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_session_count_stays_capped_at_page_concurrency_not_one_per_page():
+    """Visiting many pages sequentially (page_concurrency=1) must reuse one
+    browser tab throughout, not open a fresh one per page."""
+    fake = _FakeSessionRecordingCrawler(n_pages=5)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=1))
+    asyncio.run(mech.crawl_site(fake.root_url))
+
+    assert len(set(fake.session_ids_seen)) == 1
+
+
+def test_session_count_scales_with_concurrency_not_page_count():
+    """Two concurrent workers visiting many pages must still only ever use
+    two distinct browser tabs between them, one per worker."""
+    fake = _FakeSessionRecordingCrawler(n_pages=8)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=2))
+    asyncio.run(mech.crawl_site(fake.root_url))
+
+    assert len(set(fake.session_ids_seen)) == 2
+
+
+class _FakeSessionRecyclingCrawler(_FakeSessionRecordingCrawler):
+    """Same flat fan-out as `_FakeSessionRecordingCrawler`, plus a
+    `close_session` that records every call, to prove a long-lived worker
+    tab gets closed and rebuilt every `session_recycle_after` visits
+    instead of accumulating JS heap/listeners for the whole crawl
+    (confirmed live on austral.edu.ar: a tab kept navigating through 50
+    real pages without ever closing grew from ~9MB/~90 JS event listeners
+    to ~700MB/~11000 listeners, with V8's own garbage-collection pauses
+    landing squarely on the slowest FETCH timings observed)."""
+
+    def __init__(self, n_pages: int) -> None:
+        super().__init__(n_pages)
+        self.closed_session_ids: List[str] = []
+
+    async def close_session(self, session_id: str) -> None:
+        self.closed_session_ids.append(session_id)
+
+
+def test_session_recycled_every_configured_number_of_visits():
+    fake = _FakeSessionRecyclingCrawler(n_pages=8)
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, session_recycle_after=3)
+    )
+    asyncio.run(mech.crawl_site(fake.root_url))
+
+    # 1 root + 8 leaves = 9 visits, recycled every 3rd -> exactly 3 closes.
+    assert len(fake.closed_session_ids) == 3
+    assert fake.closed_session_ids == ["worker-0"] * 3
+
+
+def test_session_never_recycled_when_disabled():
+    fake = _FakeSessionRecyclingCrawler(n_pages=8)
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, session_recycle_after=None)
+    )
+    asyncio.run(mech.crawl_site(fake.root_url))
+
+    assert fake.closed_session_ids == []
+
+
+class _FakeOneBlockedPageCrawler:
+    """Three pages: the middle one always raises (an anti-bot block, a
+    timeout, any `discover_page` failure) - the other two must still get
+    visited normally. Reproduces a real hang seen live on austral.edu.ar:
+    a single page 200+ into a crawl failed discovery ("Structural: no
+    <body> tag"), and with nothing catching that exception the one worker
+    (`page_concurrency=1`, the default) died mid-loop - every URL still
+    queued behind it, including ones already enqueued by pages visited
+    earlier, then sat forever, since `_url_frontier.join()` waits for a
+    `task_done()` no live worker was left to ever call."""
+
+    def __init__(self) -> None:
+        self.url_a = "http://fixture/a"
+        self.blocked_url = "http://fixture/blocked"
+        self.url_c = "http://fixture/c"
+        self.discover_calls: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls.append(url)
+        if url == self.blocked_url:
+            raise RuntimeError("crawl4ai navigation failed: Blocked by anti-bot protection")
+        if url == self.url_a:
+            links = [{"href": self.blocked_url, "scheme": "http"}, {"href": self.url_c, "scheme": "http"}]
+            return PageState(url=self.url_a, links=links)
+        return PageState(url=url)
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        raise AssertionError("fixture has no components to click")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_one_blocked_page_does_not_hang_the_rest_of_the_crawl():
+    fake = _FakeOneBlockedPageCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig())
+
+    # A crawl that actually hangs would make this call itself hang - the
+    # real symptom is "no advance at all", not a clean failure - so simply
+    # returning here (asyncio.run has no timeout of its own) already
+    # proves the fix; the assertions below confirm *what* came back.
+    results = asyncio.run(mech.crawl_site(fake.url_a))
+
+    visited_urls = {r.url for r in results}
+    assert fake.url_a in fake.discover_calls
+    assert fake.blocked_url in fake.discover_calls
+    assert fake.url_c in fake.discover_calls
+    # The blocked page is recorded as a failure, not silently dropped...
+    assert any(e.action == "discover" and e.page_url == route_shape(fake.blocked_url) for e in mech.errors)
+    # ...and, critically, is not retried forever - the frontier still
+    # drains and the crawl still returns.
+    assert route_shape(fake.url_c) in visited_urls

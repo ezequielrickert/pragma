@@ -3,7 +3,7 @@ Details: docs/dev/crawlers/page_visitor.md#module
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Union
 
 from ..core.interfaces import PageState
 from ..generators.component_classifier import find_revealed_options
@@ -21,6 +21,7 @@ from .visit_result import ComponentInteraction, PageVisitResult
 
 if TYPE_CHECKING:
     from .crawl4ai_crawler import Crawl4AICrawler
+    from .crawl4ai_crawler_pool import Crawl4AICrawlerPool
     from .graph_sink import GraphStoreSink
     from .mechanical_loop import MechanicalCrawlerConfig
 
@@ -36,7 +37,7 @@ class PageVisitor:
 
     def __init__(
         self,
-        crawler: "Crawl4AICrawler",
+        crawler: Union["Crawl4AICrawler", "Crawl4AICrawlerPool"],
         tracker: InteractionTracker,
         enqueue_url: Callable[[str], None],
         enqueue_links: Callable[[List[Dict[str, str]]], None],
@@ -89,10 +90,10 @@ class PageVisitor:
             result.interactions.append(stale_interaction)
             self.tracker.mark_interacted(page_key, dropped_path)
             if self.sink:
-                self.sink.record_interaction(page_key, dropped_path, "click", value="", resulting_url="")
+                await self.sink.record_interaction(page_key, dropped_path, "click", value="", resulting_url="")
 
         if self.sink:
-            self.sink.record_inventory(page_key, fresh_state.components, fresh_state.links)
+            await self.sink.record_inventory(page_key, fresh_state.components, fresh_state.links)
         self._enqueue_links(fresh_state.links)
         return fresh_state.components
 
@@ -131,10 +132,10 @@ class PageVisitor:
         result.interrupted_by_navigation = True
         self._navigation_trigger_identities.setdefault(page_key, set()).add(component_identity(component))
         if self.sink:
-            self.sink.record_navigation_edge(page_key, route_shape(silently_navigated_to), path, failed.action)
+            await self.sink.record_navigation_edge(page_key, route_shape(silently_navigated_to), path, failed.action)
         return True
 
-    def _transition_to_new_state(
+    async def _transition_to_new_state(
         self,
         page_key: str,
         new_state: PageState,
@@ -151,16 +152,16 @@ class PageVisitor:
         new_page_key = state_transition_key(page_key, new_state.components)
         result.state_transitions.append(new_page_key)
         if self.sink:
-            self.sink.record_navigation_edge(page_key, new_page_key, path, action)
+            await self.sink.record_navigation_edge(page_key, new_page_key, path, action)
             # Old node is only "Finished" if this was its last frontier item.
             # Details: docs/dev/crawlers/page_visitor.md#_transition_to_new_state-finished-check
             if idx >= frontier_len:
-                self.sink.record_page_finished(page_key, len(known_components))
-            self.sink.record_page_arrival(
+                await self.sink.record_page_finished(page_key, len(known_components))
+            await self.sink.record_page_arrival(
                 new_page_key, description=new_state.description, title=new_state.title
             )
-            self.sink.record_inventory(new_page_key, new_state.components, new_state.links)
-            self.sink.record_text_content(new_page_key, new_state.text_content)
+            await self.sink.record_inventory(new_page_key, new_state.components, new_state.links)
+            await self.sink.record_text_content(new_page_key, new_state.text_content)
         self._enqueue_links(new_state.links)
 
         # Rebuilt like visit's own initial frontier, keyed to new_page_key.
@@ -177,7 +178,7 @@ class PageVisitor:
         seen_paths_this_pass = {c.get("path") for c in frontier}
         return new_page_key, frontier, seen_paths_this_pass
 
-    def _handle_physical_navigation(
+    async def _handle_physical_navigation(
         self,
         page_key: str,
         new_key: str,
@@ -198,9 +199,9 @@ class PageVisitor:
         if self.sink:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/crawlers/page_visitor.md#_handle_physical_navigation-self-loop
-            self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
+            await self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
 
-    def _handle_same_page_reveal(
+    async def _handle_same_page_reveal(
         self,
         page_key: str,
         known_components: List[Dict[str, Any]],
@@ -213,14 +214,14 @@ class PageVisitor:
         Details: docs/dev/crawlers/page_visitor.md#_handle_same_page_reveal
         """
         if self.sink:
-            self.sink.record_inventory(page_key, new_state.components, new_state.links)
+            await self.sink.record_inventory(page_key, new_state.components, new_state.links)
         self._enqueue_links(new_state.links)
 
         # Attribute newly-revealed option-family components to the trigger.
         # Details: docs/dev/crawlers/page_visitor.md#_handle_same_page_reveal-revealed-options
         revealed = find_revealed_options(known_components, new_state.components)
         if self.sink and revealed:
-            self.sink.record_revealed_options(page_key, path, revealed)
+            await self.sink.record_revealed_options(page_key, path, revealed)
 
         # Append genuinely-new, visible, not-yet-interacted components.
         # Details: docs/dev/crawlers/page_visitor.md#_handle_same_page_reveal-append-frontier
@@ -254,19 +255,38 @@ class PageVisitor:
         self._fill_value_cache[key] = value
         return value
 
-    async def visit(self, url: str) -> PageVisitResult:
+    def _discovery_failed(self, url: str, exc: Exception) -> PageVisitResult:
+        """Turn a `discover_page` exception into a normal (not interrupted)
+        result instead of letting it propagate - one page's navigation
+        failure (timeout, anti-bot block, ...) must not crash the worker
+        that would otherwise keep draining the rest of the frontier.
+        Details: docs/dev/crawlers/page_visitor.md#_discovery_failed
+        """
+        print(f"Warning: could not discover {url!r}, skipping: {exc}")
+        page_key = route_shape(url)
+        failed = ComponentInteraction(page_key, path="", action="discover", error=str(exc))
+        self.errors.append(failed)
+        return PageVisitResult(url=page_key, resolved_url=url, components_discovered=0)
+
+    async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
         """Visit `url` and mechanically interact with its frontier.
+        `session_id` is the physical browser tab to reuse - a caller running
+        several visits in sequence should pass the same one each time so
+        crawl4ai navigates an existing tab instead of opening a new one.
         Details: docs/dev/crawlers/page_visitor.md#visit
         """
-        session_id = url
-        state = await self.crawler.discover_page(url, session_id=session_id)
+        session_id = session_id or url
+        try:
+            state = await self.crawler.discover_page(url, session_id=session_id)
+        except Exception as exc:
+            return self._discovery_failed(url, exc)
         page_literal = clean_url(state.url)
         page_key = route_shape(state.url)
 
         if self.sink:
-            self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
-            self.sink.record_inventory(page_key, state.components, state.links)
-            self.sink.record_text_content(page_key, state.text_content)
+            await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
+            await self.sink.record_inventory(page_key, state.components, state.links)
+            await self.sink.record_text_content(page_key, state.text_content)
 
         self._enqueue_links(state.links)
 
@@ -332,7 +352,7 @@ class PageVisitor:
                 self.tracker.mark_interacted(page_key, path)  # don't retry a proven-broken target forever
                 self._interacted_identities.setdefault(page_key, set()).add(component_identity(component))
                 if self.sink:
-                    self.sink.record_interaction(page_key, path, failed.action, value="", resulting_url="")
+                    await self.sink.record_interaction(page_key, path, failed.action, value="", resulting_url="")
 
                 if is_element_not_found(exc) and not stale_resynced_since_success:
                     # Resync once and reconcile the rest of the frontier.
@@ -375,19 +395,21 @@ class PageVisitor:
             interaction.resulting_url = new_literal
             result.interactions.append(interaction)
             if self.sink:
-                self.sink.record_interaction(page_key, path, interaction.action, interaction.value, new_literal)
+                await self.sink.record_interaction(page_key, path, interaction.action, interaction.value, new_literal)
                 if new_state.network_requests:
-                    self.sink.record_component_network(page_key, path, new_state.network_requests)
+                    await self.sink.record_component_network(page_key, path, new_state.network_requests)
 
             if new_literal != page_literal:
                 # Real physical navigation - must stop the pass regardless of page_key.
                 # Details: docs/dev/crawlers/page_visitor.md#visit-physical-navigation-branch
-                self._handle_physical_navigation(page_key, new_key, new_state, component, path, interaction, result)
+                await self._handle_physical_navigation(
+                    page_key, new_key, new_state, component, path, interaction, result
+                )
                 break
             elif component_overlap_ratio(known_components, new_state.components) < self.state_transition_overlap_threshold:
                 # In-page state transition, not a mere reveal.
                 # Details: docs/dev/crawlers/page_visitor.md#visit-state-transition-branch
-                page_key, frontier, seen_paths_this_pass = self._transition_to_new_state(
+                page_key, frontier, seen_paths_this_pass = await self._transition_to_new_state(
                     page_key, new_state, path, interaction.action, idx, len(frontier), known_components, result
                 )
                 known_components = new_state.components
@@ -395,7 +417,7 @@ class PageVisitor:
             else:
                 # Same-URL DOM change - re-inventoried, not just mined for new items.
                 # Details: docs/dev/crawlers/page_visitor.md#visit-same-page-branch
-                known_components = self._handle_same_page_reveal(
+                known_components = await self._handle_same_page_reveal(
                     page_key, known_components, new_state, path, seen_paths_this_pass, frontier
                 )
 
@@ -407,5 +429,5 @@ class PageVisitor:
         if self.sink and not result.interrupted_by_navigation and not result.budget_exhausted_with_frontier_remaining:
             # A cut-short pass must stay Pending, not be marked Finished here.
             # Details: docs/dev/crawlers/page_visitor.md#visit-record-page-finished
-            self.sink.record_page_finished(page_key, len(known_components))
+            await self.sink.record_page_finished(page_key, len(known_components))
         return result

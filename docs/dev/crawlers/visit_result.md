@@ -6,6 +6,16 @@ Split out from `mechanical_loop.py` because these are plain result records
 with no crawl behavior of their own - callers (`crawl_site`, `graph_sink.py`,
 tests) only ever read them.
 
+## ComponentInteraction.action
+
+`"click"` | `"fill"` for a real attempted interaction; `"discover"` for a
+page that never even loaded (`discover_page` itself raised - see
+`docs/dev/crawlers/page_visitor.md#_discovery_failed`), recorded with
+`path=""` since there's no specific component to point at. Not an enum -
+this is the one place outside `PageVisitor` that cares which value it
+holds (a crawl's error report grouping "pages that never loaded" apart
+from "components that failed once loaded"), so a plain `str` was enough.
+
 ## ComponentInteraction.stale
 
 True when this entry represents a frontier item dropped by

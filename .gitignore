@@ -24,3 +24,19 @@ graph_logs/*.json
 # Neo4j backups (scripts/neo4j_backup.sh) - binary dumps of a full crawled
 # graph, potentially large, never worth version-controlling.
 backups/
+
+# Generated crawl output written straight into docs/ (Engine._run_async) - a
+# timestamped PRD/tree/export per run, plus the regenerated index and run
+# manifest. docs/dev/ (hand-maintained companion docs) is untouched by these
+# patterns - a single `*` doesn't cross the dev/ directory boundary - and
+# stays tracked normally.
+docs/*_prd_*.md
+docs/*_tree_*.md
+docs/*_graph_*.json
+docs/index.md
+docs/runs.json
+
+# Per-run debug artifacts (PragmaConfig.debug_logs_dir) - every crawl4ai hook
+# firing plus each visited URL's markdown snapshot history, one directory
+# per run; can carry real page content, never worth version-controlling.
+debug_logs/

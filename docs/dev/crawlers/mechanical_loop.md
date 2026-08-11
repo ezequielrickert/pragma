@@ -81,6 +81,19 @@ constructor argument list.
 - `allow_subdomains`: Passed through to `is_in_scope()` - whether a
   subdomain of `base_url`'s host counts as in-scope.
 
+## session_recycle_after
+
+How many visits a worker's browser tab carries before `_worker` closes
+and rebuilds it. See `_recycle_session_if_due` below for the measured
+cause this exists for. `None` disables recycling entirely (useful for a
+crawler fake in a test that doesn't implement `close_session` at all,
+or a short crawl where the growth this bounds never gets large enough to
+matter). Default 15, picked directly from a live measurement against
+austral.edu.ar: recycling every 15 navigations reliably reset JS heap to
+single-digit MB and event listeners to double digits each time, well
+before either climbed anywhere near the growth that correlated with
+multi-second navigation stalls in an unrecycled run.
+
 ## MechanicalCrawler
 
 Drives `Crawl4AICrawler` through a full site crawl with no per-step AI
@@ -110,12 +123,11 @@ What raising `page_concurrency` changes, precisely:
   pages. Same "documented, deliberate looseness" as `element_budget`/
   `max_passes_per_page` elsewhere in this class - not worth a lock for a
   backstop that was never meant to be exact.
-- Each concurrently-visited page still gets its own `session_id` (see
-  `PageVisitor.visit` - `session_id = url`, one per literal page,
-  unchanged), so concurrent visits don't share a live browser
-  page/session with each other; they only share the crawler's underlying
-  browser *process* - relying on `crawl4ai`'s own multi-session support
-  for that isolation.
+- Each worker owns its own `session_id` (`f"worker-{worker_id}"`, see
+  `_worker` below) for its entire lifetime, not one per page - so
+  concurrent visits don't share a live browser page/session with each
+  other; they only share the crawler's underlying browser *process* -
+  relying on `crawl4ai`'s own multi-session support for that isolation.
 - Everything else - the component/interaction frontier within one page
   visit, the stale-selector resync, route-shape bounding - is per-page,
   single-page-at-a-time logic already, so concurrency at the *page*
@@ -203,6 +215,45 @@ because we're done" apart from "frontier is momentarily empty because
 another worker is about to add more" - `Queue.join()`'s unfinished-task
 count is exactly the fact needed to disambiguate the two.
 
+## _recycle_session_if_due
+
+Closes `browser_session_id`'s tab once it's carried `session_recycle_after`
+visits, resetting the counter to 0; a no-op (return unchanged) below that
+threshold, and best-effort via `getattr` the same way `PageVisitor` used
+to duck-type session closing - a crawler fake that doesn't implement
+`close_session` (most of `tests/test_mechanical_loop.py`'s fakes) just
+never recycles, same as `session_recycle_after=None`.
+
+**Why this exists at all**, confirmed by bypassing crawl4ai entirely and
+driving raw Playwright directly against austral.edu.ar: a single tab kept
+alive across 50 real, distinct page navigations (no repeats) climbed from
+~9MB JS heap / ~90 DOM event listeners to ~700MB / ~11000 listeners,
+monotonically, never resetting - a plain `page.goto()` to a *different*
+URL does not free this, because the growth comes from the site's own
+client-side scripts (ads/analytics/GTM tags, effectively universal on
+real WordPress sites) holding references across the navigation, not from
+anything this codebase keeps around. Chrome's own garbage-collection
+pauses for a heap that size landed exactly on the slowest navigations
+observed in that same run (a 9.15s navigation coincided precisely with
+heap collapsing from 745MB back to 264MB mid-request) - this, not
+anything in this project's Python state or crawl4ai's session/context
+bookkeeping, is what produced the "grows from ~1s to 15-40s over a long
+crawl" symptom reported live.
+
+Closing and reopening just the *page* - proven directly against the same
+real site, same URL list, with `context.new_page()` swapped in for
+`context.close()` - reset heap to single-digit MB and listeners to double
+digits every single time it ran, with cookies/localStorage/consent-banner
+state surviving intact (they live on the *context*, untouched by a
+page-level recycle) and no context-rebuild cost paid on every page the
+way per-visit closing (`docs/dev/crawlers/crawl4ai_crawler.md#close_session`,
+approach 2) did. `close_session` here is the same underlying
+`kill_session` call as that abandoned approach - the difference is
+entirely in *how often* it runs: once every `session_recycle_after`
+visits instead of once per visit, which is what keeps its context-rebuild
+cost rare enough to not matter while still bounding heap/listener growth
+well before it becomes a real slowdown.
+
 ## _worker
 
 One concurrent visitor - pulls a URL, visits it, requeues or marks it
@@ -212,6 +263,15 @@ by `crawl_site` right after `_url_frontier.join()` returns, at which
 point every worker is guaranteed to be idly blocked on
 `_url_frontier.get()` (never mid-visit) since `join()` only completes
 once the queue is fully drained.
+
+Builds one `browser_session_id` (`f"worker-{worker_id}"`) up front and
+passes the same value to every `PageVisitor.visit()` call this worker
+ever makes, across every URL it dequeues for the rest of the crawl - not
+a fresh id per URL. This is what keeps a crawl's open browser-tab count
+at `page_concurrency` instead of growing by one per page. Tracks
+`visits_since_recycle` alongside it and runs `_recycle_session_if_due`
+after every visit - see that section below for why a reused-forever tab
+still isn't the end state.
 
 Cap-reached branch: drains the rest of the frontier without visiting so
 `.join()` can still complete. A *soft* bound once `page_concurrency > 1`
@@ -235,7 +295,10 @@ yet fully explored. Re-queue `result.resolved_url` directly (bypass
 `_queued`) rather than marking it visited. This is the *only* case that
 needs a fresh `discover_page()` call: the session's live page has
 physically moved to a different URL, so there's no "same session" left
-to resume. Budget exhaustion (see
+to resume - "session" here means a live DOM state to keep interacting
+with, not the underlying browser tab, which stays this worker's own
+`browser_session_id` (see `_worker` above) regardless of which URL gets
+requeued or which worker eventually dequeues it. Budget exhaustion (see
 `PageVisitResult.budget_exhausted_with_frontier_remaining`) is handled
 entirely inside `PageVisitor.visit`'s own internal round loop instead,
 deliberately *without* ever re-navigating - a fresh navigation resets any
@@ -253,3 +316,7 @@ trigger). A page whose frontier still isn't drained even after
 for the real bug this fixes on a redirecting entry point (re-requesting
 the original literal string re-triggers a *fresh* redirect instead of
 returning to this in-progress page).
+
+This requeue is safe with respect to session cleanup - see
+`docs/dev/crawlers/page_visitor.md#visit-session-close` for why a resumed
+visit never needs the old, already-closed session back.
