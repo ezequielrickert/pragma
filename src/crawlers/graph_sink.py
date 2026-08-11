@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Tuple
 
-from ..core.interfaces import GraphStore
+from ..core.interfaces import ComponentFacts, GraphStore
 from ..generators.component_classifier import (
     classify_component_type,
     group_choice_sets,
@@ -14,6 +14,35 @@ from ..generators.component_classifier import (
     group_steppers,
 )
 from ..utils.urls import clean_url
+
+
+def _component_facts(comp: Dict[str, Any]) -> ComponentFacts:
+    """Map one JS-discovered component dict's attribute/style facts onto `ComponentFacts`.
+    `value` is deliberately left out: a fill's actual value is already captured by
+    `record_component_interaction` at the moment it's set, which is the reliable source -
+    re-reading a live `.value` here would just be a second, possibly-stale copy of the
+    same fact (discovery can run before or after a fill).
+    Details: docs/dev/crawlers/graph_sink.md#_component_facts
+    """
+    attributes = comp.get("attributes") or {}
+    style = comp.get("style") or {}
+    return ComponentFacts(
+        css_class=attributes.get("class", ""),
+        element_id=attributes.get("id", ""),
+        href=attributes.get("href", ""),
+        placeholder=comp.get("placeholder", ""),
+        label=comp.get("label", ""),
+        name=comp.get("name", ""),
+        disabled=bool(comp.get("disabled", False)),
+        required=bool(comp.get("required", False)),
+        form=comp.get("form", ""),
+        color=style.get("color", ""),
+        background_color=style.get("background_color", ""),
+        font_size=style.get("font_size", ""),
+        font_weight=style.get("font_weight", ""),
+        display=style.get("display", ""),
+        position=style.get("position", ""),
+    )
 
 
 class GraphStoreInteractionTracker:
@@ -160,6 +189,7 @@ class GraphStoreSink:
             width=rect.get("width"),
             height=rect.get("height"),
             component_type=classify_component_type(comp),
+            facts=_component_facts(comp),
         )
 
     def _record_choice_group(self, page_key: str, group_name: str, members: List[Dict[str, Any]]) -> None:

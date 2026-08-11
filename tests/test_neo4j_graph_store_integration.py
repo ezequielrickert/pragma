@@ -228,6 +228,35 @@ def test_record_component_persists_position(store):
     assert ledger["home"]["button#go"]["width"] == 80.0
 
 
+def test_record_component_persists_facts(store):
+    from src.core.interfaces import ComponentFacts
+
+    site = "pragma-test.local"
+    facts = ComponentFacts(
+        css_class="btn btn-primary", element_id="go-btn", href="",
+        placeholder="", label="Go", name="", disabled=False, required=False, form="",
+        color="rgb(255, 255, 255)", background_color="rgb(0, 100, 200)",
+        font_size="16px", font_weight="700", display="inline-block", position="static",
+    )
+    store.record_component(site, "home", "button#go", tag="button", text="Go", facts=facts)
+
+    state = store.get_component_states(site, "home")["button#go"]
+    assert state["css_class"] == "btn btn-primary"
+    assert state["element_id"] == "go-btn"
+    assert state["color"] == "rgb(255, 255, 255)"
+
+    ledger_entry = store.get_component_ledger(site)["home"]["button#go"]
+    assert ledger_entry["background_color"] == "rgb(0, 100, 200)"
+
+    # A ghost node auto-created via the interaction path (never went through
+    # record_component's own `facts` param) must still get blank defaults for
+    # every field, not a missing-key error when read back.
+    store.record_component_interaction(site, "home", "button#never-inventoried", action="click")
+    ghost_state = store.get_component_states(site, "home")["button#never-inventoried"]
+    assert ghost_state["css_class"] == ""
+    assert ghost_state["disabled"] is False
+
+
 def test_record_component_type_and_options_roundtrip(store):
     import json
 

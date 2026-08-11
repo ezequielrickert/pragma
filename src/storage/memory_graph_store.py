@@ -4,11 +4,16 @@ Details: docs/dev/storage/memory_graph_store.md#module
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import GraphStore
+from ..core.interfaces import ComponentFacts, GraphStore
 from ..core.registry import GRAPH_STORE_REGISTRY
+
+# ComponentFacts field names, in the fixed order every component record
+# stores/returns them - the single place both `_new_component_record` and
+# `record_component` derive their facts dict from, so the two can't drift.
+_FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys())
 
 
 @dataclass
@@ -138,6 +143,7 @@ class InMemoryGraphStore(GraphStore):
             "x": None, "y": None, "width": None, "height": None,
             "component_type": "", "options": "",
             "interacted": False, "interactions": [], "network_requests": [],
+            **asdict(ComponentFacts()),
         }
 
     def record_component(
@@ -156,6 +162,7 @@ class InMemoryGraphStore(GraphStore):
         width: Optional[float] = None,
         height: Optional[float] = None,
         component_type: str = "",
+        facts: Optional[ComponentFacts] = None,
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         existing = page_components.get(path)
@@ -175,6 +182,7 @@ class InMemoryGraphStore(GraphStore):
             "interacted": existing["interacted"] if existing else False,
             "interactions": existing["interactions"] if existing else [],
             "network_requests": existing["network_requests"] if existing else [],
+            **asdict(facts or ComponentFacts()),
         }
 
     def record_component_interaction(
@@ -212,6 +220,7 @@ class InMemoryGraphStore(GraphStore):
                 "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                 "component_type": r.get("component_type", ""), "options": r.get("options", ""),
                 "network_requests": list(r.get("network_requests", [])),
+                **{name: r.get(name) for name in _FACTS_FIELDS},
             }
             for path, r in self._site(site).components.get(page_url, {}).items()
         }
@@ -264,6 +273,7 @@ class InMemoryGraphStore(GraphStore):
                     "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                     "component_type": r.get("component_type", ""), "options": r.get("options", ""),
                     "network_requests": list(r.get("network_requests", [])),
+                    **{name: r.get(name) for name in _FACTS_FIELDS},
                 }
                 for path, r in page_components.items()
             }

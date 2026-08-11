@@ -43,6 +43,44 @@ visit alongside `components` - see `src/crawlers/js/extract_text_content.js`
 for exactly what's captured and excluded (anything that's an interactive
 component's own label text). Each entry: `{tag, text, path, visible, rect}`.
 
+## ComponentFacts
+
+DOM-attribute and computed-style facts about a discovered element, added
+2026-08-11 alongside `discover_components.js`'s `attributes`/`style`
+fields (`src/crawlers/js/discover_components.js`'s `getStyleFacts`)
+finally getting persisted instead of being computed and discarded before
+reaching `record_component`. Bundled into one dataclass rather than
+fifteen more scalar params on `record_component` itself - that method
+already took thirteen; growing it further one field at a time would
+violate `python-clean-code`'s F1 (max 3 args, use a dataclass for more)
+worse with every future addition.
+
+Fields: `css_class`/`element_id`/`href` (from the element's own
+`attributes.class`/`.id`/`.href`), `placeholder`/`label`/`name`/
+`disabled`/`required`/`form` (top-level fields `discover_components.js`
+already emitted but nothing downstream read), and
+`color`/`background_color`/`font_size`/`font_weight`/`display`/`position`
+(a curated subset of `getComputedStyle()`, not the full
+`CSSStyleDeclaration` - just enough for a future visual-reconstruction
+pass to distinguish "looks like a heading" from "looks like a disabled
+button" without re-crawling the site).
+
+**Deliberately excludes `value`**: `discover_components.js` does emit a
+live `.value` for inputs/textareas/selects, but a fill's actual value is
+already captured by `record_component_interaction` at the moment it's
+set - the reliable source, since discovery can run before or after a
+fill. Re-reading `.value` into `ComponentFacts` would just be a second,
+possibly-stale copy of the same fact.
+
+`src.crawlers.graph_sink._component_facts` (see
+`docs/dev/crawlers/graph_sink.md#_component_facts`) is the one place a
+raw JS-discovered component dict gets mapped onto this dataclass; both
+`GraphStore` backends' `_FACTS_FIELDS` constant (see
+`docs/dev/storage/neo4j_graph_store.md#record_component`) derive their
+Cypher/dict field lists from `ComponentFacts.__dataclass_fields__` rather
+than hand-listing the fifteen names a second time, so the three places
+(dataclass, Cypher, in-memory dict) can't drift apart from each other.
+
 ## GraphStore
 
 Interface for the crawl graph's persistence/query backend.
@@ -157,6 +195,11 @@ but "this exists right here."
 computed from tag/role/input_type alone, safe to recompute and overwrite
 every call like the other descriptive fields.
 
+`facts` (added 2026-08-11, default `None` -> treated as a blank
+`ComponentFacts()`) carries the DOM-attribute/computed-style fields - see
+`#ComponentFacts` above. Same idempotent-refresh discipline as every
+other descriptive param here, not the interaction-ledger fields.
+
 ## record_component_options
 
 Set (fully overwrite) the JSON-encoded `options` field on a Component
@@ -218,7 +261,8 @@ missing, same discipline as
 ## get_component_states
 
 All known components for one page: `{path: {tag, text, interacted,
-visible, x, y, width, height, component_type, options}}`.
+visible, x, y, width, height, component_type, options, ...every
+ComponentFacts field}}`.
 
 One query per page visit, not one per component -
 `GraphStoreInteractionTracker` (`src/crawlers/graph_sink.py`) is the
@@ -240,10 +284,15 @@ selector) from both counts.
 ## get_component_ledger
 
 `{page_url: {path: {tag, text, interacted, interactions, x, y, width,
-height, component_type, options, network_requests}}}` for all of `site`.
+height, component_type, options, network_requests, ...every
+ComponentFacts field}}}` for all of `site`.
 `network_requests` is a list of `filter_meaningful_requests`-shaped dicts
 (already-decoded, not raw JSON strings) - `[]` if the component never
-triggered a meaningful request or predates this field's existence.
+triggered a meaningful request or predates this field's existence. The
+`ComponentFacts` fields are `""`/`False` for a component recorded before
+this field set existed, or auto-created via the interaction/options/
+network ghost-node path without ever going through `record_component`'s
+own `facts` param.
 
 The durable, human-inspectable "what did I do on this page, and to
 what" record, sourced from real persisted state - what

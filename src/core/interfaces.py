@@ -28,6 +28,32 @@ class PageState:
     text_content: List[Dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass
+class ComponentFacts:
+    """DOM-attribute and computed-style facts about a discovered element,
+    beyond the core identity/geometry `record_component` already took as
+    named params. Grouped into one object rather than growing that method's
+    own argument list further - see docs/dev/core/interfaces.md#componentfacts
+    for which facts are here and, notably, which one (`value`) isn't and why.
+    """
+
+    css_class: str = ""
+    element_id: str = ""
+    href: str = ""
+    placeholder: str = ""
+    label: str = ""
+    name: str = ""
+    disabled: bool = False
+    required: bool = False
+    form: str = ""
+    color: str = ""
+    background_color: str = ""
+    font_size: str = ""
+    font_weight: str = ""
+    display: str = ""
+    position: str = ""
+
+
 class Agent(ABC):
     """Interface for AI agent backends."""
 
@@ -160,8 +186,11 @@ class GraphStore(ABC):
         width: Optional[float] = None,
         height: Optional[float] = None,
         component_type: str = "",
+        facts: Optional[ComponentFacts] = None,
     ) -> None:
         """Create or refresh a Component node's descriptive fields only.
+        `facts` defaults to an empty `ComponentFacts()` when omitted, same as
+        every other optional field here defaulting to its own "unknown" value.
         Details: docs/dev/core/interfaces.md#record_component
         """
         raise NotImplementedError

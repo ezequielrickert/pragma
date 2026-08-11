@@ -1,4 +1,5 @@
 """Tests for the GraphStore abstraction - in-memory (always run) and Neo4j (opt-in)."""
+from src.core.interfaces import ComponentFacts
 from src.storage.memory_graph_store import InMemoryGraphStore
 
 
@@ -122,12 +123,51 @@ def test_memory_store_record_component_persists_position():
     assert store.get_component_states("a.com", "a.com/y")["button#other"]["x"] is None
 
 
+def test_memory_store_record_component_persists_facts():
+    store = InMemoryGraphStore()
+    facts = ComponentFacts(
+        css_class="btn btn-primary", element_id="go-btn", href="",
+        placeholder="", label="Go", name="", disabled=False, required=False, form="",
+        color="rgb(255, 255, 255)", background_color="rgb(0, 100, 200)",
+        font_size="16px", font_weight="700", display="inline-block", position="static",
+    )
+    store.record_component("a.com", "a.com/x", "button#go", tag="button", text="Go", facts=facts)
+
+    state = store.get_component_states("a.com", "a.com/x")["button#go"]
+    assert state["css_class"] == "btn btn-primary"
+    assert state["element_id"] == "go-btn"
+    assert state["label"] == "Go"
+    assert state["color"] == "rgb(255, 255, 255)"
+    assert state["font_weight"] == "700"
+
+    ledger_entry = store.get_component_ledger("a.com")["a.com/x"]["button#go"]
+    assert ledger_entry["css_class"] == "btn btn-primary"
+    assert ledger_entry["background_color"] == "rgb(0, 100, 200)"
+
+
+def test_memory_store_record_component_defaults_facts_to_blank():
+    # A caller that doesn't know about ComponentFacts yet (or genuinely has
+    # nothing to report) must not error - every new field is just "", same
+    # discipline as the existing tag/text/etc. defaults.
+    store = InMemoryGraphStore()
+    store.record_component("a.com", "a.com/x", "button#go", tag="button", text="Go")
+
+    state = store.get_component_states("a.com", "a.com/x")["button#go"]
+    assert state["css_class"] == ""
+    assert state["disabled"] is False
+    assert state["color"] == ""
+
+
 def test_memory_store_record_component_interaction_auto_creates_node():
     store = InMemoryGraphStore()
     store.record_component_interaction("a.com", "a.com/x", "button#go", action="click", value="", resulting_url="a.com/y")
 
     states = store.get_component_states("a.com", "a.com/x")
     assert states["button#go"]["interacted"] is True
+    # Auto-created ghost node - every ComponentFacts field defaults blank too,
+    # same as the pre-existing tag/text/component_type ghost defaults.
+    assert states["button#go"]["css_class"] == ""
+    assert states["button#go"]["disabled"] is False
 
     ledger = store.get_component_ledger("a.com")
     assert ledger["a.com/x"]["button#go"]["interactions"] == [
