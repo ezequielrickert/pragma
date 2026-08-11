@@ -154,18 +154,29 @@ def test_wait_seconds_exits_as_soon_as_content_appears_not_the_full_ceiling(fixt
     assert elapsed < 3.0
 
 
-def test_settle_wait_survives_an_early_unrelated_change_before_the_real_one(fixture_server):
+def test_settle_wait_survives_a_short_plateau_before_the_real_change(fixture_server):
     """Regression test for the empanad.app bug (2026-08-11, found via a real
     crawl: 0 components discovered right after clicking "Crear pedido", with
     the page markdown collapsing to 1 char - see wiki/crawl4ai-integration-
-    pitfalls.md's hydration-wait entry, this is a second, later-discovered
-    instance of the same failure class). The old `_wait_for_new_content`
-    returned the instant it saw *any* DOM change - this fixture's trigger
-    toggles its own class immediately (an optimistic loading state), then
-    only after a longer delay does the real content actually appear,
-    mirroring a click that kicks off an async fetch before re-rendering. The
-    old code would catch the loading-state toggle and never see the real
-    content; the fix waits for the signal to hold steady before returning."""
+    pitfalls.md's hydration-wait entry; this is a second, later-discovered
+    instance of the same failure class).
+
+    Two versions of `_wait_for_new_content` were tried and both were wrong
+    against the real site before this fixture caught it - worth recording
+    both, since either mistake is easy to re-make:
+    - v1 returned the instant it saw *any* change from baseline - caught the
+      fixture's async loading-state toggle immediately, never saw the real
+      content. Fixed by requiring the signal to hold steady for one more
+      poll step.
+    - v1's fix still failed against the *real* site: its intermediate
+      loading-state plateau held for only ~0.13s (live-measured), shorter
+      than one poll step's neighbor but long enough to satisfy "unchanged
+      for exactly one 0.1s step" - so v1's fix returned on that plateau too.
+      This fixture's own plateau (250ms, deliberately longer than one poll
+      step but shorter than `_STABLE_HOLD_SECONDS`) reproduces that specific
+      gap. The real fix requires a fixed quiet window (`_STABLE_HOLD_
+      SECONDS`) after the *last* change, not just one sample of agreement.
+    """
     url = f"{fixture_server}/two_stage_reveal_on_click.html"
 
     async def click_with(interaction_wait_seconds: float):

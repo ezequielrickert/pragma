@@ -1,23 +1,27 @@
 <!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Two-stage reveal on click fixture</title>
-<meta name="description" content="Simulates a click that produces an immediate, unrelated DOM change (a loading-state class toggle) followed by the real content change after a longer delay - regression fixture for _wait_for_new_content's 'first sign of change' false positive.">
+<meta name="description" content="Simulates a click whose first DOM change is a short-lived, irrelevant plateau (a loading state) before the real content appears - regression fixture for _wait_for_new_content's stability window.">
 </head>
 <body>
   <h1>Two-stage reveal on click</h1>
-  <p>Clicking the trigger immediately toggles a class on itself (simulating an
-  optimistic loading state, the way a real app disables/spins a submit button
-  right away), then only after a longer delay replaces the real content -
-  mirroring an async fetch-then-render flow (click -> network call ->
-  re-render). A settle-wait that returns on the *first* detected DOM change
-  would catch the class toggle and miss the real content entirely (see
-  wiki/crawl4ai-integration-pitfalls.md's hydration-wait entry for the
-  original, single-stage version of this bug this fixture extends).</p>
+  <p>Clicking the trigger changes nothing synchronously (so the settle-wait's
+  own baseline capture, which runs right after the click, sees the
+  pre-change state - matching a real click whose optimistic UI update is
+  scheduled async, not applied inline in the click handler). 50ms later a
+  loading-state class appears and holds for 250ms - shorter than
+  `_STABLE_HOLD_SECONDS` (400ms) but longer than one poll step (100ms), so
+  a settle-wait that declares victory after a single quiet poll step would
+  still be fooled by it. Only at 300ms does the real content replace it -
+  mirroring the empanad.app click that kicks off an async fetch before
+  re-rendering (see wiki/crawl4ai-integration-pitfalls.md's hydration-wait
+  entry and this repo's docs/dev/crawlers/crawl4ai_crawler.md#_stable_hold_
+  seconds for the real timings this fixture is modeled on).</p>
   <button id="trigger" onclick="
-    this.classList.add('loading');
+    setTimeout(() => { this.classList.add('loading'); }, 50);
     setTimeout(() => {
       document.getElementById('root').innerHTML = '<button id=&quot;lateButton&quot;>Revealed after fetch</button>';
-    }, 1200);
+    }, 300);
   ">Trigger</button>
   <div id="root"></div>
 </body>
