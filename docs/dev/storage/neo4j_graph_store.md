@@ -60,6 +60,18 @@ wins as the final value regardless of whether `ON CREATE` or `ON MATCH`
 just ran) and removes the one accidental point of divergence between
 the three copies.
 
+## record_component_interaction
+
+`source_path` (2026-08-11, default `""`) is embedded into the
+interaction entry's JSON only when non-empty - `{"action", "value",
+"resulting_url"}` for an ordinary interaction, `{"action", "value",
+"resulting_url", "source_path"}` when `GraphStoreSink` redirected a
+consolidated group member's interaction onto its representative node
+(see docs/dev/crawlers/graph_sink.md#_resolve_write_path). Conditional,
+not always-present-and-empty, so every interaction JSON blob written
+before this field existed stays byte-identical to what this same call
+would produce today.
+
 ## Neo4jGraphStore
 
 Neo4j Community Edition only supports a single user database, so

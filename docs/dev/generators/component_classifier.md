@@ -72,6 +72,33 @@ would call "one control").
 Groups of size 1 are dropped - nothing to group without at least one
 sibling sharing the same `name`.
 
+## group_option_families
+
+Option/menu-item components (`role` in `option`, `menuitem`,
+`menuitemcheckbox`, `menuitemradio`) sharing an immediate parent CSS
+path - the DOM shape of one dropdown or menu's list of choices (a
+Radix/react-select-style popover's `role="option"` children, a
+`role="menu"`'s `role="menuitem"` children). Same grouping-by-shared-
+parent idea as `group_steppers`, but for an arbitrary-length list
+instead of a fixed increment/decrement/value triple.
+
+Deliberately excludes `role="tab"` even though it shares option-family
+markup elsewhere in this module (`_OPTION_ROLES`, used by
+`find_revealed_options`): a tab usually gates materially different page
+content, so collapsing a page's tabs into one storage node the way a
+dropdown's choices collapse would lose real per-tab tracking. See
+`_LIST_MEMBER_ROLES`.
+
+Groups of size 1 are dropped, same reasoning as `group_choice_sets` - a
+lone `role="option"` with no siblings isn't "a list" worth
+consolidating; it gets `record_component`'s ordinary per-element path.
+
+Written by `GraphStoreSink.record_inventory` to collapse what used to be
+one Neo4j `Component` node per discovered option into a single
+representative node per list (see graph_sink.md#_record_choice_group) -
+a dropdown with 5 choices no longer produces 5 near-identical nodes
+differing only by which choice they are.
+
 ## describe_options
 
 Parse a Component's raw `options` JSON blob (`GraphStore`'s
@@ -85,8 +112,26 @@ the three-shape disambiguation logic exists exactly once:
 - `{"kind": "stepper", "container", "increment_path", "decrement_path",
   "value_path", "current_value"}` - `group_steppers`' output, written by
   `GraphStoreSink.record_inventory`.
-- `{"kind": "choice_group", "group", "choices": [{"text", "selected"}]}`
-  - `group_choice_sets`' output, same writer.
+- `{"kind": "choice_group", "group", "choices": [{"path", "text",
+  "selected"}]}` - `group_choice_sets`/`group_option_families`' output,
+  same writer. `path` (added alongside `group_option_families`) is each
+  choice's own original CSS path - since consolidation means most
+  choices no longer have their own Component node, this is the only
+  place their identity survives, used to attribute a specific choice's
+  later interaction back to its label (see
+  `component_tree.md#_build_option_redirects`).
 - `{"kind": "revealed_options", "trigger", "choices": [{"text",
   "selected"}]}` - `find_revealed_options`' output, written by
-  `GraphStoreSink.record_revealed_options` (Phase 1).
+  `GraphStoreSink.record_revealed_options` (Phase 1). No per-choice
+  `path`: `find_revealed_options` only ever diffs text/selected, it was
+  never given one to carry.
+
+## choice_text_by_path
+
+The `path -> text` lookup both `component_tree.py`'s
+`_build_option_redirects` and `graph_prd_synthesizer.py`'s
+`_choices_leading_elsewhere` need, factored out here rather than each
+rebuilding the same dict comprehension over a `choice_group`'s choices -
+this module already owns every other piece of `options`-shape
+interpretation (`describe_options` above), so the one place a
+`source_path` gets resolved back to a label belongs here too.

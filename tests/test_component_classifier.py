@@ -3,10 +3,12 @@ no LLM, no scraper, pure functions over plain component dicts."""
 import json
 
 from src.generators.component_classifier import (
+    choice_text_by_path,
     classify_component_type,
     describe_options,
     find_revealed_options,
     group_choice_sets,
+    group_option_families,
     group_steppers,
 )
 
@@ -128,6 +130,51 @@ def test_group_choice_sets_groups_same_name_radios_and_drops_singletons():
     assert len(groups["size"]) == 2
 
 
+def test_group_option_families_groups_siblings_under_the_same_parent():
+    components = [
+        {"tag": "div", "role": "option", "text": "Small", "path": "div#sizeList > div:nth-of-type(1)"},
+        {"tag": "div", "role": "option", "text": "Medium", "path": "div#sizeList > div:nth-of-type(2)"},
+        {"tag": "div", "role": "option", "text": "Large", "path": "div#sizeList > div:nth-of-type(3)"},
+        # A second, unrelated list elsewhere on the page - must not be swept
+        # into the same group just for sharing a role.
+        {"tag": "div", "role": "menuitem", "text": "Settings", "path": "div#navMenu > div:nth-of-type(1)"},
+        {"tag": "div", "role": "menuitem", "text": "Logout", "path": "div#navMenu > div:nth-of-type(2)"},
+    ]
+    groups = group_option_families(components)
+    assert set(groups.keys()) == {"div#sizeList", "div#navMenu"}
+    assert len(groups["div#sizeList"]) == 3
+    assert len(groups["div#navMenu"]) == 2
+
+
+def test_group_option_families_drops_singletons():
+    """A single role=option element under a parent isn't 'a list' - leave it
+    to record_component's normal per-element path."""
+    lone = [{"tag": "div", "role": "option", "text": "Only one", "path": "div#x > div"}]
+    assert group_option_families(lone) == {}
+
+
+def test_group_option_families_excludes_tabs():
+    """Tabs usually gate materially different content - each stays its own
+    component rather than collapsing into one 'list' node like a dropdown's
+    choices do."""
+    tabs = [
+        {"tag": "div", "role": "tab", "text": "Overview", "path": "div#tabs > div:nth-of-type(1)"},
+        {"tag": "div", "role": "tab", "text": "Pricing", "path": "div#tabs > div:nth-of-type(2)"},
+    ]
+    assert group_option_families(tabs) == {}
+
+
+def test_choice_text_by_path_keys_choices_by_their_own_path():
+    parsed = describe_options(json.dumps({
+        "group": "size",
+        "options": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
+    }))
+    assert choice_text_by_path(parsed) == {"input#s": "Small", "input#l": "Large"}
+
+
 def test_describe_options_handles_empty_and_unparseable():
     assert describe_options("") is None
     assert describe_options(None) is None
@@ -149,11 +196,20 @@ def test_describe_options_classifies_stepper():
 
 
 def test_describe_options_classifies_choice_group():
-    raw = json.dumps({"group": "size", "options": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}]})
+    raw = json.dumps({
+        "group": "size",
+        "options": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
+    })
     result = describe_options(raw)
     assert result == {
         "kind": "choice_group", "group": "size",
-        "choices": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}],
+        "choices": [
+            {"path": "input#s", "text": "Small", "selected": True},
+            {"path": "input#l", "text": "Large", "selected": False},
+        ],
     }
 
 

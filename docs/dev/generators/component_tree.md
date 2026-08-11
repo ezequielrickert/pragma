@@ -40,6 +40,27 @@ No rendering, no AI. Kept separate from `render_ascii_tree` so the
 *structure* is independently unit-testable (assert on `TreeLeaf` field
 values) without coupling tests to exact box-drawing characters.
 
+## _build_option_redirects
+
+Since `GraphStoreSink._record_choice_group` (2026-08-11) collapses a
+dropdown/menu/radio/checkbox group into one `Component` node, a specific
+choice's own outcome (it navigated somewhere its siblings didn't, e.g.
+"Large" leading to a size-details page the others don't) no longer has
+its own leaf to show up on - that fact now lives in the group's single
+node's `interactions`, tagged with `source_path` (see
+`docs/dev/core/interfaces.md#record_component_interaction`). This
+function is where it resurfaces: one line per interaction that carries a
+`source_path`, resolved back to its choice's `text` via
+`component_classifier.choice_text_by_path`. Only applies to
+`choice_group`; `revealed_options` never carries a
+per-choice `path` to resolve against (see
+`component_classifier.md#describe_options`), so it's skipped there, same
+as `stepper`.
+
+Empty for any leaf that isn't a consolidated group's representative, or
+whose group was never individually interacted with beyond its
+representative - the ordinary case, unaffected.
+
 ## redirect_index
 
 A component's own last interaction's `resulting_url` is the primary
@@ -57,6 +78,12 @@ No `GraphStore`/AI access at all. Two calls against identical input
 produce byte-identical output regardless of anything else happening in
 the process - this is what "rendered deterministically by code, not by
 an LLM" cashes out to concretely.
+
+A leaf's `option_redirects` (see `_build_option_redirects` above) render
+as their own indented sub-lines directly beneath that leaf's own line,
+one level deeper than the leaf itself - a grandchild in the tree, not a
+sibling component and not folded into the leaf's single line the way
+`redirect_target`/`variants`/`requests` are.
 
 ## generate_component_tree_document
 

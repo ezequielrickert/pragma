@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from ..core.interfaces import Agent, GraphStore
-from .component_classifier import describe_options
+from .component_classifier import choice_text_by_path, describe_options
 
 CATALOG_SYSTEM_INSTRUCTION = (
     "You are documenting the interactive components found on one page of a web application, from "
@@ -36,6 +36,22 @@ REDUCE_SYSTEM_INSTRUCTION = (
     "sections/flows relate and how a user moves between them. Do not restate the summaries verbatim; "
     "synthesize them. Do not invent pages, routes, or components not present in the provided summaries."
 )
+
+
+def _choices_leading_elsewhere(record: Dict[str, Any], parsed: Dict[str, Any]) -> List[str]:
+    """`"choice text -> resulting_url"` for every consolidated choice-group
+    member whose own interaction navigated somewhere - a single node now
+    covers the whole group, but a specific choice behaving differently from
+    its siblings is still a fact worth narrating, not one that disappeared
+    along with its old dedicated node.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#_choices_leading_elsewhere
+    """
+    text_by_path = choice_text_by_path(parsed)
+    return [
+        f"{text_by_path.get(interaction['source_path'], interaction['source_path'])} -> {interaction['resulting_url']}"
+        for interaction in record.get("interactions", [])
+        if interaction.get("source_path") and interaction.get("resulting_url")
+    ]
 
 
 def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -69,14 +85,16 @@ def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[s
             if group in seen_choice_groups:
                 continue
             seen_choice_groups.add(group)
-            facts.append(
-                {
-                    "type": "radio/checkbox group",
-                    "text": f"group '{group}'",
-                    "choices": [c["text"] for c in parsed["choices"] if c.get("text")],
-                    "interacted": bool(record.get("interacted")),
-                }
-            )
+            fact = {
+                "type": "choice group (dropdown/menu/radio/checkbox)",
+                "text": f"group '{group}'",
+                "choices": [c["text"] for c in parsed["choices"] if c.get("text")],
+                "interacted": bool(record.get("interacted")),
+            }
+            leads_elsewhere = _choices_leading_elsewhere(record, parsed)
+            if leads_elsewhere:
+                fact["leads_elsewhere"] = leads_elsewhere
+            facts.append(fact)
             continue
 
         text = record.get("text") or "(no accessible label found on this element)"
@@ -96,6 +114,8 @@ def _render_fact_line(index: int, fact: Dict[str, Any]) -> str:
         parts.append(f"current_value={fact['current_value']!r}")
     if "choices" in fact:
         parts.append(f"choices={fact['choices']!r}")
+    if "leads_elsewhere" in fact:
+        parts.append(f"leads_elsewhere={fact['leads_elsewhere']!r}")
     return f"{index}. " + " ".join(parts)
 
 

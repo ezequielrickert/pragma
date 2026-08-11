@@ -185,13 +185,15 @@ class InMemoryGraphStore(GraphStore):
         action: str,
         value: str = "",
         resulting_url: str = "",
+        source_path: str = "",
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
         record["interacted"] = True
-        record["interactions"].append(
-            {"action": action, "value": value, "resulting_url": resulting_url}
-        )
+        interaction: Dict[str, Any] = {"action": action, "value": value, "resulting_url": resulting_url}
+        if source_path:
+            interaction["source_path"] = source_path
+        record["interactions"].append(interaction)
 
     def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})

@@ -3,6 +3,7 @@ GraphPRDSynthesizer (src/generators/graph_prd_synthesizer.py).
 """
 import asyncio
 import http.server
+import json
 import threading
 from pathlib import Path
 from typing import List, Optional
@@ -18,6 +19,8 @@ from src.generators.graph_prd_synthesizer import (
     REDUCE_SYSTEM_INSTRUCTION,
     SYNTHESIS_SYSTEM_INSTRUCTION,
     GraphPRDSynthesizer,
+    _build_page_facts,
+    _render_fact_line,
     build_mermaid_graph,
 )
 from src.storage.memory_graph_store import InMemoryGraphStore
@@ -180,3 +183,63 @@ def test_end_to_end_crawl_then_synthesize(fixture_server):
     prd = synthesizer.synthesize(site)
     assert prd
     assert agent.calls  # synthesis actually consulted the agent
+
+
+def test_choice_group_fact_includes_choices_and_no_leads_elsewhere_by_default():
+    """A consolidated choice-group's fact must list every choice, but not
+    fabricate a leads_elsewhere entry when no option's interaction actually
+    navigated anywhere."""
+    page_components = {
+        "div#opt-small": {
+            "text": "Small", "tag": "div", "interacted": True,
+            "component_type": "list/menu option",
+            "options": json.dumps({
+                "group": "sizeList",
+                "options": [
+                    {"path": "div#opt-small", "text": "Small", "selected": False},
+                    {"path": "div#opt-large", "text": "Large", "selected": False},
+                ],
+            }),
+            "interactions": [{"action": "click", "value": "", "resulting_url": ""}],
+            "network_requests": [],
+        },
+    }
+    facts = _build_page_facts(page_components)
+    assert len(facts) == 1
+    fact = facts[0]
+    assert fact["type"] == "choice group (dropdown/menu/radio/checkbox)"
+    assert fact["choices"] == ["Small", "Large"]
+    assert "leads_elsewhere" not in fact
+
+
+def test_choice_group_fact_surfaces_an_option_that_navigates_differently():
+    """The one fact this consolidated group of nodes must not lose: a
+    specific option (recorded via source_path - see GraphStoreSink.
+    _resolve_write_path) leading somewhere its siblings don't."""
+    page_components = {
+        "div#opt-small": {
+            "text": "Small", "tag": "div", "interacted": True,
+            "component_type": "list/menu option",
+            "options": json.dumps({
+                "group": "sizeList",
+                "options": [
+                    {"path": "div#opt-small", "text": "Small", "selected": False},
+                    {"path": "div#opt-large", "text": "Large", "selected": False},
+                ],
+            }),
+            "interactions": [
+                {
+                    "action": "click", "value": "", "resulting_url": "example.com/large-details",
+                    "source_path": "div#opt-large",
+                },
+            ],
+            "network_requests": [],
+        },
+    }
+    facts = _build_page_facts(page_components)
+    fact = facts[0]
+    assert fact["leads_elsewhere"] == ["Large -> example.com/large-details"]
+
+    line = _render_fact_line(1, fact)
+    assert "leads_elsewhere=" in line
+    assert "Large -> example.com/large-details" in line

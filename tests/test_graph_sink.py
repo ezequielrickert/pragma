@@ -19,6 +19,7 @@ import pytest
 from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from src.crawlers.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from src.generators.component_classifier import describe_options
 from src.storage.memory_graph_store import InMemoryGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
@@ -174,22 +175,28 @@ def test_default_tracker_derives_from_sink_when_no_explicit_tracker_given(fixtur
     assert tracker.site == SITE
 
 
-def test_revealed_components_get_full_inventory_not_just_interaction_stub(fixture_server):
-    """Regression test for the ghost-node bug (2026-08-08): a component that
-    only exists because an earlier interaction revealed it (opening
-    reveal.html's combobox popover) must be recorded with real tag/text/
-    component_type via record_inventory, not left as a blank auto-created
-    stub from record_component_interaction's ON CREATE fallback. Before the
-    fix, every one of these assertions fails (fields come back empty)."""
+def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server):
+    """Supersedes the narrower 2026-08-08 ghost-node fix (which this test used
+    to guard as 3 separate Small/Medium/Large nodes, one per option): a
+    revealed dropdown's options are now group_option_families'd into ONE
+    consolidated Component node, not N near-identical ones differing only by
+    which option they are - see component_classifier.group_option_families
+    and GraphStoreSink._record_choice_group. The original ghost-node failure
+    mode (a blank auto-created stub instead of real fields) is still guarded
+    against: it must be that one real node, not a blank one."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1)
     page_key = results[0].url
     ledger = store.get_component_ledger(SITE)[page_key]
 
     option_entries = {c["text"]: c for c in ledger.values() if c.get("text") in ("Small", "Medium", "Large")}
-    assert set(option_entries) == {"Small", "Medium", "Large"}
-    for text, entry in option_entries.items():
-        assert entry["tag"] == "div", f"{text!r} must have a real tag, not the ghost-node blank"
-        assert entry["component_type"], f"{text!r} must have a real component_type"
+    assert set(option_entries) == {"Small"}, "the 3 revealed options must collapse into 1 representative node"
+    entry = option_entries["Small"]
+    assert entry["tag"] == "div", "the representative must carry real fields, not a ghost-node blank"
+    assert entry["component_type"], "the representative must have a real component_type"
+
+    parsed = describe_options(entry["options"])
+    assert parsed["kind"] == "choice_group"
+    assert {c["text"] for c in parsed["choices"]} == {"Small", "Medium", "Large"}
 
     # A link that only exists inside the revealed popover must also get
     # queued - regression for the _enqueue_links gap in the same branch.
