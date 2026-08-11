@@ -10,6 +10,13 @@ from typing import Any, Dict, List, Optional
 # role values marking a member of an enumerable list (dropdown/combobox/menu).
 _OPTION_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab"}
 
+# Same list-member roles, minus "tab": for storage-node consolidation
+# (group_option_families) tabs are deliberately excluded even though they
+# share option-family markup, because each tab usually gates materially
+# different page content and stays worth tracking as its own component -
+# unlike a dropdown/menu's choices, which really are one list.
+_LIST_MEMBER_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio"}
+
 # Increment/decrement vocabulary, English + Spanish (matched after normalize()).
 _INCREMENT_WORDS = {"agregar", "sumar", "mas", "add", "increase", "increment", "plus", "+"}
 _DECREMENT_WORDS = {"restar", "quitar", "menos", "remove", "decrease", "decrement", "minus", "-"}
@@ -142,6 +149,23 @@ def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
             continue
         groups.setdefault(name, []).append(comp)
     return {name: members for name, members in groups.items() if len(members) >= 2}
+
+
+def group_option_families(components: List[dict]) -> Dict[str, List[dict]]:
+    """Option/menu-item components sharing an immediate parent - the DOM shape
+    of a single dropdown or menu's list of choices (a native `<select>`'s
+    `<option>`s never reach here at all; discovery never treats them as their
+    own components in the first place - see discover_components.js).
+    Details: docs/dev/generators/component_classifier.md#group_option_families
+    """
+    groups: Dict[str, List[dict]] = {}
+    for comp in components:
+        role = (comp.get("role") or "").lower()
+        path = comp.get("path") or ""
+        if role not in _LIST_MEMBER_ROLES or not path:
+            continue
+        groups.setdefault(_parent_path(path), []).append(comp)
+    return {parent: members for parent, members in groups.items() if len(members) >= 2 and parent}
 
 
 def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
