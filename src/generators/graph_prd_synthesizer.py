@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from ..core.documents import DocumentGenerator, DocumentRequest
 from ..core.interfaces import Agent, GraphStore
+from ..core.registry import DOCUMENT_REGISTRY
 from .component_classifier import choice_text_by_path, describe_options
 
 CATALOG_SYSTEM_INSTRUCTION = (
@@ -231,3 +233,19 @@ class GraphPRDSynthesizer:
         # Rendered deterministically, never asked of the model - see module doc.
         mermaid = build_mermaid_graph(edges)
         return f"{overview}\n\n## Navigation Graph\n\n{mermaid}\n"
+
+
+@DOCUMENT_REGISTRY.register("prd")
+class PRDDocument(DocumentGenerator):
+    """Pipeline adapter for `GraphPRDSynthesizer`.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#prddocument
+    """
+
+    name = "prd"
+    title = "Digital Blueprint"
+    purpose = "Narrative walkthrough of what the application does, page by page, plus its navigation graph."
+
+    def generate(self, request: DocumentRequest) -> str:
+        batch_size = request.settings.get("prd_synth_batch_size", 5)
+        synthesizer = GraphPRDSynthesizer(request.agent, request.graph_store, batch_size=batch_size)
+        return synthesizer.synthesize(request.site)

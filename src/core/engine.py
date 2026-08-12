@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from ..crawlers.crawl4ai_crawler import Crawl4AICrawlerConfig
@@ -22,12 +22,12 @@ from ..generators.component_family import (
     tags_with_multiple_instances,
 )
 from ..generators.component_family_narrator import narrate_family_purposes
-from ..generators.component_tree import generate_component_tree_document
-from ..generators.graph_export import generate_graph_export_document
-from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
+from ..generators.ledger import flat_component_ledger
+from ..generators.pipeline import DocumentNaming, run_document_pipeline
 from ..generators.request_family import build_inferred_requests
 from ..utils.io import generate_docs_index, record_run_manifest, write_output
 from .config import PragmaConfig
+from .documents import DocumentRequest
 from .interfaces import Agent, GraphStore
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
@@ -63,14 +63,9 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     Returns:
         None. Four steps, always in this order:
         1. Read every discovered component for `site` via
-           `get_component_ledger`, and flatten its `{page_url: {path:
-           {...}}}` nesting into one flat list of dicts (each with
-           `page_url` and `path` folded in) - the shape
-           `component_family.build_component_families`/
-           `tags_with_multiple_instances` both expect. The ledger's
-           per-page nesting exists for `GraphPRDSynthesizer`'s
-           page-by-page narration, not for a whole-site pass like this
-           one.
+           `ledger.flat_component_ledger` - see that function for why the
+           ledger's per-page nesting has to be flattened for a whole-site
+           pass like this one.
         2. `build_component_families` clusters that flat list into
            `ComponentFamily` objects (see that function's own docstring
            for the full algorithm) - `purpose` is still `""` on every one
@@ -89,12 +84,7 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
            `apply_tag_labels`.
     Details: docs/dev/core/engine.md#_apply_component_families
     """
-    ledger = graph_store.get_component_ledger(site)
-    components = [
-        {"page_url": page_url, "path": path, **record}
-        for page_url, page_components in ledger.items()
-        for path, record in page_components.items()
-    ]
+    components = flat_component_ledger(graph_store, site)
     families = build_component_families(components)
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
     families = narrate_family_purposes(agent, families, member_texts)
@@ -109,7 +99,7 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
     Components trigger each one) from network requests already captured
     on Component nodes, then write them back. Independent of - and reads
     the graph a second time from - `_apply_component_families`, rather
-    than sharing its already-flattened `components` list: this keeps the
+    than sharing its already-flattened component list: this keeps the
     two passes fully separable (one about component *look-alikes*, this
     one about *endpoint* identity), at the cost of one extra
     `get_component_ledger` read per crawl - a single local read, not a
@@ -121,20 +111,14 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
 
     Returns:
         None. Reads every discovered component's `network_requests` via
-        `get_component_ledger`, flattens the same way
-        `_apply_component_families` does, clusters them via
+        `ledger.flat_component_ledger`, clusters them via
         `request_family.build_inferred_requests` (see that function's own
         docstring), and writes the result via `record_inferred_requests`
         - a full rebuild of `site`'s inferred-request structure every
         call, same contract as `record_component_families`.
     Details: docs/dev/core/engine.md#_apply_request_graph
     """
-    ledger = graph_store.get_component_ledger(site)
-    components = [
-        {"page_url": page_url, "path": path, **record}
-        for page_url, page_components in ledger.items()
-        for path, record in page_components.items()
-    ]
+    components = flat_component_ledger(graph_store, site)
     graph_store.record_inferred_requests(site, build_inferred_requests(components))
 
 
@@ -158,6 +142,9 @@ class EngineRunResult:
     prd_path: str
     tree_path: str
     export_path: Optional[str] = None
+    # The "Start Here" index of everything this run produced; always written.
+    # Details: docs/dev/core/engine.md#enginerunresult-master_path
+    master_path: str = ""
     manifest_path: str = ""
     # Browsable Markdown index of every run, regenerated fresh every run.
     # Details: docs/dev/core/engine.md#enginerunresult-index_path
@@ -193,6 +180,7 @@ class Engine:
         export_json: bool = False,
         prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
+        documents: Optional[List[str]] = None,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -226,6 +214,9 @@ class Engine:
         self.debug_logs_keep_last = debug_logs_keep_last
         self.export_json = export_json
         self.prd_synth_batch_size = prd_synth_batch_size
+        # None keeps PragmaConfig's own default rather than duplicating the
+        # list here - see docs/dev/core/config.md#documents.
+        self.documents = documents if documents is not None else list(PragmaConfig().documents)
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -275,6 +266,7 @@ class Engine:
             export_json=config.export_json,
             prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
+            documents=config.documents,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -334,20 +326,15 @@ class Engine:
         _apply_request_graph(self.graph_store, site)
 
         run_timestamp = _timestamp()
-        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store, batch_size=self.prd_synth_batch_size)
-        prd = synthesizer.synthesize(site)
-        prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{run_timestamp}.md"
-        write_output(prd_path, prd)
-
-        tree_doc = generate_component_tree_document(self.graph_store, site, use_box_drawing=not self.tree_ascii)
-        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{run_timestamp}.md"
-        write_output(tree_path, tree_doc)
-
-        export_path: Optional[str] = None
-        if self.export_json:
-            export_doc = generate_graph_export_document(self.graph_store, site)
-            export_path = f"{self.out_dir}/{_slugify(url)}_graph_{run_timestamp}.json"
-            write_output(export_path, export_doc)
+        request = DocumentRequest(
+            graph_store=self.graph_store,
+            site=site,
+            agent=self.agent,
+            settings={"prd_synth_batch_size": self.prd_synth_batch_size, "tree_ascii": self.tree_ascii},
+        )
+        naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
+        produced = run_document_pipeline(request, naming, self._document_names())
+        paths = {document.name: document.path for document in produced}
 
         finished_pages, total_pages = self.graph_store.count_visited(site)
         unexplored_components, total_components = self.graph_store.count_unexplored_components(site)
@@ -358,9 +345,11 @@ class Engine:
                 "timestamp": run_timestamp,
                 "url": url,
                 "graph_store": self.graph_store.__class__.__name__,
-                "prd_path": prd_path,
-                "tree_path": tree_path,
-                "export_path": export_path,
+                "prd_path": paths.get("prd"),
+                "tree_path": paths.get("tree"),
+                "export_path": paths.get("export"),
+                "master_path": paths.get("master"),
+                "document_paths": {document.name: document.path for document in produced},
                 "pages_finished": finished_pages,
                 "pages_total": total_pages,
                 "components_total": total_components,
@@ -375,9 +364,22 @@ class Engine:
 
         self.graph_store.close()
         return EngineRunResult(
-            prd_path=prd_path,
-            tree_path=tree_path,
-            export_path=export_path,
+            prd_path=paths.get("prd", ""),
+            tree_path=paths.get("tree", ""),
+            export_path=paths.get("export"),
+            master_path=paths.get("master", ""),
             manifest_path=manifest_path,
             index_path=index_path,
         )
+
+    def _document_names(self) -> List[str]:
+        """Which documents this run generates: the configured list, plus
+        "export" when the standalone `export_json` flag is on and the list
+        didn't already ask for it. The flag predates `PragmaConfig.documents`
+        and stays honored so an existing pragma.yaml keeps working.
+        Details: docs/dev/core/engine.md#_document_names
+        """
+        names = list(self.documents)
+        if self.export_json and "export" not in names:
+            names.append("export")
+        return names

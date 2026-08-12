@@ -77,3 +77,20 @@ folded into each record, since that's the shape
 `build_component_families`/`tags_with_multiple_instances` expect -
 the ledger's per-page nesting exists for `GraphPRDSynthesizer`'s
 page-by-page narration, not for a whole-site pass like this one.
+
+## _document_names
+
+Reconciles the two ways a run can ask for the JSON export: the newer
+`PragmaConfig.documents` list and the older standalone `export_json`
+boolean. The flag wins by *addition*, never by removal - it can turn the
+export on, and a run that lists `"export"` explicitly keeps it whether or
+not the flag is set. Written as one small method rather than inline so the
+back-compat rule has a name and a place to be tested.
+
+## EngineRunResult-master_path
+
+Always populated: the master document is written on every run, including
+one where every other generator failed (it would then index nothing, which
+is itself the useful signal). `prd_path`/`tree_path` degrade to `""` and
+`export_path` to `None` when their generator was not requested or failed -
+the pre-existing meaning of those fields, unchanged.

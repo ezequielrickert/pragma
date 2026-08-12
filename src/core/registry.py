@@ -33,3 +33,7 @@ class Registry(Generic[T]):
 
 AGENT_REGISTRY: "Registry[Any]" = Registry("agent")
 GRAPH_STORE_REGISTRY: "Registry[Any]" = Registry("graph_store")
+# Output documents, resolved by name from PragmaConfig.documents. Unlike
+# the two above, every factory here takes no arguments - a generator reads
+# what it needs from the DocumentRequest it is handed at generate() time.
+DOCUMENT_REGISTRY: "Registry[Any]" = Registry("document")

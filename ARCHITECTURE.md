@@ -193,6 +193,52 @@ persists across runs; a no-op for `graph_store: memory`.
 
 ---
 
+## Graph Ontology, and the names it is sometimes asked to have
+
+The graph's node labels and relationship types, as actually implemented:
+
+**Nodes**: `:Site`, `:Page`, `:Component` (plus a per-tag label — `:Button`, `:Input`, `:Link` —
+added by `apply_tag_labels` purely so Neo4j Browser colors them apart), `:TextContent`,
+`:ComponentFamily`, `:Request`, `:RequestFamily`.
+
+**Relationships**: `HAS_PAGE`, `HAS_COMPONENT`, `HAS_TEXT`, `HAS_VARIANT`, `HAS_REQUEST`,
+`TRIGGERS`, `DISCOVERED_LINK`, `NAVIGATED_TO {component, action, created_at}`.
+
+Reverse-engineering literature (and `research/plan-generacion-de-documentos.md`, which analyzes
+one such proposal) commonly names these differently. **The mapping is what matters; the names
+stay as they are.** Renaming would touch six storage modules plus their tests and buy nothing:
+
+| Name found in the literature | This codebase | Note |
+|---|---|---|
+| `(:DOM_Element)` | `(:Component)` | Same thing: one discovered interactive element, keyed by `(site, page_url, path)`. |
+| `(:UI_Component)` | `(:ComponentFamily)` | Partial. The family is the "atom" level; molecule/organism levels are deliberately out of scope. |
+| `(:NetworkRequest)` | `(:Request)` | Same thing, minus request/response *values* — only shapes are ever persisted. |
+| `(:Page)` / `(:View)` | `(:Page)` | Unchanged. |
+| `(:BusinessRule)` | — | Genuinely absent. Planned, then frozen: its value was almost entirely the human-in-the-loop review that is out of scope. |
+| `[:TRIGGERS_EVENT]` | `[:TRIGGERS]` | The event type lives on the interaction record, not the relationship name. |
+| `[:CONTAINS]` / `[:COMPOSED_OF]` | — | Absent by consequence: discovery records interactive elements and text leaves, never the containers between them. |
+| `[:RESULTS_IN_STATE]` | — | Absent for now; `NAVIGATED_TO` carries the same transition between pages. |
+
+---
+
+## Output Documents
+
+Documents are plugins, resolved by name from `PragmaConfig.documents` through
+`DOCUMENT_REGISTRY` — the same registry pattern as agents and graph stores. Each implements
+`DocumentGenerator` (`src/core/documents.py`): declare `name`/`title`/`purpose`/`extension`,
+implement `generate(request) -> str`, never touch the filesystem.
+
+`src/generators/pipeline.py` runs them, prepends the crawl-coverage banner to every Markdown
+document, writes each file, and closes with the master "Start Here" document — which indexes
+whatever was produced and is the only generator that reads other generators' output rather than
+the graph. A generator that raises is logged and skipped: one failed document must not cost a
+twenty-minute crawl its other eight.
+
+Adding a document is a new module in `src/generators/`, one `@DOCUMENT_REGISTRY.register(...)`
+class, one import in `src/core/bootstrap.py`, and its name in config. `Engine` does not change.
+
+---
+
 ## Post-hoc Synthesis
 
 `GraphPRDSynthesizer` (`src/generators/graph_prd_synthesizer.py`) reads only from `GraphStore` —

@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..core.documents import DocumentGenerator, DocumentRequest
 from ..core.interfaces import GraphStore
+from ..core.registry import DOCUMENT_REGISTRY
 from .component_classifier import choice_text_by_path, describe_options, format_option_choices
 
 
@@ -206,3 +208,18 @@ def generate_component_tree_document(graph_store: GraphStore, site: str, use_box
         "```\n"
     )
     return header + render_ascii_tree(tree, use_box_drawing=use_box_drawing) + "```\n"
+
+
+@DOCUMENT_REGISTRY.register("tree")
+class ComponentTreeDocument(DocumentGenerator):
+    """Pipeline adapter for `generate_component_tree_document`.
+    Details: docs/dev/generators/component_tree.md#componenttreedocument
+    """
+
+    name = "tree"
+    title = "Component Tree"
+    purpose = "Every page's controls and text, as a nested tree - the fastest way to read one screen."
+
+    def generate(self, request: DocumentRequest) -> str:
+        use_box_drawing = not request.settings.get("tree_ascii", False)
+        return generate_component_tree_document(request.graph_store, request.site, use_box_drawing=use_box_drawing)
