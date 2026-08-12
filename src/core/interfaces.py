@@ -4,54 +4,20 @@ Details: docs/dev/core/interfaces.md#module
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from .data_contracts import (  # noqa: F401 - re-exported, see module docstring below
+    ComponentFacts,
+    ComponentFamily,
+    InferredRequest,
+    PageState,
+)
 
-@dataclass
-class PageState:
-    """Normalized snapshot of a crawled page (the Crawler -> orchestrator contract)."""
-
-    url: str
-    title: str = ""
-    metadata: Dict[str, str] = field(default_factory=dict)
-    components: List[Dict[str, Any]] = field(default_factory=list)
-    links: List[Dict[str, str]] = field(default_factory=list)
-    # Short (~300 char) page summary; "" if the backend doesn't extract it.
-    # Details: docs/dev/core/interfaces.md#pagestatedescription
-    description: str = ""
-    # Meaningful (xhr/fetch) requests triggered by the interaction, if any.
-    # Details: docs/dev/core/interfaces.md#pagestatenetwork_requests
-    network_requests: List[Dict[str, Any]] = field(default_factory=list)
-    # Non-interactive prose, captured once per page visit alongside components.
-    # Details: docs/dev/core/interfaces.md#pagestatetext_content
-    text_content: List[Dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class ComponentFacts:
-    """DOM-attribute and computed-style facts about a discovered element,
-    beyond the core identity/geometry `record_component` already took as
-    named params. Grouped into one object rather than growing that method's
-    own argument list further - see docs/dev/core/interfaces.md#componentfacts
-    for which facts are here and, notably, which one (`value`) isn't and why.
-    """
-
-    css_class: str = ""
-    element_id: str = ""
-    href: str = ""
-    placeholder: str = ""
-    label: str = ""
-    name: str = ""
-    disabled: bool = False
-    required: bool = False
-    form: str = ""
-    color: str = ""
-    background_color: str = ""
-    font_size: str = ""
-    font_weight: str = ""
-    display: str = ""
-    position: str = ""
+# PageState/ComponentFacts/ComponentFamily/InferredRequest are re-exported
+# (imported above, not redefined) for backward compatibility with every
+# existing `from ..core.interfaces import ComponentFacts` (etc.) import
+# site - the plain-data-contract split moved their real definitions to
+# `data_contracts.py`. See that file's own module docstring for why.
 
 
 class Agent(ABC):
@@ -217,8 +183,33 @@ class GraphStore(ABC):
             self.record_component(site, page_url, **item)
 
     @abstractmethod
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+    ) -> None:
         """Overwrite a Component's JSON-encoded `options` field; auto-creates the node.
+
+        Args:
+            site: which site this component belongs to.
+            page_url: the component's own page key.
+            path: the component's own CSS selector path.
+            options: raw JSON-encoded blob in one of the shapes
+                `component_classifier.describe_options` knows how to
+                parse (stepper / choice_group / revealed_options) -
+                stored as-is, for callers (`choice_text_by_path`,
+                `describe_options` itself) that need the full structure
+                (per-choice `path`, which member redirected where, etc.).
+            option_labels: the same data, already reduced to plain
+                display strings by `component_classifier.
+                format_option_choices` (e.g. `["Mi Gusto (selected)",
+                "Solo Empanadas", ...]`) - computed by the caller
+                (`GraphStoreSink`), not by this method, so `options`
+                stays the single source of truth and this is purely a
+                convenience projection of it. `None`/omitted stores `[]`,
+                not an error - not every `record_component_options` call
+                site necessarily has this computed yet.
+
+        Returns:
+            None.
         Details: docs/dev/core/interfaces.md#record_component_options
         """
         raise NotImplementedError
@@ -279,6 +270,124 @@ class GraphStore(ABC):
     def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component interaction/options/network-request record for all of `site`.
         Details: docs/dev/core/interfaces.md#get_component_ledger
+        """
+        raise NotImplementedError
+
+    # Inferred component families - a post-hoc, whole-site pass (not part
+    # of the live per-page crawl write path); groups structurally/visually
+    # similar Components into reusable patterns.
+    # Details: docs/dev/core/interfaces.md#component-families
+
+    def apply_tag_labels(self, site: str, tag_labels: Dict[str, str]) -> None:
+        """Give every Component a label matching its own HTML tag (e.g.
+        `:Button`, `:Input`, `:Link`) wherever `tag_labels` names one for
+        it - a Neo4j-Browser-specific visual affordance (node color
+        follows label) with no equivalent in a backend with no browser to
+        color.
+
+        Args:
+            site: which site's components to label - same scoping every
+                other `GraphStore` method uses.
+            tag_labels: `{raw_tag: label_name}`, e.g. `{"button":
+                "Button", "input": "Input", "a": "Link"}`. Fully computed
+                by the caller (`tags_with_multiple_instances` +
+                `label_for_tag`, both in `component_family.py`) - this
+                method does no thresholding (deciding which tags are
+                "common enough") or naming (deciding what a tag's label
+                should be) of its own, so both decisions live in exactly
+                one place rather than being duplicated between a
+                `GraphStore` backend and the module that calls it. Only
+                the tags present as keys get a label added; any Component
+                whose tag isn't in this dict is left with just its base
+                `:Component` label.
+
+        Returns:
+            None - a write-only side effect (adds Neo4j labels). Not
+            abstract: the default implementation here is a no-op, and
+            only `Neo4jGraphStore` overrides it with a real
+            implementation - there's no equivalent concept for a backend
+            with no browser to color (e.g. `InMemoryGraphStore`).
+        Details: docs/dev/core/interfaces.md#apply_tag_labels
+        """
+
+    @abstractmethod
+    def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
+        """Replace `site`'s entire inferred-family structure with
+        `families` - a from-scratch rebuild (any families from a previous
+        run are cleared first), since cluster membership isn't guaranteed
+        to stay the same between runs as the underlying components change
+        (a component that was a singleton last run might gain a sibling
+        this run, or vice versa).
+
+        Args:
+            site: which site's families to replace.
+            families: the complete new set, typically the direct output
+                of `component_family.build_component_families` - passing
+                `[]` clears every family for `site` without recording any
+                new ones (used, for example, by a re-run that finds no
+                families at all this time).
+
+        Returns:
+            None - a write-only side effect.
+        Details: docs/dev/core/interfaces.md#record_component_families
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_component_families(self, site: str) -> List[ComponentFamily]:
+        """Every inferred family currently recorded for `site`.
+
+        Args:
+            site: which site's families to read.
+
+        Returns:
+            A list of `ComponentFamily` (see `src/core/interfaces.py`'s
+            own docstring for its fields), one per family - `[]` if
+            `record_component_families` was never called for this site,
+            or was last called with an empty list. Order is whatever the
+            backend returns (both shipped backends return them in a
+            deterministic but not otherwise meaningful order - see each
+            one's own `get_component_families` docstring).
+        Details: docs/dev/core/interfaces.md#get_component_families
+        """
+        raise NotImplementedError
+
+    # Inferred API endpoints - same "post-hoc, whole-site pass" shape as
+    # component families above, computed by src/generators/request_family.py
+    # from network requests already captured on Component nodes.
+    # Details: docs/dev/core/interfaces.md#inferred-requests
+
+    @abstractmethod
+    def record_inferred_requests(self, site: str, requests: List[InferredRequest]) -> None:
+        """Replace `site`'s entire inferred-request structure with
+        `requests` - a from-scratch rebuild, same "cluster membership
+        isn't guaranteed stable across runs" reasoning as
+        `record_component_families`.
+
+        Args:
+            site: which site's inferred requests to replace.
+            requests: the complete new set, typically the direct output
+                of `request_family.build_inferred_requests`. `[]` clears
+                every inferred request for `site`.
+
+        Returns:
+            None - a write-only side effect.
+        Details: docs/dev/core/interfaces.md#record_inferred_requests
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_inferred_requests(self, site: str) -> List[InferredRequest]:
+        """Every inferred API endpoint currently recorded for `site`.
+
+        Args:
+            site: which site's inferred requests to read.
+
+        Returns:
+            A list of `InferredRequest`, `[]` if `record_inferred_requests`
+            was never called for this site, or was last called with an
+            empty list.
+        Details: docs/dev/core/interfaces.md#get_inferred_requests
         """
         raise NotImplementedError
 

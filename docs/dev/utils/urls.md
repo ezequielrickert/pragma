@@ -46,6 +46,18 @@ all-lowercase-letters(+hyphen) shape of a human-authored slug
 (`admisiones`, `about-us`). Plain char scan, not a regex - no
 lookahead/backtracking risk on an unbounded-length path segment.
 
+## is_opaque_token
+
+`_TOKEN_SEGMENT_RE.match(segment) and _looks_generated(segment)` as one
+named, public function - `route_shape` (below) was the only caller for a
+while, but `src/generators/request_family.py::normalized_endpoint`
+(2026-08-12) needed the identical "does this look like a generated id"
+judgment for API endpoint paths, not page paths - a dynamic order id in
+`/rest/v1/orders/{id}/items` is the same kind of per-instance noise a
+page's own session-token path segment is. Promoted here (was previously
+just inlined in `route_shape`'s own list comprehension) so both callers
+share one implementation instead of two copies that could drift.
+
 ## clean_url
 
 Strips the fragment (everything from the first `#`), any trailing

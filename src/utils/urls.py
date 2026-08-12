@@ -25,6 +25,20 @@ def _looks_generated(segment: str) -> bool:
     return has_digit or (has_lower and has_upper)
 
 
+def is_opaque_token(segment: str) -> bool:
+    """Public wrapper combining `_TOKEN_SEGMENT_RE` + `_looks_generated` -
+    `route_shape`'s own per-path-segment check, exposed for any other
+    code that needs the identical "does this look like a generated id,
+    not a real word" judgment on a single path segment. `request_family.
+    py`'s endpoint normalization is the other caller (an API URL's
+    dynamic `/orders/<uuid>/` segment is the same kind of per-instance
+    noise a page's own session token is - same heuristic, different URL
+    kind).
+    Details: docs/dev/utils/urls.md#is_opaque_token
+    """
+    return bool(_TOKEN_SEGMENT_RE.match(segment)) and _looks_generated(segment)
+
+
 def clean_url(url: str) -> str:
     """Canonicalize `url` into a stable dedup/graph-node key.
     Details: docs/dev/utils/urls.md#clean_url
@@ -49,9 +63,7 @@ def route_shape(url: str) -> str:
         return cleaned
     segments = path.split("/")
     shaped = [
-        "{token}"
-        if _TOKEN_SEGMENT_RE.match(seg) and _looks_generated(seg)
-        else seg
+        "{token}" if is_opaque_token(seg) else seg
         for seg in segments
     ]
     return host + "/" + "/".join(shaped)

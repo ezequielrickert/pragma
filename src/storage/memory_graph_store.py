@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts, GraphStore
+from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore, InferredRequest
 from ..core.registry import GRAPH_STORE_REGISTRY
 
 # ComponentFacts field names, in the fixed order every component record
@@ -26,6 +26,8 @@ class _SiteData:
     components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
     # {page_url: [{path, tag, text, visible, x, y, width, height}]}
     text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    component_families: List[ComponentFamily] = field(default_factory=list)
+    inferred_requests: List[InferredRequest] = field(default_factory=list)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -141,7 +143,7 @@ class InMemoryGraphStore(GraphStore):
             "tag": "", "text": "", "role": "", "input_type": "",
             "visible": True, "layer": "semantic",
             "x": None, "y": None, "width": None, "height": None,
-            "component_type": "", "options": "",
+            "component_type": "", "options": "", "option_labels": [],
             "interacted": False, "interactions": [], "network_requests": [],
             **asdict(ComponentFacts()),
         }
@@ -179,6 +181,7 @@ class InMemoryGraphStore(GraphStore):
             "height": height,
             "component_type": component_type,
             "options": existing["options"] if existing else "",
+            "option_labels": existing["option_labels"] if existing else [],
             "interacted": existing["interacted"] if existing else False,
             "interactions": existing["interactions"] if existing else [],
             "network_requests": existing["network_requests"] if existing else [],
@@ -203,10 +206,13 @@ class InMemoryGraphStore(GraphStore):
             interaction["source_path"] = source_path
         record["interactions"].append(interaction)
 
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+    ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
         record["options"] = options
+        record["option_labels"] = list(option_labels or [])
 
     def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
@@ -219,6 +225,7 @@ class InMemoryGraphStore(GraphStore):
                 "tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"],
                 "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                 "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                "option_labels": list(r.get("option_labels", [])),
                 "network_requests": list(r.get("network_requests", [])),
                 **{name: r.get(name) for name in _FACTS_FIELDS},
             }
@@ -272,6 +279,7 @@ class InMemoryGraphStore(GraphStore):
                     "interacted": r["interacted"], "interactions": list(r["interactions"]),
                     "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                     "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                    "option_labels": list(r.get("option_labels", [])),
                     "network_requests": list(r.get("network_requests", [])),
                     **{name: r.get(name) for name in _FACTS_FIELDS},
                 }
@@ -279,6 +287,39 @@ class InMemoryGraphStore(GraphStore):
             }
             for page_url, page_components in self._site(site).components.items()
         }
+
+    def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
+        """Overwrite `site`'s whole family list with `families` - a plain
+        assignment, since there's no incident-relationship bookkeeping to
+        clean up the way `Neo4jGraphStore`'s DETACH DELETE-then-recreate
+        needs. `families=[]` clears everything for `site`, same full-
+        rebuild contract as the Neo4j backend
+        (docs/dev/core/interfaces.md#record_component_families).
+        """
+        self._site(site).component_families = list(families)
+
+    def get_component_families(self, site: str) -> List[ComponentFamily]:
+        """Every `ComponentFamily` last written for `site` via
+        `record_component_families`, in that same call's order (this
+        backend never reorders them - unlike `Neo4jGraphStore.
+        get_component_families`, whose `member_paths` are re-sorted on
+        every read; here they're already sorted, since
+        `component_family.build_component_families` sorts before
+        returning). `[]` if `record_component_families` was never called,
+        or was last called with an empty list.
+        """
+        return list(self._site(site).component_families)
+
+    def record_inferred_requests(self, site: str, requests: List[InferredRequest]) -> None:
+        """Overwrite `site`'s whole inferred-request list - same plain-
+        assignment, full-replace discipline as `record_component_families`.
+        """
+        self._site(site).inferred_requests = list(requests)
+
+    def get_inferred_requests(self, site: str) -> List[InferredRequest]:
+        """Every `InferredRequest` last written for `site`. `[]` if
+        `record_inferred_requests` was never called."""
+        return list(self._site(site).inferred_requests)
 
     def record_text_content(
         self,

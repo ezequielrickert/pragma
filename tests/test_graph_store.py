@@ -1,5 +1,5 @@
 """Tests for the GraphStore abstraction - in-memory (always run) and Neo4j (opt-in)."""
-from src.core.interfaces import ComponentFacts
+from src.core.interfaces import ComponentFacts, ComponentFamily, InferredRequest
 from src.storage.memory_graph_store import InMemoryGraphStore
 
 
@@ -123,6 +123,29 @@ def test_memory_store_record_component_persists_position():
     assert store.get_component_states("a.com", "a.com/y")["button#other"]["x"] is None
 
 
+def test_memory_store_record_component_options_persists_clean_labels():
+    store = InMemoryGraphStore()
+    raw_json = '{"group": "flavor", "options": [{"text": "Mi Gusto", "selected": true}]}'
+    store.record_component_options(
+        "a.com", "a.com/x", "combo#1", raw_json, option_labels=["Mi Gusto (selected)"]
+    )
+
+    state = store.get_component_states("a.com", "a.com/x")["combo#1"]
+    assert state["options"] == raw_json
+    assert state["option_labels"] == ["Mi Gusto (selected)"]
+
+    ledger_entry = store.get_component_ledger("a.com")["a.com/x"]["combo#1"]
+    assert ledger_entry["option_labels"] == ["Mi Gusto (selected)"]
+
+
+def test_memory_store_record_component_options_defaults_labels_to_empty():
+    store = InMemoryGraphStore()
+    store.record_component_options("a.com", "a.com/x", "combo#1", '{"kind": "unknown"}')
+
+    state = store.get_component_states("a.com", "a.com/x")["combo#1"]
+    assert state["option_labels"] == []
+
+
 def test_memory_store_record_component_persists_facts():
     store = InMemoryGraphStore()
     facts = ComponentFacts(
@@ -221,6 +244,59 @@ def test_memory_store_clear_site_removes_components_too():
 
     assert store.get_component_states("a.com", "a.com/x") == {}
     assert store.count_unexplored_components("a.com") == (0, 0)
+
+
+def test_memory_store_component_families_round_trip():
+    store = InMemoryGraphStore()
+    assert store.get_component_families("a.com") == []
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="submit button",
+            common_classes=("btn", "btn-primary"),
+            member_paths=(("a.com/x", "btn1"), ("a.com/y", "btn2")),
+        )
+    ]
+    store.record_component_families("a.com", families)
+    assert store.get_component_families("a.com") == families
+
+    # A second run replaces, not appends - a stale family from a previous
+    # crawl must not linger once the underlying data no longer supports it.
+    store.record_component_families("a.com", [])
+    assert store.get_component_families("a.com") == []
+
+
+def test_memory_store_inferred_requests_round_trip():
+    store = InMemoryGraphStore()
+    assert store.get_inferred_requests("a.com") == []
+
+    requests = [
+        InferredRequest(
+            method="POST", endpoint="x.co/rest/v1/orders", query_params=("select",),
+            body_shape='{"order_id": "string"}', response_shape='{"id": "string"}',
+            triggered_by=(("a.com/x", "btn1"),),
+        )
+    ]
+    store.record_inferred_requests("a.com", requests)
+    assert store.get_inferred_requests("a.com") == requests
+
+    store.record_inferred_requests("a.com", [])
+    assert store.get_inferred_requests("a.com") == []
+
+
+def test_memory_store_component_families_scoped_per_site():
+    store = InMemoryGraphStore()
+    family = ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=(("a.com/x", "b1"),))
+    store.record_component_families("a.com", [family])
+
+    assert store.get_component_families("a.com") == [family]
+    assert store.get_component_families("b.com") == []
+
+
+def test_memory_store_apply_tag_labels_is_a_harmless_no_op():
+    # No Neo4j Browser to color for this backend - must not raise.
+    store = InMemoryGraphStore()
+    store.apply_tag_labels("a.com", {"button": "Button"})
 
 
 class _SpyGraphStore(InMemoryGraphStore):

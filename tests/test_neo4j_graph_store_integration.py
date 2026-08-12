@@ -33,6 +33,9 @@ _TEST_SITE_CLEANUP_QUERIES = (
     "MATCH (p:Page {site: 'pragma-test.local'}) DETACH DELETE p",
     "MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c",
     "MATCH (t:TextContent {site: 'pragma-test.local'}) DETACH DELETE t",
+    "MATCH (f:ComponentFamily {site: 'pragma-test.local'}) DETACH DELETE f",
+    "MATCH (r:Request {site: 'pragma-test.local'}) DETACH DELETE r",
+    "MATCH (rf:RequestFamily {site: 'pragma-test.local'}) DETACH DELETE rf",
     "MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s",
 )
 
@@ -257,6 +260,27 @@ def test_record_component_persists_facts(store):
     assert ghost_state["disabled"] is False
 
 
+def test_record_component_options_persists_clean_labels(store):
+    site = "pragma-test.local"
+    raw_json = '{"group": "flavor", "options": [{"text": "Mi Gusto", "selected": true}]}'
+    store.record_component_options(
+        site, "home", "combo#1", raw_json, option_labels=["Mi Gusto (selected)"]
+    )
+
+    state = store.get_component_states(site, "home")["combo#1"]
+    assert state["options"] == raw_json
+    assert state["option_labels"] == ["Mi Gusto (selected)"]
+
+    ledger_entry = store.get_component_ledger(site)["home"]["combo#1"]
+    assert ledger_entry["option_labels"] == ["Mi Gusto (selected)"]
+
+    # No option_labels passed - a ghost node created via the interaction
+    # auto-create path must still default it to [], not raise/omit the key.
+    store.record_component_interaction(site, "home", "never-inventoried", action="click")
+    ghost_state = store.get_component_states(site, "home")["never-inventoried"]
+    assert ghost_state["option_labels"] == []
+
+
 def test_record_component_type_and_options_roundtrip(store):
     import json
 
@@ -349,3 +373,142 @@ def test_clear_site_removes_components_too(store):
 
     assert store.get_component_states(site, "home") == {}
     assert store.count_unexplored_components(site) == (0, 0)
+
+
+def test_apply_tag_labels_adds_a_dynamic_label_without_dropping_component(store):
+    site = "pragma-test.local"
+    store.record_component(site, "home", "button#a", tag="button")
+    store.record_component(site, "home", "input#b", tag="input")
+
+    store.apply_tag_labels(site, {"button": "Button", "input": "Input"})
+
+    with store._session() as session:
+        rows = {
+            r["path"]: r["labels"]
+            for r in session.run(
+                "MATCH (c:Component {site: $site}) RETURN c.path AS path, labels(c) AS labels",
+                site=site,
+            )
+        }
+    assert set(rows["button#a"]) == {"Component", "Button"}
+    assert set(rows["input#b"]) == {"Component", "Input"}
+
+
+def test_record_component_families_roundtrips_and_replaces_on_rerun(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=("btn", "btn-primary"),
+            member_paths=(("home", "btn1"), ("home", "btn2")),
+        )
+    ]
+    store.record_component_families(site, families)
+    assert store.get_component_families(site) == families
+
+    # A second, empty write must clear the first - a stale family from a
+    # previous crawl must not linger once the data no longer supports it.
+    store.record_component_families(site, [])
+    assert store.get_component_families(site) == []
+
+
+def test_record_component_families_persists_narrated_purpose(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=("btn",),
+            member_paths=(("home", "btn1"), ("home", "btn2")),
+            purpose="Confirms or submits an action.",
+        )
+    ]
+    store.record_component_families(site, families)
+    assert store.get_component_families(site) == families
+    assert store.get_component_families(site)[0].purpose == "Confirms or submits an action."
+
+
+def test_record_inferred_requests_roundtrips_and_replaces_on_rerun(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    requests = [
+        InferredRequest(
+            method="POST", endpoint="x.co/rest/v1/orders", query_params=("select",),
+            body_shape='{"order_id": "string"}', response_shape='{"id": "string"}',
+            triggered_by=(("home", "btn1"), ("home", "btn2")),
+        )
+    ]
+    store.record_inferred_requests(site, requests)
+    assert store.get_inferred_requests(site) == requests
+
+    # A second, empty write must clear the first.
+    store.record_inferred_requests(site, [])
+    assert store.get_inferred_requests(site) == []
+
+
+def test_inferred_requests_group_by_method_into_one_request_family(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+
+    requests = [
+        InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/orders", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        ),
+        InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/flavors", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        ),
+    ]
+    store.record_inferred_requests(site, requests)
+
+    with store._session() as session:
+        families = list(session.run(
+            "MATCH (rf:RequestFamily {site: $site}) RETURN rf.method AS method", site=site
+        ))
+    assert len(families) == 1
+    assert families[0]["method"] == "GET"
+
+
+def test_clear_site_removes_component_families_too(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component_families(
+        site,
+        [ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=(("home", "btn1"),))],
+    )
+    store.clear_site(site)
+
+    assert store.get_component_families(site) == []
+
+
+def test_clear_site_removes_inferred_requests_too(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_inferred_requests(
+        site,
+        [InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/orders", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        )],
+    )
+    store.clear_site(site)
+
+    assert store.get_inferred_requests(site) == []

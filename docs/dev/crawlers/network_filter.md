@@ -33,23 +33,44 @@ resource_type values worth attributing to "what did clicking this actually
 call" - not images/fonts/stylesheets/documents/websockets, which are noise
 for a component-level request-info question.
 
+## _json_shape / _shape_of_json_text
+
+`_json_shape` reduces a parsed JSON value to its structural shape - key
+names and value **types** only, e.g. `{"share_token": "abc123"}` becomes
+`{"share_token": "string"}`. `_shape_of_json_text` wraps it end to end
+(`json.loads` -> `_json_shape` -> `json.dumps`, `""` for empty/non-JSON
+input) so the real parsed value only ever exists inside that one function
+call - it's never held onto, returned, or logged anywhere else.
+
 ## filter_meaningful_requests
 
 Reduce one `arun()` call's `result.network_requests` (or `None`) to the
 meaningful subset, one dict per kept request: `{"method", "url",
 "resource_type", "status": Optional[int], "failed": bool, "failure_text":
-Optional[str]}`.
+Optional[str], "body_shape": str, "response_shape": str}`.
 
-Response BODY TEXT is deliberately never read into the output - it can be
-arbitrarily large (a full JSON payload, or an entire document for a
-misclassified request) and may contain secrets/PII; this function has no
-use for it (only request shape - method/url/resource_type/status/failure -
-is meaningful for a tree-renderer feature) and dropping it here means it
-never reaches `GraphStore`, not just that nothing happens to read it back.
+**Update (2026-08-12) - request/response body text is now read, but only
+ever as an input to `_shape_of_json_text`, never as output:** this
+function's original design deliberately never read body text at all -
+"it can be arbitrarily large ... and may contain secrets/PII", and
+dropping it here meant it never reached `GraphStore`. That reasoning
+still holds for the real *text* - it's exactly as true today. What
+changed is the introduction of `_shape_of_json_text`, which makes it
+possible to extract something useful (the JSON's *shape* - field names,
+value types) **without ever letting the real values survive past the
+computation** - `post_data`/`body.text` are read from the raw event,
+passed straight into `_shape_of_json_text`, and only that function's
+already-scrubbed return value (a JSON string with type names, never
+values) becomes part of the output. A non-JSON body (HTML, binary, plain
+text) produces `""` - there's no shape to describe, and the raw text is
+discarded exactly as before. See `tests/test_network_filter.py::
+test_shape_of_json_text_real_secret_value_never_survives` for the actual
+regression test pinning this guarantee.
 
 **Known limitation**: request/response/failure are joined purely by URL,
 not by any per-request id crawl4ai doesn't expose - two requests to the
 identical URL within one interaction (e.g. a retry) can have their
-status/failure misattributed to the wrong attempt (last-one-wins, since
-later events overwrite earlier ones in the lookup dicts below). Accepted
-for this feature's purposes, not fixed here.
+status/failure (and now `body_shape`/`response_shape`) misattributed to
+the wrong attempt (last-one-wins, since later events overwrite earlier
+ones in the lookup dicts below). Accepted for this feature's purposes,
+not fixed here.

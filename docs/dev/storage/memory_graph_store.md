@@ -43,3 +43,13 @@ as the Neo4j backend (docs/dev/storage/neo4j_graph_store.md#record_component_int
 - present in the appended interaction dict only when non-empty, so both
 backends' `interactions` entries stay identically shaped for the same
 call.
+
+## component_families / apply_tag_labels
+
+`record_component_families`/`get_component_families` store/return
+exactly the list they're given/hold - a full replace on every write,
+same "no incremental merge" contract as `Neo4jGraphStore`'s version
+(docs/dev/core/interfaces.md#record_component_families--get_component_families).
+`apply_tag_labels` is a harmless no-op here - there's no Neo4j Browser
+to color for an in-memory backend, and nothing else in this backend's
+data model would use a per-tag label if it existed.

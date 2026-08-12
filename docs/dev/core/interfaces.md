@@ -16,6 +16,14 @@ the-browser-lifecycle model, or the new crawl()-then-synthesize() split
 `GraphStore` remain - the contracts that are still genuinely shared
 across implementations.
 
+**Update (2026-08-12)**: `PageState`/`ComponentFacts`/`ComponentFamily`/
+`InferredRequest` - the plain data contracts, as opposed to `Agent`/
+`GraphStore`'s actual interfaces - moved to `data_contracts.py` once this
+file crossed the 500-line file-size-audit threshold. Re-exported from
+here unchanged (`from .data_contracts import PageState, ...`), so every
+existing import site elsewhere in the codebase needed no changes. See
+`data_contracts.md#module` for the full reasoning.
+
 ## PageState.description
 
 Short (~300 char) description of what this page is about - meta
@@ -225,6 +233,18 @@ Auto-creates the Component node if it doesn't already exist, mirroring
 record for a path it hasn't explicitly `record_component`-ed yet should
 still succeed, not silently no-op).
 
+`option_labels` (2026-08-12) is `options`' clean, human-readable
+projection - the same `["Mi Gusto (selected)", "Solo Empanadas", ...]`
+shape `component_tree.py`'s generated document already rendered, now
+also stored directly on the node so reading it doesn't require
+generating (or re-parsing) that document. `GraphStoreSink` computes it
+via `component_classifier.format_option_choices(component_classifier.
+describe_options(options))` right before every `record_component_
+options` call - this method itself does no parsing of `options`, it
+only persists whatever it's handed, same "storage does no business
+logic" discipline `ComponentFacts`/`ComponentFamily` already established.
+`None`/omitted stores `[]`.
+
 ## record_component_interaction
 
 Mark a component as interacted with and append one interaction record.
@@ -297,6 +317,48 @@ own `facts` param.
 The durable, human-inspectable "what did I do on this page, and to
 what" record, sourced from real persisted state - what
 `GraphPRDSynthesizer` reads to build its component catalog.
+
+## component-families
+
+`apply_tag_labels`/`record_component_families`/`get_component_families`
+are a post-hoc, whole-site pass over already-discovered components (see
+`src/generators/component_family.py`), not part of the live per-page
+crawl write path - `Engine._apply_component_families` calls all three
+once, after a crawl finishes.
+
+## apply_tag_labels
+
+Not abstract - the base-class default is a no-op. Only
+`Neo4jGraphStore` overrides it: a Neo4j-Browser-specific visual
+affordance (node color follows label) with no equivalent in a backend
+with no browser to color. `tag_labels` is fully computed by the caller
+(`component_family.py`'s `tags_with_multiple_instances` +
+`label_for_tag`) - this method does no thresholding or naming of its
+own, matching this project's "GraphStore does dumb persistence, callers
+compute derived facts" discipline (the same split `record_component`
+vs. `GraphStoreSink`/`component_classifier.py` already establishes).
+
+## record_component_families / get_component_families
+
+A from-scratch rebuild every call - `record_component_families` clears
+any families a previous run wrote for `site` before writing the new
+set, since cluster membership isn't guaranteed to stay the same between
+runs as the underlying components change (a component that was a
+singleton last run might gain a sibling this run, or vice versa).
+`get_component_families` is the read side, used by tests and available
+for a future PRD-narration pass to consume (not wired in yet -
+deliberately deferred, see the module's own commit history).
+
+## record_inferred_requests / get_inferred_requests
+
+Same "post-hoc, whole-site pass, full rebuild every call" contract as
+`record_component_families`/`get_component_families`, one layer over:
+`src/generators/request_family.py` groups network requests already
+captured on Component nodes into distinct `InferredRequest` endpoints
+(see that module's own docstring for the algorithm), and `Engine.
+_apply_request_graph` (`src/core/engine.py`) is what calls both this
+build step and these two `GraphStore` methods, once per crawl, right
+after `_apply_component_families`.
 
 ## static-text-content
 

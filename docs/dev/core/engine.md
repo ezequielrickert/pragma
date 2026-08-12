@@ -63,3 +63,17 @@ realistic fill values in the output.
 Synchronous entry point (unchanged shape for the CLI) bridging to the
 async crawl underneath via `asyncio.run` - crawl4ai owns an async
 browser lifecycle, but nothing above `Engine` needs to know that.
+
+## _apply_component_families
+
+Runs once per `_run_async` call, after `mechanical.crawl_site` returns
+and before `GraphPRDSynthesizer.synthesize` reads the graph - component-
+family clustering needs to see every component the whole crawl found at
+once (`component_family.py`'s `build_component_families` has no
+incremental/streaming mode), unlike everything `GraphStoreSink` writes
+live during the crawl itself. Flattens `get_component_ledger`'s
+`{page_url: {path: {...}}}` shape into a flat list with `page_url`
+folded into each record, since that's the shape
+`build_component_families`/`tags_with_multiple_instances` expect -
+the ledger's per-page nesting exists for `GraphPRDSynthesizer`'s
+page-by-page narration, not for a whole-site pass like this one.
