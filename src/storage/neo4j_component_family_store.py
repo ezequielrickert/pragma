@@ -100,10 +100,11 @@ class _Neo4jComponentFamilyMixin:
             for family in families:
                 session.run(
                     """
-                    CREATE (f:ComponentFamily {
+                    CREATE (f:ComponentFamily:Inferred {
                         site: $site, tag: $tag, component_type: $component_type,
                         common_classes: $common_classes, member_count: $member_count,
-                        purpose: $purpose
+                        purpose: $purpose,
+                        caption: $component_type + ' x' + toString($member_count)
                     })
                     WITH f
                     UNWIND $member_paths AS mp

@@ -101,8 +101,10 @@ def test_interacting_with_a_non_representative_option_redirects_not_creates_a_no
 
 def test_interacting_with_the_representative_option_itself_carries_no_source_path():
     """When the member that acts happens to be the representative, there's
-    nothing to redirect - source_path stays absent, same as any ordinary
-    (ungrouped) interaction."""
+    nothing to redirect - source_path stays blank, same as any ordinary
+    (ungrouped) interaction. It is present-and-empty rather than absent
+    since interactions moved onto :INTERACTED relationships, where every
+    property exists on every edge; every reader treats "" as absent."""
     sink = _sink()
 
     async def run():
@@ -113,7 +115,7 @@ def test_interacting_with_the_representative_option_itself_carries_no_source_pat
 
     ledger = sink.graph_store.get_component_ledger(SITE)[PAGE]
     interaction = ledger["div#sizeList > div:nth-of-type(1)"]["interactions"][0]
-    assert "source_path" not in interaction
+    assert interaction["source_path"] == ""
 
 
 def test_network_requests_on_a_non_representative_option_redirect_and_are_tagged():

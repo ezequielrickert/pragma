@@ -173,3 +173,23 @@ identical `tag`/`component_type`/`common_classes` values (two disjoint
 clusters in the same bucket that happen to reduce to the same common-
 classes intersection), and grouping by properties alone would silently
 merge their member lists together.
+
+## inferred-label
+
+`:ComponentFamily`, `:RequestFamily` and `:Request` carry a second label,
+`:Inferred`, marking them as the model's deductions rather than the crawl's
+observations.
+
+Two reasons, and the second is the durable one:
+
+1. Legibility - `scripts/neo4j-browser.grass` colors `:Inferred` amber, so
+   opening the graph shows at a glance which half is evidence.
+2. It is the precondition for auditing a deduction. "Which of these nodes
+   would a human need to review?" has to be a query, not a convention
+   someone remembers. The human-in-the-loop review itself is out of scope
+   for now (`research/plan-generacion-de-documentos.md` H6), but the label
+   costs nothing today and the alternative is retrofitting it across four
+   write paths later.
+
+`clear_site` needs no change: every `:Inferred` node also carries its
+original label, and those are already deleted by site.

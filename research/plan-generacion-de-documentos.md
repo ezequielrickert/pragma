@@ -719,13 +719,14 @@ text-to-Cypher o Q&A sobre el grafo — que sigue fuera de alcance según
 8. **La latencia se captura (H8)**, y sube de la Fase 8 a la Fase 2: el dato ya viene en los
    eventos de crawl4ai.
 
+9. **Los artefactos derivados se persisten** en Neo4j, marcados con la etiqueta `:Inferred`.
+   Cuesta nada hoy y evita retrofitearlo en cuatro rutas de escritura el día que el HITL entre.
+10. **Se mantienen los nombres de la ontología actual**, con el mapeo documentado en
+    `ARCHITECTURE.md`.
+11. **La migración de `interactions` es una ruptura, sin script de migración.**
+    `PragmaConfig.fresh` ya viene en `true` y purga el sitio antes de cada crawl, así que una
+    corrida normal no se entera. Un grafo con `fresh: false` necesita re-crawlearse.
+
 ### Abiertas
 
-9. **¿Persistir los artefactos derivados** (`:A11yViolation`, `RESULTS_IN_STATE`) en Neo4j, o
-   dejarlos sólo en los documentos? Recomiendo persistir: evita recalcular en cada corrida y
-   deja el grafo listo para cuando el HITL entre en alcance.
-10. **¿Mantenemos los nombres de la ontología actual?** Recomiendo que sí, documentando el mapeo.
-    Renombrar toca seis archivos de storage más sus tests, a cambio de nada.
-11. **La Fase 1 migra `interactions` de propiedad JSON a relación.** Es un cambio de formato en
-    datos ya persistidos: ¿lo tratamos como ruptura (crawl nuevo desde cero, que es el default de
-    `PragmaConfig.fresh`) o hace falta migrar grafos existentes?
+Ninguna bloquea la Fase 2.

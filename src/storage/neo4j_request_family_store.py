@@ -62,11 +62,13 @@ class _Neo4jRequestFamilyMixin:
             for req in requests:
                 session.run(
                     """
-                    MERGE (rf:RequestFamily {site: $site, method: $method})
-                    CREATE (r:Request {
+                    MERGE (rf:RequestFamily:Inferred {site: $site, method: $method})
+                    ON CREATE SET rf.caption = $method
+                    CREATE (r:Request:Inferred {
                         site: $site, method: $method, endpoint: $endpoint,
                         query_params: $query_params, body_shape: $body_shape,
-                        response_shape: $response_shape
+                        response_shape: $response_shape,
+                        caption: $method + ' ' + $endpoint
                     })
                     CREATE (rf)-[:HAS_REQUEST]->(r)
                     WITH r

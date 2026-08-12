@@ -201,10 +201,14 @@ class InMemoryGraphStore(GraphStore):
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
         record["interacted"] = True
-        interaction: Dict[str, Any] = {"action": action, "value": value, "resulting_url": resulting_url}
-        if source_path:
-            interaction["source_path"] = source_path
-        record["interactions"].append(interaction)
+        # `source_path` is always present, even blank - the Neo4j backend now
+        # reads interactions off :INTERACTED relationships, where every
+        # property exists on every edge, and the two backends must hand back
+        # the same shape. Every reader already treats "" as absent.
+        # Details: docs/dev/storage/memory_graph_store.md#record_component_interaction
+        record["interactions"].append(
+            {"action": action, "value": value, "resulting_url": resulting_url, "source_path": source_path}
+        )
 
     def record_component_options(
         self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None

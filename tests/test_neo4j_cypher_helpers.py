@@ -52,7 +52,10 @@ def test_component_blank_stub_includes_options_uniformly():
     `c.options = ''`) - this must never silently drift back apart."""
     assert "c.options = ''" in _COMPONENT_BLANK_STUB
     assert "c.interacted = false" in _COMPONENT_BLANK_STUB
-    assert "c.interactions = []" in _COMPONENT_BLANK_STUB
+    # Interactions are :INTERACTED relationships now, not an array property;
+    # the counter is what seeds each edge's `seq`.
+    assert "c.interaction_count = 0" in _COMPONENT_BLANK_STUB
+    assert "c.caption = ''" in _COMPONENT_BLANK_STUB
     assert "c.network_requests = []" in _COMPONENT_BLANK_STUB
     assert query_has_balanced_braces(_COMPONENT_BLANK_STUB)
 

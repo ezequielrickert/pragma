@@ -201,8 +201,15 @@ The graph's node labels and relationship types, as actually implemented:
 added by `apply_tag_labels` purely so Neo4j Browser colors them apart), `:TextContent`,
 `:ComponentFamily`, `:Request`, `:RequestFamily`.
 
+Every node also carries a short `caption` property — what Neo4j Browser displays — and every
+inferred node (`:ComponentFamily`, `:RequestFamily`, `:Request`) carries a second `:Inferred`
+label, so what the crawl *observed* and what the model *deduced* separate at a glance and in a
+query. `scripts/neo4j-browser.grass` is the matching style file; `docs/consultas-neo4j.md` holds
+the saved queries worth starting from.
+
 **Relationships**: `HAS_PAGE`, `HAS_COMPONENT`, `HAS_TEXT`, `HAS_VARIANT`, `HAS_REQUEST`,
-`TRIGGERS`, `DISCOVERED_LINK`, `NAVIGATED_TO {component, action, created_at}`.
+`TRIGGERS`, `DISCOVERED_LINK`, `NAVIGATED_TO {component, action, created_at}`,
+`INTERACTED {action, value, resulting_url, source_path, navigated, seq, created_at}`.
 
 Reverse-engineering literature (and `research/plan-generacion-de-documentos.md`, which analyzes
 one such proposal) commonly names these differently. **The mapping is what matters; the names
@@ -218,6 +225,7 @@ stay as they are.** Renaming would touch six storage modules plus their tests an
 | `[:TRIGGERS_EVENT]` | `[:TRIGGERS]` | The event type lives on the interaction record, not the relationship name. |
 | `[:CONTAINS]` / `[:COMPOSED_OF]` | — | Absent by consequence: discovery records interactive elements and text leaves, never the containers between them. |
 | `[:RESULTS_IN_STATE]` | — | Absent for now; `NAVIGATED_TO` carries the same transition between pages. |
+| `[:TRIGGERS_EVENT {type}]` | `[:INTERACTED {action}]` | One edge per interaction, from the control to the page it left you on. |
 
 ---
 

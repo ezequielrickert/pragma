@@ -1,0 +1,103 @@
+/* Neo4j Browser styling for a Pragma crawl graph.
+ *
+ * Load it once per browser profile: open http://localhost:7474, drag this
+ * file onto the Browser window (or run `:style` and paste it). Without it
+ * the browser picks a caption property on its own and lands on the CSS
+ * path, which is the longest and least readable property a Component has.
+ *
+ * Colors carry one distinction on purpose: everything the crawl *observed*
+ * is solid, everything the model *inferred* is amber. That is the same
+ * split the :Inferred label marks in the data.
+ */
+
+node {
+  diameter: 50px;
+  color: #A5ABB6;
+  border-color: #9AA1AC;
+  border-width: 2px;
+  text-color-internal: #FFFFFF;
+  font-size: 10px;
+  caption: "{caption}";
+}
+
+relationship {
+  color: #A5ABB6;
+  shaft-width: 1px;
+  font-size: 8px;
+  padding: 3px;
+  text-color-external: #000000;
+  text-color-internal: #FFFFFF;
+  caption: "<type>";
+}
+
+/* --- Observed: what the crawl actually saw --- */
+
+node.Site {
+  diameter: 80px;
+  color: #604A0E;
+  border-color: #423204;
+  caption: "{name}";
+}
+
+node.Page {
+  diameter: 65px;
+  color: #4C8EDA;
+  border-color: #2870C2;
+}
+
+node.Component {
+  diameter: 50px;
+  color: #57C7E3;
+  border-color: #23B3D7;
+  text-color-internal: #2A2C34;
+}
+
+/* Per-tag labels added by apply_tag_labels - same shape as Component,
+   different hue, so a page's buttons/inputs/links separate at a glance. */
+node.Button  { color: #F79767; border-color: #F36924; text-color-internal: #2A2C34; }
+node.Input   { color: #8DCC93; border-color: #5DB665; text-color-internal: #2A2C34; }
+node.Link    { color: #ECB5C9; border-color: #DA7298; text-color-internal: #2A2C34; }
+
+node.TextContent {
+  diameter: 40px;
+  color: #D9C8AE;
+  border-color: #C0A378;
+  text-color-internal: #2A2C34;
+}
+
+/* --- Inferred: what the model deduced, not what the crawl saw --- */
+
+node.Inferred {
+  color: #FFC454;
+  border-color: #D7A013;
+  text-color-internal: #2A2C34;
+}
+
+node.RequestFamily {
+  diameter: 65px;
+}
+
+/* --- Relationships worth reading at a glance --- */
+
+relationship.INTERACTED {
+  color: #F79767;
+  shaft-width: 3px;
+  caption: "{action}";
+}
+
+relationship.NAVIGATED_TO {
+  color: #4C8EDA;
+  shaft-width: 3px;
+  caption: "{component}";
+}
+
+relationship.TRIGGERS {
+  color: #FFC454;
+  shaft-width: 2px;
+}
+
+relationship.DISCOVERED_LINK {
+  color: #D9D9D9;
+  shaft-width: 1px;
+  caption: "";
+}

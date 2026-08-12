@@ -27,7 +27,7 @@ def _page_ensure_clause(var: str, url_param: str) -> str:
     return (
         f"MERGE ({var}:Page {{site: $site, url: ${url_param}}}) "
         f"ON CREATE SET {var}.status = 'Pending', {var}.components = 0, "
-        f"{var}.context = '-', {var}.label = '-'"
+        f"{var}.context = '-', {var}.label = '-', {var}.caption = ${url_param}"
     )
 
 
@@ -40,7 +40,7 @@ def _page_ensure_clause_from_row(var: str, row_field: str) -> str:
     return (
         f"MERGE ({var}:Page {{site: $site, url: row.{row_field}}}) "
         f"ON CREATE SET {var}.status = 'Pending', {var}.components = 0, "
-        f"{var}.context = '-', {var}.label = '-'"
+        f"{var}.context = '-', {var}.label = '-', {var}.caption = row.{row_field}"
     )
 
 
@@ -62,10 +62,48 @@ _COMPONENT_BLANK_STUB = (
     "ON CREATE SET "
     "c.tag = '', c.text = '', c.role = '', c.input_type = '', "
     "c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '', "
-    "c.option_labels = [], "
-    "c.interacted = false, c.interactions = [], c.network_requests = [], "
+    "c.option_labels = [], c.caption = '', "
+    "c.interacted = false, c.interaction_count = 0, c.network_requests = [], "
     f"{_BLANK_FACTS_ASSIGNMENTS}"
 )
+
+# Reads a Component's interactions back off its :INTERACTED relationships,
+# in the order they happened, as the same dicts the old JSON-array property
+# held. Details: docs/dev/storage/neo4j_component_store.md#interacted
+_INTERACTIONS_COLLECT = (
+    "OPTIONAL MATCH (c)-[i:INTERACTED]->(:Page) "
+    "WITH c, i ORDER BY i.seq "
+    "WITH c, [x IN collect(i) | {"
+    "action: x.action, value: x.value, "
+    "resulting_url: x.resulting_url, source_path: x.source_path"
+    "}] AS interactions"
+)
+
+def _display_name_clause(prefix: str) -> str:
+    """Cypher for a Component's short `caption`: its visible text, else
+    its role, else its tag. Exists so Neo4j Browser shows "Comprar"
+    instead of "div > form > button:nth-of-type(2)" - the CSS path is both
+    the longest and the least readable property a caption could land on.
+
+    Called `caption`, not `name`, because `name` is already taken twice
+    over in this graph: `ComponentFacts.name` is the DOM `name` attribute
+    (persisted as `c.name`, and it silently overwrote an earlier attempt
+    at this) and `:Site` is keyed by `name`. `caption` collides with
+    nothing and says what it is for.
+
+    Args:
+        prefix: `"$"` for a query built on top-level params (yielding
+            `$text`), or `"row."` for one built inside an UNWIND (yielding
+            `row.text`) - the same two forms every other fragment in this
+            file comes in.
+    Details: docs/dev/storage/neo4j_component_store.md#caption
+    """
+    return (
+        f"c.caption = CASE WHEN {prefix}text <> '' THEN left({prefix}text, 40) "
+        f"WHEN {prefix}component_type <> '' THEN {prefix}component_type "
+        f"ELSE {prefix}tag END"
+    )
+
 
 # Property assignments shared verbatim between record_component's ON CREATE
 # and ON MATCH branches - a rediscovery always refreshes every descriptive/
@@ -76,6 +114,7 @@ _COMPONENT_DESCRIPTIVE_SET = (
     "c.visible = $visible, c.layer = $layer, "
     "c.x = $x, c.y = $y, c.width = $width, c.height = $height, "
     "c.component_type = $component_type, "
+    + _display_name_clause("$") + ", "
     + ", ".join(f"c.{name} = ${name}" for name in _FACTS_FIELDS)
 )
 
@@ -87,6 +126,7 @@ _COMPONENT_DESCRIPTIVE_SET_FROM_ROW = (
     "c.visible = row.visible, c.layer = row.layer, "
     "c.x = row.x, c.y = row.y, c.width = row.width, c.height = row.height, "
     "c.component_type = row.component_type, "
+    + _display_name_clause("row.") + ", "
     + ", ".join(f"c.{name} = row.{name}" for name in _FACTS_FIELDS)
 )
 
