@@ -193,8 +193,11 @@ def test_memory_store_record_component_interaction_auto_creates_node():
     assert states["button#go"]["disabled"] is False
 
     ledger = store.get_component_ledger("a.com")
+    # `source_path` is always present, blank included - both backends hand
+    # back one shape, and Neo4j's now comes off :INTERACTED relationships
+    # where every property exists on every edge.
     assert ledger["a.com/x"]["button#go"]["interactions"] == [
-        {"action": "click", "value": "", "resulting_url": "a.com/y"}
+        {"action": "click", "value": "", "resulting_url": "a.com/y", "source_path": ""}
     ]
 
 

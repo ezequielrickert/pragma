@@ -323,9 +323,51 @@ def test_record_component_interaction_auto_creates_node(store):
     assert states["button#go"]["interacted"] is True
 
     ledger = store.get_component_ledger(site)
+    # `source_path` is always present now, blank included: interactions live on
+    # :INTERACTED relationships, where every property exists on every edge.
     assert ledger["home"]["button#go"]["interactions"] == [
-        {"action": "click", "value": "", "resulting_url": "about"}
+        {"action": "click", "value": "", "resulting_url": "about", "source_path": ""}
     ]
+
+
+def test_interactions_become_traversable_edges_to_the_resulting_page(store):
+    """The point of the change: an interaction is an edge you can follow in
+    the browser, not a JSON string buried in an array property."""
+    site = "pragma-test.local"
+    store.record_component_interaction(site, "home", "button#go", action="click", resulting_url="about")
+    store.record_component_interaction(site, "home", "button#stay", action="click")
+
+    with store._session() as session:
+        rows = {
+            r["path"]: r
+            for r in session.run(
+                """
+                MATCH (c:Component {site: $site})-[i:INTERACTED]->(target:Page)
+                RETURN c.path AS path, target.url AS target_url, i.navigated AS navigated, i.seq AS seq
+                """,
+                site=site,
+            )
+        }
+
+    # A click that navigated points at where it landed...
+    assert rows["button#go"]["target_url"] == "about"
+    assert rows["button#go"]["navigated"] is True
+    # ...one that didn't points back at its own page, so no interaction is
+    # a dangling edge and every one is reachable from the page it happened on.
+    assert rows["button#stay"]["target_url"] == "home"
+    assert rows["button#stay"]["navigated"] is False
+
+
+def test_repeated_interactions_keep_their_order(store):
+    """`seq` is what replaces the old array's append order - without it the
+    ledger could hand readers a component's interactions shuffled."""
+    site = "pragma-test.local"
+    for value in ("first", "second", "third"):
+        store.record_component_interaction(site, "home", "input#q", action="fill", value=value)
+
+    ledger = store.get_component_ledger(site)
+
+    assert [i["value"] for i in ledger["home"]["input#q"]["interactions"]] == ["first", "second", "third"]
 
 
 def test_count_unexplored_components_respects_semantic_only(store):
@@ -512,3 +554,79 @@ def test_clear_site_removes_inferred_requests_too(store):
     store.clear_site(site)
 
     assert store.get_inferred_requests(site) == []
+
+
+def test_nodes_carry_a_readable_caption(store):
+    """Neo4j Browser picks a caption property on its own; left alone it lands
+    on the CSS path. `caption` is what the .grass file points at."""
+    site = "pragma-test.local"
+    store.upsert_page(site, "shop/", title="Catalogo")
+    store.record_component(site, "shop/", "div > button", tag="button", text="Comprar", component_type="button")
+    store.record_component(site, "shop/", "div > input", tag="input", text="", component_type="text field (search)")
+
+    with store._session() as session:
+        captions = {
+            r["path"]: r["caption"]
+            for r in session.run(
+                "MATCH (c:Component {site: $site}) RETURN c.path AS path, c.caption AS caption", site=site
+            )
+        }
+        page_caption = session.run(
+            "MATCH (p:Page {site: $site, url: 'shop/'}) RETURN p.caption AS caption", site=site
+        ).single()["caption"]
+
+    assert captions["div > button"] == "Comprar"
+    # No visible text: falls back to the role, never to the CSS path.
+    assert captions["div > input"] == "text field (search)"
+    assert page_caption == "Catalogo"
+
+
+def test_caption_does_not_clobber_the_dom_name_attribute(store):
+    """`ComponentFacts.name` is the DOM `name` attribute and is persisted as
+    `c.name`. An earlier revision called the caption `name` too and silently
+    overwrote it - this is the regression guard."""
+    from src.core.interfaces import ComponentFacts
+
+    site = "pragma-test.local"
+    store.record_component(
+        site, "shop/", "div > input", tag="input", text="", component_type="text field (search)",
+        facts=ComponentFacts(name="query"),
+    )
+
+    with store._session() as session:
+        row = session.run(
+            "MATCH (c:Component {site: $site, path: 'div > input'}) RETURN c.name AS name, c.caption AS caption",
+            site=site,
+        ).single()
+
+    assert row["name"] == "query"
+    assert row["caption"] == "text field (search)"
+
+
+def test_inferred_nodes_are_labelled_apart_from_observed_ones(store):
+    """Telling what the crawl saw from what the model deduced is both a
+    legibility affordance and the precondition for auditing a deduction."""
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "shop/", "div > button", tag="button", text="Comprar")
+    store.record_inferred_requests(
+        site,
+        [InferredRequest(method="POST", endpoint="api/orders", query_params=(), body_shape="",
+                         response_shape="", triggered_by=(("shop/", "div > button"),))],
+    )
+
+    with store._session() as session:
+        inferred = {
+            tuple(sorted(r["labels"]))
+            for r in session.run(
+                "MATCH (n:Inferred {site: $site}) RETURN labels(n) AS labels", site=site
+            )
+        }
+        observed_is_not_inferred = session.run(
+            "MATCH (c:Component {site: $site}) RETURN c:Inferred AS inferred", site=site
+        ).single()["inferred"]
+
+    assert ("Inferred", "Request") in inferred
+    assert ("Inferred", "RequestFamily") in inferred
+    assert observed_is_not_inferred is False

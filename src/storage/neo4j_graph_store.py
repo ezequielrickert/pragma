@@ -150,6 +150,7 @@ class Neo4jGraphStore(
                     p.label = CASE WHEN $label <> '' THEN $label ELSE '-' END,
                     p.description = $description,
                     p.title = $title,
+                    p.caption = CASE WHEN $title <> '' THEN $title ELSE $url END,
                     p.visited_at = $visited_at
                 ON MATCH SET
                     p.status = CASE WHEN $status <> 'Pending' THEN $status ELSE p.status END,
@@ -158,6 +159,7 @@ class Neo4jGraphStore(
                     p.label = CASE WHEN $label <> '' THEN $label ELSE p.label END,
                     p.description = CASE WHEN $description <> '' THEN $description ELSE p.description END,
                     p.title = CASE WHEN $title <> '' THEN $title ELSE p.title END,
+                    p.caption = CASE WHEN $title <> '' THEN $title ELSE coalesce(p.caption, $url) END,
                     p.visited_at = CASE WHEN $status = 'Finished' THEN $visited_at ELSE p.visited_at END
                 MERGE (s)-[:HAS_PAGE]->(p)
                 """,

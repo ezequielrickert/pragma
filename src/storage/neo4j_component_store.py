@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.interfaces import ComponentFacts
@@ -19,6 +20,7 @@ from ._neo4j_cypher_helpers import (
     _COMPONENT_DESCRIPTIVE_SET_FROM_ROW,
     _COMPONENT_FACTS_RETURN,
     _FACTS_FIELDS,
+    _INTERACTIONS_COLLECT,
     _SEMANTIC_ONLY_CLAUSE,
     _page_ensure_clause,
 )
@@ -52,7 +54,7 @@ class _Neo4jComponentMixin:
                 MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
                 ON CREATE SET
                     {_COMPONENT_DESCRIPTIVE_SET},
-                    c.options = '', c.interacted = false, c.interactions = [], c.network_requests = []
+                    c.options = '', c.interacted = false, c.interaction_count = 0, c.network_requests = []
                 ON MATCH SET
                     {_COMPONENT_DESCRIPTIVE_SET}
                 MERGE (p)-[:HAS_COMPONENT]->(c)
@@ -96,7 +98,7 @@ class _Neo4jComponentMixin:
                 MERGE (c:Component {{site: $site, page_url: $page_url, path: row.path}})
                 ON CREATE SET
                     {_COMPONENT_DESCRIPTIVE_SET_FROM_ROW},
-                    c.options = '', c.interacted = false, c.interactions = [], c.network_requests = []
+                    c.options = '', c.interacted = false, c.interaction_count = 0, c.network_requests = []
                 ON MATCH SET
                     {_COMPONENT_DESCRIPTIVE_SET_FROM_ROW}
                 MERGE (p)-[:HAS_COMPONENT]->(c)
@@ -114,20 +116,32 @@ class _Neo4jComponentMixin:
         resulting_url: str = "",
         source_path: str = "",
     ) -> None:
-        interaction: Dict[str, str] = {"action": action, "value": value, "resulting_url": resulting_url}
-        if source_path:
-            interaction["source_path"] = source_path
-        entry = json.dumps(interaction)
+        # An interaction that navigated points at where it landed; one that
+        # didn't points back at its own page, so every interaction is a
+        # traversable edge rather than a string buried in an array.
+        # Details: docs/dev/storage/neo4j_component_store.md#interacted
+        target_url = resulting_url or page_url
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
                 {_COMPONENT_BLANK_STUB}
-                SET c.interacted = true, c.interactions = c.interactions + $entry
+                SET c.interacted = true,
+                    c.interaction_count = coalesce(c.interaction_count, 0) + 1
                 MERGE (p)-[:HAS_COMPONENT]->(c)
+                WITH c
+                {_page_ensure_clause("target", "target_url")}
+                CREATE (c)-[:INTERACTED {{
+                    site: $site, action: $action, value: $value,
+                    resulting_url: $resulting_url, source_path: $source_path,
+                    navigated: $navigated, seq: c.interaction_count, created_at: $created_at
+                }}]->(target)
                 """,
-                site=site, page_url=page_url, path=path, entry=entry,
+                site=site, page_url=page_url, path=path, action=action, value=value,
+                resulting_url=resulting_url, source_path=source_path, target_url=target_url,
+                navigated=bool(resulting_url) and resulting_url != page_url,
+                created_at=datetime.now(timezone.utc).isoformat(),
             )
 
     def record_component_options(
@@ -227,8 +241,9 @@ class _Neo4jComponentMixin:
             result = session.run(
                 f"""
                 MATCH (c:Component {{site: $site}})
+                {_INTERACTIONS_COLLECT}
                 RETURN c.page_url AS page_url, c.path AS path, c.tag AS tag, c.text AS text,
-                       c.interacted AS interacted, c.interactions AS interactions,
+                       c.interacted AS interacted, interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.component_type AS component_type, c.options AS options,
                        c.option_labels AS option_labels,
@@ -243,7 +258,7 @@ class _Neo4jComponentMixin:
                     "tag": r["tag"],
                     "text": r["text"],
                     "interacted": r["interacted"],
-                    "interactions": [json.loads(e) for e in (r["interactions"] or [])],
+                    "interactions": [dict(entry) for entry in r["interactions"]],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
                     "option_labels": list(r["option_labels"] or []),
