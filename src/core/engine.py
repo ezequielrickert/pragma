@@ -46,6 +46,35 @@ def _apply_component_families(graph_store: GraphStore, site: str) -> None:
     both back. Runs once, after the crawl finishes - family clustering
     needs to see every discovered component at once, not the live
     per-page write stream `MechanicalCrawler` produces during the crawl.
+
+    Args:
+        graph_store: the same `GraphStore` the just-finished crawl wrote
+            to - read back from here (`get_component_ledger`), then
+            written back to (`record_component_families`,
+            `apply_tag_labels`).
+        site: which site's just-crawled data to process.
+
+    Returns:
+        None. Three steps, always in this order:
+        1. Read every discovered component for `site` via
+           `get_component_ledger`, and flatten its `{page_url: {path:
+           {...}}}` nesting into one flat list of dicts (each with
+           `page_url` and `path` folded in) - the shape
+           `component_family.build_component_families`/
+           `tags_with_multiple_instances` both expect. The ledger's
+           per-page nesting exists for `GraphPRDSynthesizer`'s
+           page-by-page narration, not for a whole-site pass like this
+           one.
+        2. `build_component_families` clusters that flat list into
+           `ComponentFamily` objects (see that function's own docstring
+           for the full algorithm), written via `record_component_
+           families` - a full rebuild of `site`'s family structure every
+           call, per that method's own contract.
+        3. `tags_with_multiple_instances` picks which raw HTML tags
+           appear often enough to deserve their own Neo4j label, each
+           mapped through `label_for_tag` to its actual label string
+           (e.g. `"button"` -> `"Button"`), written via
+           `apply_tag_labels`.
     Details: docs/dev/core/engine.md#_apply_component_families
     """
     ledger = graph_store.get_component_ledger(site)

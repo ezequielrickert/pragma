@@ -59,16 +59,48 @@ class ComponentFamily:
     """One inferred reusable-component cluster (a "Button" pattern, a
     "combobox" pattern, ...) - a post-hoc, whole-site grouping of already-
     discovered Components by structural/visual similarity, computed by
-    `src/generators/component_family.py::build_component_families`. Lives
-    here (not in `generators/`) so `GraphStore` - a `core` module - can
-    reference the type without `core` depending on `generators`, the
-    reverse of this project's normal layering.
+    `src/generators/component_family.py::build_component_families` (that
+    module's own docstring has the full algorithm - bucketed by `(tag,
+    component_type)`, then clustered within each bucket by CSS-class
+    similarity). Lives here (not in `generators/`) so `GraphStore` - a
+    `core` module - can reference the type without `core` depending on
+    `generators`, the reverse of this project's normal layering.
+
+    Frozen + tuple fields (not list) so a `ComponentFamily` is hashable
+    and safely comparable by value - callers (tests, in particular) can
+    put one in a `set` or compare two family lists with plain `==`.
+
+    Fields:
+        tag: the raw HTML tag every member shares, e.g. `"button"`,
+            `"input"`, `"a"`. See `component_family.label_for_tag` for
+            how this becomes a Neo4j node label (`"button"` -> `Button`,
+            `"a"` -> `Link`, etc.) - a related but separate mechanism
+            from family grouping itself.
+        component_type: the human-readable role label every member
+            shares, e.g. `"button"`, `"submit button"`, `"checkbox"`,
+            `"combobox (searchable dropdown)"` - the same value
+            `component_classifier.classify_component_type` already
+            computed for each component at crawl time. Two components
+            with the same `tag` but different `component_type` are never
+            in the same family, regardless of how similar their classes
+            are.
+        common_classes: the CSS classes *every* member has in common -
+            sorted for a deterministic, human-readable summary of what
+            the family visually shares (e.g. `("btn", "rounded")` for a
+            primary/secondary button pair that differs only by its
+            color-modifier class, which is correctly excluded here since
+            not every member has it).
+        member_paths: one `(page_url, path)` pair per member component -
+            together, the two fields are exactly the identity key
+            (`site` is implied by whichever call this came from)
+            `GraphStore.record_component`/`get_component_states` use for
+            a single `Component` node. Sorted for a deterministic order.
     """
 
     tag: str
     component_type: str
-    common_classes: Tuple[str, ...]  # classes every member shares
-    member_paths: Tuple[Tuple[str, str], ...]  # (page_url, path) per variant
+    common_classes: Tuple[str, ...]
+    member_paths: Tuple[Tuple[str, str], ...]
 
 
 class Agent(ABC):
@@ -309,12 +341,30 @@ class GraphStore(ABC):
         `:Button`, `:Input`, `:Link`) wherever `tag_labels` names one for
         it - a Neo4j-Browser-specific visual affordance (node color
         follows label) with no equivalent in a backend with no browser to
-        color. `tag_labels` (raw tag -> Cypher-safe label name) is fully
-        computed by the caller (`tags_with_multiple_instances` +
-        `label_for_tag`, `component_family.py`) - this method does no
-        thresholding or naming of its own, so both decisions live in
-        exactly one place. Not abstract: the default here is a no-op, and
-        only `Neo4jGraphStore` overrides it with a real implementation.
+        color.
+
+        Args:
+            site: which site's components to label - same scoping every
+                other `GraphStore` method uses.
+            tag_labels: `{raw_tag: label_name}`, e.g. `{"button":
+                "Button", "input": "Input", "a": "Link"}`. Fully computed
+                by the caller (`tags_with_multiple_instances` +
+                `label_for_tag`, both in `component_family.py`) - this
+                method does no thresholding (deciding which tags are
+                "common enough") or naming (deciding what a tag's label
+                should be) of its own, so both decisions live in exactly
+                one place rather than being duplicated between a
+                `GraphStore` backend and the module that calls it. Only
+                the tags present as keys get a label added; any Component
+                whose tag isn't in this dict is left with just its base
+                `:Component` label.
+
+        Returns:
+            None - a write-only side effect (adds Neo4j labels). Not
+            abstract: the default implementation here is a no-op, and
+            only `Neo4jGraphStore` overrides it with a real
+            implementation - there's no equivalent concept for a backend
+            with no browser to color (e.g. `InMemoryGraphStore`).
         Details: docs/dev/core/interfaces.md#apply_tag_labels
         """
 
@@ -323,7 +373,20 @@ class GraphStore(ABC):
         """Replace `site`'s entire inferred-family structure with
         `families` - a from-scratch rebuild (any families from a previous
         run are cleared first), since cluster membership isn't guaranteed
-        to stay the same between runs as the underlying components change.
+        to stay the same between runs as the underlying components change
+        (a component that was a singleton last run might gain a sibling
+        this run, or vice versa).
+
+        Args:
+            site: which site's families to replace.
+            families: the complete new set, typically the direct output
+                of `component_family.build_component_families` - passing
+                `[]` clears every family for `site` without recording any
+                new ones (used, for example, by a re-run that finds no
+                families at all this time).
+
+        Returns:
+            None - a write-only side effect.
         Details: docs/dev/core/interfaces.md#record_component_families
         """
         raise NotImplementedError
@@ -331,6 +394,18 @@ class GraphStore(ABC):
     @abstractmethod
     def get_component_families(self, site: str) -> List[ComponentFamily]:
         """Every inferred family currently recorded for `site`.
+
+        Args:
+            site: which site's families to read.
+
+        Returns:
+            A list of `ComponentFamily` (see `src/core/interfaces.py`'s
+            own docstring for its fields), one per family - `[]` if
+            `record_component_families` was never called for this site,
+            or was last called with an empty list. Order is whatever the
+            backend returns (both shipped backends return them in a
+            deterministic but not otherwise meaningful order - see each
+            one's own `get_component_families` docstring).
         Details: docs/dev/core/interfaces.md#get_component_families
         """
         raise NotImplementedError

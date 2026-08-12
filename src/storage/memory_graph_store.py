@@ -282,9 +282,25 @@ class InMemoryGraphStore(GraphStore):
         }
 
     def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
+        """Overwrite `site`'s whole family list with `families` - a plain
+        assignment, since there's no incident-relationship bookkeeping to
+        clean up the way `Neo4jGraphStore`'s DETACH DELETE-then-recreate
+        needs. `families=[]` clears everything for `site`, same full-
+        rebuild contract as the Neo4j backend
+        (docs/dev/core/interfaces.md#record_component_families).
+        """
         self._site(site).component_families = list(families)
 
     def get_component_families(self, site: str) -> List[ComponentFamily]:
+        """Every `ComponentFamily` last written for `site` via
+        `record_component_families`, in that same call's order (this
+        backend never reorders them - unlike `Neo4jGraphStore.
+        get_component_families`, whose `member_paths` are re-sorted on
+        every read; here they're already sorted, since
+        `component_family.build_component_families` sorts before
+        returning). `[]` if `record_component_families` was never called,
+        or was last called with an empty list.
+        """
         return list(self._site(site).component_families)
 
     def record_text_content(

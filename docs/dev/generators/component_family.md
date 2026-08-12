@@ -14,6 +14,54 @@ Pure, no I/O, same placement discipline as `component_classifier.py` -
 the impure read-from-`GraphStore`/write-back-to-`GraphStore` orchestration
 lives in `engine.py`, not here.
 
+### Two outputs, from the same input data
+
+| | `tags_with_multiple_instances` + `label_for_tag` | `build_component_families` |
+|---|---|---|
+| Question it answers | "What *kind* of element is this?" | "Is this the *same reusable pattern* as that other one?" |
+| Grouping key | raw HTML `tag` alone | `(tag, component_type)`, then CSS-class similarity |
+| Where it ends up | a Neo4j **label** added directly onto the existing `Component` node (`:Component:Button`) | a brand-new **`:ComponentFamily` node**, pointing at existing `Component` nodes via `HAS_VARIANT` |
+| Threshold | tag appears on 2+ components | cluster has 2+ members after similarity clustering |
+
+### Worked example (real data, empanad.app)
+
+Two real components discovered on the same site:
+
+```python
+{"page_url": "empanad.app/o/x", "path": "...button:nth-of-type(1)",
+ "tag": "button", "component_type": "button",
+ "css_class": "border-2 border-primary disabled:opacity-40 h-8 w-8 rounded-full ..."}
+{"page_url": "empanad.app/o/x", "path": "...button:nth-of-type(2)",
+ "tag": "button", "component_type": "button",
+ "css_class": "border-2 border-primary disabled:opacity-40 h-8 w-8 rounded-full ..."}
+```
+
+- **Tag labeling**: both have `tag="button"`, and there are 2 of them -> both
+  Neo4j nodes get `SET c:Button` added, becoming `:Component:Button`.
+- **Family clustering**: both share `(tag="button", component_type="button")`
+  *and* their `css_class` sets are identical (similarity 1.0, well above the
+  0.5 threshold) -> one `ComponentFamily(tag="button", component_type=
+  "button", common_classes=(...every shared class...), member_paths=(both
+  paths above))` is returned. This specific pair was the site's quantity-
+  stepper "+ / -" buttons - two visually-identical, independently-discovered
+  DOM elements correctly inferred as one reusable circular-button pattern.
+
+### `component_type` value reference
+
+`component_type` isn't computed by this module - it's whatever
+`component_classifier.classify_component_type` already assigned each
+component at crawl time (before this module ever sees it). Common values,
+for context on what `build_component_families` buckets by: `"button"`,
+`"submit button"`, `"link"`, `"checkbox"`, `"radio button"`, `"toggle
+switch"`, `"tab"`, `"combobox (searchable dropdown)"`, `"native dropdown
+(select)"`, `"list/menu option"`, `"text field (text)"` (or `"(number)"`,
+`"(email)"`, etc. per `input_type`), `"custom control (component-library
+element, no native tag/role)"`, and the generic fallback `"element"`. See
+`component_classifier.md#classify_component_type` for the full, current
+rule set - it can gain new values over time; nothing in this module needs
+updating when it does, since bucketing is by whatever string that function
+returns, not a fixed enum.
+
 ## _similarity_threshold
 
 Jaccard similarity floor (0.5), over `css_class` tokens, for two
