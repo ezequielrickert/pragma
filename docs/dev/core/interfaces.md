@@ -225,6 +225,18 @@ Auto-creates the Component node if it doesn't already exist, mirroring
 record for a path it hasn't explicitly `record_component`-ed yet should
 still succeed, not silently no-op).
 
+`option_labels` (2026-08-12) is `options`' clean, human-readable
+projection - the same `["Mi Gusto (selected)", "Solo Empanadas", ...]`
+shape `component_tree.py`'s generated document already rendered, now
+also stored directly on the node so reading it doesn't require
+generating (or re-parsing) that document. `GraphStoreSink` computes it
+via `component_classifier.format_option_choices(component_classifier.
+describe_options(options))` right before every `record_component_
+options` call - this method itself does no parsing of `options`, it
+only persists whatever it's handed, same "storage does no business
+logic" discipline `ComponentFacts`/`ComponentFamily` already established.
+`None`/omitted stores `[]`.
+
 ## record_component_interaction
 
 Mark a component as interacted with and append one interaction record.

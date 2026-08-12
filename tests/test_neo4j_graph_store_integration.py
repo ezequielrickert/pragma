@@ -258,6 +258,27 @@ def test_record_component_persists_facts(store):
     assert ghost_state["disabled"] is False
 
 
+def test_record_component_options_persists_clean_labels(store):
+    site = "pragma-test.local"
+    raw_json = '{"group": "flavor", "options": [{"text": "Mi Gusto", "selected": true}]}'
+    store.record_component_options(
+        site, "home", "combo#1", raw_json, option_labels=["Mi Gusto (selected)"]
+    )
+
+    state = store.get_component_states(site, "home")["combo#1"]
+    assert state["options"] == raw_json
+    assert state["option_labels"] == ["Mi Gusto (selected)"]
+
+    ledger_entry = store.get_component_ledger(site)["home"]["combo#1"]
+    assert ledger_entry["option_labels"] == ["Mi Gusto (selected)"]
+
+    # No option_labels passed - a ghost node created via the interaction
+    # auto-create path must still default it to [], not raise/omit the key.
+    store.record_component_interaction(site, "home", "never-inventoried", action="click")
+    ghost_state = store.get_component_states(site, "home")["never-inventoried"]
+    assert ghost_state["option_labels"] == []
+
+
 def test_record_component_type_and_options_roundtrip(store):
     import json
 
@@ -391,6 +412,25 @@ def test_record_component_families_roundtrips_and_replaces_on_rerun(store):
     # previous crawl must not linger once the data no longer supports it.
     store.record_component_families(site, [])
     assert store.get_component_families(site) == []
+
+
+def test_record_component_families_persists_narrated_purpose(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=("btn",),
+            member_paths=(("home", "btn1"), ("home", "btn2")),
+            purpose="Confirms or submits an action.",
+        )
+    ]
+    store.record_component_families(site, families)
+    assert store.get_component_families(site) == families
+    assert store.get_component_families(site)[0].purpose == "Confirms or submits an action."
 
 
 def test_clear_site_removes_component_families_too(store):

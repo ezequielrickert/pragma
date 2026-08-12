@@ -95,12 +95,20 @@ class ComponentFamily:
             (`site` is implied by whichever call this came from)
             `GraphStore.record_component`/`get_component_states` use for
             a single `Component` node. Sorted for a deterministic order.
+        purpose: one-sentence, human-readable description of what this
+            pattern is typically used for (e.g. "confirms or submits an
+            action"), or `""` if it was never narrated. `build_component_
+            families` itself never sets this (clustering is pure/no-LLM,
+            per that module's own docstring) - it's filled in afterward
+            by `component_family_narrator.narrate_family_purposes`, an
+            explicitly separate, impure step that needs an `Agent`.
     """
 
     tag: str
     component_type: str
     common_classes: Tuple[str, ...]
     member_paths: Tuple[Tuple[str, str], ...]
+    purpose: str = ""
 
 
 class Agent(ABC):
@@ -266,8 +274,33 @@ class GraphStore(ABC):
             self.record_component(site, page_url, **item)
 
     @abstractmethod
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+    ) -> None:
         """Overwrite a Component's JSON-encoded `options` field; auto-creates the node.
+
+        Args:
+            site: which site this component belongs to.
+            page_url: the component's own page key.
+            path: the component's own CSS selector path.
+            options: raw JSON-encoded blob in one of the shapes
+                `component_classifier.describe_options` knows how to
+                parse (stepper / choice_group / revealed_options) -
+                stored as-is, for callers (`choice_text_by_path`,
+                `describe_options` itself) that need the full structure
+                (per-choice `path`, which member redirected where, etc.).
+            option_labels: the same data, already reduced to plain
+                display strings by `component_classifier.
+                format_option_choices` (e.g. `["Mi Gusto (selected)",
+                "Solo Empanadas", ...]`) - computed by the caller
+                (`GraphStoreSink`), not by this method, so `options`
+                stays the single source of truth and this is purely a
+                convenience projection of it. `None`/omitted stores `[]`,
+                not an error - not every `record_component_options` call
+                site necessarily has this computed yet.
+
+        Returns:
+            None.
         Details: docs/dev/core/interfaces.md#record_component_options
         """
         raise NotImplementedError

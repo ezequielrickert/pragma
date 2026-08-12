@@ -126,6 +126,21 @@ the three-shape disambiguation logic exists exactly once:
   `path`: `find_revealed_options` only ever diffs text/selected, it was
   never given one to carry.
 
+## format_option_choices
+
+Renders `describe_options`' normalized shape as short, human-readable
+display strings - e.g. `["Mi Gusto (selected)", "Solo Empanadas", ...]`
+for a `choice_group`, `["stepper (current value: 3)"]` for a stepper.
+Promoted here from `component_tree.py` (where it was originally a
+private `_format_variants`, used only for that module's rendered
+`variants=[...]` tree line) so `graph_sink.py` can call the exact same
+formatting logic to compute `option_labels` - the clean projection of a
+Component's raw `options` JSON stored directly on the graph node (see
+`docs/dev/crawlers/graph_sink.md#_option_labels_for`), instead of that
+clean form only ever existing inside a generated `.md` file. Both
+callers now share one implementation; there is no `component_tree.py`
+copy left to drift out of sync with it.
+
 ## choice_text_by_path
 
 The `path -> text` lookup both `component_tree.py`'s

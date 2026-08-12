@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.interfaces import GraphStore
-from .component_classifier import choice_text_by_path, describe_options
+from .component_classifier import choice_text_by_path, describe_options, format_option_choices
 
 
 @dataclass
@@ -38,26 +38,6 @@ class TreePage:
 class SiteTree:
     site: str
     pages: List[TreePage] = field(default_factory=list)
-
-
-def _format_variants(parsed: Optional[Dict[str, Any]]) -> List[str]:
-    """Render `describe_options`' normalized shape as short display strings.
-    Details: docs/dev/generators/component_tree.md#_format_variants
-    """
-    if not parsed:
-        return []
-    if parsed["kind"] == "stepper":
-        current_value = parsed.get("current_value")
-        return [f"stepper (current value: {current_value})" if current_value else "stepper"]
-    if parsed["kind"] in ("choice_group", "revealed_options"):
-        out = []
-        for choice in parsed["choices"]:
-            text = choice.get("text")
-            if not text:
-                continue
-            out.append(f"{text} (selected)" if choice.get("selected") else text)
-        return out
-    return []
 
 
 def _build_option_redirects(
@@ -143,7 +123,7 @@ def build_component_tree(graph_store: GraphStore, site: str) -> SiteTree:
                     path=path,
                     label=record.get("component_type") or record.get("tag") or "element",
                     text=record.get("text") or "",
-                    variants=_format_variants(parsed),
+                    variants=format_option_choices(parsed),
                     placeholder_value=placeholder_value,
                     requests=[_render_request_line(r) for r in record.get("network_requests", [])],
                     redirect_target=redirect_label,

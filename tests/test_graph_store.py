@@ -123,6 +123,29 @@ def test_memory_store_record_component_persists_position():
     assert store.get_component_states("a.com", "a.com/y")["button#other"]["x"] is None
 
 
+def test_memory_store_record_component_options_persists_clean_labels():
+    store = InMemoryGraphStore()
+    raw_json = '{"group": "flavor", "options": [{"text": "Mi Gusto", "selected": true}]}'
+    store.record_component_options(
+        "a.com", "a.com/x", "combo#1", raw_json, option_labels=["Mi Gusto (selected)"]
+    )
+
+    state = store.get_component_states("a.com", "a.com/x")["combo#1"]
+    assert state["options"] == raw_json
+    assert state["option_labels"] == ["Mi Gusto (selected)"]
+
+    ledger_entry = store.get_component_ledger("a.com")["a.com/x"]["combo#1"]
+    assert ledger_entry["option_labels"] == ["Mi Gusto (selected)"]
+
+
+def test_memory_store_record_component_options_defaults_labels_to_empty():
+    store = InMemoryGraphStore()
+    store.record_component_options("a.com", "a.com/x", "combo#1", '{"kind": "unknown"}')
+
+    state = store.get_component_states("a.com", "a.com/x")["combo#1"]
+    assert state["option_labels"] == []
+
+
 def test_memory_store_record_component_persists_facts():
     store = InMemoryGraphStore()
     facts = ComponentFacts(

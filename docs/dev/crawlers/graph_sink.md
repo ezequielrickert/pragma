@@ -35,6 +35,18 @@ group into one `Component` node, and consulted by `record_interaction`/
 group's members onto the same node instead of creating a new one. See
 `record_inventory`/`_record_choice_group`/`_resolve_write_path` below.
 
+## _option_labels_for
+
+`format_option_choices(describe_options(options_json))` in one call -
+the clean, human-readable projection of one `options` JSON blob (e.g.
+`["Mi Gusto (selected)", "Solo Empanadas", ...]`), computed at write
+time and stored as `option_labels` alongside the raw JSON on the same
+`Component` node. Called from all three `record_component_options`
+sites (`record_inventory`'s stepper write, `_record_choice_group`,
+`record_revealed_options`) so every options write gets this second,
+clean field for free, without needing external tooling
+(`component_tree.py`'s rendered `.md`) just to read a choice list back.
+
 ## _component_facts
 
 Pure mapping from one raw, JS-discovered component dict

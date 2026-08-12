@@ -62,6 +62,7 @@ _COMPONENT_BLANK_STUB = (
     "ON CREATE SET "
     "c.tag = '', c.text = '', c.role = '', c.input_type = '', "
     "c.visible = true, c.layer = 'semantic', c.component_type = '', c.options = '', "
+    "c.option_labels = [], "
     "c.interacted = false, c.interactions = [], c.network_requests = [], "
     f"{_BLANK_FACTS_ASSIGNMENTS}"
 )

@@ -130,17 +130,20 @@ class _Neo4jComponentMixin:
                 site=site, page_url=page_url, path=path, entry=entry,
             )
 
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+    ) -> None:
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 MERGE (c:Component {{site: $site, page_url: $page_url, path: $path}})
                 {_COMPONENT_BLANK_STUB}
-                SET c.options = $options
+                SET c.options = $options, c.option_labels = $option_labels
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
                 site=site, page_url=page_url, path=path, options=options,
+                option_labels=option_labels or [],
             )
 
     def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
@@ -164,6 +167,7 @@ class _Neo4jComponentMixin:
                 RETURN c.path AS path, c.tag AS tag, c.text AS text,
                        c.interacted AS interacted, c.visible AS visible,
                        c.component_type AS component_type, c.options AS options,
+                       c.option_labels AS option_labels,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.network_requests AS network_requests, {_COMPONENT_FACTS_RETURN}
                 """,
@@ -175,6 +179,7 @@ class _Neo4jComponentMixin:
                     "interacted": r["interacted"], "visible": r["visible"],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
+                    "option_labels": list(r["option_labels"] or []),
                     "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
                     **{name: r[name] for name in _FACTS_FIELDS},
                 }
@@ -226,6 +231,7 @@ class _Neo4jComponentMixin:
                        c.interacted AS interacted, c.interactions AS interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.component_type AS component_type, c.options AS options,
+                       c.option_labels AS option_labels,
                        c.network_requests AS network_requests, {_COMPONENT_FACTS_RETURN}
                 """,
                 site=site,
@@ -240,6 +246,7 @@ class _Neo4jComponentMixin:
                     "interactions": [json.loads(e) for e in (r["interactions"] or [])],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],
                     "component_type": r["component_type"] or "", "options": r["options"] or "",
+                    "option_labels": list(r["option_labels"] or []),
                     "network_requests": [req for batch in (r["network_requests"] or []) for req in json.loads(batch)],
                     **{name: r[name] for name in _FACTS_FIELDS},
                 }

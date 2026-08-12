@@ -10,11 +10,23 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..core.interfaces import ComponentFacts, GraphStore
 from ..generators.component_classifier import (
     classify_component_type,
+    describe_options,
+    format_option_choices,
     group_choice_sets,
     group_option_families,
     group_steppers,
 )
 from ..utils.urls import clean_url
+
+
+def _option_labels_for(options_json: str) -> List[str]:
+    """Clean, human-readable display strings for one `options` JSON blob -
+    the same shape `component_tree.py`'s rendered `variants=[...]` line
+    uses, computed once here so it can be stored alongside the raw JSON
+    instead of only ever existing inside a generated .md file.
+    Details: docs/dev/crawlers/graph_sink.md#_option_labels_for
+    """
+    return format_option_choices(describe_options(options_json))
 
 
 def _component_facts(comp: Dict[str, Any]) -> ComponentFacts:
@@ -162,9 +174,11 @@ class GraphStoreSink:
         for stepper in group_steppers(components):
             increment_path = stepper.get("increment_path")
             if increment_path:
+                stepper_json = json.dumps(stepper)
                 await self._write(
                     self.graph_store.record_component_options,
-                    self.site, page_key, increment_path, json.dumps(stepper),
+                    self.site, page_key, increment_path, stepper_json,
+                    option_labels=_option_labels_for(stepper_json),
                 )
 
         for name, members in choice_sets.items():
@@ -248,7 +262,8 @@ class GraphStoreSink:
             }
         )
         await self._write(
-            self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary
+            self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary,
+            option_labels=_option_labels_for(option_summary),
         )
         page_map = self._representative_for.setdefault(page_key, {})
         for member in members:
@@ -295,7 +310,10 @@ class GraphStoreSink:
         Details: docs/dev/crawlers/graph_sink.md#record_revealed_options
         """
         payload = json.dumps({"trigger": trigger_path, "revealed_options": revealed})
-        await self._write(self.graph_store.record_component_options, self.site, page_key, trigger_path, payload)
+        await self._write(
+            self.graph_store.record_component_options, self.site, page_key, trigger_path, payload,
+            option_labels=_option_labels_for(payload),
+        )
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
         """Only called when an interaction's resulting URL differs from the page it ran on."""

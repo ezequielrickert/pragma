@@ -78,17 +78,20 @@ class _Neo4jComponentFamilyMixin:
         Returns:
             None. For each `ComponentFamily`: creates one new
             `:ComponentFamily` node carrying `tag`/`component_type`/
-            `common_classes`/`member_count` as properties, then one
-            `HAS_VARIANT` edge per entry in `family.member_paths` to the
-            already-existing `Component` node it identifies. If a
-            `member_paths` entry doesn't resolve to a real `Component`
-            (a caller bug - never expected from the normal `Engine.
-            _apply_component_families` path, which always derives
-            `member_paths` from the same `get_component_ledger` read
-            that supplies every other field), that one `HAS_VARIANT`
-            edge is silently skipped rather than raising - the family
-            node still gets created, just with fewer edges than
-            `member_count` claims.
+            `common_classes`/`member_count`/`purpose` as properties, then
+            one `HAS_VARIANT` edge per entry in `family.member_paths` to
+            the already-existing `Component` node it identifies.
+            `purpose` is whatever the family already had when passed in
+            (`""` unless a caller ran it through `component_family_
+            narrator.narrate_family_purposes` first - this method has no
+            opinion on when/whether that happened). If a `member_paths`
+            entry doesn't resolve to a real `Component` (a caller bug -
+            never expected from the normal `Engine._apply_component_
+            families` path, which always derives `member_paths` from the
+            same `get_component_ledger` read that supplies every other
+            field), that one `HAS_VARIANT` edge is silently skipped
+            rather than raising - the family node still gets created,
+            just with fewer edges than `member_count` claims.
         """
         with self._session() as session:
             # Full rebuild, not an incremental merge - see the interface
@@ -99,7 +102,8 @@ class _Neo4jComponentFamilyMixin:
                     """
                     CREATE (f:ComponentFamily {
                         site: $site, tag: $tag, component_type: $component_type,
-                        common_classes: $common_classes, member_count: $member_count
+                        common_classes: $common_classes, member_count: $member_count,
+                        purpose: $purpose
                     })
                     WITH f
                     UNWIND $member_paths AS mp
@@ -108,7 +112,7 @@ class _Neo4jComponentFamilyMixin:
                     """,
                     site=site, tag=family.tag, component_type=family.component_type,
                     common_classes=list(family.common_classes),
-                    member_count=len(family.member_paths),
+                    member_count=len(family.member_paths), purpose=family.purpose,
                     member_paths=[list(mp) for mp in family.member_paths],
                 )
 
@@ -149,7 +153,7 @@ class _Neo4jComponentFamilyMixin:
                 MATCH (f:ComponentFamily {site: $site})-[:HAS_VARIANT]->(c:Component)
                 WITH f, c ORDER BY c.page_url, c.path
                 RETURN elementId(f) AS fid, f.tag AS tag, f.component_type AS component_type,
-                       f.common_classes AS common_classes,
+                       f.common_classes AS common_classes, f.purpose AS purpose,
                        collect([c.page_url, c.path]) AS member_paths
                 """,
                 site=site,
@@ -160,6 +164,7 @@ class _Neo4jComponentFamilyMixin:
                     component_type=r["component_type"],
                     common_classes=tuple(r["common_classes"] or []),
                     member_paths=tuple(tuple(mp) for mp in r["member_paths"]),
+                    purpose=r["purpose"] or "",
                 )
                 for r in result
             ]

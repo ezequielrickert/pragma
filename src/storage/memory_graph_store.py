@@ -142,7 +142,7 @@ class InMemoryGraphStore(GraphStore):
             "tag": "", "text": "", "role": "", "input_type": "",
             "visible": True, "layer": "semantic",
             "x": None, "y": None, "width": None, "height": None,
-            "component_type": "", "options": "",
+            "component_type": "", "options": "", "option_labels": [],
             "interacted": False, "interactions": [], "network_requests": [],
             **asdict(ComponentFacts()),
         }
@@ -180,6 +180,7 @@ class InMemoryGraphStore(GraphStore):
             "height": height,
             "component_type": component_type,
             "options": existing["options"] if existing else "",
+            "option_labels": existing["option_labels"] if existing else [],
             "interacted": existing["interacted"] if existing else False,
             "interactions": existing["interactions"] if existing else [],
             "network_requests": existing["network_requests"] if existing else [],
@@ -204,10 +205,13 @@ class InMemoryGraphStore(GraphStore):
             interaction["source_path"] = source_path
         record["interactions"].append(interaction)
 
-    def record_component_options(self, site: str, page_url: str, path: str, options: str) -> None:
+    def record_component_options(
+        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+    ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
         record["options"] = options
+        record["option_labels"] = list(option_labels or [])
 
     def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
@@ -220,6 +224,7 @@ class InMemoryGraphStore(GraphStore):
                 "tag": r["tag"], "text": r["text"], "interacted": r["interacted"], "visible": r["visible"],
                 "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                 "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                "option_labels": list(r.get("option_labels", [])),
                 "network_requests": list(r.get("network_requests", [])),
                 **{name: r.get(name) for name in _FACTS_FIELDS},
             }
@@ -273,6 +278,7 @@ class InMemoryGraphStore(GraphStore):
                     "interacted": r["interacted"], "interactions": list(r["interactions"]),
                     "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                     "component_type": r.get("component_type", ""), "options": r.get("options", ""),
+                    "option_labels": list(r.get("option_labels", [])),
                     "network_requests": list(r.get("network_requests", [])),
                     **{name: r.get(name) for name in _FACTS_FIELDS},
                 }

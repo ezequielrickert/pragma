@@ -211,6 +211,46 @@ def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def format_option_choices(parsed: Optional[Dict[str, Any]]) -> List[str]:
+    """Render `describe_options`' normalized shape as short, human-readable
+    display strings - the same clean form the component-tree document
+    shows (`variants=[Mi Gusto (selected), Solo Empanadas, ...]`), reused
+    here so a Component's raw JSON `options` blob doesn't need external
+    tooling to read; `graph_sink.py` computes this once per write and
+    stores it as `option_labels` alongside the raw JSON.
+
+    Args:
+        parsed: `describe_options`' return value, or `None`.
+
+    Returns:
+        - `[]` if `parsed` is `None`, or its `"kind"` is none of the ones
+          below (defensive - every `describe_options` result matches one).
+        - For `"kind": "stepper"`: a single-element list, either
+          `["stepper (current value: <value>)"]` when a value was found,
+          or `["stepper"]` otherwise.
+        - For `"kind": "choice_group"` or `"revealed_options"`: one
+          string per choice with real text, `f"{text} (selected)"` for
+          the currently-selected one(s), plain `text` for the rest -
+          choices with no text at all are skipped, not rendered as an
+          empty string.
+    Details: docs/dev/generators/component_classifier.md#format_option_choices
+    """
+    if not parsed:
+        return []
+    if parsed["kind"] == "stepper":
+        current_value = parsed.get("current_value")
+        return [f"stepper (current value: {current_value})" if current_value else "stepper"]
+    if parsed["kind"] in ("choice_group", "revealed_options"):
+        out = []
+        for choice in parsed["choices"]:
+            text = choice.get("text")
+            if not text:
+                continue
+            out.append(f"{text} (selected)" if choice.get("selected") else text)
+        return out
+    return []
+
+
 def choice_text_by_path(parsed: Dict[str, Any]) -> Dict[str, str]:
     """A `describe_options`' `choice_group` result's choices, keyed by their
     own `path` - the lookup both `component_tree.py`'s
