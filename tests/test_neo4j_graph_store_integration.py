@@ -34,6 +34,8 @@ _TEST_SITE_CLEANUP_QUERIES = (
     "MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c",
     "MATCH (t:TextContent {site: 'pragma-test.local'}) DETACH DELETE t",
     "MATCH (f:ComponentFamily {site: 'pragma-test.local'}) DETACH DELETE f",
+    "MATCH (r:Request {site: 'pragma-test.local'}) DETACH DELETE r",
+    "MATCH (rf:RequestFamily {site: 'pragma-test.local'}) DETACH DELETE rf",
     "MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s",
 )
 
@@ -433,6 +435,54 @@ def test_record_component_families_persists_narrated_purpose(store):
     assert store.get_component_families(site)[0].purpose == "Confirms or submits an action."
 
 
+def test_record_inferred_requests_roundtrips_and_replaces_on_rerun(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    requests = [
+        InferredRequest(
+            method="POST", endpoint="x.co/rest/v1/orders", query_params=("select",),
+            body_shape='{"order_id": "string"}', response_shape='{"id": "string"}',
+            triggered_by=(("home", "btn1"), ("home", "btn2")),
+        )
+    ]
+    store.record_inferred_requests(site, requests)
+    assert store.get_inferred_requests(site) == requests
+
+    # A second, empty write must clear the first.
+    store.record_inferred_requests(site, [])
+    assert store.get_inferred_requests(site) == []
+
+
+def test_inferred_requests_group_by_method_into_one_request_family(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+
+    requests = [
+        InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/orders", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        ),
+        InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/flavors", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        ),
+    ]
+    store.record_inferred_requests(site, requests)
+
+    with store._session() as session:
+        families = list(session.run(
+            "MATCH (rf:RequestFamily {site: $site}) RETURN rf.method AS method", site=site
+        ))
+    assert len(families) == 1
+    assert families[0]["method"] == "GET"
+
+
 def test_clear_site_removes_component_families_too(store):
     from src.core.interfaces import ComponentFamily
 
@@ -445,3 +495,20 @@ def test_clear_site_removes_component_families_too(store):
     store.clear_site(site)
 
     assert store.get_component_families(site) == []
+
+
+def test_clear_site_removes_inferred_requests_too(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_inferred_requests(
+        site,
+        [InferredRequest(
+            method="GET", endpoint="x.co/rest/v1/orders", query_params=(),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
+        )],
+    )
+    store.clear_site(site)
+
+    assert store.get_inferred_requests(site) == []

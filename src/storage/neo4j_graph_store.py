@@ -20,6 +20,7 @@ from ._neo4j_cypher_helpers import (
 )
 from .neo4j_component_family_store import _Neo4jComponentFamilyMixin
 from .neo4j_component_store import _Neo4jComponentMixin
+from .neo4j_request_family_store import _Neo4jRequestFamilyMixin
 from .neo4j_text_content_store import _Neo4jTextContentMixin
 
 # `_page_ensure_clause`/`_COMPONENT_BLANK_STUB` are re-exported (imported
@@ -56,12 +57,14 @@ class Neo4jConfig:
 
 
 @GRAPH_STORE_REGISTRY.register("neo4j")
-class Neo4jGraphStore(_Neo4jComponentMixin, _Neo4jComponentFamilyMixin, _Neo4jTextContentMixin, GraphStore):
+class Neo4jGraphStore(
+    _Neo4jComponentMixin, _Neo4jComponentFamilyMixin, _Neo4jRequestFamilyMixin, _Neo4jTextContentMixin, GraphStore
+):
     """GraphStore backed by a real Neo4j database, scoped per site via a `site` property.
-    Component/ComponentFamily/TextContent CRUD live in the mixins above
-    (own files, see each one's module docstring) - this class itself owns
-    connection/schema setup plus Page/Site/navigation-edge CRUD, the part
-    that doesn't cleanly belong to any single mixin.
+    Component/ComponentFamily/RequestFamily/TextContent CRUD live in the
+    mixins above (own files, see each one's module docstring) - this
+    class itself owns connection/schema setup plus Page/Site/navigation-
+    edge CRUD, the part that doesn't cleanly belong to any single mixin.
     Details: docs/dev/storage/neo4j_graph_store.md#neo4jgraphstore
     """
 
@@ -111,6 +114,8 @@ class Neo4jGraphStore(_Neo4jComponentMixin, _Neo4jComponentFamilyMixin, _Neo4jTe
             )
             session.run("CREATE INDEX text_content_site_idx IF NOT EXISTS FOR (t:TextContent) ON (t.site)")
             session.run("CREATE INDEX component_family_site_idx IF NOT EXISTS FOR (f:ComponentFamily) ON (f.site)")
+            session.run("CREATE INDEX request_family_site_idx IF NOT EXISTS FOR (rf:RequestFamily) ON (rf.site)")
+            session.run("CREATE INDEX request_site_idx IF NOT EXISTS FOR (r:Request) ON (r.site)")
 
     def close(self) -> None:
         if self._driver is not None:
@@ -325,4 +330,6 @@ class Neo4jGraphStore(_Neo4jComponentMixin, _Neo4jComponentFamilyMixin, _Neo4jTe
             session.run("MATCH (c:Component {site: $site}) DETACH DELETE c", site=site)
             session.run("MATCH (t:TextContent {site: $site}) DETACH DELETE t", site=site)
             session.run("MATCH (f:ComponentFamily {site: $site}) DETACH DELETE f", site=site)
+            session.run("MATCH (r:Request {site: $site}) DETACH DELETE r", site=site)
+            session.run("MATCH (rf:RequestFamily {site: $site}) DETACH DELETE rf", site=site)
             session.run("MATCH (s:Site {name: $site}) DETACH DELETE s", site=site)

@@ -1,5 +1,5 @@
 """Tests for the GraphStore abstraction - in-memory (always run) and Neo4j (opt-in)."""
-from src.core.interfaces import ComponentFacts, ComponentFamily
+from src.core.interfaces import ComponentFacts, ComponentFamily, InferredRequest
 from src.storage.memory_graph_store import InMemoryGraphStore
 
 
@@ -264,6 +264,24 @@ def test_memory_store_component_families_round_trip():
     # crawl must not linger once the underlying data no longer supports it.
     store.record_component_families("a.com", [])
     assert store.get_component_families("a.com") == []
+
+
+def test_memory_store_inferred_requests_round_trip():
+    store = InMemoryGraphStore()
+    assert store.get_inferred_requests("a.com") == []
+
+    requests = [
+        InferredRequest(
+            method="POST", endpoint="x.co/rest/v1/orders", query_params=("select",),
+            body_shape='{"order_id": "string"}', response_shape='{"id": "string"}',
+            triggered_by=(("a.com/x", "btn1"),),
+        )
+    ]
+    store.record_inferred_requests("a.com", requests)
+    assert store.get_inferred_requests("a.com") == requests
+
+    store.record_inferred_requests("a.com", [])
+    assert store.get_inferred_requests("a.com") == []
 
 
 def test_memory_store_component_families_scoped_per_site():

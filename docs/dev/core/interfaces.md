@@ -16,6 +16,14 @@ the-browser-lifecycle model, or the new crawl()-then-synthesize() split
 `GraphStore` remain - the contracts that are still genuinely shared
 across implementations.
 
+**Update (2026-08-12)**: `PageState`/`ComponentFacts`/`ComponentFamily`/
+`InferredRequest` - the plain data contracts, as opposed to `Agent`/
+`GraphStore`'s actual interfaces - moved to `data_contracts.py` once this
+file crossed the 500-line file-size-audit threshold. Re-exported from
+here unchanged (`from .data_contracts import PageState, ...`), so every
+existing import site elsewhere in the codebase needed no changes. See
+`data_contracts.md#module` for the full reasoning.
+
 ## PageState.description
 
 Short (~300 char) description of what this page is about - meta
@@ -340,6 +348,17 @@ singleton last run might gain a sibling this run, or vice versa).
 `get_component_families` is the read side, used by tests and available
 for a future PRD-narration pass to consume (not wired in yet -
 deliberately deferred, see the module's own commit history).
+
+## record_inferred_requests / get_inferred_requests
+
+Same "post-hoc, whole-site pass, full rebuild every call" contract as
+`record_component_families`/`get_component_families`, one layer over:
+`src/generators/request_family.py` groups network requests already
+captured on Component nodes into distinct `InferredRequest` endpoints
+(see that module's own docstring for the algorithm), and `Engine.
+_apply_request_graph` (`src/core/engine.py`) is what calls both this
+build step and these two `GraphStore` methods, once per crawl, right
+after `_apply_component_families`.
 
 ## static-text-content
 

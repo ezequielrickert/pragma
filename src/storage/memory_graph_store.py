@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore
+from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore, InferredRequest
 from ..core.registry import GRAPH_STORE_REGISTRY
 
 # ComponentFacts field names, in the fixed order every component record
@@ -27,6 +27,7 @@ class _SiteData:
     # {page_url: [{path, tag, text, visible, x, y, width, height}]}
     text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     component_families: List[ComponentFamily] = field(default_factory=list)
+    inferred_requests: List[InferredRequest] = field(default_factory=list)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -308,6 +309,17 @@ class InMemoryGraphStore(GraphStore):
         or was last called with an empty list.
         """
         return list(self._site(site).component_families)
+
+    def record_inferred_requests(self, site: str, requests: List[InferredRequest]) -> None:
+        """Overwrite `site`'s whole inferred-request list - same plain-
+        assignment, full-replace discipline as `record_component_families`.
+        """
+        self._site(site).inferred_requests = list(requests)
+
+    def get_inferred_requests(self, site: str) -> List[InferredRequest]:
+        """Every `InferredRequest` last written for `site`. `[]` if
+        `record_inferred_requests` was never called."""
+        return list(self._site(site).inferred_requests)
 
     def record_text_content(
         self,

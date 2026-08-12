@@ -25,6 +25,7 @@ from ..generators.component_family_narrator import narrate_family_purposes
 from ..generators.component_tree import generate_component_tree_document
 from ..generators.graph_export import generate_graph_export_document
 from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
+from ..generators.request_family import build_inferred_requests
 from ..utils.io import generate_docs_index, record_run_manifest, write_output
 from .config import PragmaConfig
 from .interfaces import Agent, GraphStore
@@ -101,6 +102,40 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
 
     tags = tags_with_multiple_instances(components)
     graph_store.apply_tag_labels(site, {tag: label_for_tag(tag) for tag in tags})
+
+
+def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
+    """Post-hoc, whole-site pass: infer distinct API endpoints (and which
+    Components trigger each one) from network requests already captured
+    on Component nodes, then write them back. Independent of - and reads
+    the graph a second time from - `_apply_component_families`, rather
+    than sharing its already-flattened `components` list: this keeps the
+    two passes fully separable (one about component *look-alikes*, this
+    one about *endpoint* identity), at the cost of one extra
+    `get_component_ledger` read per crawl - a single local read, not a
+    hot path, run once per whole crawl.
+
+    Args:
+        graph_store: same `GraphStore` the crawl wrote to.
+        site: which site's just-crawled data to process.
+
+    Returns:
+        None. Reads every discovered component's `network_requests` via
+        `get_component_ledger`, flattens the same way
+        `_apply_component_families` does, clusters them via
+        `request_family.build_inferred_requests` (see that function's own
+        docstring), and writes the result via `record_inferred_requests`
+        - a full rebuild of `site`'s inferred-request structure every
+        call, same contract as `record_component_families`.
+    Details: docs/dev/core/engine.md#_apply_request_graph
+    """
+    ledger = graph_store.get_component_ledger(site)
+    components = [
+        {"page_url": page_url, "path": path, **record}
+        for page_url, page_components in ledger.items()
+        for path, record in page_components.items()
+    ]
+    graph_store.record_inferred_requests(site, build_inferred_requests(components))
 
 
 def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) -> int:
@@ -293,9 +328,10 @@ class Engine:
             # Prune only after close() - see prune_old_runs's own doc.
             prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
 
-        # Whole-site pass, after every component the crawl found is
+        # Whole-site passes, after every component the crawl found is
         # already in the graph - must run before synthesis reads it below.
         _apply_component_families(self.graph_store, site, self.agent)
+        _apply_request_graph(self.graph_store, site)
 
         run_timestamp = _timestamp()
         synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store, batch_size=self.prd_synth_batch_size)

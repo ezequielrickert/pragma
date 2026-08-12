@@ -4,111 +4,20 @@ Details: docs/dev/core/interfaces.md#module
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from .data_contracts import (  # noqa: F401 - re-exported, see module docstring below
+    ComponentFacts,
+    ComponentFamily,
+    InferredRequest,
+    PageState,
+)
 
-@dataclass
-class PageState:
-    """Normalized snapshot of a crawled page (the Crawler -> orchestrator contract)."""
-
-    url: str
-    title: str = ""
-    metadata: Dict[str, str] = field(default_factory=dict)
-    components: List[Dict[str, Any]] = field(default_factory=list)
-    links: List[Dict[str, str]] = field(default_factory=list)
-    # Short (~300 char) page summary; "" if the backend doesn't extract it.
-    # Details: docs/dev/core/interfaces.md#pagestatedescription
-    description: str = ""
-    # Meaningful (xhr/fetch) requests triggered by the interaction, if any.
-    # Details: docs/dev/core/interfaces.md#pagestatenetwork_requests
-    network_requests: List[Dict[str, Any]] = field(default_factory=list)
-    # Non-interactive prose, captured once per page visit alongside components.
-    # Details: docs/dev/core/interfaces.md#pagestatetext_content
-    text_content: List[Dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class ComponentFacts:
-    """DOM-attribute and computed-style facts about a discovered element,
-    beyond the core identity/geometry `record_component` already took as
-    named params. Grouped into one object rather than growing that method's
-    own argument list further - see docs/dev/core/interfaces.md#componentfacts
-    for which facts are here and, notably, which one (`value`) isn't and why.
-    """
-
-    css_class: str = ""
-    element_id: str = ""
-    href: str = ""
-    placeholder: str = ""
-    label: str = ""
-    name: str = ""
-    disabled: bool = False
-    required: bool = False
-    form: str = ""
-    color: str = ""
-    background_color: str = ""
-    font_size: str = ""
-    font_weight: str = ""
-    display: str = ""
-    position: str = ""
-
-
-@dataclass(frozen=True)
-class ComponentFamily:
-    """One inferred reusable-component cluster (a "Button" pattern, a
-    "combobox" pattern, ...) - a post-hoc, whole-site grouping of already-
-    discovered Components by structural/visual similarity, computed by
-    `src/generators/component_family.py::build_component_families` (that
-    module's own docstring has the full algorithm - bucketed by `(tag,
-    component_type)`, then clustered within each bucket by CSS-class
-    similarity). Lives here (not in `generators/`) so `GraphStore` - a
-    `core` module - can reference the type without `core` depending on
-    `generators`, the reverse of this project's normal layering.
-
-    Frozen + tuple fields (not list) so a `ComponentFamily` is hashable
-    and safely comparable by value - callers (tests, in particular) can
-    put one in a `set` or compare two family lists with plain `==`.
-
-    Fields:
-        tag: the raw HTML tag every member shares, e.g. `"button"`,
-            `"input"`, `"a"`. See `component_family.label_for_tag` for
-            how this becomes a Neo4j node label (`"button"` -> `Button`,
-            `"a"` -> `Link`, etc.) - a related but separate mechanism
-            from family grouping itself.
-        component_type: the human-readable role label every member
-            shares, e.g. `"button"`, `"submit button"`, `"checkbox"`,
-            `"combobox (searchable dropdown)"` - the same value
-            `component_classifier.classify_component_type` already
-            computed for each component at crawl time. Two components
-            with the same `tag` but different `component_type` are never
-            in the same family, regardless of how similar their classes
-            are.
-        common_classes: the CSS classes *every* member has in common -
-            sorted for a deterministic, human-readable summary of what
-            the family visually shares (e.g. `("btn", "rounded")` for a
-            primary/secondary button pair that differs only by its
-            color-modifier class, which is correctly excluded here since
-            not every member has it).
-        member_paths: one `(page_url, path)` pair per member component -
-            together, the two fields are exactly the identity key
-            (`site` is implied by whichever call this came from)
-            `GraphStore.record_component`/`get_component_states` use for
-            a single `Component` node. Sorted for a deterministic order.
-        purpose: one-sentence, human-readable description of what this
-            pattern is typically used for (e.g. "confirms or submits an
-            action"), or `""` if it was never narrated. `build_component_
-            families` itself never sets this (clustering is pure/no-LLM,
-            per that module's own docstring) - it's filled in afterward
-            by `component_family_narrator.narrate_family_purposes`, an
-            explicitly separate, impure step that needs an `Agent`.
-    """
-
-    tag: str
-    component_type: str
-    common_classes: Tuple[str, ...]
-    member_paths: Tuple[Tuple[str, str], ...]
-    purpose: str = ""
+# PageState/ComponentFacts/ComponentFamily/InferredRequest are re-exported
+# (imported above, not redefined) for backward compatibility with every
+# existing `from ..core.interfaces import ComponentFacts` (etc.) import
+# site - the plain-data-contract split moved their real definitions to
+# `data_contracts.py`. See that file's own module docstring for why.
 
 
 class Agent(ABC):
@@ -440,6 +349,45 @@ class GraphStore(ABC):
             deterministic but not otherwise meaningful order - see each
             one's own `get_component_families` docstring).
         Details: docs/dev/core/interfaces.md#get_component_families
+        """
+        raise NotImplementedError
+
+    # Inferred API endpoints - same "post-hoc, whole-site pass" shape as
+    # component families above, computed by src/generators/request_family.py
+    # from network requests already captured on Component nodes.
+    # Details: docs/dev/core/interfaces.md#inferred-requests
+
+    @abstractmethod
+    def record_inferred_requests(self, site: str, requests: List[InferredRequest]) -> None:
+        """Replace `site`'s entire inferred-request structure with
+        `requests` - a from-scratch rebuild, same "cluster membership
+        isn't guaranteed stable across runs" reasoning as
+        `record_component_families`.
+
+        Args:
+            site: which site's inferred requests to replace.
+            requests: the complete new set, typically the direct output
+                of `request_family.build_inferred_requests`. `[]` clears
+                every inferred request for `site`.
+
+        Returns:
+            None - a write-only side effect.
+        Details: docs/dev/core/interfaces.md#record_inferred_requests
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_inferred_requests(self, site: str) -> List[InferredRequest]:
+        """Every inferred API endpoint currently recorded for `site`.
+
+        Args:
+            site: which site's inferred requests to read.
+
+        Returns:
+            A list of `InferredRequest`, `[]` if `record_inferred_requests`
+            was never called for this site, or was last called with an
+            empty list.
+        Details: docs/dev/core/interfaces.md#get_inferred_requests
         """
         raise NotImplementedError
 
