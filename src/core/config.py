@@ -41,6 +41,10 @@ class PragmaConfig:
     # Aborts image/media/font network requests outright; a real behavior change.
     # Details: docs/dev/core/config.md#block_images
     block_images: bool = True
+    # Keeps each page rendered for its whole pass by aborting the navigations
+    # its own components trigger; the destination is queued, not chased.
+    # Details: docs/dev/core/config.md#suppress_navigation
+    suppress_navigation: bool = True
     # Per-page interaction cap, a backstop not a normal-case limiter.
     # Details: docs/dev/core/config.md#element_budget
     element_budget: int = 200

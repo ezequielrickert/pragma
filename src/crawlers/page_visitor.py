@@ -63,6 +63,14 @@ class PageVisitor:
         # Details: docs/dev/crawlers/page_visitor.md#_fill_value_cache
         self._fill_value_cache: Dict[tuple, str] = {}
 
+    def _learn_navigation_trigger(self, page_key: str, component: Dict[str, Any]) -> None:
+        """Remember `component`'s content identity as a proven one-way door
+        out of `page_key`, whether that was learned by following the
+        navigation, by inferring it from a failure, or by aborting it.
+        Details: docs/dev/crawlers/page_visitor.md#_learn_navigation_trigger
+        """
+        self._navigation_trigger_identities.setdefault(page_key, set()).add(component_identity(component))
+
     async def _recover_stale_frontier(
         self,
         url: str,
@@ -130,7 +138,7 @@ class PageVisitor:
             return False
         self._enqueue(silently_navigated_to)
         result.interrupted_by_navigation = True
-        self._navigation_trigger_identities.setdefault(page_key, set()).add(component_identity(component))
+        self._learn_navigation_trigger(page_key, component)
         if self.sink:
             await self.sink.record_navigation_edge(page_key, route_shape(silently_navigated_to), path, failed.action)
         return True
@@ -195,11 +203,41 @@ class PageVisitor:
         result.interrupted_by_navigation = True
         # Remember this component's content identity as a proven one-way door.
         # Details: docs/dev/crawlers/page_visitor.md#_handle_physical_navigation-identity
-        self._navigation_trigger_identities.setdefault(page_key, set()).add(component_identity(component))
+        self._learn_navigation_trigger(page_key, component)
         if self.sink:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/crawlers/page_visitor.md#_handle_physical_navigation-self-loop
             await self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
+
+    async def _handle_suppressed_navigation(
+        self,
+        page_key: str,
+        component: Dict[str, Any],
+        interaction: ComponentInteraction,
+        suppressed: List[Dict[str, str]],
+        result: PageVisitResult,
+    ) -> None:
+        """Record where an aborted navigation was headed, without following it.
+        Details: docs/dev/crawlers/page_visitor.md#_handle_suppressed_navigation
+        """
+        # Same one-way-door fact `_handle_physical_navigation` learns, learned
+        # without ever leaving the page.
+        # Details: docs/dev/crawlers/page_visitor.md#_handle_suppressed_navigation-identity
+        self._learn_navigation_trigger(page_key, component)
+        for attempt in suppressed:
+            destination = attempt.get("url", "")
+            if not destination:
+                continue
+            result.suppressed_navigations.append(destination)
+            # A GET destination is a page the frontier can fetch on its own;
+            # a POST target isn't the same resource under GET.
+            # Details: docs/dev/crawlers/page_visitor.md#_handle_suppressed_navigation-method
+            if attempt.get("method", "GET") == "GET":
+                self._enqueue(destination)
+            if self.sink:
+                await self.sink.record_navigation_edge(
+                    page_key, route_shape(destination), interaction.path, interaction.action
+                )
 
     async def _handle_same_page_reveal(
         self,
@@ -392,12 +430,22 @@ class PageVisitor:
             self._interacted_identities.setdefault(page_key, set()).add(component_identity(component))
             new_literal = clean_url(new_state.url)
             new_key = route_shape(new_state.url)
-            interaction.resulting_url = new_literal
+            # The page didn't move, but "where this leads" is still the honest
+            # answer for a suppressed navigation's ledger entry.
+            # Details: docs/dev/crawlers/page_visitor.md#visit-suppressed-resulting-url
+            suppressed = new_state.suppressed_navigations
+            interaction.resulting_url = clean_url(suppressed[0]["url"]) if suppressed else new_literal
             result.interactions.append(interaction)
             if self.sink:
-                await self.sink.record_interaction(page_key, path, interaction.action, interaction.value, new_literal)
+                await self.sink.record_interaction(
+                    page_key, path, interaction.action, interaction.value, interaction.resulting_url
+                )
                 if new_state.network_requests:
                     await self.sink.record_component_network(page_key, path, new_state.network_requests)
+            if suppressed:
+                # Queue the destination, keep the pass on this still-rendered page.
+                # Details: docs/dev/crawlers/page_visitor.md#visit-suppressed-navigation-branch
+                await self._handle_suppressed_navigation(page_key, component, interaction, suppressed, result)
 
             if new_literal != page_literal:
                 # Real physical navigation - must stop the pass regardless of page_key.

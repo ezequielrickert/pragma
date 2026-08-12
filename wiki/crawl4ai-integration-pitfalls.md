@@ -259,6 +259,71 @@ at a time when nothing is converging - the same "decline redundant/unproductive 
 [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) already applies elsewhere, here scoped
 to "this session looks dead" rather than "this exact thing was already tried."
 
+**Update — every fix in this entry is correct, and the premise underneath all of them turned out to
+be optional: the cheapest way to survive a navigating click is to not let it navigate.** Everything
+above - stop the pass, requeue the resolved URL, re-sync on the failure path, learn proven-navigator
+content identities, trust the earlier signal over the anti-bot veto, trip a circuit breaker - is
+downstream of one assumed constraint: *a component's click navigates the browser, and the code must
+cope*. Playwright's `page.route()` can decline that navigation outright, which removes the cause
+rather than compensating for the effect.
+
+**Symptom that motivated revisiting it**: not an error - a cost. On austral.edu.ar, a single
+`_visit_page()` of the landing page (321 discovered components, budget 15) got through **6**
+interactions before a nav-menu click navigated and ended the pass; finishing that page meant
+re-fetching it, and the destination that click landed on tripped crawl4ai's own anti-bot heuristic
+("Blocked by anti-bot protection: Structural: no `<body>` tag"), cascading into the recovery
+machinery above. Every page on a site with a persistent nav menu pays this per navigating component.
+This is the same shape as the "re-scraped / burns way more fetches than expected" symptom the
+`resolved_url` update above fixed one instance of - that fix made each requeue land in the right
+place; it couldn't remove the requeue.
+
+**Why the route layer is the right place, and not `page.on("request")` or a JS `beforeunload`
+hook**: an event listener observes a navigation it can't stop, and a JS-level guard has to be
+re-injected per document and can be defeated by the page's own handlers. `route.abort()` is the only
+point that sees the *intent* (a top-level document request, not yet committed) and can decline it,
+before any DOM is torn down. Two details that matter and are easy to get wrong:
+
+```python
+# 1. Abort with "aborted" (net::ERR_ABORTED), not the default "failed" (net::ERR_FAILED).
+#    Chromium treats ERR_ABORTED as a cancelled navigation and leaves the current
+#    document exactly as it was; ERR_FAILED can paint an error page over the very DOM
+#    the whole exercise exists to preserve.
+# 2. Arm it ONLY while an interaction is in flight - crawl4ai's `js_only=True` is exactly
+#    the fact "this arun() issues no goto of its own", so any top-level document request
+#    during it came from the page. A page armed during a real navigation aborts the
+#    crawler's own goto() and the crawl never loads anything.
+async def _route(page, route):
+    if armed(page) and route.request.resource_type == "document" \
+            and route.request.is_navigation_request() \
+            and route.request.frame is page.main_frame:   # not an iframe navigating itself
+        record(route.request.url, route.request.method)   # queue it as a page of its own
+        await route.abort("aborted")
+        return
+    await route.continue_()
+```
+
+Same run, suppression on: **15** interactions, pass never interrupted, 10 navigation destinations
+recorded and queued as their own pages, one fetch total. The destination is not lost coverage - it's
+visited on its own turn, from the URL frontier, exactly as a discovered link would be. What changes
+is only *when*.
+
+**Two gaps to state honestly rather than discover later**: a destination reachable only by `POST`
+(a form submit) can be recorded as an edge but not re-requested, since a GET of that URL is a
+different resource - that screen genuinely goes unvisited. And `window.open`/`target="_blank"`
+issues no navigation request on the page at all, so it isn't intercepted (it never destroyed the
+page either, so nothing regressed). Keep the stop-and-requeue machinery behind a flag rather than
+deleting it: it's still what handles a navigation that *did* commit (the failure-path silent-
+navigation check above), and it's the escape hatch for a site whose own JS misbehaves when a
+navigation is cancelled.
+
+**General, reusable lesson**: when a subsystem has accumulated several independent recovery
+mechanisms for the *same* triggering event, that's a signal worth acting on - not "add a sixth
+recovery," but "can the trigger itself be declined?" The recoveries here were each individually
+correct and each individually necessary given the premise; none of them could have revealed that the
+premise was a choice. Same "decline redundant work rather than cope with it" calculus
+[graph-based-crawl-tracking.md](graph-based-crawl-tracking.md) applies to the frontier, applied one
+layer lower - to the network.
+
 ## `AsyncCrawlResponse.url` is not the URL you ended up at - `redirected_url` is
 
 **Symptom observed**: even after fixing the navigation-interruption bug above, a click that had

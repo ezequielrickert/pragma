@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Dict, Optional
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
@@ -14,6 +15,7 @@ from crawl4ai.async_configs import CacheMode
 
 from ..core.interfaces import PageState
 from .debug_log import CrawlDebugLog
+from .navigation_suppressor import NavigationSuppressor
 from .network_filter import filter_meaningful_requests
 from .page_extraction import run_extraction
 from .target_load_throttle import TargetLoadThrottle
@@ -128,6 +130,10 @@ class Crawl4AICrawlerConfig:
     prefetch: bool = False
     block_images: bool = False
     interaction_timeout_seconds: Optional[float] = None
+    # Whether a component's own click may take the browser off the page
+    # being worked on, or gets aborted and merely queued instead.
+    # Details: docs/dev/crawlers/crawl4ai_crawler.md#suppress_navigation
+    suppress_navigation: bool = True
     # Cap on the polite delay grown between navigations when the target
     # server itself is slowing down. `None` disables backoff (and the
     # circuit breaker below) entirely.
@@ -162,6 +168,10 @@ class Crawl4AICrawler:
         self.prefetch = config.prefetch
         self.block_images = config.block_images
         self.interaction_timeout_seconds = config.interaction_timeout_seconds
+        self.suppress_navigation = config.suppress_navigation
+        # Armed only for the duration of a js_only interaction - see
+        # _on_page_context_created. Details: docs/dev/crawlers/navigation_suppressor.md#module
+        self._suppressor = NavigationSuppressor()
         # Adaptive pacing/circuit-breaker against a straining target server -
         # a separate small class (not inline here) since it has its own,
         # unrelated reason to change from everything else in this file.
@@ -243,14 +253,22 @@ class Crawl4AICrawler:
         return hook
 
     async def _on_page_context_created(self, page, context, config, **kwargs):
-        """Installs block_images's route handler; fires on every `arun()` call.
+        """Installs the route handler and arms/disarms navigation suppression
+        for this call; fires on every `arun()`.
         Details: docs/dev/crawlers/crawl4ai_crawler.md#_on_page_context_created
         """
-        if self.block_images and not getattr(
-            page, "_pragma_image_block_installed", False
+        if (self.block_images or self.suppress_navigation) and not getattr(
+            page, "_pragma_route_installed", False
         ):
-            await page.route("**/*", self._maybe_abort_media_request)
-            page._pragma_image_block_installed = True
+            await page.route("**/*", partial(self._route_request, page))
+            page._pragma_route_installed = True
+        # js_only is exactly "this call issues no goto of its own", so any
+        # top-level document request during it came from the page itself.
+        # Details: docs/dev/crawlers/crawl4ai_crawler.md#_on_page_context_created-suppression
+        if self.suppress_navigation and getattr(config, "js_only", False):
+            NavigationSuppressor.arm(page, config.session_id or "default")
+        else:
+            NavigationSuppressor.disarm(page)
         if self.interaction_timeout_seconds is not None:
             # Changes Playwright's own no-explicit-timeout fallback.
             # Details: docs/dev/crawlers/crawl4ai_crawler.md#_on_page_context_created-timeout
@@ -263,11 +281,23 @@ class Crawl4AICrawler:
             )
         return page
 
-    async def _maybe_abort_media_request(self, route) -> None:
-        if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+    async def _route_request(self, page, route) -> None:
+        """The single route handler both features go through - Playwright only
+        consults the most recently registered matching handler, so these can't
+        be two independent `page.route()` registrations.
+        Details: docs/dev/crawlers/crawl4ai_crawler.md#_route_request
+        """
+        if self._suppressor.intercept(page, route.request):
+            # "aborted" (net::ERR_ABORTED), not the default "failed" - Chromium
+            # treats it as a cancelled navigation and stays on the current
+            # document instead of rendering an error page over it.
+            # Details: docs/dev/crawlers/crawl4ai_crawler.md#_route_request-abort-code
+            await route.abort("aborted")
+            return
+        if self.block_images and route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
             await route.abort()
-        else:
-            await route.continue_()
+            return
+        await route.continue_()
 
     async def _before_retrieve_html(self, page, context, config, **kwargs):
         """Discovery point for a plain navigation pass (no `js_code` this call).
@@ -429,6 +459,10 @@ class Crawl4AICrawler:
             prefetch=self.prefetch,
         )
         result = await self._crawler.arun(url=url, config=config)
+        # Drained before any raise below, so a failed interaction can never
+        # leave its aborts to be misattributed to the next one.
+        # Details: docs/dev/crawlers/crawl4ai_crawler.md#_interact-suppressed
+        suppressed_navigations = self._suppressor.take(session_id)
 
         # result.success can be False for reasons unrelated to our own action.
         # Details: docs/dev/crawlers/crawl4ai_crawler.md#_interact-success-signal
@@ -454,6 +488,7 @@ class Crawl4AICrawler:
             description=data.get("description", ""),
             network_requests=filter_meaningful_requests(raw_events),
             text_content=data.get("text_content", []),
+            suppressed_navigations=suppressed_navigations,
         )
         self._save_markdown(
             url, result

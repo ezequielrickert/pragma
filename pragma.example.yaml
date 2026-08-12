@@ -89,6 +89,14 @@ export_json: false    # also write docs/{slug}_graph_{timestamp}.json - the full
                        # already-downloaded images from output this project doesn't read). A real
                        # behavior change if a site's interactive elements depend on images actually
                        # loading - opt in per-site once confirmed safe.
+# suppress_navigation: true
+                       # on by default: a click that would take the browser off the page being
+                       # worked on is aborted at the network layer instead - the destination is
+                       # queued as its own page, and the current page stays rendered so its whole
+                       # component frontier drains from one single fetch. Set false to go back to
+                       # letting the click navigate, which ends that page's pass early and re-fetches
+                       # it later to resume (see docs/dev/crawlers/navigation_suppressor.md for the
+                       # coverage tradeoff on POST-only destinations).
 
 # Optional: non-secret, per-provider settings. Only the block matching `agent`
 # above (or --agent on the CLI) is used. Anything you omit here falls back to

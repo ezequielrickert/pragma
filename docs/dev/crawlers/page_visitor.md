@@ -100,6 +100,17 @@ a field shape (e.g. every page's "email" input), and caching across pages
 would incorrectly reuse one page's generated value for an unrelated
 field on another.
 
+## _learn_navigation_trigger
+
+The one place `_navigation_trigger_identities` is written. Three
+different situations reach the same conclusion - a click followed a
+navigation (`_handle_physical_navigation`), a failure turned out to have
+navigated silently (`_handle_possible_silent_navigation`), or a
+navigation was aborted before it could happen
+(`_handle_suppressed_navigation`) - and all three learn the identical
+fact, so they share one named method rather than three copies of the same
+`setdefault(...).add(component_identity(...))` line.
+
 ## _recover_stale_frontier
 
 Resync current DOM state after an "element not found" failure and
@@ -229,6 +240,39 @@ same-route_shape "restart," per `_handle_physical_navigation` above) this
 is a legitimate self-loop, not a bug: it honestly records "this action
 leads back to the same logical page" instead of fabricating a distinct
 destination node.
+
+## _handle_suppressed_navigation
+
+`visit`'s response to an interaction that *tried* to leave the page and
+was stopped at the network layer (see
+`docs/dev/crawlers/navigation_suppressor.md#module`). Does everything
+`_handle_physical_navigation` does - queue the destination, record the
+edge, learn the component's one-way-door identity - and pointedly does
+**not** do the one thing that method must: set
+`interrupted_by_navigation`. The session never moved, the DOM is
+untouched, every selector in the remaining frontier is still valid, so
+there is nothing to stop for and nothing to resume later. That difference
+is the whole point: the page is fetched once and drained once, instead of
+once per navigating component it happens to contain.
+
+## _handle_suppressed_navigation-identity
+
+The same proven-one-way-door fact `_handle_physical_navigation-identity`
+records, learned without ever paying for the navigation. Worth keeping
+even though a suppressed click is cheap: on a site whose main nav appears
+on every page, this is what stops the same twenty links from being
+re-clicked on a follow-up pass of the same page.
+
+## _handle_suppressed_navigation-method
+
+Only a `GET` destination is enqueued. A `POST` target reached by a form
+submit is recorded as an edge but not queued, because fetching it with a
+GET requests a different resource, not the screen the submit would have
+produced - queueing it would put a 405/redirect page into the graph under
+a name that claims to be the form's result. The screen itself is
+genuinely not visited; see
+`docs/dev/crawlers/navigation_suppressor.md#module` for why that gap was
+accepted rather than special-cased.
 
 ## _handle_same_page_reveal
 
@@ -460,6 +504,28 @@ fresh visit later - see
 `docs/dev/crawlers/visit_result.md#pagevisitresultinterrupted_by_navigation`)
 is the right honest outcome: this pass isn't converging, and a fresh
 session may not be stuck the same way.
+
+## visit-suppressed-resulting-url
+
+A suppressed navigation leaves the page's own URL unchanged, so the
+literal truth (`new_literal`) would record every nav link in the
+component ledger as "clicking this does nothing" - actively misleading,
+and a silent regression for every consumer that reads `resulting_url` to
+mean "where does this component lead" (the PRD synthesizer among them).
+The destination is the honest answer to that question, so it's what the
+ledger gets; the fact that the browser didn't physically go there is
+carried by `interrupted_by_navigation` staying `False` and by the
+navigation edge, not by flattening the ledger entry.
+
+## visit-suppressed-navigation-branch
+
+Runs *after* `record_interaction` (so the ledger entry exists before any
+edge references it) and *before* the physical-navigation /
+state-transition / reveal branches below, which then proceed normally:
+with the navigation aborted the URL is unchanged, so a suppressed click
+ordinarily falls through to the same-page-reveal branch - correct, since
+an aborted navigation can still have left a DOM change behind it (a menu
+that opened on the way).
 
 ## visit-physical-navigation-branch
 

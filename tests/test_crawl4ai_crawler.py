@@ -325,3 +325,65 @@ def test_page_timeout_seconds_generous_enough_still_succeeds(tracking_fixture_se
 
     state = asyncio.run(run())
     assert any(c["text"] == "Click me" for c in state.components)
+
+
+def _click_leaving_link(base_url: str, suppress_navigation: bool):
+    """Discover navigating_link.html, click the link that leaves it, then
+    click the button that doesn't - the second click is what proves the
+    session is still on (and still interacting with) the original page."""
+    url = f"{base_url}/navigating_link.html"
+
+    async def run():
+        config = Crawl4AICrawlerConfig(wait_seconds=0, suppress_navigation=suppress_navigation)
+        async with Crawl4AICrawler(config) as crawler:
+            await crawler.discover_page(url, session_id=url)
+            after_link = await crawler.click(url, url, "body > a#leave")
+            return after_link, await crawler.resync(url, url)
+
+    return asyncio.run(run())
+
+
+def test_suppress_navigation_keeps_the_page_rendered_and_never_fetches_the_destination(
+    tracking_fixture_server,
+):
+    """The feature: a click that would take the browser to another page is
+    aborted at the network layer, so the destination is never fetched, the
+    live session stays on the page being worked on, and the URL it was
+    headed for comes back as a queueable fact instead."""
+    base_url, requested_paths = tracking_fixture_server
+    after_link, after_resync = _click_leaving_link(base_url, suppress_navigation=True)
+
+    assert [record["url"] for record in after_link.suppressed_navigations] == [f"{base_url}/index.html"]
+    assert after_link.suppressed_navigations[0]["method"] == "GET"
+    assert "/index.html" not in requested_paths
+    # Still the same page, still interactable - the pass never had to stop.
+    assert after_link.url.endswith("/navigating_link.html")
+    assert any(c["text"] == "Stay here" for c in after_resync.components)
+
+
+def test_suppress_navigation_off_lets_the_click_navigate_away(tracking_fixture_server):
+    """Baseline for the test above: with the flag off, the identical click
+    really does fetch the destination and move the session off the page -
+    proves the negative assertions above come from the suppression, not
+    from a fixture that never navigates in the first place."""
+    base_url, requested_paths = tracking_fixture_server
+    after_link, _ = _click_leaving_link(base_url, suppress_navigation=False)
+
+    assert after_link.suppressed_navigations == []
+    assert "/index.html" in requested_paths
+
+
+def test_suppress_navigation_leaves_ordinary_subresource_requests_alone(tracking_fixture_server):
+    """Only top-level document navigations are aborted - a page's own
+    subresources must still load, or discovery would be reading a page the
+    browser never finished building."""
+    base_url, requested_paths = tracking_fixture_server
+
+    async def run():
+        config = Crawl4AICrawlerConfig(wait_seconds=0, suppress_navigation=True, block_images=False)
+        async with Crawl4AICrawler(config) as crawler:
+            return await crawler.discover_page(f"{base_url}/image_page.html")
+
+    state = asyncio.run(run())
+    assert "/pixel.png" in requested_paths
+    assert any(c["text"] == "Click me" for c in state.components)

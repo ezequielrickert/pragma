@@ -36,3 +36,7 @@ class PageVisitResult:
     # Every in-page SPA state this pass switched onto, in order.
     # Details: docs/dev/crawlers/visit_result.md#pagevisitresultstate_transitions
     state_transitions: List[str] = field(default_factory=list)
+    # Destinations a component tried to navigate to and was stopped from,
+    # queued as their own pages instead of being chased inline.
+    # Details: docs/dev/crawlers/visit_result.md#pagevisitresultsuppressed_navigations
+    suppressed_navigations: List[str] = field(default_factory=list)

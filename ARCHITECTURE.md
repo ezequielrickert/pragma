@@ -147,12 +147,22 @@ with two frontiers, composed but never conflated:
   a normal-case limiter — default generous).
 
 A click/fill that reveals new DOM on the *same* URL gets the newly-revealed components appended to
-that pass's frontier (still budget-capped). A click/fill that **navigates to a different URL**
-stops that page's pass immediately — the session's live page has physically moved, so no further
-frontier item from that pass can be safely acted on — and queues the destination URL onto the URL
-frontier instead. The interrupted page gets re-queued for a follow-up pass rather than marked
-done; convergence is guaranteed because every *attempted* component (success or failure) is marked
-interacted, so a follow-up pass always makes real progress on whatever's left.
+that pass's frontier (still budget-capped). A click/fill that **would navigate to a different URL**
+is stopped before it can: `NavigationSuppressor` (`src/crawlers/navigation_suppressor.py`) aborts
+the top-level document request at the Playwright route layer while an interaction is in flight, so
+the browser never leaves the page. The destination is recorded as a navigation edge and queued onto
+the URL frontier as a page of its own, and the pass **keeps going** against the same still-rendered
+DOM. That's what makes one URL cost exactly one fetch: a page with twenty nav links is drained in
+one visit, not twenty-one.
+
+The pre-suppression path is still present behind `suppress_navigation: false` — the navigation
+really happens, so the pass must stop immediately (the session's live page has physically moved, so
+no further frontier item from that pass can be safely acted on), the page is re-queued for a
+follow-up pass rather than marked done, and resuming it costs a second fetch. Convergence there is
+guaranteed because every *attempted* component (success or failure) is marked interacted, so a
+follow-up pass always makes real progress on whatever's left. That machinery is also what still
+handles the cases suppression can't see: a silently-missed navigation on a failure path, and a
+`window.open`/popup.
 
 **Consult before acting, not just after**: `InteractionTracker` (in-memory by default, or
 `GraphStoreInteractionTracker` when a `GraphStoreSink` is wired) is checked before mechanically
@@ -247,7 +257,8 @@ new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent
 - **`src/core/`**: The Kernel — `Engine`, plugin registries, shared interfaces/contracts
   (`PageState`, `Agent`, `GraphStore`), and layered configuration (`PragmaConfig`).
 - **`src/crawlers/`**: The crawl itself — `Crawl4AICrawler` ("The Hands", crawl4ai-backed discovery
-  + interaction), `MechanicalCrawler` (the two-frontier orchestration loop), `GraphStoreSink`/
+  + interaction), `NavigationSuppressor` (keeps one page rendered for its whole pass),
+  `MechanicalCrawler` (the two-frontier orchestration loop), `GraphStoreSink`/
   `GraphStoreInteractionTracker` (live Neo4j wiring), `fill_value_agent.py`/`fill_values.py`
   (AI/placeholder fill values), plus the discovery JS assets in `js/`.
 - **`src/agents/`**: LLM interface implementations ("The Brain") — `generate()` only.

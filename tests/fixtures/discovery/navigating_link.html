@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>Navigating link</title></head>
+<body>
+  <h1>Start page</h1>
+  <p>A page whose first interactive element leaves it, and whose second one
+     does not - the exact shape that used to end a page's interaction pass
+     early and force a second fetch to resume it.</p>
+  <a id="leave" href="/index.html">Go to the other page</a>
+  <button id="stay" onclick="document.getElementById('marker').textContent = 'Still here';">Stay here</button>
+  <p id="marker">Not clicked yet</p>
+</body>
+</html>

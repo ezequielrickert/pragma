@@ -82,6 +82,23 @@ nothing for this project). A real behavior change (a site whose
 interactive elements depend on images actually loading could behave
 differently) - off by default, opt in per-site once confirmed safe.
 
+## suppress_navigation
+
+Keeps each page rendered for its whole interaction pass by aborting the
+top-level navigations its own components trigger - the destination is
+queued as a page of its own instead of being chased inline. On by
+default, because it removes the single largest source of duplicate
+fetches this crawler had: without it, every navigating component ends its
+page's pass early and forces a second full fetch of that page to resume
+(one per navigating component, on a site with a persistent nav menu).
+
+Turn it off for a site whose own JS misbehaves when a navigation is
+cancelled - that restores the previous stop-and-requeue behaviour
+exactly, including the extra fetches. See
+`docs/dev/crawlers/navigation_suppressor.md#module` for the mechanism and
+for the one real coverage gap it introduces (a screen reachable only by
+POST is recorded as an edge but never visited).
+
 ## element_budget
 
 Per-page cap on how many components `MechanicalCrawler` mechanically

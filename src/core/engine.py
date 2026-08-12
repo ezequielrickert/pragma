@@ -188,6 +188,7 @@ class Engine:
         page_timeout_seconds: float = 15.0,
         prefetch: bool = False,
         block_images: bool = True,
+        suppress_navigation: bool = True,
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
         export_json: bool = False,
@@ -209,6 +210,7 @@ class Engine:
         self.page_timeout_seconds = page_timeout_seconds
         self.prefetch = prefetch
         self.block_images = block_images
+        self.suppress_navigation = suppress_navigation
         self.interaction_timeout_seconds = interaction_timeout_seconds
         # Scope boundary for MechanicalCrawler's URL frontier.
         # Details: docs/dev/core/engine.md#__init__-allow_subdomains
@@ -270,6 +272,7 @@ class Engine:
             page_timeout_seconds=config.page_timeout_seconds,
             prefetch=config.prefetch,
             block_images=config.block_images,
+            suppress_navigation=config.suppress_navigation,
             allow_subdomains=config.allow_subdomains,
             debug_logs_keep_last=config.debug_logs_keep_last,
             export_json=config.export_json,
@@ -300,6 +303,7 @@ class Engine:
             page_timeout_seconds=self.page_timeout_seconds,
             prefetch=self.prefetch,
             block_images=self.block_images,
+            suppress_navigation=self.suppress_navigation,
             interaction_timeout_seconds=self.interaction_timeout_seconds,
         )
         pool_size = _resolve_pool_size(self.browser_pool_size, self.page_concurrency)

@@ -1,6 +1,10 @@
 .env
 pragma.yaml
 
+# Proxy lists carry host:port:user:password credentials for a paid proxy
+# account - same reasoning as the storage-state files below.
+webshare_proxies.txt
+
 # Playwright storage-state files (python3 src/cli.py login) contain real session
 # cookies/localStorage - never commit these, wherever the user chose to save them.
 storage_state*.json

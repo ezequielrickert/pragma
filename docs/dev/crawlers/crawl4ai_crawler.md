@@ -423,13 +423,27 @@ The inner `hook(*args, **kwargs)` closure is a plain sync callable, not
 awaiting of its own, just formatting + a synchronous file write via
 `self.debug_log`.
 
+## suppress_navigation
+
+Whether a component's own click may take the browser off the page being
+worked on. On by default. When enabled, a top-level document request
+issued during an interaction is aborted at the network layer and its
+destination returned as `PageState.suppressed_navigations` instead - the
+live page stays rendered, so one page's whole component frontier drains
+from a single fetch. See
+`docs/dev/crawlers/navigation_suppressor.md#module` for the mechanism,
+what it deliberately doesn't cover (POST-only destinations, `window.open`),
+and why the pre-suppression stop-and-requeue path is still kept behind
+this flag.
+
 ## _on_page_context_created
 
 Registered unconditionally (see `__aenter__-single-slot-hooks`) - installs
-`block_images`'s route handler when enabled, and folds in the same
-log-only behavior `_log_only_hook` would otherwise provide for this hook
-when `debug_log` is set (crawl4ai allows only one callback per hook name -
-see `__aenter__-single-slot-hooks`).
+the route handler when either `block_images` or `suppress_navigation` is
+enabled, arms/disarms navigation suppression for this call, and folds in
+the same log-only behavior `_log_only_hook` would otherwise provide for
+this hook when `debug_log` is set (crawl4ai allows only one callback per
+hook name - see `__aenter__-single-slot-hooks`).
 
 Fires on *every* `arun()` call for a session, not just when a new page is
 actually created (confirmed by reading `async_crawler_strategy.py`: this
@@ -440,6 +454,40 @@ the same "don't double-inject" pattern crawl4ai's own
 navigator-overrider/shadow-DOM hooks already use on `context`, to avoid
 stacking a duplicate `page.route()` handler on every single interaction
 against an already-routed, reused page.
+
+## _on_page_context_created-suppression
+
+`config.js_only` is exactly the fact suppression needs: it means this
+`arun()` call issues no `goto()` of its own, so any top-level document
+request during it was initiated by the page - i.e. by the click or fill
+just issued. A non-`js_only` call is the crawl's *own* navigation and is
+explicitly disarmed, so `discover_page()` and any redirect it follows
+proceed untouched. Re-evaluated on every `arun()` (this hook fires per
+call, see above), which is what keeps one reused page correctly armed
+during interactions and disarmed during navigations.
+
+## _route_request
+
+The single route handler both `block_images` and `suppress_navigation` go
+through. Deliberately one handler rather than one `page.route()`
+registration per feature: Playwright consults matching handlers
+most-recently-registered first and stops at the first that resolves the
+route (`abort`/`continue_`/`fulfill`), so two independent registrations
+would mean whichever was added last silently swallowed every request
+before the other ever saw it. Bound to its `page` via `functools.partial`
+at install time, since the handler's decision depends on which page is
+armed.
+
+## _route_request-abort-code
+
+`route.abort("aborted")` (net::ERR_ABORTED), not the default `"failed"`
+(net::ERR_FAILED). Chromium treats ERR_ABORTED as a *cancelled*
+navigation - the kind a user causes by clicking a second link mid-load -
+and leaves the current document exactly as it was. ERR_FAILED can instead
+render a network-error page over the top of it, which would destroy the
+very DOM suppression exists to preserve. The media branch keeps the
+default: a blocked subresource is a genuine failure, and reporting it as
+one is what lets a page's own error handling behave normally.
 
 ## _on_page_context_created-timeout
 
@@ -596,6 +644,17 @@ by reading `async_crawler_strategy.py`: `captured_requests = []` is a
 fresh local list per call, and the request/response/requestfailed
 listeners are explicitly removed in a `finally:` block before returning -
 no cross-call accumulation on a reused session).
+
+## _interact-suppressed
+
+`NavigationSuppressor.take()` runs immediately after `arun()` returns and
+*before* either of the failure raises below. Two reasons it can't be
+deferred until the `PageState` is built: a raise would strand the records
+in the suppressor, where they'd be handed to whichever interaction ran
+next on the same session and attributed to the wrong component; and the
+records are per-call facts, so draining them is what keeps
+`PageState.suppressed_navigations` meaning "what *this* interaction tried
+to navigate to" rather than "what this session has ever tried".
 
 ## _interact-success-signal
 

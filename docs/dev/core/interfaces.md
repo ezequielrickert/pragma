@@ -382,3 +382,16 @@ Called once per page visit (see `docs/dev/crawlers/page_visitor.md#visit`),
 for `Component` - text revealed only by an interaction is a real,
 structurally-symmetric gap to the ghost-node bug, but out of scope for
 this feature by explicit design.
+
+## PageState.suppressed_navigations
+
+Where the interaction that produced this `PageState` tried to navigate
+before being aborted so the page could stay rendered: `[{"url",
+"method"}]`, in the order the requests were made, `method` upper-cased.
+Always `[]` for a plain navigation (`discover_page` runs with suppression
+disarmed - see
+`docs/dev/crawlers/navigation_suppressor.md#disarm`) and always `[]` when
+`suppress_navigation` is off; only populated by
+`Crawl4AICrawler._interact`. Consumed by
+`PageVisitor._handle_suppressed_navigation`, which queues each `GET`
+destination and records a navigation edge for it.

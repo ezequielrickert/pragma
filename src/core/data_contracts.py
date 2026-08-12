@@ -33,6 +33,10 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
+    # Where the interaction tried to navigate before being aborted, so the
+    # page could stay rendered: [{"url", "method"}], newest last.
+    # Details: docs/dev/core/interfaces.md#pagestatesuppressed_navigations
+    suppressed_navigations: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

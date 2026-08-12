@@ -79,3 +79,16 @@ started on; this records every subsequent node reached within the same
 continuous session, in order. Empty for the overwhelming majority of
 pages (ordinary sites, and SPAs whose same-page changes are ordinary
 reveals) - only populated when a real screen-replacement was detected.
+
+## PageVisitResult.suppressed_navigations
+
+Every destination a component on this page tried to navigate to and was
+stopped from, in the order the interactions happened (see
+`docs/dev/crawlers/navigation_suppressor.md#module`). Each one was queued
+onto the URL frontier as a page of its own, so this is not a record of
+lost coverage - it's the record of *how* this page's pass stayed on one
+fetch. A visit with entries here and `interrupted_by_navigation == False`
+is the normal, healthy shape now; the same page under
+`suppress_navigation: false` would instead have produced several visits,
+each ending in `interrupted_by_navigation == True` and each costing its
+own fetch.

@@ -47,9 +47,10 @@ def fixture_server():
     thread.join()
 
 
-def _crawl(start_url: str, **kwargs):
+def _crawl(start_url: str, suppress_navigation: bool = True, **kwargs):
     async def run():
-        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+        crawler_config = Crawl4AICrawlerConfig(wait_seconds=0, suppress_navigation=suppress_navigation)
+        async with Crawl4AICrawler(crawler_config) as crawler:
             mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(**kwargs))
             results = await mech.crawl_site(start_url)
             return mech, results
@@ -95,11 +96,13 @@ def test_same_page_reveal_chain_gets_interacted_within_available_passes(fixture_
     assert any("leafBtn" in p for p in clicked_paths), "second-level reveal must also chain"
 
 
-def test_click_triggered_navigation_is_queued_not_followed_inline(fixture_server):
-    """A click that navigates to a different URL (the JS-nav button) must be
-    recorded with the correct resulting_url, and must stop that pass rather
-    than being followed inline - and the destination page must appear as its
-    own, separately-visited page result."""
+def test_click_triggered_navigation_is_queued_without_leaving_the_page(fixture_server):
+    """A click that would navigate to a different URL (the JS-nav button) is
+    aborted at the network layer: it's still recorded with the correct
+    resulting_url and the destination still appears as its own,
+    separately-visited page result - but the pass it happened in keeps
+    running against the same, still-rendered page instead of stopping and
+    costing a second fetch to resume."""
     mech, results = _crawl(f"{fixture_server}/index.html", max_pages=15)
     interactions = _all_interactions_for(results, "index.html")
     js_nav = next(i for i in interactions if "jsNav" in i.path)
@@ -107,8 +110,19 @@ def test_click_triggered_navigation_is_queued_not_followed_inline(fixture_server
     assert not js_nav.error
     assert js_nav.resulting_url.endswith("page-b.html")
     assert any(r.url.endswith("page-b.html") for r in results)
-    # The pass containing the jsNav click must have stopped there, not kept
-    # going against a page that had already navigated away.
+    index_passes = [r for r in results if r.url.endswith("index.html")]
+    assert not any(r.interrupted_by_navigation for r in index_passes)
+    assert any(r.suppressed_navigations for r in index_passes)
+    # One fetch for the whole page, not one per navigating component.
+    assert len(index_passes) == 1
+
+
+def test_suppression_off_restores_the_stop_and_requeue_behaviour(fixture_server):
+    """The pre-suppression contract, still reachable via the flag: the same
+    click really navigates, which must stop that pass rather than keep
+    acting against a page the session has already left (the cascade
+    wiki/crawl4ai-integration-pitfalls.md's first entry documents)."""
+    mech, results = _crawl(f"{fixture_server}/index.html", max_pages=15, suppress_navigation=False)
     interrupted_passes = [r for r in results if r.url.endswith("index.html") and r.interrupted_by_navigation]
     assert interrupted_passes
 
