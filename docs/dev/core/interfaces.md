@@ -298,6 +298,37 @@ The durable, human-inspectable "what did I do on this page, and to
 what" record, sourced from real persisted state - what
 `GraphPRDSynthesizer` reads to build its component catalog.
 
+## component-families
+
+`apply_tag_labels`/`record_component_families`/`get_component_families`
+are a post-hoc, whole-site pass over already-discovered components (see
+`src/generators/component_family.py`), not part of the live per-page
+crawl write path - `Engine._apply_component_families` calls all three
+once, after a crawl finishes.
+
+## apply_tag_labels
+
+Not abstract - the base-class default is a no-op. Only
+`Neo4jGraphStore` overrides it: a Neo4j-Browser-specific visual
+affordance (node color follows label) with no equivalent in a backend
+with no browser to color. `tag_labels` is fully computed by the caller
+(`component_family.py`'s `tags_with_multiple_instances` +
+`label_for_tag`) - this method does no thresholding or naming of its
+own, matching this project's "GraphStore does dumb persistence, callers
+compute derived facts" discipline (the same split `record_component`
+vs. `GraphStoreSink`/`component_classifier.py` already establishes).
+
+## record_component_families / get_component_families
+
+A from-scratch rebuild every call - `record_component_families` clears
+any families a previous run wrote for `site` before writing the new
+set, since cluster membership isn't guaranteed to stay the same between
+runs as the underlying components change (a component that was a
+singleton last run might gain a sibling this run, or vice versa).
+`get_component_families` is the read side, used by tests and available
+for a future PRD-narration pass to consume (not wired in yet -
+deliberately deferred, see the module's own commit history).
+
 ## static-text-content
 
 A separate node kind from Component, deliberately: Component carries an

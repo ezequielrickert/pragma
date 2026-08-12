@@ -133,4 +133,43 @@ relationship query needed. The Site node is deleted in the same pass
 since nothing else references it once its pages are gone. Component
 nodes are a separate label, so a Page-scoped `DETACH DELETE` does not
 reach them - they'd otherwise survive (orphaned, still matching this
-site's Component queries) after every "fresh" purge.
+site's Component queries) after every "fresh" purge. `ComponentFamily`
+nodes get the same treatment for the same reason.
+
+## apply_tag_labels
+
+`SET c:{label}` - Cypher labels can't be bound parameters, so `label`
+is baked directly into the query string per tag. Safe because every
+value in `tag_labels` came from `component_family.py`'s `label_for_tag`,
+which only ever returns a capitalized-identifier string or the literal
+`"Component"` - never raw, untrusted input. Adds the label rather than
+replacing any existing ones, so a Component keeps its base `:Component`
+label alongside the new tag-specific one (`:Component:Button`, not just
+`:Button`).
+
+## record_component_families
+
+Full rebuild every call, not an incremental merge: every existing
+`ComponentFamily` node for `site` is `DETACH DELETE`d before the new set
+is written. `UNWIND $member_paths` inside the same query that creates
+the family node, `MATCH`ing each member by `(site, page_url, path)` -
+if a member path doesn't resolve to a real Component (a caller bug, not
+expected in the normal `Engine._apply_component_families` path, which
+always derives `member_paths` from the same `get_component_ledger` read
+that supplies every other field), the family node still gets created
+but with fewer (or zero) `HAS_VARIANT` edges than intended, silently -
+there is no defensive check here, since a mismatch would only ever come
+from a caller that isn't the one this project ships.
+
+## get_component_families
+
+`WITH f, c ORDER BY c.page_url, c.path` before `collect()` - Cypher's
+`collect()` has no implicit ordering guarantee, and `ComponentFamily.
+member_paths` is a plain tuple compared positionally by callers/tests.
+`elementId(f)` (not a property) is included in the `RETURN` specifically
+to force Cypher's implicit grouping to key off the actual node identity,
+not its properties - two distinct family nodes could in principle share
+identical `tag`/`component_type`/`common_classes` values (two disjoint
+clusters in the same bucket that happen to reduce to the same common-
+classes intersection), and grouping by properties alone would silently
+merge their member lists together.

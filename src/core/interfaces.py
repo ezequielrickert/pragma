@@ -54,6 +54,23 @@ class ComponentFacts:
     position: str = ""
 
 
+@dataclass(frozen=True)
+class ComponentFamily:
+    """One inferred reusable-component cluster (a "Button" pattern, a
+    "combobox" pattern, ...) - a post-hoc, whole-site grouping of already-
+    discovered Components by structural/visual similarity, computed by
+    `src/generators/component_family.py::build_component_families`. Lives
+    here (not in `generators/`) so `GraphStore` - a `core` module - can
+    reference the type without `core` depending on `generators`, the
+    reverse of this project's normal layering.
+    """
+
+    tag: str
+    component_type: str
+    common_classes: Tuple[str, ...]  # classes every member shares
+    member_paths: Tuple[Tuple[str, str], ...]  # (page_url, path) per variant
+
+
 class Agent(ABC):
     """Interface for AI agent backends."""
 
@@ -279,6 +296,42 @@ class GraphStore(ABC):
     def get_component_ledger(self, site: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component interaction/options/network-request record for all of `site`.
         Details: docs/dev/core/interfaces.md#get_component_ledger
+        """
+        raise NotImplementedError
+
+    # Inferred component families - a post-hoc, whole-site pass (not part
+    # of the live per-page crawl write path); groups structurally/visually
+    # similar Components into reusable patterns.
+    # Details: docs/dev/core/interfaces.md#component-families
+
+    def apply_tag_labels(self, site: str, tag_labels: Dict[str, str]) -> None:
+        """Give every Component a label matching its own HTML tag (e.g.
+        `:Button`, `:Input`, `:Link`) wherever `tag_labels` names one for
+        it - a Neo4j-Browser-specific visual affordance (node color
+        follows label) with no equivalent in a backend with no browser to
+        color. `tag_labels` (raw tag -> Cypher-safe label name) is fully
+        computed by the caller (`tags_with_multiple_instances` +
+        `label_for_tag`, `component_family.py`) - this method does no
+        thresholding or naming of its own, so both decisions live in
+        exactly one place. Not abstract: the default here is a no-op, and
+        only `Neo4jGraphStore` overrides it with a real implementation.
+        Details: docs/dev/core/interfaces.md#apply_tag_labels
+        """
+
+    @abstractmethod
+    def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
+        """Replace `site`'s entire inferred-family structure with
+        `families` - a from-scratch rebuild (any families from a previous
+        run are cleared first), since cluster membership isn't guaranteed
+        to stay the same between runs as the underlying components change.
+        Details: docs/dev/core/interfaces.md#record_component_families
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_component_families(self, site: str) -> List[ComponentFamily]:
+        """Every inferred family currently recorded for `site`.
+        Details: docs/dev/core/interfaces.md#get_component_families
         """
         raise NotImplementedError
 

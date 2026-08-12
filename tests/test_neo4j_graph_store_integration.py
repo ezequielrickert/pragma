@@ -33,6 +33,7 @@ _TEST_SITE_CLEANUP_QUERIES = (
     "MATCH (p:Page {site: 'pragma-test.local'}) DETACH DELETE p",
     "MATCH (c:Component {site: 'pragma-test.local'}) DETACH DELETE c",
     "MATCH (t:TextContent {site: 'pragma-test.local'}) DETACH DELETE t",
+    "MATCH (f:ComponentFamily {site: 'pragma-test.local'}) DETACH DELETE f",
     "MATCH (s:Site {name: 'pragma-test.local'}) DETACH DELETE s",
 )
 
@@ -349,3 +350,58 @@ def test_clear_site_removes_components_too(store):
 
     assert store.get_component_states(site, "home") == {}
     assert store.count_unexplored_components(site) == (0, 0)
+
+
+def test_apply_tag_labels_adds_a_dynamic_label_without_dropping_component(store):
+    site = "pragma-test.local"
+    store.record_component(site, "home", "button#a", tag="button")
+    store.record_component(site, "home", "input#b", tag="input")
+
+    store.apply_tag_labels(site, {"button": "Button", "input": "Input"})
+
+    with store._session() as session:
+        rows = {
+            r["path"]: r["labels"]
+            for r in session.run(
+                "MATCH (c:Component {site: $site}) RETURN c.path AS path, labels(c) AS labels",
+                site=site,
+            )
+        }
+    assert set(rows["button#a"]) == {"Component", "Button"}
+    assert set(rows["input#b"]) == {"Component", "Input"}
+
+
+def test_record_component_families_roundtrips_and_replaces_on_rerun(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component(site, "home", "btn2", tag="button")
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=("btn", "btn-primary"),
+            member_paths=(("home", "btn1"), ("home", "btn2")),
+        )
+    ]
+    store.record_component_families(site, families)
+    assert store.get_component_families(site) == families
+
+    # A second, empty write must clear the first - a stale family from a
+    # previous crawl must not linger once the data no longer supports it.
+    store.record_component_families(site, [])
+    assert store.get_component_families(site) == []
+
+
+def test_clear_site_removes_component_families_too(store):
+    from src.core.interfaces import ComponentFamily
+
+    site = "pragma-test.local"
+    store.record_component(site, "home", "btn1", tag="button")
+    store.record_component_families(
+        site,
+        [ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=(("home", "btn1"),))],
+    )
+    store.clear_site(site)
+
+    assert store.get_component_families(site) == []

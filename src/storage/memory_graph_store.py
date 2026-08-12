@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts, GraphStore
+from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore
 from ..core.registry import GRAPH_STORE_REGISTRY
 
 # ComponentFacts field names, in the fixed order every component record
@@ -26,6 +26,7 @@ class _SiteData:
     components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
     # {page_url: [{path, tag, text, visible, x, y, width, height}]}
     text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    component_families: List[ComponentFamily] = field(default_factory=list)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -279,6 +280,12 @@ class InMemoryGraphStore(GraphStore):
             }
             for page_url, page_components in self._site(site).components.items()
         }
+
+    def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
+        self._site(site).component_families = list(families)
+
+    def get_component_families(self, site: str) -> List[ComponentFamily]:
+        return list(self._site(site).component_families)
 
     def record_text_content(
         self,
