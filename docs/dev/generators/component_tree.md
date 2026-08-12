@@ -89,3 +89,13 @@ sibling component and not folded into the leaf's single line the way
 
 Mirrors `GraphPRDSynthesizer.synthesize()`'s own "one function, no
 further ceremony" shape.
+
+## ComponentTreeDocument
+
+`DocumentGenerator` adapter, same placement reasoning as
+`graph_prd_synthesizer.md#prddocument`.
+
+Note the inversion: config carries `tree_ascii` (opt *in* to ASCII) while
+`generate_component_tree_document` takes `use_box_drawing` (opt *out*).
+The adapter is where the two meet, so neither side had to change its own
+sense to accommodate the other.

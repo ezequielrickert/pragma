@@ -223,3 +223,21 @@ CLI flags.
 
 Precedence (highest wins): explicit CLI flag > YAML file value > env var
 > default.
+
+## documents
+
+Which output documents a run generates, by `DOCUMENT_REGISTRY` name, in
+order. Defaults to `["coverage", "prd", "tree"]` - coverage first because
+it is the cheapest and the one that frames the other two.
+
+The master document ("Start Here") is deliberately absent from this list:
+it is the pipeline's closing step rather than an optional document, and
+listing it would let it be scheduled in the middle, where it would index
+only whatever ran before it. See
+`docs/dev/generators/master_document.md#masterdocument`.
+
+`export_json` stays a separate boolean rather than being folded in here,
+so an existing `pragma.yaml` that sets it keeps working unchanged -
+`Engine._document_names` appends `"export"` when the flag is on and the
+list did not already ask for it. Setting both is not an error; the name is
+added once.

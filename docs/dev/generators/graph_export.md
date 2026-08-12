@@ -36,3 +36,10 @@ byte-identical file (a real `git diff` against a re-run of the same,
 already-fully-crawled site shows nothing), same "deterministic
 rendering" discipline `component_tree.py`'s `render_ascii_tree`
 documents for the same reason.
+
+## GraphExportDocument
+
+`DocumentGenerator` adapter, same placement reasoning as
+`graph_prd_synthesizer.md#prddocument`. The only one so far that declares
+`extension = "json"`, which is also what keeps `pipeline._with_banner`
+from prepending a Markdown blockquote to a JSON file.

@@ -142,3 +142,15 @@ the navigation edges, per-page component narrations (derived from the
 ledger), and recorded page descriptions - then a bounded map-reduce
 pass (batch-summarize, then reduce) over the aggregate. See `module`
 above for why this replaced the old single unbounded call.
+
+## PRDDocument
+
+The `DocumentGenerator` adapter, kept in this file rather than a separate
+`prd_document.py` for the same reason agents and graph stores register
+themselves next to their implementation: the registration and the thing
+being registered stay in one place, and `bootstrap.py` importing this
+module is what makes `"prd"` resolvable.
+
+It is a thin adapter on purpose - `GraphPRDSynthesizer` keeps its own
+constructor and its `synthesize(site)` entry point, so every existing test
+and any direct caller is untouched by the pipeline landing.
