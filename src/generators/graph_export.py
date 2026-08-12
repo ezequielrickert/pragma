@@ -7,7 +7,9 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from ..core.documents import DocumentGenerator, DocumentRequest
 from ..core.interfaces import GraphStore
+from ..core.registry import DOCUMENT_REGISTRY
 
 
 def build_graph_export(graph_store: GraphStore, site: str) -> Dict[str, Any]:
@@ -50,3 +52,18 @@ def generate_graph_export_document(graph_store: GraphStore, site: str) -> str:
     Details: docs/dev/generators/graph_export.md#generate_graph_export_document
     """
     return json.dumps(build_graph_export(graph_store, site), indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+@DOCUMENT_REGISTRY.register("export")
+class GraphExportDocument(DocumentGenerator):
+    """Pipeline adapter for `generate_graph_export_document`.
+    Details: docs/dev/generators/graph_export.md#graphexportdocument
+    """
+
+    name = "export"
+    title = "Graph Export"
+    purpose = "The whole crawl graph as structured JSON, for tooling that would otherwise re-query Neo4j."
+    extension = "json"
+
+    def generate(self, request: DocumentRequest) -> str:
+        return generate_graph_export_document(request.graph_store, request.site)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 import yaml
 
@@ -87,9 +87,16 @@ class PragmaConfig:
     # Max past debug_logs_dir run directories to keep for this site+URL.
     # Details: docs/dev/core/config.md#debug_logs_keep_last
     debug_logs_keep_last: Optional[int] = None
-    # Also write the full crawl graph as structured JSON.
-    # Details: docs/dev/core/config.md#export_json
+    # Also write the full crawl graph as structured JSON. Kept as its own
+    # flag rather than folded into `documents` below so an existing
+    # pragma.yaml keeps working unchanged; `true` appends "export" to the
+    # document list. Details: docs/dev/core/config.md#export_json
     export_json: bool = False
+    # Which output documents to generate, by DOCUMENT_REGISTRY name, in
+    # order. The master document ("Start Here") always runs last and is
+    # not listed here - it is the pipeline's closing step, not an optional
+    # document. Details: docs/dev/core/config.md#documents
+    documents: List[str] = field(default_factory=lambda: ["coverage", "prd", "tree"])
     # Component-tree rendering mode: Unicode box-drawing by default.
     # Details: docs/dev/core/config.md#tree_ascii
     tree_ascii: bool = False

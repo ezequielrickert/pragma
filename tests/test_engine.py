@@ -141,7 +141,9 @@ def test_engine_run_records_manifest_and_skips_export_by_default(fixture_server)
         result = engine.run(f"{fixture_server}/index.html")
 
         assert result.export_path is None
-        assert not list(Path(out_dir).glob("*_graph_*.json"))
+        # `_export_`, not the older `_graph_`: every document's filename now
+        # comes from its DOCUMENT_REGISTRY name via pipeline.document_path.
+        assert not list(Path(out_dir).glob("*_export_*.json"))
 
         assert result.manifest_path == str(Path(out_dir) / "runs.json")
         manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
