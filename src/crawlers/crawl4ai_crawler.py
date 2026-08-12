@@ -240,6 +240,15 @@ class Crawl4AICrawler:
         """
         return self._throttle.target_slowdown_ratio
 
+    @property
+    def consecutive_trips(self) -> int:
+        """Circuit-breaker trips since the last healthy navigation - read by
+        `MechanicalCrawler` to decide whether the target is refusing load
+        persistently enough to stop and resume later.
+        Details: docs/dev/crawlers/target_load_throttle.md#consecutive_trips
+        """
+        return self._throttle.consecutive_trips
+
     def _log_only_hook(self, hook_name: str):
         """Build a hook callback that only logs to `self.debug_log`.
         Details: docs/dev/crawlers/crawl4ai_crawler.md#_log_only_hook
@@ -397,7 +406,9 @@ class Crawl4AICrawler:
         await self._throttle.wait_before_navigation()
         start = asyncio.get_running_loop().time()
         result = await self._crawler.arun(url=url, config=config)
-        self._throttle.record_navigation(asyncio.get_running_loop().time() - start)
+        self._throttle.record_navigation(
+            asyncio.get_running_loop().time() - start, getattr(result, "status_code", None)
+        )
         if not result.success:
             raise RuntimeError(
                 f"crawl4ai navigation failed for {url!r}: {result.error_message}"

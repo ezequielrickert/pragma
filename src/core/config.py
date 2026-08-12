@@ -81,9 +81,25 @@ class PragmaConfig:
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.
     # Details: docs/dev/core/config.md#allow_subdomains
     allow_subdomains: bool = False
-    # Purge this site's previous graph_store state before crawling.
+    # Purge this site's previous graph_store state before crawling; false
+    # resumes that state's unfinished frontier instead.
     # Details: docs/dev/core/config.md#fresh
     fresh: bool = True
+    # Pages this session may visit before stopping so the rest can be
+    # resumed later. Unlike max_pages (which bounds the whole crawl, however
+    # many sessions it takes), this bounds one sitting.
+    # Details: docs/dev/core/config.md#stop_after_pages
+    stop_after_pages: Optional[int] = None
+    # Wall-clock seconds this session may run before stopping the same way.
+    # Details: docs/dev/core/config.md#stop_after_seconds
+    stop_after_seconds: Optional[float] = None
+    # Consecutive circuit-breaker trips that end the session - the rate-limit
+    # exit. `None` keeps the pre-existing behaviour of backing off forever.
+    # Details: docs/dev/core/config.md#stop_after_rate_limit_trips
+    stop_after_rate_limit_trips: Optional[int] = 3
+    # Run the LLM synthesis passes even when the session stopped early.
+    # Details: docs/dev/core/config.md#synthesize_on_partial
+    synthesize_on_partial: bool = False
     # Where per-run debug artifacts go, including each visited URL's
     # *.history.md markdown snapshots; "" disables debug logging entirely.
     # Details: docs/dev/core/config.md#debug_logs_dir

@@ -91,6 +91,11 @@ class Crawl4AICrawlerPool:
         """Details: docs/dev/crawlers/crawl4ai_crawler_pool.md#target_slowdown_ratio"""
         return self._throttle.target_slowdown_ratio
 
+    @property
+    def consecutive_trips(self) -> int:
+        """Details: docs/dev/crawlers/crawl4ai_crawler_pool.md#consecutive_trips"""
+        return self._throttle.consecutive_trips
+
     async def discover_page(self, url: str, session_id: Optional[str] = None) -> PageState:
         session_id = session_id or url
         return await self._call(session_id, lambda owner: owner.discover_page(url, session_id=session_id))

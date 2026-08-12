@@ -81,6 +81,19 @@ constructor argument list.
 - `allow_subdomains`: Passed through to `is_in_scope()` - whether a
   subdomain of `base_url`'s host counts as in-scope.
 
+## stopper
+
+The `CrawlStopper` that can end this session before the frontier drains,
+so the rest can be resumed later (`crawl_stopper.md`). Left unset, an
+unbudgeted one is built, no budget can ever fire, and the crawl runs to
+exhaustion exactly as it did before this existed - so every caller that
+doesn't care about stopping is unaffected.
+
+Injected rather than constructed from loose config fields because the
+same object has to be reachable from outside the crawl: `Engine` installs
+a SIGINT handler against it (`engine.md#_catch_first_interrupt`), and a
+test drives it directly to stop a crawl mid-flight.
+
 ## session_recycle_after
 
 How many visits a worker's browser tab carries before `_worker` closes
@@ -215,6 +228,82 @@ because we're done" apart from "frontier is momentarily empty because
 another worker is about to add more" - `Queue.join()`'s unfinished-task
 count is exactly the fact needed to disambiguate the two.
 
+Draining is no longer the only way this ends, though - see
+`_await_drain_or_stop` below. Before workers start, `stopper.begin()`
+arms the session's wall-clock budget, and a `finally` guarantees the
+matching `close()` plus worker teardown even if the wait itself raises.
+
+## stopped_reason
+
+Why this session ended before its frontier drained, or `None` if it
+drained. Delegates to `CrawlStopper` rather than caching a copy - `Engine`
+reads it after `crawl_site` returns to decide whether the crawl it just
+ran is complete enough to narrate (`engine.md#_should_synthesize`).
+
+## resume
+
+Adopts a previous session's frontier, from a `ResumePlan` that
+`resume_state.md#restore_frontier` built out of the graph store. Must be
+called before `crawl_site`, which is what actually starts the workers.
+
+**Order inside the method is load-bearing.** The route-shape history is
+seeded first, so that a shape already sampled to its
+`max_visits_per_route_shape` limit in an earlier session also rejects
+*this* session's pending URLs of that shape - seeding the URLs first would
+let a resumed crawl sample one extra instance of every token route per
+resume, which is precisely the unbounded growth the knob exists to stop.
+
+`_pages_visited` is seeded from the plan's finished count, which is what
+keeps `max_pages` a bound on the **crawl** rather than on one sitting of
+it. Without it, every resume would grant a fresh full allowance and a
+`max_pages` of 100 would never actually cap anything.
+
+Pending URLs go through `_enqueue` rather than straight onto the queue.
+That reuses the scope gate (`_enqueue-scope-gate`), which is not optional
+here: `record_links` stores off-site link targets as `Pending` pages too,
+so a raw pending list contains URLs this crawl must never visit.
+
+## _await_drain_or_stop
+
+Blocks until either the frontier empties or the session is stopped.
+
+`Queue.join()` cannot be interrupted - there is no "join, or give up when
+this event fires" form of it - so both outcomes are wrapped as tasks and
+raced with `FIRST_COMPLETED`. Whichever loses is cancelled in a `finally`,
+so a stopped crawl does not leave a `join()` waiter attached to a queue
+that still has unfinished items.
+
+## _shut_down_workers
+
+Ends the worker tasks. On a stop (and only on a stop) it first gives
+pages already in flight a chance to finish, then cancels everything -
+including workers parked on an empty frontier, for which cancellation is
+the ordinary ending, not an error. `gather(..., return_exceptions=True)`
+absorbs those cancellations.
+
+## _wait_for_in_flight_pages
+
+Blocks while any worker is still mid-visit, up to `_STOP_GRACE_SECONDS`.
+
+Waiting on the worker *tasks* would be the obvious implementation and is
+wrong: a worker parked on an empty frontier never finishes on its own, so
+`asyncio.wait(workers, timeout=...)` would burn the entire grace period
+on every stop regardless of whether any real work was in progress.
+`_in_flight` already tracks exactly the pages being visited right now,
+which is precisely the set worth waiting for.
+
+This is an optimization, not a correctness requirement. A page abandoned
+partway through is simply never marked `Finished`, so it comes back as
+frontier work next session (`resume_state.md`). The grace period only
+buys back work already paid for.
+
+## _stop_grace_seconds
+
+How long a stopping crawl waits for in-flight pages. Generous (60s)
+because the alternative to waiting is re-fetching those pages from
+scratch next session, and because a page that is genuinely stuck is
+already bounded by the crawler's own page/interaction timeouts.
+
 ## _recycle_session_if_due
 
 Closes `browser_session_id`'s tab once it's carried `session_recycle_after`
@@ -258,11 +347,28 @@ well before it becomes a real slowdown.
 
 One concurrent visitor - pulls a URL, visits it, requeues or marks it
 visited exactly like the old single-loop body did (see the removed
-`crawl_site` loop this was extracted from). Runs forever until cancelled
-by `crawl_site` right after `_url_frontier.join()` returns, at which
-point every worker is guaranteed to be idly blocked on
-`_url_frontier.get()` (never mid-visit) since `join()` only completes
-once the queue is fully drained.
+`crawl_site` loop this was extracted from). Runs until cancelled by
+`crawl_site` right after `_url_frontier.join()` returns, at which point
+every worker is guaranteed to be idly blocked on `_url_frontier.get()`
+(never mid-visit) since `join()` only completes once the queue is fully
+drained.
+
+The stop path is the exception to that guarantee, and the reason the loop
+is now conditioned on `stopper.should_stop()` rather than `while True`: a
+stopped session cancels workers *without* the frontier having drained, so
+one may well be mid-visit. `_wait_for_in_flight_pages` is what bounds
+that. The condition is checked twice - once before taking a URL, and
+again immediately after, since a stop can land while the worker sits
+blocked on `get()`. The second check drops the URL without visiting it,
+leaving it `Pending` for the next session rather than starting a page the
+crawl has just decided to stop working on.
+
+Every completed visit reports two facts to the stopper: that a page
+finished (against the session page budget) and the crawler's current
+consecutive-trip count (against the rate-limit budget). The trip count is
+read via `getattr(..., 0)`, so a crawler that does not expose one - every
+fake in `tests/test_mechanical_loop.py`, and any implementation predating
+the counter - reads as a healthy target rather than as a stopped crawl.
 
 Builds one `browser_session_id` (`f"worker-{worker_id}"`) up front and
 passes the same value to every `PageVisitor.visit()` call this worker

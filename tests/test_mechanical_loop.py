@@ -25,10 +25,12 @@ import pytest
 
 from src.core.interfaces import PageState
 from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from src.crawlers.crawl_stopper import CrawlStopper, SessionBudget, StopReason
 from src.crawlers.graph_sink import GraphStoreSink
 from src.crawlers.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
+from src.crawlers.resume_state import restore_frontier
 from src.storage.memory_graph_store import InMemoryGraphStore
-from src.utils.urls import route_shape
+from src.utils.urls import clean_url, route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -1373,3 +1375,169 @@ def test_one_blocked_page_does_not_hang_the_rest_of_the_crawl():
     # ...and, critically, is not retried forever - the frontier still
     # drains and the crawl still returns.
     assert route_shape(fake.url_c) in visited_urls
+
+
+class _FakeLinkedPagesCrawler:
+    """A hub linking to three leaves, each of which links nowhere. No
+    components at all, so a visit is exactly one `discover_page` call and
+    the frontier is the only thing under test."""
+
+    def __init__(self) -> None:
+        self.hub = "http://fixture/hub"
+        self.leaves = [f"http://fixture/leaf-{n}" for n in range(3)]
+        self.discovered: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discovered.append(url)
+        links = [{"href": leaf, "scheme": "http"} for leaf in self.leaves] if url == self.hub else []
+        return PageState(url=url, components=[], links=links)
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        raise AssertionError("fixture has no components to click")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no components to fill")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def _finished_store(site: str, finished: List[str], pending: List[str]) -> InMemoryGraphStore:
+    """A graph store carrying what a previous session would have left behind."""
+    store = InMemoryGraphStore()
+    store.connect()
+    for url in finished:
+        store.upsert_page(site, clean_url(url), status="Finished")
+    for url in pending:
+        store.upsert_page(site, clean_url(url), status="Pending")
+    return store
+
+
+def test_resume_picks_up_the_pages_a_previous_session_left_pending():
+    fake = _FakeLinkedPagesCrawler()
+    store = _finished_store("fixture", finished=[fake.hub], pending=fake.leaves)
+    sink = GraphStoreSink(store, "fixture")
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, page_concurrency=1))
+
+    mech.resume(restore_frontier(store.get_progress_table_rows("fixture"), "http"))
+    asyncio.run(mech.crawl_site(fake.hub))
+
+    assert sorted(fake.discovered) == sorted(fake.leaves)
+
+
+def test_a_rerun_whose_start_page_is_already_finished_still_crawls_the_rest():
+    """The regression this feature exists for: without resume seeding, the
+    start URL is skipped as visited, the frontier is empty, `crawl_site`
+    returns instantly and --no-fresh crawls nothing at all."""
+    fake = _FakeLinkedPagesCrawler()
+    store = _finished_store("fixture", finished=[fake.hub], pending=fake.leaves)
+    sink = GraphStoreSink(store, "fixture")
+
+    without_resume = MechanicalCrawler(
+        _FakeLinkedPagesCrawler(), config=MechanicalCrawlerConfig(sink=sink, page_concurrency=1)
+    )
+    assert asyncio.run(without_resume.crawl_site(fake.hub)) == []
+
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, page_concurrency=1))
+    mech.resume(restore_frontier(store.get_progress_table_rows("fixture"), "http"))
+    assert len(asyncio.run(mech.crawl_site(fake.hub))) == 3
+
+
+def test_resume_never_revisits_a_page_the_previous_session_finished():
+    fake = _FakeLinkedPagesCrawler()
+    store = _finished_store("fixture", finished=[fake.hub, fake.leaves[0]], pending=fake.leaves[1:])
+    sink = GraphStoreSink(store, "fixture")
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, page_concurrency=1))
+
+    mech.resume(restore_frontier(store.get_progress_table_rows("fixture"), "http"))
+    asyncio.run(mech.crawl_site(fake.hub))
+
+    assert fake.leaves[0] not in fake.discovered
+
+
+def test_max_pages_counts_pages_from_previous_sessions_too():
+    """max_pages bounds the crawl, not one sitting of it - otherwise every
+    resume grants a fresh full allowance and the bound never holds."""
+    fake = _FakeLinkedPagesCrawler()
+    store = _finished_store("fixture", finished=[fake.hub], pending=fake.leaves)
+    sink = GraphStoreSink(store, "fixture")
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(sink=sink, page_concurrency=1, max_pages=3)
+    )
+
+    mech.resume(restore_frontier(store.get_progress_table_rows("fixture"), "http"))
+    results = asyncio.run(mech.crawl_site(fake.hub))
+
+    assert len(results) == 2  # 1 already finished + 2 more reaches the cap of 3
+
+
+def test_the_page_budget_stops_a_session_with_frontier_still_queued():
+    fake = _FakeLinkedPagesCrawler()
+    stopper = CrawlStopper(SessionBudget(stop_after_pages=2))
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, stopper=stopper)
+    )
+
+    results = asyncio.run(mech.crawl_site(fake.hub))
+
+    assert len(results) == 2
+    assert mech.stopped_reason is StopReason.PAGE_BUDGET
+
+
+def test_a_session_that_drains_its_frontier_reports_no_stop_reason():
+    fake = _FakeLinkedPagesCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=1))
+
+    asyncio.run(mech.crawl_site(fake.hub))
+
+    assert mech.stopped_reason is None
+
+
+def test_a_stop_requested_mid_crawl_ends_it_without_draining_the_frontier():
+    fake = _FakeLinkedPagesCrawler()
+    stopper = CrawlStopper()
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, stopper=stopper)
+    )
+
+    async def run():
+        crawl = asyncio.create_task(mech.crawl_site(fake.hub))
+        await asyncio.sleep(0)
+        stopper.request_stop(StopReason.INTERRUPT)
+        return await asyncio.wait_for(crawl, timeout=10.0)
+
+    asyncio.run(run())
+
+    assert mech.stopped_reason is StopReason.INTERRUPT
+    assert len(fake.discovered) < 1 + len(fake.leaves)
+
+
+def test_a_target_that_keeps_tripping_the_breaker_ends_the_session():
+    fake = _FakeLinkedPagesCrawler()
+    fake.consecutive_trips = 2
+    stopper = CrawlStopper(SessionBudget(stop_after_rate_limit_trips=2))
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, stopper=stopper)
+    )
+
+    results = asyncio.run(mech.crawl_site(fake.hub))
+
+    assert len(results) == 1  # the trip count is read after the first page lands
+    assert mech.stopped_reason is StopReason.RATE_LIMITED
+
+
+def test_a_crawler_reporting_no_trip_count_at_all_reads_as_healthy():
+    """A fake crawler (or any implementation predating the counter) has no
+    `consecutive_trips`; that must not read as a rate-limited target."""
+    fake = _FakeLinkedPagesCrawler()
+    assert not hasattr(fake, "consecutive_trips")
+    mech = MechanicalCrawler(
+        fake,
+        config=MechanicalCrawlerConfig(
+            page_concurrency=1, stopper=CrawlStopper(SessionBudget(stop_after_rate_limit_trips=1))
+        ),
+    )
+
+    asyncio.run(mech.crawl_site(fake.hub))
+
+    assert mech.stopped_reason is None

@@ -29,6 +29,13 @@ _BACKOFF_PROPORTIONAL_FACTOR = 0.5
 # faster. Details: docs/dev/crawlers/target_load_throttle.md#_severe_slowdown_multiplier
 _SEVERE_SLOWDOWN_MULTIPLIER = 4.0
 
+# Statuses that say "you are asking for too much" outright. Every other
+# signal here is inferred from latency, which misses a target that refuses
+# load quickly - a 429 served from an edge cache is fast, and would
+# otherwise read as the crawl's healthiest navigation yet.
+# Details: docs/dev/crawlers/target_load_throttle.md#_rate_limit_status_codes
+_RATE_LIMIT_STATUS_CODES = frozenset({429, 503})
+
 
 class TargetLoadThrottle:
     """Tracks one crawl's navigation timing and decides how much to slow
@@ -61,6 +68,12 @@ class TargetLoadThrottle:
         # Public fact about the target; 1.0 = no observed slowdown.
         # Details: docs/dev/crawlers/target_load_throttle.md#target_slowdown_ratio
         self.target_slowdown_ratio = 1.0
+        # Trips since the last healthy navigation. One trip is ordinary -
+        # a target recovers and the crawl continues. Trips that keep
+        # stacking with no healthy navigation between them mean the pauses
+        # aren't working, which is what `CrawlStopper` acts on.
+        # Details: docs/dev/crawlers/target_load_throttle.md#consecutive_trips
+        self.consecutive_trips = 0
 
     async def wait_before_navigation(self) -> None:
         """Pause for the circuit breaker's remaining cooldown if tripped,
@@ -75,7 +88,7 @@ class TargetLoadThrottle:
         elif self._backoff_seconds > 0:
             await asyncio.sleep(self._backoff_seconds)
 
-    def record_navigation(self, elapsed_seconds: float) -> None:
+    def record_navigation(self, elapsed_seconds: float, status_code: Optional[int] = None) -> None:
         """Track how this navigation compares to the fastest seen this
         crawl, and react proportionally to how bad it was:
         - within `_BACKOFF_SLOWDOWN_MULTIPLIER`x the floor: decay backoff.
@@ -89,8 +102,20 @@ class TargetLoadThrottle:
         `target_slowdown_ratio` is always updated (even with backoff
         disabled) - see mechanical_loop.py#_effective_concurrency, which
         reads it independently of whether backoff/circuit-breaker are on.
+
+        `status_code`, when the caller has one, short-circuits all of that:
+        a rate-limiting status is a direct statement from the target, not
+        something to infer, and its timing is deliberately not recorded -
+        a 429 is typically served faster than any real page, so letting it
+        set the fastest-navigation floor would make every genuine page
+        afterwards look like a slowdown.
         Details: docs/dev/crawlers/target_load_throttle.md#record_navigation
         """
+        if status_code in _RATE_LIMIT_STATUS_CODES:
+            if self.backoff_ceiling_seconds is not None:
+                self._trip_circuit_breaker()
+            return
+
         if (
             self._fastest_navigation_seconds is None
             or elapsed_seconds < self._fastest_navigation_seconds
@@ -111,6 +136,9 @@ class TargetLoadThrottle:
             self._backoff_seconds = max(
                 0.0, self._backoff_seconds * (1 - _BACKOFF_PROPORTIONAL_FACTOR)
             )
+            # One navigation back within normal range is the target saying
+            # the pauses worked; the trip streak starts over from there.
+            self.consecutive_trips = 0
 
     def _trip_circuit_breaker(self) -> None:
         """Pause every worker's next navigation for `circuit_breaker_cooldown_seconds`.
@@ -119,6 +147,7 @@ class TargetLoadThrottle:
         trip_until = time.monotonic() + self.circuit_breaker_cooldown_seconds
         if trip_until <= self._circuit_breaker_until:
             return  # already tripped further out than this would extend it
+        self.consecutive_trips += 1
         self._circuit_breaker_until = trip_until
         print(
             f"Warning: target navigation time is {_SEVERE_SLOWDOWN_MULTIPLIER:.0f}x+ this crawl's "

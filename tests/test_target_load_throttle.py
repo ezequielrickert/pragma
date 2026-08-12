@@ -135,3 +135,77 @@ def test_throttle_honors_the_circuit_breaker_cooldown_over_the_backoff_delay(mon
 
     assert len(slept) == 1
     assert slept[0] == pytest.approx(30.0, abs=0.5)
+
+
+def test_a_rate_limit_status_trips_the_breaker_with_no_slowdown_to_infer():
+    """A 429 is usually served faster than any real page, so the latency
+    signal alone would read it as the crawl's healthiest navigation yet."""
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=30.0)
+    throttle.record_navigation(2.0)
+
+    throttle.record_navigation(0.05, status_code=429)
+
+    assert throttle.consecutive_trips == 1
+    assert throttle._circuit_breaker_until > 0.0
+
+
+def test_a_rate_limited_response_never_becomes_the_fastest_navigation_baseline():
+    """Letting a 0.05s 429 set the floor would make every genuine page
+    afterwards look like a 40x slowdown."""
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=30.0)
+    throttle.record_navigation(2.0)
+
+    throttle.record_navigation(0.05, status_code=429)
+    throttle.record_navigation(2.0)
+
+    assert throttle.target_slowdown_ratio == pytest.approx(1.0)
+
+
+def test_service_unavailable_counts_as_rate_limiting_too():
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=30.0)
+
+    throttle.record_navigation(0.05, status_code=503)
+
+    assert throttle.consecutive_trips == 1
+
+
+def test_an_ordinary_status_leaves_the_latency_signal_in_charge():
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=30.0)
+
+    throttle.record_navigation(1.0, status_code=200)
+    throttle.record_navigation(3.0, status_code=200)
+
+    assert throttle.consecutive_trips == 0
+    assert throttle.target_slowdown_ratio == pytest.approx(3.0)
+
+
+def test_a_healthy_navigation_resets_the_consecutive_trip_streak():
+    """One trip means the target recovered; only trips that keep stacking
+    with no healthy navigation between them mean the pauses aren't working."""
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=0.0)
+    throttle.record_navigation(1.0)
+    throttle.record_navigation(0.05, status_code=429)
+    assert throttle.consecutive_trips == 1
+
+    throttle.record_navigation(1.2)
+
+    assert throttle.consecutive_trips == 0
+
+
+def test_trips_stack_while_the_target_keeps_refusing_load():
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=5.0, circuit_breaker_cooldown_seconds=0.0)
+
+    for _ in range(3):
+        throttle.record_navigation(0.05, status_code=429)
+
+    assert throttle.consecutive_trips == 3
+
+
+def test_disabled_backoff_leaves_a_rate_limit_status_inert():
+    """backoff_ceiling_seconds=None already means "no backoff, no circuit
+    breaker"; a status code must not smuggle one back in."""
+    throttle = TargetLoadThrottle(backoff_ceiling_seconds=None, circuit_breaker_cooldown_seconds=30.0)
+
+    throttle.record_navigation(0.05, status_code=429)
+
+    assert throttle.consecutive_trips == 0

@@ -16,6 +16,25 @@ fresh: true           # purge this site's previously recorded graph_store state 
                        # stable site instead of starting over - but leave this on for any site whose
                        # URLs are per-session tokens (e.g. a `/o/<random-id>` order flow), where old
                        # runs' "visited" nodes will never be revisited and just add stale history.
+                       # Resuming rebuilds the frontier from every page the last session left
+                       # unfinished; pages it did finish are skipped, not recrawled.
+
+# Stopping a session deliberately, to resume it later with fresh: false. Everything
+# already crawled is in the graph store, and everything not yet crawled is still
+# Pending there, so a stopped session loses no work - it just leaves the rest queued.
+# stop_after_pages: 100    # pages THIS session may visit. Different from max_pages, which bounds
+                       # the crawl across every session that resumes it. Soft bound with
+                       # page_concurrency > 1, same as max_pages (in-flight pages finish).
+# stop_after_seconds: 3600 # wall-clock seconds this session may crawl for. Starts once the crawl
+                       # is actually underway, so browser startup doesn't count against it.
+stop_after_rate_limit_trips: 3  # consecutive circuit-breaker trips that end the session - the
+                       # rate-limit exit. The throttle already backs off and pauses every worker
+                       # against a straining target, but never gives up; against a site that has
+                       # decided to refuse this crawler, that converges on hitting it very slowly
+                       # forever. 0 or null keeps that older back-off-indefinitely behavior.
+synthesize_on_partial: false  # run the PRD/component-tree synthesis even when the session stopped
+                       # early. Off by default: those passes cost LLM calls, describe a site the
+                       # crawl hasn't finished seeing, and get paid again in full on the resume.
                        # See max_visits_per_route_shape below for the matching *within-run* control
                        # for this same kind of site.
 out_dir: docs

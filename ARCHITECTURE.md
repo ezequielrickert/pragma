@@ -203,6 +203,39 @@ persists across runs; a no-op for `graph_store: memory`.
 
 ---
 
+## Stop and Resume
+
+Because the sink above writes continuously, the graph store already *is* the crawl's checkpoint —
+there is no separate state file, and none is wanted. Two statuses carry the whole thing:
+`record_page_arrival` and `record_links` mint pages as `Pending`, and only `record_page_finished`
+promotes one to `Finished`. So "unfinished work" is a query, not a thing to persist, and a page
+abandoned mid-pass — by a stop, a crash, a Ctrl-C — is indistinguishable from one never visited.
+Both need another pass; neither needs bookkeeping the crawl wasn't already doing.
+
+Two halves, deliberately separable:
+
+- **Stopping.** `CrawlStopper` (`src/crawlers/crawl_stopper.py`) ends a session before its frontier
+  drains, on a page budget, a wall-clock budget, repeated rate limiting, or one Ctrl-C. It knows
+  nothing about URLs or browsers; `MechanicalCrawler` reports plain numbers to it and consults it
+  before picking up more work. `crawl_site` races the frontier draining against the stop, then lets
+  pages already in flight finish before cancelling workers.
+- **Resuming.** `resume_state.restore_frontier` (`src/crawlers/resume_state.py`) turns one
+  `get_progress_table_rows` read back into a frontier, and `MechanicalCrawler.resume` adopts it —
+  restoring the route-shape history and the finished-page count so `max_visits_per_route_shape` and
+  `max_pages` stay bounds on the *crawl* rather than on one sitting of it. Reached via
+  `fresh: false`, which previously only skipped the purge and resumed nothing.
+
+Rate limiting is where the two meet. `TargetLoadThrottle` already backs off, pauses every worker and
+tapers concurrency against a straining target, and now also reacts to an outright `429`/`503` rather
+than only to latency. None of that ever gives up, though: against a site that has decided to refuse
+this crawler, it converges on hitting it very slowly forever. Stopping after repeated trips and
+resuming later is the exit that defence never had.
+
+An early stop skips the post-hoc synthesis below by default — those passes cost LLM calls and would
+narrate a site the crawl has not finished seeing, then be paid again in full on the resume.
+
+---
+
 ## Post-hoc Synthesis
 
 `GraphPRDSynthesizer` (`src/generators/graph_prd_synthesizer.py`) reads only from `GraphStore` —

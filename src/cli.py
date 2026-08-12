@@ -134,7 +134,40 @@ def parse_args(argv: list) -> argparse.Namespace:
         default=None,
         help="Purge this site's previously recorded graph_store state before crawling "
         "(default: on; matters for --graph-store neo4j, which persists across runs). "
-        "Use --no-fresh to resume a previous run's progress on a large, stable site instead.",
+        "Use --no-fresh to resume a previous run's progress on a large, stable site instead: "
+        "the frontier is rebuilt from every page the last session left unfinished, and pages "
+        "it did finish are not revisited.",
+    )
+    parser.add_argument(
+        "--stop-after-pages",
+        type=int,
+        dest="stop_after_pages",
+        help="End this session after N pages so the rest can be resumed later with --no-fresh. "
+        "Different from --max-pages, which bounds the crawl across every session that resumes it.",
+    )
+    parser.add_argument(
+        "--stop-after-seconds",
+        type=float,
+        dest="stop_after_seconds",
+        help="End this session after N seconds of crawling, the same way --stop-after-pages does. "
+        "Pages already in flight get up to a minute to finish; the rest stay queued for a resume.",
+    )
+    parser.add_argument(
+        "--stop-after-rate-limit-trips",
+        type=int,
+        dest="stop_after_rate_limit_trips",
+        help="End this session after N consecutive circuit-breaker trips (default: 3) - the point "
+        "at which the target is refusing load persistently enough that backing off further just "
+        "means hitting it more slowly. Pass 0 to keep backing off indefinitely instead.",
+    )
+    parser.add_argument(
+        "--synthesize",
+        dest="synthesize_on_partial",
+        action="store_true",
+        default=None,
+        help="Run the PRD/component-tree synthesis even when the session stopped early. By "
+        "default an early stop skips it, since those passes cost LLM calls and would describe a "
+        "site the crawl hasn't finished exploring.",
     )
     return parser.parse_args(argv)
 
@@ -182,12 +215,18 @@ def main() -> None:
         print(f"Wiring: agent={config.agent} graph_store={config.graph_store}")
         engine = Engine.from_config(config)
         result = engine.run(config.url)
-        print(f"Successfully generated PRD: {result.prd_path}")
-        print(f"Successfully generated component tree: {result.tree_path}")
+        if result.prd_path:
+            print(f"Successfully generated PRD: {result.prd_path}")
+            print(f"Successfully generated component tree: {result.tree_path}")
         if result.export_path:
             print(f"Successfully generated JSON export: {result.export_path}")
         print(f"Run recorded in manifest: {result.manifest_path}")
         print(f"Run index updated: {result.index_path}")
+        if result.stopped_reason:
+            print(
+                f"Session ended early ({result.stopped_reason}); the pages it never reached are "
+                f"still queued. Continue with: python3 src/cli.py {config.url} --no-fresh"
+            )
 
     except Exception as exc:
         print(f"Critical error during exploration: {exc}")

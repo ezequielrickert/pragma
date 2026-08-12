@@ -12,10 +12,12 @@ import psutil
 from ..utils.urls import clean_url, is_in_scope, route_shape
 from .crawl4ai_crawler import Crawl4AICrawler
 from .crawl4ai_crawler_pool import Crawl4AICrawlerPool
+from .crawl_stopper import CrawlStopper, StopReason
 from .fill_values import default_placeholder_fill_value
 from .graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from .interaction_tracker import InMemoryInteractionTracker, InteractionTracker
 from .page_visitor import PageVisitor
+from .resume_state import ResumePlan
 from .visit_result import ComponentInteraction, PageVisitResult
 
 # _wait_for_memory_headroom's poll interval while blocked.
@@ -31,6 +33,13 @@ _MEMORY_WAIT_TIMEOUT_SECONDS = 300.0
 # _wait_for_target_capacity's poll interval while a worker is over budget.
 # Details: docs/dev/crawlers/mechanical_loop.md#_target_health_check_interval_seconds
 _TARGET_HEALTH_CHECK_INTERVAL_SECONDS = 1.0
+
+# How long a stopping crawl waits for workers already mid-page to finish
+# that page. A page abandoned partway is simply never marked Finished, so
+# it comes back as frontier work next session - this only buys back the
+# work already paid for, it isn't needed for correctness.
+# Details: docs/dev/crawlers/mechanical_loop.md#_stop_grace_seconds
+_STOP_GRACE_SECONDS = 60.0
 
 
 @dataclass
@@ -68,6 +77,10 @@ class MechanicalCrawlerConfig:
     # floor. Details: docs/dev/crawlers/mechanical_loop.md#concurrency_taper
     concurrency_taper_start_ratio: float = 2.0
     concurrency_taper_end_ratio: float = 4.0
+    # Ends the session before the frontier drains, so the rest can be
+    # resumed later. Left unset, the crawl runs to exhaustion as before.
+    # Details: docs/dev/crawlers/mechanical_loop.md#stopper
+    stopper: Optional[CrawlStopper] = None
 
 
 class MechanicalCrawler:
@@ -94,6 +107,7 @@ class MechanicalCrawler:
         self.min_page_concurrency = max(1, min(config.min_page_concurrency, self.page_concurrency))
         self.concurrency_taper_start_ratio = config.concurrency_taper_start_ratio
         self.concurrency_taper_end_ratio = config.concurrency_taper_end_ratio
+        self.stopper = config.stopper or CrawlStopper()
         self.sink = config.sink
         # A sink almost always implies its matching GraphStore tracker.
         # Details: docs/dev/crawlers/mechanical_loop.md#tracker-default
@@ -154,19 +168,96 @@ class MechanicalCrawler:
             if href:
                 self._enqueue(href)
 
+    @property
+    def stopped_reason(self) -> Optional[StopReason]:
+        """Why this session ended early, or `None` if the frontier drained.
+        Details: docs/dev/crawlers/mechanical_loop.md#stopped_reason
+        """
+        return self.stopper.reason
+
+    def resume(self, plan: ResumePlan) -> None:
+        """Adopt a previous session's frontier before crawling starts.
+
+        Args:
+            plan: what `resume_state.restore_frontier` read back out of the
+                graph store. Must be applied before `crawl_site`, which is
+                what actually starts the workers.
+
+        Returns:
+            None. Order matters: the route-shape history is seeded first, so
+            that a shape already sampled to its `max_visits_per_route_shape`
+            limit in an earlier session rejects this session's pending URLs
+            of that shape too, exactly as it would have mid-session. Pending
+            URLs then go through `_enqueue` rather than straight onto the
+            queue, which reuses its scope gate - load-bearing, since the
+            graph also stores off-site link targets as Pending pages.
+        Details: docs/dev/crawlers/mechanical_loop.md#resume
+        """
+        self._route_shape_visits.update(plan.route_shape_visits)
+        # max_pages bounds the crawl, not one session of it.
+        self._pages_visited = plan.finished_count
+        for url in plan.pending_urls:
+            self._enqueue(url)
+        print(
+            f"Resuming: {plan.finished_count} page(s) already finished, "
+            f"{self._url_frontier.qsize()} queued from the previous session."
+        )
+
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
-        """Crawl every page reachable from `start_url`, `page_concurrency` at a time.
+        """Crawl every page reachable from `start_url`, `page_concurrency` at
+        a time, until the frontier drains or `stopper` ends the session.
         Details: docs/dev/crawlers/mechanical_loop.md#crawl_site
         """
         if self.base_url is None:
             self.base_url = start_url
         self._enqueue(start_url)
+        self.stopper.begin()
         workers = [asyncio.create_task(self._worker(i)) for i in range(self.page_concurrency)]
-        await self._url_frontier.join()
+        try:
+            await self._await_drain_or_stop()
+        finally:
+            self.stopper.close()
+            await self._shut_down_workers(workers)
+        return self.page_results
+
+    async def _await_drain_or_stop(self) -> None:
+        """Block until either the frontier empties or the session is stopped.
+        `Queue.join()` alone can't be interrupted, so both are raced as tasks
+        and whichever resolves first wins.
+        Details: docs/dev/crawlers/mechanical_loop.md#_await_drain_or_stop
+        """
+        drained = asyncio.create_task(self._url_frontier.join())
+        stopped = asyncio.create_task(self.stopper.wait())
+        try:
+            await asyncio.wait({drained, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            drained.cancel()
+            stopped.cancel()
+
+    async def _shut_down_workers(self, workers: List["asyncio.Task[None]"]) -> None:
+        """Give workers already mid-page `_STOP_GRACE_SECONDS` to finish it,
+        then cancel whatever is left - including workers parked on an empty
+        frontier, for which cancellation is the normal ending.
+        Details: docs/dev/crawlers/mechanical_loop.md#_shut_down_workers
+        """
+        if self.stopper.should_stop():
+            await self._wait_for_in_flight_pages()
         for worker in workers:
             worker.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
-        return self.page_results
+
+    async def _wait_for_in_flight_pages(self) -> None:
+        """Block while any worker is still mid-visit, up to the grace period.
+        Waiting on the worker tasks themselves wouldn't work: a worker parked
+        on an empty frontier never finishes on its own, so every stop would
+        pay the full grace period. `_in_flight` tracks exactly the pages
+        being visited right now, which is what's worth finishing.
+        Details: docs/dev/crawlers/mechanical_loop.md#_wait_for_in_flight_pages
+        """
+        waited_seconds = 0.0
+        while self._in_flight and waited_seconds < _STOP_GRACE_SECONDS:
+            await asyncio.sleep(_TARGET_HEALTH_CHECK_INTERVAL_SECONDS)
+            waited_seconds += _TARGET_HEALTH_CHECK_INTERVAL_SECONDS
 
     async def _recycle_session_if_due(self, browser_session_id: str, visits_since_recycle: int) -> int:
         """Close `browser_session_id`'s tab once it's carried `session_recycle_after`
@@ -244,11 +335,13 @@ class MechanicalCrawler:
         """
         browser_session_id = f"worker-{worker_id}"
         visits_since_recycle = 0
-        while True:
+        while not self.stopper.should_stop():
             await self._wait_for_memory_headroom()
             await self._wait_for_target_capacity(worker_id)
             url = await self._url_frontier.get()
             try:
+                if self.stopper.should_stop():
+                    continue  # stopped while this worker was queueing - leave the URL Pending
                 if self.max_pages is not None and self._pages_visited >= self.max_pages:
                     continue  # cap reached - drain without visiting, see doc for soft-bound caveat
                 key = clean_url(url)
@@ -265,6 +358,8 @@ class MechanicalCrawler:
                 visits_since_recycle = await self._recycle_session_if_due(browser_session_id, visits_since_recycle)
                 self.page_results.append(result)
                 self._pages_visited += 1
+                self.stopper.record_page_visited()
+                self.stopper.record_rate_limit_trips(getattr(self.crawler, "consecutive_trips", 0))
                 if result.interrupted_by_navigation:
                     # Requeue resolved_url directly - see doc for the redirect bug this avoids.
                     # Details: docs/dev/crawlers/mechanical_loop.md#_worker-requeue

@@ -196,8 +196,62 @@ tokens (e.g. a `/o/<random-id>` order flow) accumulates a "visited" node
 per past run forever, none of which will ever be seen again but all of
 which the synthesis step still reads back as history. `graph_store:
 memory` never persists across runs regardless, so this is a no-op there
-either way. Set to `false` to resume a previous run's progress on a
-genuinely multi-session crawl of a large, stable site.
+either way.
+
+Set to `false` to **resume** a previous run on a genuinely multi-session
+crawl of a large, stable site. `Engine` then seeds the frontier with
+every page the last session left unfinished, rebuilt from the graph store
+by `crawlers/resume_state.md#restore_frontier`, and pages it did finish
+are skipped rather than recrawled.
+
+Note that `false` did not previously do this. It only skipped the purge,
+which on its own resumes nothing: `crawl_site` seeds the frontier with
+the start URL alone, and `_enqueue` drops a URL that is already recorded
+as visited - so a rerun whose start page was already `Finished` produced
+an empty frontier, returned immediately, crawled nothing, and still paid
+for a full LLM synthesis pass.
+
+## stop_after_pages
+
+Pages this session may visit before stopping so the rest can be resumed
+later. `None` (default) = no session bound.
+
+Distinct from `max_pages`, which bounds the crawl across every session
+that resumes it - `max_pages` counts pages finished by previous sessions
+too, this counts only the current one. Use `max_pages` to say how big a
+crawl of this site should ever get; use this to say how much of it to do
+right now.
+
+A soft bound with `page_concurrency > 1`, for the same reason `max_pages`
+is: in-flight pages are allowed to finish rather than being thrown away.
+See `crawlers/crawl_stopper.md#stop_after_pages`.
+
+## stop_after_seconds
+
+Wall-clock seconds this session may crawl for, then the same clean stop.
+`None` (default) = no time bound. The clock starts once the crawl is
+actually underway, so browser startup doesn't count against it.
+
+## stop_after_rate_limit_trips
+
+Consecutive circuit-breaker trips that end the session - the rate-limit
+exit. Default 3; `0` or `null` keeps the pre-existing behaviour of
+backing off indefinitely.
+
+`TargetLoadThrottle` already backs off, pauses every worker and tapers
+concurrency against a straining target, but none of that ever gives up.
+Against a site that has decided to refuse this crawler, the crawl
+converges on hitting it very slowly forever. See
+`crawlers/crawl_stopper.md#stop_after_rate_limit_trips`.
+
+## synthesize_on_partial
+
+Run the PRD/component-tree synthesis even when the session stopped early.
+Off by default: those passes re-read the whole graph and cost one LLM
+call per page batch plus one per component family, and on a partial crawl
+they would describe a site the crawler has not finished looking at - then
+be paid again in full on the next resume. See
+`engine.md#_should_synthesize`.
 
 ## debug_logs_dir
 

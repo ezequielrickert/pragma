@@ -4,28 +4,25 @@ Details: docs/dev/core/engine.md#module
 from __future__ import annotations
 
 import asyncio
+import signal
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from ..crawlers.crawl4ai_crawler import Crawl4AICrawlerConfig
 from ..crawlers.crawl4ai_crawler_pool import Crawl4AICrawlerPool
+from ..crawlers.crawl_stopper import CrawlStopper, SessionBudget, StopReason
 from ..crawlers.debug_log import CrawlDebugLog, prune_old_runs
 from ..crawlers.fill_value_agent import make_ai_fill_value_fn
 from ..crawlers.fill_values import default_placeholder_fill_value
 from ..crawlers.graph_sink import GraphStoreSink
 from ..crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
-from ..generators.component_family import (
-    build_component_families,
-    label_for_tag,
-    tags_with_multiple_instances,
-)
-from ..generators.component_family_narrator import narrate_family_purposes
+from ..crawlers.resume_state import restore_frontier
 from ..generators.component_tree import generate_component_tree_document
 from ..generators.graph_export import generate_graph_export_document
 from ..generators.graph_prd_synthesizer import GraphPRDSynthesizer
-from ..generators.request_family import build_inferred_requests
+from ..generators.whole_site_passes import apply_component_families, apply_request_graph
 from ..utils.io import generate_docs_index, record_run_manifest, write_output
 from .config import PragmaConfig
 from .interfaces import Agent, GraphStore
@@ -42,102 +39,6 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) -> None:
-    """Post-hoc, whole-site pass: infer reusable component families, give
-    each a one-sentence LLM-narrated purpose, and add per-tag Neo4j
-    labels - all from what the crawl just discovered, then write it back.
-    Runs once, after the crawl finishes - family clustering needs to see
-    every discovered component at once, not the live per-page write
-    stream `MechanicalCrawler` produces during the crawl.
-
-    Args:
-        graph_store: the same `GraphStore` the just-finished crawl wrote
-            to - read back from here (`get_component_ledger`), then
-            written back to (`record_component_families`,
-            `apply_tag_labels`).
-        site: which site's just-crawled data to process.
-        agent: the same LLM backend used for PRD narration - passed
-            through to `narrate_family_purposes` for the one-sentence
-            "what is this pattern used for" description each family gets.
-
-    Returns:
-        None. Four steps, always in this order:
-        1. Read every discovered component for `site` via
-           `get_component_ledger`, and flatten its `{page_url: {path:
-           {...}}}` nesting into one flat list of dicts (each with
-           `page_url` and `path` folded in) - the shape
-           `component_family.build_component_families`/
-           `tags_with_multiple_instances` both expect. The ledger's
-           per-page nesting exists for `GraphPRDSynthesizer`'s
-           page-by-page narration, not for a whole-site pass like this
-           one.
-        2. `build_component_families` clusters that flat list into
-           `ComponentFamily` objects (see that function's own docstring
-           for the full algorithm) - `purpose` is still `""` on every one
-           at this point, since clustering itself never calls the model.
-        3. `narrate_family_purposes` fills in `purpose`, one
-           `agent.generate()` call per family that has any member text at
-           all - see that function's own docstring for its graceful-
-           degradation behavior on a single family's failure.
-        4. The narrated families are written via `record_component_
-           families` (a full rebuild of `site`'s family structure every
-           call, per that method's own contract), and
-           `tags_with_multiple_instances` picks which raw HTML tags
-           appear often enough to deserve their own Neo4j label, each
-           mapped through `label_for_tag` to its actual label string
-           (e.g. `"button"` -> `"Button"`), written via
-           `apply_tag_labels`.
-    Details: docs/dev/core/engine.md#_apply_component_families
-    """
-    ledger = graph_store.get_component_ledger(site)
-    components = [
-        {"page_url": page_url, "path": path, **record}
-        for page_url, page_components in ledger.items()
-        for path, record in page_components.items()
-    ]
-    families = build_component_families(components)
-    member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
-    families = narrate_family_purposes(agent, families, member_texts)
-    graph_store.record_component_families(site, families)
-
-    tags = tags_with_multiple_instances(components)
-    graph_store.apply_tag_labels(site, {tag: label_for_tag(tag) for tag in tags})
-
-
-def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
-    """Post-hoc, whole-site pass: infer distinct API endpoints (and which
-    Components trigger each one) from network requests already captured
-    on Component nodes, then write them back. Independent of - and reads
-    the graph a second time from - `_apply_component_families`, rather
-    than sharing its already-flattened `components` list: this keeps the
-    two passes fully separable (one about component *look-alikes*, this
-    one about *endpoint* identity), at the cost of one extra
-    `get_component_ledger` read per crawl - a single local read, not a
-    hot path, run once per whole crawl.
-
-    Args:
-        graph_store: same `GraphStore` the crawl wrote to.
-        site: which site's just-crawled data to process.
-
-    Returns:
-        None. Reads every discovered component's `network_requests` via
-        `get_component_ledger`, flattens the same way
-        `_apply_component_families` does, clusters them via
-        `request_family.build_inferred_requests` (see that function's own
-        docstring), and writes the result via `record_inferred_requests`
-        - a full rebuild of `site`'s inferred-request structure every
-        call, same contract as `record_component_families`.
-    Details: docs/dev/core/engine.md#_apply_request_graph
-    """
-    ledger = graph_store.get_component_ledger(site)
-    components = [
-        {"page_url": page_url, "path": path, **record}
-        for page_url, page_components in ledger.items()
-        for path, record in page_components.items()
-    ]
-    graph_store.record_inferred_requests(site, build_inferred_requests(components))
-
-
 def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) -> int:
     """How many real Chromium processes Crawl4AICrawlerPool should launch.
     Unset ties it to page_concurrency (one dedicated browser per worker);
@@ -149,19 +50,69 @@ def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) 
     return min(browser_pool_size, page_concurrency)
 
 
+def _catch_first_interrupt(stopper: CrawlStopper) -> Callable[[], None]:
+    """Turn one Ctrl-C into a clean end-of-session instead of a traceback,
+    and return the callback that undoes it.
+
+    Args:
+        stopper: asked to stop when SIGINT arrives.
+
+    Returns:
+        A no-argument callable restoring the default SIGINT behaviour;
+        call it once the crawl is over. The handler removes itself as it
+        fires, so a *second* Ctrl-C still aborts immediately - a user who
+        doesn't want to wait out the in-flight pages must not be trapped.
+        On a platform whose event loop has no signal support (Windows),
+        this installs nothing and the returned callable is a no-op.
+    Details: docs/dev/core/engine.md#_catch_first_interrupt
+    """
+    loop = asyncio.get_running_loop()
+
+    def restore() -> None:
+        try:
+            loop.remove_signal_handler(signal.SIGINT)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    def on_interrupt() -> None:
+        restore()
+        stopper.request_stop(StopReason.INTERRUPT)
+
+    try:
+        loop.add_signal_handler(signal.SIGINT, on_interrupt)
+    except NotImplementedError:
+        return lambda: None
+    return restore
+
+
+@dataclass
+class _SynthesizedDocuments:
+    """What one run's synthesis wrote, or nothing at all when it was skipped.
+    Details: docs/dev/core/engine.md#_synthesizeddocuments
+    """
+
+    prd_path: Optional[str] = None
+    tree_path: Optional[str] = None
+    export_path: Optional[str] = None
+
+
 @dataclass
 class EngineRunResult:
     """`Engine.run()`'s return value - the output documents from one crawl.
-    Details: docs/dev/core/engine.md#enginerunresult
+    The document paths are `None` when a session stopped early and its
+    synthesis was skipped. Details: docs/dev/core/engine.md#enginerunresult
     """
 
-    prd_path: str
-    tree_path: str
+    prd_path: Optional[str] = None
+    tree_path: Optional[str] = None
     export_path: Optional[str] = None
     manifest_path: str = ""
     # Browsable Markdown index of every run, regenerated fresh every run.
     # Details: docs/dev/core/engine.md#enginerunresult-index_path
     index_path: str = ""
+    # Why this session ended before its frontier drained; `None` = it drained.
+    # Details: docs/dev/core/engine.md#enginerunresult-stopped_reason
+    stopped_reason: Optional[str] = None
 
 
 class Engine:
@@ -194,6 +145,9 @@ class Engine:
         export_json: bool = False,
         prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
+        resume: bool = False,
+        session_budget: Optional[SessionBudget] = None,
+        synthesize_on_partial: bool = False,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -228,6 +182,12 @@ class Engine:
         self.debug_logs_keep_last = debug_logs_keep_last
         self.export_json = export_json
         self.prd_synth_batch_size = prd_synth_batch_size
+        # Seed the frontier from what a previous session left Pending in the
+        # graph store, rather than from `url` alone.
+        # Details: docs/dev/core/engine.md#__init__-resume
+        self.resume = resume
+        self.session_budget = session_budget or SessionBudget()
+        self.synthesize_on_partial = synthesize_on_partial
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -278,6 +238,15 @@ class Engine:
             export_json=config.export_json,
             prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
+            # Not a separate flag: `fresh` already means "discard the
+            # previous run", so its inverse is exactly "continue it".
+            resume=not config.fresh,
+            session_budget=SessionBudget(
+                stop_after_pages=config.stop_after_pages,
+                stop_after_seconds=config.stop_after_seconds,
+                stop_after_rate_limit_trips=config.stop_after_rate_limit_trips,
+            ),
+            synthesize_on_partial=config.synthesize_on_partial,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -306,6 +275,7 @@ class Engine:
             suppress_navigation=self.suppress_navigation,
             interaction_timeout_seconds=self.interaction_timeout_seconds,
         )
+        stopper = CrawlStopper(self.session_budget)
         pool_size = _resolve_pool_size(self.browser_pool_size, self.page_concurrency)
         async with Crawl4AICrawlerPool(crawler_config, pool_size=pool_size) as crawler:
             fill_value_fn = (
@@ -323,35 +293,28 @@ class Engine:
                     page_concurrency=self.page_concurrency,
                     base_url=url,
                     allow_subdomains=self.allow_subdomains,
+                    stopper=stopper,
                 ),
             )
-            await mechanical.crawl_site(url)
+            if self.resume:
+                self._seed_previous_frontier(mechanical, site, url)
+            release_interrupt = _catch_first_interrupt(stopper)
+            try:
+                await mechanical.crawl_site(url)
+            finally:
+                release_interrupt()
+
+        stopped_reason = mechanical.stopped_reason
 
         if debug_log:
             await debug_log.close()
             # Prune only after close() - see prune_old_runs's own doc.
             prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
 
-        # Whole-site passes, after every component the crawl found is
-        # already in the graph - must run before synthesis reads it below.
-        _apply_component_families(self.graph_store, site, self.agent)
-        _apply_request_graph(self.graph_store, site)
-
         run_timestamp = _timestamp()
-        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store, batch_size=self.prd_synth_batch_size)
-        prd = synthesizer.synthesize(site)
-        prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{run_timestamp}.md"
-        write_output(prd_path, prd)
-
-        tree_doc = generate_component_tree_document(self.graph_store, site, use_box_drawing=not self.tree_ascii)
-        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{run_timestamp}.md"
-        write_output(tree_path, tree_doc)
-
-        export_path: Optional[str] = None
-        if self.export_json:
-            export_doc = generate_graph_export_document(self.graph_store, site)
-            export_path = f"{self.out_dir}/{_slugify(url)}_graph_{run_timestamp}.json"
-            write_output(export_path, export_doc)
+        documents = _SynthesizedDocuments()
+        if self._should_synthesize(stopped_reason):
+            documents = self._synthesize_documents(url, site, run_timestamp)
 
         finished_pages, total_pages = self.graph_store.count_visited(site)
         unexplored_components, total_components = self.graph_store.count_unexplored_components(site)
@@ -362,13 +325,14 @@ class Engine:
                 "timestamp": run_timestamp,
                 "url": url,
                 "graph_store": self.graph_store.__class__.__name__,
-                "prd_path": prd_path,
-                "tree_path": tree_path,
-                "export_path": export_path,
+                "prd_path": documents.prd_path,
+                "tree_path": documents.tree_path,
+                "export_path": documents.export_path,
                 "pages_finished": finished_pages,
                 "pages_total": total_pages,
                 "components_total": total_components,
                 "components_unexplored": unexplored_components,
+                "stopped_reason": stopped_reason.value if stopped_reason else None,
             },
         )
 
@@ -379,9 +343,77 @@ class Engine:
 
         self.graph_store.close()
         return EngineRunResult(
-            prd_path=prd_path,
-            tree_path=tree_path,
-            export_path=export_path,
+            prd_path=documents.prd_path,
+            tree_path=documents.tree_path,
+            export_path=documents.export_path,
             manifest_path=manifest_path,
             index_path=index_path,
+            stopped_reason=stopped_reason.value if stopped_reason else None,
         )
+
+    def _seed_previous_frontier(self, mechanical: MechanicalCrawler, site: str, start_url: str) -> None:
+        """Hand `mechanical` whatever the last session left unfinished.
+        Args:
+            mechanical: the crawler to seed, before `crawl_site` starts it.
+            site: graph-store key for this site's recorded pages.
+            start_url: read only for its scheme, which the graph's
+                `clean_url` keys have stripped and cannot be crawled without.
+        Returns:
+            None. A site with no recorded history yields an empty plan and
+            the crawl proceeds normally from `start_url` alone.
+        Details: docs/dev/core/engine.md#_seed_previous_frontier
+        """
+        plan = restore_frontier(
+            self.graph_store.get_progress_table_rows(site), urlparse(start_url).scheme or "https"
+        )
+        if plan.is_empty:
+            print(f"Nothing recorded for {site} yet - starting a fresh crawl.")
+            return
+        mechanical.resume(plan)
+
+    def _should_synthesize(self, stopped_reason: Optional[StopReason]) -> bool:
+        """Whether to spend LLM calls narrating a crawl that may be partial.
+        Every synthesis pass re-reads the whole graph and narrates it, so on
+        a session that stopped early it would be paid again in full on the
+        next resume - and describe a site the crawl hasn't finished seeing.
+        Details: docs/dev/core/engine.md#_should_synthesize
+        """
+        if stopped_reason is None:
+            return True
+        if self.synthesize_on_partial:
+            return True
+        print(
+            f"Session stopped early ({stopped_reason.value}) - skipping PRD synthesis. "
+            "Resume with --no-fresh, or pass --synthesize to narrate what's crawled so far."
+        )
+        return False
+
+    def _synthesize_documents(self, url: str, site: str, run_timestamp: str) -> "_SynthesizedDocuments":
+        """Run every whole-site pass and write the documents they produce.
+        Args:
+            url: the crawl's start URL, used only to name output files.
+            site: which site's graph to read back.
+            run_timestamp: shared suffix tying this run's files together.
+        Returns:
+            The paths written. The two graph-enriching passes run first and
+            in order: synthesis below reads the families and inferred
+            requests they write.
+        Details: docs/dev/core/engine.md#_synthesize_documents
+        """
+        apply_component_families(self.graph_store, site, self.agent)
+        apply_request_graph(self.graph_store, site)
+
+        synthesizer = GraphPRDSynthesizer(self.agent, self.graph_store, batch_size=self.prd_synth_batch_size)
+        prd_path = f"{self.out_dir}/{_slugify(url)}_prd_{run_timestamp}.md"
+        write_output(prd_path, synthesizer.synthesize(site))
+
+        tree_doc = generate_component_tree_document(self.graph_store, site, use_box_drawing=not self.tree_ascii)
+        tree_path = f"{self.out_dir}/{_slugify(url)}_tree_{run_timestamp}.md"
+        write_output(tree_path, tree_doc)
+
+        export_path: Optional[str] = None
+        if self.export_json:
+            export_path = f"{self.out_dir}/{_slugify(url)}_graph_{run_timestamp}.json"
+            write_output(export_path, generate_graph_export_document(self.graph_store, site))
+
+        return _SynthesizedDocuments(prd_path=prd_path, tree_path=tree_path, export_path=export_path)
