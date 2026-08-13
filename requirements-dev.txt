@@ -17,3 +17,9 @@
 # project's own pinned driver either way - testcontainers here only starts
 # the server, it never talks to it itself.
 testcontainers==4.15.0
+
+# openapi-spec-validator: lets tests/test_openapi.py check the generated
+# contract against the real OpenAPI 3.0 schema instead of hand-asserting a
+# handful of keys. Test-only - the generator itself writes YAML with the
+# already-pinned PyYAML and never imports this.
+openapi-spec-validator==0.9.0

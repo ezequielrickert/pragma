@@ -63,7 +63,8 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - coverage           # default below. Every run also writes a "Start Here" master document last,
 #   - prd                # indexing whatever was produced - that one is not listed here and cannot be
 #   - tree               # turned off. See src/generators/pipeline.py.
-#   - export             # available names: coverage, prd, tree, export
+#   - openapi            # available names: coverage, prd, tree, openapi, export
+#   - export
 export_json: false    # also write docs/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the
                        # prose PRD and the component tree - for a downstream tool that wants the
