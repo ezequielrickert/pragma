@@ -208,3 +208,71 @@ def test_summary_is_a_phrase_not_a_restatement_of_the_operation_id():
 
     assert operation["summary"] == "Create item"
     assert "{id}" not in operation["summary"]
+
+
+# --- security schemes and media types (from captured headers) ---
+
+def test_a_bearer_endpoint_declares_a_security_scheme():
+    """Named from the header's scheme word - the token itself never left
+    network_filter, so there is nothing here to leak."""
+    document = _document(_request(method="POST", auth_schemes=("bearer",), status_codes=(201,)))
+
+    assert document["components"]["securitySchemes"]["bearerAuth"] == {"type": "http", "scheme": "bearer"}
+    assert document["paths"]["/orders"]["post"]["security"] == [{"bearerAuth": []}]
+    openapi_spec_validator.validate(document)
+
+
+def test_an_api_key_header_becomes_an_apikey_scheme_named_after_it():
+    document = _document(_request(auth_schemes=("header:x-api-key",)))
+
+    scheme = document["components"]["securitySchemes"]["xApiKey"]
+
+    assert scheme == {"type": "apiKey", "in": "header", "name": "x-api-key"}
+    openapi_spec_validator.validate(document)
+
+
+def test_a_cookie_becomes_a_cookie_scheme():
+    document = _document(_request(auth_schemes=("cookie",)))
+
+    assert document["components"]["securitySchemes"]["sessionCookie"]["in"] == "cookie"
+
+
+def test_an_unrecognised_scheme_is_still_declared():
+    """An unfamiliar Authorization scheme is still authentication - dropping
+    it would tell a reader the endpoint is open."""
+    document = _document(_request(auth_schemes=("negotiate",)))
+
+    assert "negotiateAuth" in document["components"]["securitySchemes"]
+
+
+def test_an_endpoint_with_no_observed_auth_declares_none():
+    document = _document(_request())
+
+    assert "securitySchemes" not in document.get("components", {})
+    assert "security" not in document["paths"]["/orders"]["get"]
+
+
+def test_the_observed_media_type_is_used_instead_of_assuming_json():
+    document = _document(
+        _request(method="GET", response_shape=json.dumps({"id": "string"}),
+                 media_types=("application/xml",), status_codes=(200,))
+    )
+
+    assert list(document["paths"]["/orders"]["get"]["responses"]["200"]["content"]) == ["application/xml"]
+
+
+def test_json_remains_the_fallback_when_no_media_type_was_captured():
+    document = _document(
+        _request(method="GET", response_shape=json.dumps({"id": "string"}), status_codes=(200,))
+    )
+
+    assert list(document["paths"]["/orders"]["get"]["responses"]["200"]["content"]) == ["application/json"]
+
+
+def test_the_preamble_no_longer_claims_security_is_absent():
+    """It was, until headers were read. What is still absent are examples
+    and field constraints, and the preamble should say only that."""
+    description = _document(_request())["info"]["description"]
+
+    assert "Security schemes are named from request header names only" in description
+    assert "never from a credential" in description

@@ -31,12 +31,46 @@ from .json_schema import schema_from_shape
 _CRUD_VERBS = {"POST": "create", "PUT": "replace", "PATCH": "update", "DELETE": "delete"}
 
 _CONTRACT_PREAMBLE = (
-    "Inferred from traffic observed during an automated crawl, not from server source. "
-    "Security schemes, headers and examples are absent by design: the crawler records the "
-    "shape of every request and response and never their values, so no credential or real "
-    "payload can appear here. Endpoints the crawl never reached are absent too - see the "
-    "crawl coverage document from the same run."
+    "Inferred from traffic observed during an automated crawl, not from server source. Security "
+    "schemes are named from request header names only - never from a credential - so this says "
+    "which scheme an endpoint uses and never what the token was. Examples and field constraints "
+    "(enum, pattern, minimum) are absent by design: the crawler records the shape of every "
+    "request and response and never their values, so there is nothing to derive them from. "
+    "Endpoints the crawl never reached are absent too - see the crawl coverage document."
 )
+
+
+def _security_scheme(scheme: str) -> Tuple[str, Dict[str, Any]]:
+    """One observed scheme as an OpenAPI `securitySchemes` entry.
+
+    Args:
+        scheme: what `network_filter._auth_scheme` reported - `"bearer"`,
+            `"basic"`, `"cookie"`, or `"header:x-api-key"`.
+
+    Returns:
+        `(name, definition)`. Anything unrecognised becomes an `http`
+        scheme under its own name rather than being dropped: an
+        unfamiliar `Authorization` scheme is still authentication, and
+        omitting it would tell a reader the endpoint is open.
+    Details: docs/dev/generators/openapi.md#_security_scheme
+    """
+    if scheme.startswith("header:"):
+        header = scheme.split(":", 1)[1]
+        name = _camel(header)
+        # `x-api-key` already ends in "key"; appending another reads as a typo.
+        return (name if name.lower().endswith("key") else name + "Key"), {
+            "type": "apiKey", "in": "header", "name": header,
+        }
+    if scheme == "cookie":
+        return "sessionCookie", {"type": "apiKey", "in": "cookie", "name": "session"}
+    if scheme in ("bearer", "basic"):
+        return f"{scheme}Auth", {"type": "http", "scheme": scheme}
+    return f"{_camel(scheme)}Auth", {"type": "http", "scheme": scheme}
+
+
+def _camel(value: str) -> str:
+    parts = [part for part in value.replace("_", "-").split("-") if part]
+    return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:]) if parts else "auth"
 
 
 def _host_and_path(endpoint: str) -> Tuple[str, str]:
@@ -179,12 +213,16 @@ def _responses(request: InferredRequest, schemas: _SchemaRegistry, resource: str
     if not request.status_codes:
         return {"default": {"description": "No response status was captured for this endpoint."}}
 
+    # The media type the server actually answered with, rather than
+    # assuming JSON for an endpoint that returns XML or a redirect.
+    # Details: docs/dev/generators/openapi.md#media-types
+    media_type = request.media_types[0] if request.media_types else "application/json"
     responses: Dict[str, Any] = {}
     for code in request.status_codes:
         entry: Dict[str, Any] = {"description": f"Observed response (HTTP {code})."}
         if 200 <= code < 300 and response_schema:
             entry["content"] = {
-                "application/json": {
+                media_type: {
                     "schema": schemas.reference(response_schema, f"{_capitalized(_singular(resource))}Response")
                 }
             }
@@ -230,6 +268,7 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
     Details: docs/dev/generators/openapi.md#build_openapi_document
     """
     schemas = _SchemaRegistry()
+    security_schemes: Dict[str, Dict[str, Any]] = {}
     paths: Dict[str, Dict[str, Any]] = {}
     hosts = sorted({_host_and_path(request.endpoint)[0] for request in requests})
 
@@ -237,7 +276,12 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
         host, raw_path = _host_and_path(request.endpoint)
         templated, names = path_template(raw_path)
         item = paths.setdefault(templated, {})
-        item[request.method.lower()] = _operation(request, names, schemas)
+        operation = _operation(request, names, schemas)
+        for scheme in request.auth_schemes:
+            name, definition = _security_scheme(scheme)
+            security_schemes[name] = definition
+            operation.setdefault("security", []).append({name: []})
+        item[request.method.lower()] = operation
         # Per-path servers, so a crawl spanning several hosts stays
         # unambiguous instead of silently attributing every path to one.
         # Details: docs/dev/generators/openapi.md#per-path-servers
@@ -255,8 +299,13 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
     }
     if hosts:
         document["servers"] = [{"url": f"https://{host}"} for host in hosts]
+    components: Dict[str, Any] = {}
     if schemas.schemas:
-        document["components"] = {"schemas": schemas.schemas}
+        components["schemas"] = schemas.schemas
+    if security_schemes:
+        components["securitySchemes"] = security_schemes
+    if components:
+        document["components"] = components
     return document
 
 

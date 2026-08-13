@@ -207,6 +207,16 @@ class InferredRequest:
             with across the crawl, sorted. This is what an OpenAPI
             `responses:` block is built from - without it the block is
             invention.
+        auth_schemes: every authentication scheme observed on this
+            endpoint, sorted - `"bearer"`, `"basic"`, `"cookie"`,
+            `"header:x-api-key"`. Derived from header *names* and, for
+            `Authorization`, its scheme word; never from a credential.
+            This is what an OpenAPI `securitySchemes` block is built from,
+            and it was previously absent because the crawler discarded
+            headers wholesale.
+        media_types: every response `content-type` observed, sorted. Stops
+            the contract assuming `application/json` for an endpoint that
+            answers XML or a redirect.
         latencies_ms: every measured request-to-response time, sorted.
             Relative signal only (see `network_filter._latency_ms`), and
             empty when no response was ever captured.
@@ -221,3 +231,5 @@ class InferredRequest:
     loaded_by: Tuple[str, ...] = ()
     status_codes: Tuple[int, ...] = ()
     latencies_ms: Tuple[int, ...] = ()
+    auth_schemes: Tuple[str, ...] = ()
+    media_types: Tuple[str, ...] = ()
