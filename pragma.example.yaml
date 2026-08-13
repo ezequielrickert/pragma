@@ -64,7 +64,8 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - prd                # indexing whatever was produced - that one is not listed here and cannot be
 #   - tree               # turned off. See src/generators/pipeline.py.
 #   - openapi            # available names: coverage, prd, tree, openapi, catalog,
-#   - catalog            #                  catalog-data, export
+#   - catalog            #                  catalog-data, flows, export
+#   - flows
 #   - catalog-data
 #   - export
 export_json: false    # also write docs/{slug}_export_{timestamp}.json - the full crawl graph (pages,
