@@ -242,3 +242,46 @@ def test_one_control_leading_to_two_screens_with_agreeing_requests_keeps_its_out
     flow = build_flow_graph(edges, [component])
 
     assert {t.outcome for t in flow.transitions} == {ERROR}
+
+
+def test_stamped_interactions_resolve_the_ambiguity_the_pool_could_not():
+    """The Fase 4 limitation, now fixed: the successful branch keeps its 201
+    and the failed one its 422, instead of both being 'not attributable'."""
+    edges = [
+        _edge("/cart", "/receipt", path="div > pay"),
+        _edge("/cart", "/cart", path="div > pay"),
+    ]
+    component = {
+        "page_url": "/cart", "path": "div > pay", "text": "Pagar", "component_type": "button",
+        "interactions": [
+            {"action": "click", "resulting_url": "/receipt", "visit_id": "v1", "step_seq": 1},
+            {"action": "click", "resulting_url": "/cart", "visit_id": "v1", "step_seq": 2},
+        ],
+        "network_requests": [
+            {**_request(status=201), "visit_id": "v1", "step_seq": 1},
+            {**_request(status=422), "visit_id": "v1", "step_seq": 2},
+        ],
+    }
+
+    flow = build_flow_graph(edges, [component])
+    by_destination = {t.to_state: t for t in flow.transitions}
+
+    assert by_destination["/receipt"].outcome == OK
+    assert by_destination["/receipt"].status == 201
+    assert by_destination["/cart"].outcome == ERROR
+    assert by_destination["/cart"].status == 422
+
+
+def test_unstamped_data_still_degrades_to_the_declared_ambiguity():
+    """A graph written before stamping existed must not silently gain
+    precision it does not have."""
+    edges = [
+        _edge("/cart", "/receipt", path="div > pay"),
+        _edge("/cart", "/cart", path="div > pay"),
+    ]
+    component = _component("/cart", "div > pay", "Pagar",
+                           requests=[_request(status=201), _request(status=422)])
+
+    flow = build_flow_graph(edges, [component])
+
+    assert {t.outcome for t in flow.transitions} == {MIXED}

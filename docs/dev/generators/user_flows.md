@@ -87,3 +87,18 @@ fail loudly.
 States up front that requests are attributed to the **control**, not to
 the individual move, and why. A reader who takes a per-move status at face
 value would be drawing conclusions the data does not support.
+
+## _requests_for_move
+
+The fix for what `mixed` was introduced to declare.
+
+Interactions now carry the position they happened at (`VisitStep`), and so
+do the requests they fired, so a control clicked twice has each click's
+response separable from the other's. A move is matched to its own
+interactions by comparing `route_shape(resulting_url)` to the destination
+state - the interaction stores the literal URL, the edge stores the shape.
+
+Falls back to the control's pooled requests, flagged inexact, when nothing
+is stamped. That flag is what keeps `mixed` alive for graphs written
+before the stamping existed: a document reading an old graph must not
+silently gain precision it does not have.

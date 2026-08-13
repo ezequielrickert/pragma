@@ -23,3 +23,9 @@ testcontainers==4.15.0
 # handful of keys. Test-only - the generator itself writes YAML with the
 # already-pinned PyYAML and never imports this.
 openapi-spec-validator==0.9.0
+
+# gherkin-official: the Cucumber project's own parser, used by
+# tests/test_gherkin.py to check the generated .feature really parses
+# instead of asserting that the word "Given" appears in it. Test-only - the
+# generator writes plain text and never imports this.
+gherkin-official==42.0.1
