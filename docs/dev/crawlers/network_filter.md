@@ -74,3 +74,50 @@ status/failure (and now `body_shape`/`response_shape`) misattributed to
 the wrong attempt (last-one-wins, since later events overwrite earlier
 ones in the lookup dicts below). Accepted for this feature's purposes,
 not fixed here.
+
+
+## _is_meaningful
+
+Replaces the old flat `resource_type in {"xhr","fetch"}` check, because
+that set silently excluded the single most important request an old
+application makes.
+
+A classic `<form method="post">` submit navigates the page, and Playwright
+reports a navigation as resource_type **`document`**, not xhr/fetch. A
+server-rendered legacy system - the case this whole project exists for -
+sends its data that way, so the API contract inferred from such a site
+came out empty, and nothing said why: the coverage report counts pages and
+components, not request kinds.
+
+The method is what separates the two `document` cases. A GET document is
+someone following a link, and every crawled page produces one; keeping
+those would bury the real endpoints under one entry per page. A non-GET
+document is a form submitting data, which is exactly an API call that
+happens to answer with a page instead of JSON.
+
+Consequence worth expecting: those requests have `body_shape: ""`, since a
+form submit sends `application/x-www-form-urlencoded`, not JSON, and
+`_shape_of_json_text` returns `""` for anything it cannot parse. The
+method, endpoint, and status still describe the operation - which is more
+than the previous behaviour, where it did not exist at all.
+
+## _latency_ms
+
+crawl4ai already stamps every captured event with `timestamp`
+(`async_crawler_strategy.py`), so latency is the gap between a request and
+its response - no new capture, just two fields that were being discarded.
+
+Reported as `None`, never `0`, when no response arrived: a failed request
+has a send time and nothing else, and `0 ms` would read as
+"instantaneous" rather than "never answered".
+
+**What this number is and is not.** It is measured through the crawl's own
+browser, which runs with `light_mode`, `memory_saving_mode` and blocked
+images. It is a *relative* signal - this endpoint takes ten times longer
+than that one - and feeds the Nielsen "visibility of system status" rule.
+It is not a performance measurement of the application.
+
+Inherits an existing limitation rather than introducing one: every map in
+`filter_meaningful_requests` is keyed by url, so two requests to the same
+url within one batch overwrite each other. That was already true of
+`status`.

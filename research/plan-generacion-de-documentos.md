@@ -10,15 +10,15 @@
 | D1 | Digital Blueprint (PRD narrativo) | — | existe (`graph_prd_synthesizer.py`) | — |
 | D2 | Árbol de componentes | — | existe (`component_tree.py`) | — |
 | D3 | Export JSON del grafo | — | existe (`graph_export.py`) | — |
-| D9 | Reporte de cobertura | — | falta | 0 |
-| D4 | Contrato de API | OpenAPI 3.0 | falta | 2 |
+| D9 | Reporte de cobertura | — | **hecho** (`coverage.py`) | 0 |
+| D4 | Contrato de API | OpenAPI 3.0 | **hecho** (`openapi.py`) | 2 |
 | D5 | Catálogo de componentes (props + variantes) | Atomic Design, nivel átomo | falta | 3 |
 | D6 | Flujos de usuario | FSM / diagrama de estados | falta | 4 |
 | D7 | Auditoría de usabilidad | Heurísticas de Nielsen | falta | 5a |
 | D10 | Especificación visual (design tokens) | W3C Design Tokens | falta | 5b |
 | D11 | Auditoría de accesibilidad | WCAG 2.1 AA vía axe-core | falta | 5c |
 | D8 | Especificación de comportamiento | BDD / Gherkin | falta | 6 |
-| D12 | Documento maestro (explica y referencia a los demás) | — | falta | 0 (motor) / última etapa |
+| D12 | Documento maestro (explica y referencia a los demás) | — | **hecho** (`master_document.py`) | 0 (motor) / última etapa |
 
 ---
 
@@ -618,7 +618,7 @@ investigación pide y el plan no cubría.
 
 ### En el código (afectan el techo de varios documentos)
 
-**H1. Las peticiones que dispara la carga de una página no se capturan.**
+**H1 (resuelto en la Fase 2). Las peticiones que dispara la carga de una página no se capturaban.**
 `capture_network_requests=True` está puesto sólo en `Crawl4AICrawler._interact()`, nunca en
 `discover_page()`. Está documentado y el razonamiento es correcto *para su propósito original*:
 "las peticiones de una carga de página no son atribuibles a la interacción de un componente"
@@ -628,7 +628,7 @@ del contrato de la API.** Una SPA que carga sus datos al entrar a la ruta pierde
 endpoints, y hoy nada lo reporta. Requiere decisión nueva: capturar también en `discover_page()`
 y marcar esas peticiones como `triggered_by: page_load` en vez de por componente.
 
-**H2. Los envíos de formulario clásicos se descartan.**
+**H2 (resuelto en la Fase 2). Los envíos de formulario clásicos se descartaban.**
 `_MEANINGFUL_RESOURCE_TYPES = {"xhr", "fetch"}` deja afuera `document`, y un form POST que navega
 la página **es** de tipo `document`. Una app legacy renderizada en el servidor —el caso de uso
 central de este proyecto— hace exactamente eso. D4 saldría casi vacío en ese escenario y D9 no

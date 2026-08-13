@@ -26,6 +26,8 @@ class _SiteData:
     components: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
     # {page_url: [{path, tag, text, visible, x, y, width, height}]}
     text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    # {page_url: [request, ...]} for requests the page's own load fired.
+    page_network: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     component_families: List[ComponentFamily] = field(default_factory=list)
     inferred_requests: List[InferredRequest] = field(default_factory=list)
 
@@ -209,6 +211,12 @@ class InMemoryGraphStore(GraphStore):
         record["interactions"].append(
             {"action": action, "value": value, "resulting_url": resulting_url, "source_path": source_path}
         )
+
+    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
+        self._site(site).page_network.setdefault(page_url, []).extend(json.loads(requests_json))
+
+    def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        return {url: list(requests) for url, requests in self._site(site).page_network.items() if requests}
 
     def record_component_options(
         self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None

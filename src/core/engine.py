@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
 from ..crawlers.crawl4ai_crawler import Crawl4AICrawlerConfig
@@ -27,7 +27,7 @@ from ..generators.pipeline import DocumentNaming, run_document_pipeline
 from ..generators.request_family import build_inferred_requests
 from ..utils.io import generate_docs_index, record_run_manifest, write_output
 from .config import PragmaConfig
-from .documents import DocumentRequest
+from .documents import DocumentRequest, ProducedDocument
 from .interfaces import Agent, GraphStore
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
@@ -119,7 +119,8 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
     Details: docs/dev/core/engine.md#_apply_request_graph
     """
     components = flat_component_ledger(graph_store, site)
-    graph_store.record_inferred_requests(site, build_inferred_requests(components))
+    page_requests = graph_store.get_page_network_ledger(site)
+    graph_store.record_inferred_requests(site, build_inferred_requests(components, page_requests))
 
 
 def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) -> int:
@@ -145,6 +146,11 @@ class EngineRunResult:
     # The "Start Here" index of everything this run produced; always written.
     # Details: docs/dev/core/engine.md#enginerunresult-master_path
     master_path: str = ""
+    # Every document this run wrote, in pipeline order, master last. The
+    # named fields above are the pre-existing shortcuts into this list -
+    # this is what a caller iterates so it doesn't need a branch per
+    # document. Details: docs/dev/core/engine.md#enginerunresult-documents
+    documents: Tuple[ProducedDocument, ...] = ()
     manifest_path: str = ""
     # Browsable Markdown index of every run, regenerated fresh every run.
     # Details: docs/dev/core/engine.md#enginerunresult-index_path
@@ -368,6 +374,7 @@ class Engine:
             tree_path=paths.get("tree", ""),
             export_path=paths.get("export"),
             master_path=paths.get("master", ""),
+            documents=tuple(produced),
             manifest_path=manifest_path,
             index_path=index_path,
         )

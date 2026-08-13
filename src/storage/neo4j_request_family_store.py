@@ -68,6 +68,8 @@ class _Neo4jRequestFamilyMixin:
                         site: $site, method: $method, endpoint: $endpoint,
                         query_params: $query_params, body_shape: $body_shape,
                         response_shape: $response_shape,
+                        loaded_by: $loaded_by, status_codes: $status_codes,
+                        latencies_ms: $latencies_ms,
                         caption: $method + ' ' + $endpoint
                     })
                     CREATE (rf)-[:HAS_REQUEST]->(r)
@@ -79,6 +81,8 @@ class _Neo4jRequestFamilyMixin:
                     site=site, method=req.method, endpoint=req.endpoint,
                     query_params=list(req.query_params), body_shape=req.body_shape,
                     response_shape=req.response_shape,
+                    loaded_by=list(req.loaded_by), status_codes=list(req.status_codes),
+                    latencies_ms=list(req.latencies_ms),
                     triggered_by=[list(tb) for tb in req.triggered_by],
                 )
 
@@ -109,7 +113,8 @@ class _Neo4jRequestFamilyMixin:
                 WITH r, c ORDER BY c.page_url, c.path
                 RETURN elementId(r) AS rid, r.method AS method, r.endpoint AS endpoint,
                        r.query_params AS query_params, r.body_shape AS body_shape,
-                       r.response_shape AS response_shape,
+                       r.response_shape AS response_shape, r.loaded_by AS loaded_by,
+                       r.status_codes AS status_codes, r.latencies_ms AS latencies_ms,
                        collect(CASE WHEN c IS NOT NULL THEN [c.page_url, c.path] END) AS triggered_by
                 """,
                 site=site,
@@ -122,6 +127,9 @@ class _Neo4jRequestFamilyMixin:
                     body_shape=r["body_shape"] or "",
                     response_shape=r["response_shape"] or "",
                     triggered_by=tuple(tuple(tb) for tb in r["triggered_by"] if tb is not None),
+                    loaded_by=tuple(r["loaded_by"] or []),
+                    status_codes=tuple(r["status_codes"] or []),
+                    latencies_ms=tuple(r["latencies_ms"] or []),
                 )
                 for r in result
             ]

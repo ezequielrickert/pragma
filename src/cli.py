@@ -20,7 +20,36 @@ from src.core import bootstrap  # noqa: F401  -- populates the plugin registries
 from src.core import prompts
 from src.core.app import run_app
 from src.core.config import PragmaConfig
-from src.core.engine import Engine
+from src.core.engine import Engine, EngineRunResult
+
+
+def _print_documents(result: EngineRunResult) -> None:
+    """List every document the run wrote, master document first.
+
+    It goes first because it is the one to open: it indexes the others and
+    carries the coverage numbers. Buried in the middle of an alphabetical
+    list it is just another filename, which is exactly the "which of these
+    do I open" problem it exists to solve.
+
+    Iterates `result.documents` rather than printing a line per named
+    field, so a document added in a later phase shows up here without this
+    function changing - the same reason `Engine` stopped hardcoding one
+    block per output file.
+    Details: docs/dev/cli.md#_print_documents
+    """
+    if not result.documents:
+        print("No documents were generated - see the errors above.")
+        return
+
+    master = next((d for d in result.documents if d.name == "master"), None)
+    if master:
+        print(f"\nStart here -> {master.path}")
+    width = max(len(d.title) for d in result.documents)
+    for document in result.documents:
+        if document is master:
+            continue
+        print(f"  {document.title:<{width}}  {document.path}")
+    print()
 from src.core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 from src.core.wizard import run_config_wizard
 
@@ -182,10 +211,7 @@ def main() -> None:
         print(f"Wiring: agent={config.agent} graph_store={config.graph_store}")
         engine = Engine.from_config(config)
         result = engine.run(config.url)
-        print(f"Successfully generated PRD: {result.prd_path}")
-        print(f"Successfully generated component tree: {result.tree_path}")
-        if result.export_path:
-            print(f"Successfully generated JSON export: {result.export_path}")
+        _print_documents(result)
         print(f"Run recorded in manifest: {result.manifest_path}")
         print(f"Run index updated: {result.index_path}")
 

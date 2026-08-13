@@ -94,3 +94,15 @@ one where every other generator failed (it would then index nothing, which
 is itself the useful signal). `prd_path`/`tree_path` degrade to `""` and
 `export_path` to `None` when their generator was not requested or failed -
 the pre-existing meaning of those fields, unchanged.
+
+## EngineRunResult-documents
+
+Every document the run wrote, in pipeline order with the master last. The
+named fields (`prd_path`, `tree_path`, `export_path`, `master_path`) are
+shortcuts into this same list, kept because existing callers and tests use
+them; this is what a caller iterates when it wants all of them without a
+branch per document.
+
+Added when the CLI's end-of-run listing turned out to be the last place
+still carrying one hardcoded line per output file - `coverage` and
+`master` had landed in Fase 0 and simply never appeared on screen.

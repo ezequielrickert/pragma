@@ -33,7 +33,7 @@ def test_xhr_and_fetch_requests_are_kept_with_joined_status():
     assert ping == {
         "method": "GET", "url": "/api/ping", "resource_type": "fetch",
         "status": 200, "failed": False, "failure_text": None,
-        "body_shape": "", "response_shape": "",
+        "body_shape": "", "response_shape": "", "latency_ms": None,
     }
     legacy = next(r for r in result if r["url"] == "/api/legacy")
     assert legacy["status"] == 201
@@ -143,3 +143,52 @@ def test_capture_error_event_types_never_match_the_keep_filter():
         {"event_type": "request_failed_capture_error", "url": "/api/y", "error": "boom"},
     ]
     assert filter_meaningful_requests(events) == []
+
+
+def test_a_classic_form_post_is_kept_even_though_it_is_a_document():
+    """A server-rendered legacy app - this project's whole use case - submits
+    data with <form method="post">, which navigates and is resource_type
+    "document", not xhr/fetch. Dropping those left the API contract empty."""
+    events = [
+        {"event_type": "request", "url": "/orders/create", "method": "POST", "resource_type": "document"},
+        {"event_type": "response", "url": "/orders/create", "status": 302},
+    ]
+
+    result = filter_meaningful_requests(events)
+
+    assert len(result) == 1
+    assert result[0]["method"] == "POST"
+    assert result[0]["status"] == 302
+
+
+def test_a_plain_page_navigation_is_still_dropped():
+    """The counterpart to the test above: a GET document is someone following
+    a link, not an API call, and every crawled page would produce one."""
+    events = [
+        {"event_type": "request", "url": "/about", "method": "GET", "resource_type": "document"},
+        {"event_type": "response", "url": "/about", "status": 200},
+    ]
+
+    assert filter_meaningful_requests(events) == []
+
+
+def test_latency_is_the_gap_between_request_and_response():
+    events = [
+        {"event_type": "request", "url": "/api/slow", "method": "GET", "resource_type": "fetch",
+         "timestamp": 1000.0},
+        {"event_type": "response", "url": "/api/slow", "status": 200, "timestamp": 1002.5},
+    ]
+
+    assert filter_meaningful_requests(events)[0]["latency_ms"] == 2500
+
+
+def test_latency_is_none_when_no_response_ever_arrived():
+    """A failed request has a send time and nothing else - reporting 0 ms
+    would read as "instantaneous" rather than "never answered"."""
+    events = [
+        {"event_type": "request", "url": "/api/down", "method": "GET", "resource_type": "xhr",
+         "timestamp": 1000.0},
+        {"event_type": "request_failed", "url": "/api/down", "failure_text": "refused"},
+    ]
+
+    assert filter_meaningful_requests(events)[0]["latency_ms"] is None

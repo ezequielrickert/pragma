@@ -161,6 +161,20 @@ class InferredRequest:
             several different components (e.g. four separate "Agregar"
             buttons all calling the same `participant_selections`
             endpoint) lists every one of them, not just the first.
+        loaded_by: page urls whose own *load* fired this request, with no
+            component involved - a SPA fetching what it needs to render.
+            Kept separate from `triggered_by` rather than folded in with a
+            blank path: "this endpoint is called when you open /orders" and
+            "this endpoint is called when you click Save" are different
+            facts, and an OpenAPI description that conflates them is
+            wrong about how the application works.
+        status_codes: every distinct HTTP status this endpoint answered
+            with across the crawl, sorted. This is what an OpenAPI
+            `responses:` block is built from - without it the block is
+            invention.
+        latencies_ms: every measured request-to-response time, sorted.
+            Relative signal only (see `network_filter._latency_ms`), and
+            empty when no response was ever captured.
     """
 
     method: str
@@ -169,3 +183,6 @@ class InferredRequest:
     body_shape: str
     response_shape: str
     triggered_by: Tuple[Tuple[str, str], ...]
+    loaded_by: Tuple[str, ...] = ()
+    status_codes: Tuple[int, ...] = ()
+    latencies_ms: Tuple[int, ...] = ()

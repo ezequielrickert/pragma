@@ -9,6 +9,7 @@ from ..generators import component_tree  # noqa: F401  (registers "tree")
 from ..generators import coverage  # noqa: F401  (registers "coverage")
 from ..generators import graph_export  # noqa: F401  (registers "export")
 from ..generators import graph_prd_synthesizer  # noqa: F401  (registers "prd")
+from ..generators import openapi  # noqa: F401  (registers "openapi")
 from ..storage import memory_graph_store  # noqa: F401  (registers "memory")
 
 try:

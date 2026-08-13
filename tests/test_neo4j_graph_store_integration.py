@@ -630,3 +630,48 @@ def test_inferred_nodes_are_labelled_apart_from_observed_ones(store):
     assert ("Inferred", "Request") in inferred
     assert ("Inferred", "RequestFamily") in inferred
     assert observed_is_not_inferred is False
+
+
+def test_page_load_requests_round_trip(store):
+    """A SPA's route-entry fetches belong to the page, not to any component -
+    without this they were never captured at all (plan H1)."""
+    import json as _json
+
+    site = "pragma-test.local"
+    store.record_page_network(
+        site, "shop/orders",
+        _json.dumps([{"method": "GET", "url": "https://api/x/orders", "status": 200, "latency_ms": 42}]),
+    )
+
+    ledger = store.get_page_network_ledger(site)
+
+    assert ledger == {
+        "shop/orders": [{"method": "GET", "url": "https://api/x/orders", "status": 200, "latency_ms": 42}]
+    }
+
+
+def test_pages_with_no_load_requests_are_absent_from_the_ledger(store):
+    site = "pragma-test.local"
+    store.upsert_page(site, "shop/static", status="Finished")
+
+    assert store.get_page_network_ledger(site) == {}
+
+
+def test_inferred_request_persists_status_codes_and_load_attribution(store):
+    from src.core.interfaces import InferredRequest
+
+    site = "pragma-test.local"
+    store.record_inferred_requests(
+        site,
+        [InferredRequest(
+            method="POST", endpoint="api/orders", query_params=(), body_shape="",
+            response_shape="", triggered_by=(), loaded_by=("shop/",),
+            status_codes=(201, 422), latencies_ms=(80, 120),
+        )],
+    )
+
+    read_back = store.get_inferred_requests(site)[0]
+
+    assert read_back.status_codes == (201, 422)
+    assert read_back.latencies_ms == (80, 120)
+    assert read_back.loaded_by == ("shop/",)

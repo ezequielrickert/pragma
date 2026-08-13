@@ -361,6 +361,11 @@ class Crawl4AICrawler:
             session_id=session_id,
             cache_mode=CacheMode.BYPASS,
             wait_for="css:body",
+            # A page's own load fires the API calls a SPA needs to render at
+            # all - not attributable to any one component, but part of the
+            # contract all the same.
+            # Details: docs/dev/crawlers/crawl4ai_crawler.md#discover_page-network-capture
+            capture_network_requests=True,
             page_timeout=int(self.page_timeout_seconds * 1000),
             prefetch=self.prefetch,
         )
@@ -382,6 +387,7 @@ class Crawl4AICrawler:
             links=data.get("links", []),
             description=data.get("description", ""),
             text_content=data.get("text_content", []),
+            network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
         )
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)

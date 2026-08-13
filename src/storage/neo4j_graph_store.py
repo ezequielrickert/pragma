@@ -3,6 +3,7 @@ Details: docs/dev/storage/neo4j_graph_store.md#module
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -186,6 +187,31 @@ class Neo4jGraphStore(
                 site=site,
             )
             return {r["url"]: r["value"] for r in result}
+
+    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                SET p.network_requests = coalesce(p.network_requests, []) + $entry
+                """,
+                site=site, page_url=page_url, entry=requests_json,
+            )
+
+    def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.network_requests IS NOT NULL AND size(p.network_requests) > 0
+                RETURN p.url AS url, p.network_requests AS batches
+                """,
+                site=site,
+            )
+            return {
+                r["url"]: [request for batch in r["batches"] for request in json.loads(batch)]
+                for r in result
+            }
 
     def is_visited(self, site: str, url: str) -> bool:
         with self._session() as session:
