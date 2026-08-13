@@ -287,6 +287,10 @@ class PageVisitor:
             await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
             await self.sink.record_inventory(page_key, state.components, state.links)
             await self.sink.record_text_content(page_key, state.text_content)
+            # Only here, not on the post-interaction path below: those
+            # requests already belong to the component that fired them.
+            # Details: docs/dev/crawlers/page_visitor.md#record_page_network
+            await self.sink.record_page_network(page_key, state.network_requests)
 
         self._enqueue_links(state.links)
 

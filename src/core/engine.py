@@ -119,7 +119,8 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
     Details: docs/dev/core/engine.md#_apply_request_graph
     """
     components = flat_component_ledger(graph_store, site)
-    graph_store.record_inferred_requests(site, build_inferred_requests(components))
+    page_requests = graph_store.get_page_network_ledger(site)
+    graph_store.record_inferred_requests(site, build_inferred_requests(components, page_requests))
 
 
 def _resolve_pool_size(browser_pool_size: Optional[int], page_concurrency: int) -> int:

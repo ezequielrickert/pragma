@@ -126,6 +126,16 @@ class GraphStoreSink:
             status="Pending", description=description, title=title,
         )
 
+    async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
+        """Requests the page's own load fired, with no component to blame.
+        Details: docs/dev/crawlers/graph_sink.md#record_page_network
+        """
+        if not requests:
+            return
+        await self._write(
+            self.graph_store.record_page_network, self.site, page_key, json.dumps(requests)
+        )
+
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
         Details: docs/dev/crawlers/graph_sink.md#record_text_content

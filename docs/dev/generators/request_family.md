@@ -56,3 +56,31 @@ three-part identity a distinct endpoint is defined by. Within a bucket
 
 Result is sorted by the bucket key for a deterministic order regardless
 of input order.
+
+## _merge_shape
+
+Replaces "the first non-empty shape in the group wins", which could not
+tell a required field from an optional one - so every property in the
+generated OpenAPI schema would have come out required, including ones half
+the real calls never send.
+
+The union marks a key present in some samples and absent in others by
+suffixing its type with `?` (`"string?"`). That keeps the shape a plain
+JSON object the rest of the pipeline already knows how to read, instead of
+introducing a parallel "required keys" structure that every consumer would
+have to learn.
+
+Non-object shapes (a bare array, a bare string) are left at the first
+non-empty one: there is no meaningful union of `["string"]` and `"number"`,
+and inventing one would be worse than admitting the sample disagreed.
+
+## loaded_by
+
+Requests fired by a page's own load are kept apart from those a component
+triggered, rather than folded into `triggered_by` with a blank path.
+
+"This endpoint is called when you open /orders" and "this endpoint is
+called when you click Save" are different facts about how an application
+works, and an API document that conflates them describes a system that
+doesn't exist. Keeping them separate also means no consumer of
+`triggered_by` has to learn that a blank path is a sentinel.

@@ -16,7 +16,8 @@ Details: docs/dev/generators/request_family.md#module
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+import json
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlsplit
 
 from ..core.interfaces import InferredRequest
@@ -65,7 +66,44 @@ def query_param_names(url: str) -> Tuple[str, ...]:
     return tuple(sorted({name for name, _ in parse_qsl(split.query)}))
 
 
-def build_inferred_requests(components: List[Dict[str, Any]]) -> List[InferredRequest]:
+def _merge_shape(accumulated: str, incoming: str) -> str:
+    """Union of two JSON-encoded shapes, marking keys that aren't in both.
+
+    Args:
+        accumulated: the shape built from earlier samples, or `""`.
+        incoming: this sample's shape, or `""`.
+
+    Returns:
+        A JSON-encoded object shape holding every key either side had.
+        A key missing from one side is suffixed `"?"` (e.g. `"string?"`),
+        which is how the OpenAPI generator tells required from optional -
+        a key absent from some calls to the same endpoint is optional by
+        observation. Non-object shapes (an array, a bare string) can't be
+        merged this way, so the first non-empty one wins unchanged.
+    Details: docs/dev/generators/request_family.md#_merge_shape
+    """
+    if not accumulated:
+        return incoming
+    if not incoming or accumulated == incoming:
+        return accumulated
+    try:
+        left, right = json.loads(accumulated), json.loads(incoming)
+    except (json.JSONDecodeError, TypeError):
+        return accumulated
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return accumulated
+
+    merged: Dict[str, Any] = {}
+    for key in sorted(set(left) | set(right)):
+        in_both = key in left and key in right
+        value = left.get(key, right.get(key))
+        merged[key] = value if in_both or not isinstance(value, str) else f"{value}?"
+    return json.dumps(merged)
+
+
+def build_inferred_requests(
+    components: List[Dict[str, Any]], page_requests: Optional[Dict[str, List[Dict[str, Any]]]] = None
+) -> List[InferredRequest]:
     """Group every network request across `components` into one
     `InferredRequest` per distinct `(method, endpoint, query_param_names)`.
 
@@ -81,40 +119,69 @@ def build_inferred_requests(components: List[Dict[str, Any]]) -> List[InferredRe
             `network_requests` (the common case - most components never
             trigger a network call) contribute nothing and aren't an
             error.
+        page_requests: `{page_url: [request, ...]}` for requests each
+            page's own *load* fired, from
+            `GraphStore.get_page_network_ledger`. Omitted or `None`
+            behaves exactly as before this parameter existed - which is
+            also what every `InMemoryGraphStore`-backed caller that
+            predates it still does.
 
     Returns:
         One `InferredRequest` per distinct `(method, endpoint,
         query_param_names)` group, sorted by that same key for a
         deterministic order:
-        - `body_shape`/`response_shape`: the first non-empty shape seen
-          across every request in the group - a known, accepted
-          simplification (not a merge/union of every occurrence's shape)
-          when different calls to the same endpoint carry slightly
-          different payloads; documented here rather than silently
-          assumed.
+        - `body_shape`/`response_shape`: the *union* of every sample's
+          shape, with keys absent from some samples marked `"?"` - see
+          `_merge_shape`. This replaced "first non-empty shape wins",
+          which could not distinguish a required field from an optional
+          one and so made every OpenAPI property required by accident.
         - `triggered_by`: every distinct `(page_url, path)` whose
           component fired at least one request in this group, sorted.
+        - `loaded_by`: every page whose load fired it, sorted.
+        - `status_codes`/`latencies_ms`: every distinct status and every
+          measured latency observed, sorted.
     """
     buckets: Dict[Tuple[str, str, Tuple[str, ...]], Dict[str, Any]] = {}
+
+    def absorb(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Fold one request into its bucket, returning the bucket (or None
+        if the request has no method/url to group by)."""
+        method = (req.get("method") or "").upper()
+        url = req.get("url") or ""
+        if not method or not url:
+            return None
+        key = (method, normalized_endpoint(url), query_param_names(url))
+        bucket = buckets.setdefault(
+            key,
+            {
+                "body_shape": "", "response_shape": "",
+                "triggered_by": set(), "loaded_by": set(),
+                "status_codes": set(), "latencies_ms": [],
+            },
+        )
+        bucket["body_shape"] = _merge_shape(bucket["body_shape"], req.get("body_shape") or "")
+        bucket["response_shape"] = _merge_shape(bucket["response_shape"], req.get("response_shape") or "")
+        if isinstance(req.get("status"), int):
+            bucket["status_codes"].add(req["status"])
+        if isinstance(req.get("latency_ms"), int):
+            bucket["latencies_ms"].append(req["latency_ms"])
+        return bucket
+
     for comp in components:
         page_url = comp.get("page_url")
         path = comp.get("path")
         if not page_url or not path:
             continue
         for req in comp.get("network_requests") or []:
-            method = (req.get("method") or "").upper()
-            url = req.get("url") or ""
-            if not method or not url:
-                continue
-            key = (method, normalized_endpoint(url), query_param_names(url))
-            bucket = buckets.setdefault(
-                key, {"body_shape": "", "response_shape": "", "triggered_by": set()}
-            )
-            bucket["triggered_by"].add((page_url, path))
-            if not bucket["body_shape"] and req.get("body_shape"):
-                bucket["body_shape"] = req["body_shape"]
-            if not bucket["response_shape"] and req.get("response_shape"):
-                bucket["response_shape"] = req["response_shape"]
+            bucket = absorb(req)
+            if bucket is not None:
+                bucket["triggered_by"].add((page_url, path))
+
+    for page_url, requests in (page_requests or {}).items():
+        for req in requests:
+            bucket = absorb(req)
+            if bucket is not None:
+                bucket["loaded_by"].add(page_url)
 
     return [
         InferredRequest(
@@ -124,6 +191,9 @@ def build_inferred_requests(components: List[Dict[str, Any]]) -> List[InferredRe
             body_shape=data["body_shape"],
             response_shape=data["response_shape"],
             triggered_by=tuple(sorted(data["triggered_by"])),
+            loaded_by=tuple(sorted(data["loaded_by"])),
+            status_codes=tuple(sorted(data["status_codes"])),
+            latencies_ms=tuple(sorted(data["latencies_ms"])),
         )
         for (method, endpoint, query_params), data in sorted(buckets.items())
     ]

@@ -1,4 +1,6 @@
 """Unit tests for request_family.py's pure endpoint-inference logic."""
+import json
+
 from src.generators.request_family import (
     build_inferred_requests,
     normalized_endpoint,
@@ -90,3 +92,83 @@ def test_result_is_sorted_deterministically():
     ]
     requests = build_inferred_requests(components)
     assert [(r.method, r.endpoint) for r in requests] == [("GET", "x.co/a"), ("POST", "x.co/b")]
+
+
+def _request(url, method="GET", **extra):
+    return {"method": method, "url": url, "body_shape": "", "response_shape": "", **extra}
+
+
+def test_page_load_requests_are_attributed_to_the_page_not_a_component():
+    """A SPA fetches what it needs to render on route entry, with no
+    component to blame. Folding those into triggered_by with a blank path
+    would claim a control exists that doesn't."""
+    inferred = build_inferred_requests(
+        [], {"shop/orders": [_request("https://api/x/orders", status=200)]}
+    )
+
+    assert len(inferred) == 1
+    assert inferred[0].loaded_by == ("shop/orders",)
+    assert inferred[0].triggered_by == ()
+
+
+def test_one_endpoint_can_be_both_loaded_and_triggered():
+    component = {
+        "page_url": "shop/orders", "path": "div > button",
+        "network_requests": [_request("https://api/x/orders", method="POST")],
+    }
+    inferred = build_inferred_requests(
+        [component], {"shop/orders": [_request("https://api/x/orders")]}
+    )
+
+    by_method = {r.method: r for r in inferred}
+    assert by_method["GET"].loaded_by == ("shop/orders",)
+    assert by_method["POST"].triggered_by == (("shop/orders", "div > button"),)
+
+
+def test_status_codes_and_latencies_are_collected_across_samples():
+    """An OpenAPI responses: block built without real status codes is
+    invention - this is where they come from."""
+    component = {
+        "page_url": "p", "path": "b",
+        "network_requests": [
+            _request("https://api/x/orders", method="POST", status=201, latency_ms=120),
+            _request("https://api/x/orders", method="POST", status=422, latency_ms=80),
+            _request("https://api/x/orders", method="POST", status=201, latency_ms=95),
+        ],
+    }
+
+    inferred = build_inferred_requests([component])[0]
+
+    assert inferred.status_codes == (201, 422)
+    assert inferred.latencies_ms == (80, 95, 120)
+
+
+def test_a_key_missing_from_some_samples_is_marked_optional():
+    """"First non-empty shape wins" made every OpenAPI property required by
+    accident. A key absent from some calls is optional by observation."""
+    component = {
+        "page_url": "p", "path": "b",
+        "network_requests": [
+            _request("https://api/x/orders", method="POST",
+                     body_shape=json.dumps({"sku": "string", "note": "string"})),
+            _request("https://api/x/orders", method="POST",
+                     body_shape=json.dumps({"sku": "string"})),
+        ],
+    }
+
+    shape = json.loads(build_inferred_requests([component])[0].body_shape)
+
+    assert shape["sku"] == "string"
+    assert shape["note"] == "string?"
+
+
+def test_identical_shapes_across_samples_stay_unmarked():
+    component = {
+        "page_url": "p", "path": "b",
+        "network_requests": [
+            _request("https://api/x/orders", method="POST", body_shape=json.dumps({"sku": "string"})),
+            _request("https://api/x/orders", method="POST", body_shape=json.dumps({"sku": "string"})),
+        ],
+    }
+
+    assert json.loads(build_inferred_requests([component])[0].body_shape) == {"sku": "string"}

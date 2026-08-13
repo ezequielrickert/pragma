@@ -241,6 +241,33 @@ class GraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
+        """Append one JSON-encoded batch of requests the page's own *load*
+        fired, as opposed to `record_component_network`'s per-interaction
+        batches.
+
+        Args:
+            site: which site this page belongs to.
+            page_url: the page whose load produced these requests.
+            requests_json: a JSON-encoded list of
+                `network_filter.filter_meaningful_requests`-shaped dicts.
+
+        Returns:
+            None - a write-only side effect.
+        Details: docs/dev/core/interfaces.md#record_page_network
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        """`{page_url: [request, ...]}` for every page of `site` whose load
+        fired at least one. Pages that fired none are absent, not present
+        with an empty list.
+        Details: docs/dev/core/interfaces.md#get_page_network_ledger
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         """All known components for one page, one query per page visit.
         Details: docs/dev/core/interfaces.md#get_component_states
