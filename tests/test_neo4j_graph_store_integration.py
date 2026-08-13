@@ -326,7 +326,8 @@ def test_record_component_interaction_auto_creates_node(store):
     # `source_path` is always present now, blank included: interactions live on
     # :INTERACTED relationships, where every property exists on every edge.
     assert ledger["home"]["button#go"]["interactions"] == [
-        {"action": "click", "value": "", "resulting_url": "about", "source_path": ""}
+        {"action": "click", "value": "", "resulting_url": "about", "source_path": "",
+         "visit_id": "", "step_seq": 0}
     ]
 
 
@@ -675,3 +676,32 @@ def test_inferred_request_persists_status_codes_and_load_attribution(store):
     assert read_back.status_codes == (201, 422)
     assert read_back.latencies_ms == (80, 120)
     assert read_back.loaded_by == ("shop/",)
+
+
+def test_an_interaction_carries_the_position_it_happened_at(store):
+    """A scenario is a sequence; the graph recorded facts with no ordering
+    between components until visit_id/step_seq were stamped on."""
+    from src.core.interfaces import VisitStep
+
+    site = "pragma-test.local"
+    step = VisitStep(visit_id="visit-abc")
+    store.record_component_interaction(site, "home", "input#q", action="fill", value="x", step=step.take())
+    store.record_component_interaction(site, "home", "button#go", action="click", step=step.take())
+
+    ledger = store.get_component_ledger(site)["home"]
+
+    assert ledger["input#q"]["interactions"][0]["visit_id"] == "visit-abc"
+    assert ledger["input#q"]["interactions"][0]["step_seq"] == 1
+    assert ledger["button#go"]["interactions"][0]["step_seq"] == 2
+
+
+def test_an_unstamped_interaction_reads_back_as_unordered_not_missing(store):
+    """Every write path that predates traces still works, and its
+    interactions are distinguishable from ordered ones by seq 0."""
+    site = "pragma-test.local"
+    store.record_component_interaction(site, "home", "button#go", action="click")
+
+    interaction = store.get_component_ledger(site)["home"]["button#go"]["interactions"][0]
+
+    assert interaction["visit_id"] == ""
+    assert interaction["step_seq"] == 0

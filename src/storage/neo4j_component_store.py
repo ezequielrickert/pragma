@@ -13,7 +13,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts
+from ..core.interfaces import ComponentFacts, VisitStep
 from ._neo4j_cypher_helpers import (
     _COMPONENT_BLANK_STUB,
     _COMPONENT_DESCRIPTIVE_SET,
@@ -115,6 +115,7 @@ class _Neo4jComponentMixin:
         value: str = "",
         resulting_url: str = "",
         source_path: str = "",
+        step: Optional[VisitStep] = None,
     ) -> None:
         # An interaction that navigated points at where it landed; one that
         # didn't points back at its own page, so every interaction is a
@@ -135,13 +136,15 @@ class _Neo4jComponentMixin:
                 CREATE (c)-[:INTERACTED {{
                     site: $site, action: $action, value: $value,
                     resulting_url: $resulting_url, source_path: $source_path,
-                    navigated: $navigated, seq: c.interaction_count, created_at: $created_at
+                    navigated: $navigated, seq: c.interaction_count, created_at: $created_at,
+                    visit_id: $visit_id, step_seq: $step_seq
                 }}]->(target)
                 """,
                 site=site, page_url=page_url, path=path, action=action, value=value,
                 resulting_url=resulting_url, source_path=source_path, target_url=target_url,
                 navigated=bool(resulting_url) and resulting_url != page_url,
                 created_at=datetime.now(timezone.utc).isoformat(),
+                visit_id=step.visit_id if step else "", step_seq=step.seq if step else 0,
             )
 
     def record_component_options(

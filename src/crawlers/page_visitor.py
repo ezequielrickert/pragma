@@ -4,8 +4,9 @@ Details: docs/dev/crawlers/page_visitor.md#module
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Union
+from uuid import uuid4
 
-from ..core.interfaces import PageState
+from ..core.interfaces import PageState, VisitStep
 from ..generators.component_classifier import find_revealed_options
 from ..utils.urls import clean_url, route_shape
 from .component_matching import (
@@ -268,7 +269,7 @@ class PageVisitor:
         self.errors.append(failed)
         return PageVisitResult(url=page_key, resolved_url=url, components_discovered=0)
 
-    async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
+    async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:  # noqa: C901
         """Visit `url` and mechanically interact with its frontier.
         `session_id` is the physical browser tab to reuse - a caller running
         several visits in sequence should pass the same one each time so
@@ -276,6 +277,11 @@ class PageVisitor:
         Details: docs/dev/crawlers/page_visitor.md#visit
         """
         session_id = session_id or url
+        # One sequence per pass. A local, not instance state: a single
+        # PageVisitor is shared across concurrent workers, so a counter on
+        # self would interleave two pages' steps into one nonsense trace.
+        # Details: docs/dev/crawlers/page_visitor.md#visit-step
+        visit_step = VisitStep(visit_id=uuid4().hex[:12])
         try:
             state = await self.crawler.discover_page(url, session_id=session_id)
         except Exception as exc:
@@ -356,7 +362,9 @@ class PageVisitor:
                 self.tracker.mark_interacted(page_key, path)  # don't retry a proven-broken target forever
                 self._interacted_identities.setdefault(page_key, set()).add(component_identity(component))
                 if self.sink:
-                    await self.sink.record_interaction(page_key, path, failed.action, value="", resulting_url="")
+                    await self.sink.record_interaction(
+                        page_key, path, failed.action, value="", resulting_url="", step=visit_step.take()
+                    )
 
                 if is_element_not_found(exc) and not stale_resynced_since_success:
                     # Resync once and reconcile the rest of the frontier.
@@ -399,9 +407,17 @@ class PageVisitor:
             interaction.resulting_url = new_literal
             result.interactions.append(interaction)
             if self.sink:
-                await self.sink.record_interaction(page_key, path, interaction.action, interaction.value, new_literal)
+                # One position, shared by the interaction and the requests it
+                # fired - that pairing is the whole point of stamping them.
+                # Details: docs/dev/crawlers/page_visitor.md#visit-step
+                step = visit_step.take()
+                await self.sink.record_interaction(
+                    page_key, path, interaction.action, interaction.value, new_literal, step=step
+                )
                 if new_state.network_requests:
-                    await self.sink.record_component_network(page_key, path, new_state.network_requests)
+                    await self.sink.record_component_network(
+                        page_key, path, new_state.network_requests, step=step
+                    )
 
             if new_literal != page_literal:
                 # Real physical navigation - must stop the pass regardless of page_key.

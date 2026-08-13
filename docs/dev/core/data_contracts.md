@@ -22,3 +22,27 @@ docstring plus per-field comments, `ComponentFacts` referencing
 `interfaces.md#componentfacts` (kept as the historical anchor name for
 that one), `ComponentFamily`/`InferredRequest` with a full `Fields:`
 section each.
+
+## VisitStep
+
+Where one interaction sits in the sequence of a single page visit.
+
+A BDD scenario is a *sequence*, and until this existed the graph recorded
+facts per component with no ordering between them: a stepper's `+ + -` and
+`- + +` were indistinguishable, and a control clicked twice pooled its
+network responses with nothing saying which belonged to which.
+
+`visit_id` says which pass an interaction belonged to; `seq` orders it
+within that pass. The same `VisitStep` instance is handed to both
+`record_interaction` and `record_component_network` for one interaction,
+which is what pairs a request with the click that fired it after the store
+flattens every batch into one list.
+
+Mutable, and created per `PageVisitor.visit()` call rather than held on
+the visitor. One `PageVisitor` is shared across concurrent workers, so a
+counter on the instance would interleave two pages' steps into a single
+nonsense sequence - a bug that would only appear under `page_concurrency
+> 1` and would look like corrupt data rather than a race.
+
+`take()` returns a frozen snapshot rather than the live object, so a
+caller holding a step cannot see it advance underneath them.
