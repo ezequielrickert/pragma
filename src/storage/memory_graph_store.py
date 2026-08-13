@@ -32,6 +32,8 @@ class _SiteData:
     accessibility: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     # {page_url: {pseudo_styles, tab_order}} from the same pass.
     measurements: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # {page_url: {meta_name: content}} - the page's own <meta> tags.
+    metadata: Dict[str, Dict[str, str]] = field(default_factory=dict)
     component_families: List[ComponentFamily] = field(default_factory=list)
     inferred_requests: List[InferredRequest] = field(default_factory=list)
 
@@ -228,6 +230,12 @@ class InMemoryGraphStore(GraphStore):
     def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
         return {url: list(v) for url, v in self._site(site).accessibility.items() if v}
 
+    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
+        self._site(site).metadata[page_url] = json.loads(metadata_json)
+
+    def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
+        return {url: dict(m) for url, m in self._site(site).metadata.items() if m}
+
     def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
         self._site(site).measurements[page_url] = json.loads(measurements_json)
 
@@ -310,6 +318,14 @@ class InMemoryGraphStore(GraphStore):
             page_url: {
                 path: {
                     "tag": r["tag"], "text": r["text"],
+                    # role/input_type/visible/layer are recorded but were
+                    # never returned here. `layer` in particular is what
+                    # `accessibility.undersized_targets` filters the
+                    # cursor:pointer discovery net on - absent, that filter
+                    # silently never fired.
+                    # Details: docs/dev/storage/memory_graph_store.md#get_component_ledger
+                    "role": r.get("role", ""), "input_type": r.get("input_type", ""),
+                    "visible": r.get("visible", True), "layer": r.get("layer", "semantic"),
                     "interacted": r["interacted"], "interactions": list(r["interactions"]),
                     "x": r.get("x"), "y": r.get("y"), "width": r.get("width"), "height": r.get("height"),
                     "component_type": r.get("component_type", ""), "options": r.get("options", ""),

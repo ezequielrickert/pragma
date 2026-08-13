@@ -246,6 +246,8 @@ class _Neo4jComponentMixin:
                 MATCH (c:Component {{site: $site}})
                 {_INTERACTIONS_COLLECT}
                 RETURN c.page_url AS page_url, c.path AS path, c.tag AS tag, c.text AS text,
+                       c.role AS role, c.input_type AS input_type,
+                       c.visible AS visible, c.layer AS layer,
                        c.interacted AS interacted, interactions,
                        c.x AS x, c.y AS y, c.width AS width, c.height AS height,
                        c.component_type AS component_type, c.options AS options,
@@ -260,6 +262,13 @@ class _Neo4jComponentMixin:
                 page[r["path"]] = {
                     "tag": r["tag"],
                     "text": r["text"],
+                    # See memory_graph_store.get_component_ledger for why
+                    # these four were added - `layer` gates a filter that
+                    # silently never fired without it.
+                    "role": r["role"] or "",
+                    "input_type": r["input_type"] or "",
+                    "visible": r["visible"] if r["visible"] is not None else True,
+                    "layer": r["layer"] or "semantic",
                     "interacted": r["interacted"],
                     "interactions": [dict(entry) for entry in r["interactions"]],
                     "x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"],

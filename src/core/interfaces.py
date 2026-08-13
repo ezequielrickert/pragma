@@ -285,6 +285,22 @@ class GraphStore(ABC):
         Details: docs/dev/core/interfaces.md#record_accessibility_violations
         """
 
+    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
+        """Store a page's `<meta>` tags.
+
+        Extracted by `run_extraction` on every navigation since long before
+        this method existed, and thrown away every time. They carry the
+        description, viewport, and any Open Graph or framework markers a
+        page declares about itself - the site's own account of what it is.
+        Details: docs/dev/core/interfaces.md#record_page_metadata
+        """
+
+    def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
+        """`{page_url: {meta_name: content}}` for pages that declared any.
+        Details: docs/dev/core/interfaces.md#get_page_metadata
+        """
+        return {}
+
     def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
         """Replace one page's measurement-pass findings beyond axe: the
         declared `:hover`/`:focus` styles and the tab order.

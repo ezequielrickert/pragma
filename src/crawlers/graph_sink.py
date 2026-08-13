@@ -126,6 +126,17 @@ class GraphStoreSink:
             status="Pending", description=description, title=title,
         )
 
+    async def record_page_metadata(self, page_key: str, metadata: Dict[str, str]) -> None:
+        """The page's own `<meta>` tags - extracted on every navigation
+        since long before anything stored them.
+        Details: docs/dev/crawlers/graph_sink.md#record_page_metadata
+        """
+        if not metadata:
+            return
+        await self._write(
+            self.graph_store.record_page_metadata, self.site, page_key, json.dumps(metadata)
+        )
+
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
         Details: docs/dev/crawlers/graph_sink.md#record_page_network

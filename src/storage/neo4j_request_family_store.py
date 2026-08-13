@@ -69,7 +69,8 @@ class _Neo4jRequestFamilyMixin:
                         query_params: $query_params, body_shape: $body_shape,
                         response_shape: $response_shape,
                         loaded_by: $loaded_by, status_codes: $status_codes,
-                        latencies_ms: $latencies_ms,
+                        latencies_ms: $latencies_ms, auth_schemes: $auth_schemes,
+                        media_types: $media_types,
                         caption: $method + ' ' + $endpoint
                     })
                     CREATE (rf)-[:HAS_REQUEST]->(r)
@@ -83,6 +84,7 @@ class _Neo4jRequestFamilyMixin:
                     response_shape=req.response_shape,
                     loaded_by=list(req.loaded_by), status_codes=list(req.status_codes),
                     latencies_ms=list(req.latencies_ms),
+                    auth_schemes=list(req.auth_schemes), media_types=list(req.media_types),
                     triggered_by=[list(tb) for tb in req.triggered_by],
                 )
 
@@ -115,6 +117,7 @@ class _Neo4jRequestFamilyMixin:
                        r.query_params AS query_params, r.body_shape AS body_shape,
                        r.response_shape AS response_shape, r.loaded_by AS loaded_by,
                        r.status_codes AS status_codes, r.latencies_ms AS latencies_ms,
+                       r.auth_schemes AS auth_schemes, r.media_types AS media_types,
                        collect(CASE WHEN c IS NOT NULL THEN [c.page_url, c.path] END) AS triggered_by
                 """,
                 site=site,
@@ -130,6 +133,8 @@ class _Neo4jRequestFamilyMixin:
                     loaded_by=tuple(r["loaded_by"] or []),
                     status_codes=tuple(r["status_codes"] or []),
                     latencies_ms=tuple(r["latencies_ms"] or []),
+                    auth_schemes=tuple(r["auth_schemes"] or []),
+                    media_types=tuple(r["media_types"] or []),
                 )
                 for r in result
             ]
