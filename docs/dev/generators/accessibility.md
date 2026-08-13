@@ -69,3 +69,22 @@ starting below `<html>`, so a document-level rule like `html-has-lang`
 resolves to nothing - and "nothing" would read as "we could not find it".
 Found by running axe against a real page, where `html-has-lang` was the
 only violation and came back unresolved.
+
+
+## keyboard_findings
+
+Three rules from the Tab walk, none of them reachable by reading the DOM.
+
+- **`focus-visible` (2.4.7).** The common real failure is a reset
+  stylesheet removing the UA outline and never putting anything back. A UA
+  default counts as visible; `outline: none` with no replacement does not.
+- **`focus-order` (2.4.3).** A stop whose DOM position goes *backwards*
+  relative to the previous one means Tab jumped against reading order -
+  usually a positive `tabindex`.
+- **`focus-offscreen`.** Focus landing on something with no size on screen
+  leaves a keyboard user with nothing to see and no idea where they are.
+
+The coverage note changed with these: keyboard operation, focus order and
+visible focus used to be listed as entirely absent. What remains absent is
+the judgement-dependent part - whether a label is clear, whether an order
+is logical to a person - which is not automatable at all.

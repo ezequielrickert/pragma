@@ -104,5 +104,9 @@ async def run_measurement_pass(graph_store: GraphStore, site: str, headless: boo
             graph_store.record_accessibility_violations(
                 site, page_url, json.dumps(state.accessibility_violations)
             )
+            graph_store.record_page_measurements(
+                site, page_url,
+                json.dumps({"pseudo_styles": state.pseudo_styles, "tab_order": state.tab_order}),
+            )
             measured.append(page_url)
     return MeasurementResult(measured=tuple(measured), skipped_shaped_routes=tuple(shaped))

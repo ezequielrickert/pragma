@@ -15,7 +15,12 @@ from crawl4ai.async_configs import CacheMode
 from ..core.interfaces import PageState
 from .debug_log import CrawlDebugLog
 from .network_filter import filter_meaningful_requests
-from .page_extraction import run_accessibility_audit, run_extraction
+from .page_extraction import (
+    extract_pseudo_styles,
+    run_accessibility_audit,
+    run_extraction,
+    walk_tab_order,
+)
 from .target_load_throttle import TargetLoadThrottle
 
 # Hands a click/fill's own success/failure back to Python.
@@ -291,6 +296,11 @@ class Crawl4AICrawler:
         data = await run_extraction(page)
         if self.audit_accessibility:
             data["accessibility_violations"] = await run_accessibility_audit(page)
+            data["pseudo_styles"] = await extract_pseudo_styles(page)
+            # Last, because it moves focus around the page - anything read
+            # after it would see a page in a state the crawl put it in.
+            # Details: docs/dev/crawlers/crawl4ai_crawler.md#audit_accessibility
+            data["tab_order"] = await walk_tab_order(page)
         self._stash[session_id] = data
         if self.debug_log:
             self.debug_log.log_hook(
@@ -404,6 +414,8 @@ class Crawl4AICrawler:
             text_content=data.get("text_content", []),
             network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
             accessibility_violations=data.get("accessibility_violations", []),
+            pseudo_styles=data.get("pseudo_styles", []),
+            tab_order=data.get("tab_order", []),
         )
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)

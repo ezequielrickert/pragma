@@ -65,3 +65,23 @@ the builders with the Markdown document so the two cannot disagree. The
 spacing note is carried as structured data (`{"absent": true, "reason":
 ...}`) rather than dropped, so a generator consuming the JSON does not
 silently emit a config with no spacing scale and no explanation.
+
+
+## StateToken
+
+## build_state_tokens
+
+The `:hover`/`:focus` values a site declares, which is what separates a
+token file of colours and typography from a component specification
+someone can actually build against. A catalogue without interaction states
+is incomplete for Storybook, and the component catalogue said so before
+these existed.
+
+Read from the stylesheets during the measurement pass - see
+`page_extraction.extract_pseudo_styles` for why declared rather than
+computed, and for the cross-origin limit that makes the result a lower
+bound.
+
+The empty case says *why* it is empty. "No hover styles were read" and
+"this site declares no hover styles" are different facts, and only one of
+them is a finding about the site.

@@ -144,6 +144,9 @@ def test_the_document_says_its_names_are_positional_not_semantic():
         def get_component_ledger(self, site):
             return {"shop/": {"a": _component()}}
 
+        def get_page_measurements(self, site):
+            return {}
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
@@ -162,6 +165,9 @@ def test_the_document_explains_why_spacing_is_absent():
         def get_component_ledger(self, site):
             return {"shop/": {"a": _component()}}
 
+        def get_page_measurements(self, site):
+            return {}
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
@@ -178,9 +184,68 @@ def test_the_json_document_is_parseable():
         def get_component_ledger(self, site):
             return {"shop/": {"a": _component(color="rgb(45, 119, 55)")}}
 
+        def get_page_measurements(self, site):
+            return {}
+
     payload = json.loads(
         DesignTokensData().generate(DocumentRequest(graph_store=_Store(), site="shop.example", agent=None))
     )
 
     assert payload["spacing"]["absent"] is True
     assert any(token["value"] == "#2d7737" for token in payload["color"])
+
+
+# --- interaction states (Fase 8) ---
+
+def _pseudo(path="a", states=None):
+    return {"path": path, "states": states or {"hover": {"background-color": "#1a4f9c"}}}
+
+
+def test_declared_hover_values_become_state_tokens():
+    from src.generators.design_tokens import build_state_tokens
+
+    tokens = build_state_tokens({"p": {"pseudo_styles": [_pseudo(), _pseudo("b")]}})
+
+    assert len(tokens) == 1
+    assert tokens[0].state == "hover"
+    assert tokens[0].value == "#1a4f9c"
+    assert tokens[0].usage_count == 2
+
+
+def test_hover_and_focus_are_separate_tokens():
+    from src.generators.design_tokens import build_state_tokens
+
+    tokens = build_state_tokens({
+        "p": {"pseudo_styles": [_pseudo(states={
+            "hover": {"background-color": "#1a4f9c"},
+            "focus": {"outline": "2px solid #fc0"},
+        })]}
+    })
+
+    assert {t.state for t in tokens} == {"focus", "hover"}
+
+
+def test_no_measurement_pass_means_no_state_tokens():
+    from src.generators.design_tokens import build_state_tokens
+
+    assert build_state_tokens({}) == []
+
+
+def test_the_document_explains_why_state_styles_may_be_missing():
+    """Cross-origin stylesheets cannot be read, and a reader has to be able
+    to tell that from "this site declares no hover styles"."""
+    from src.core.documents import DocumentRequest
+    from src.generators.design_tokens import DesignTokensDocument
+
+    class _Store:
+        def get_component_ledger(self, site):
+            return {"shop/": {"a": _component()}}
+
+        def get_page_measurements(self, site):
+            return {}
+
+    text = DesignTokensDocument().generate(
+        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
+    )
+
+    assert "cross-origin" in text

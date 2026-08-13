@@ -285,6 +285,20 @@ class GraphStore(ABC):
         Details: docs/dev/core/interfaces.md#record_accessibility_violations
         """
 
+    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
+        """Replace one page's measurement-pass findings beyond axe: the
+        declared `:hover`/`:focus` styles and the tab order.
+
+        Not abstract, same reasoning as `record_accessibility_violations`.
+        Details: docs/dev/core/interfaces.md#record_page_measurements
+        """
+
+    def get_page_measurements(self, site: str) -> Dict[str, Dict[str, Any]]:
+        """`{page_url: {"pseudo_styles": [...], "tab_order": [...]}}`.
+        Details: docs/dev/core/interfaces.md#get_page_measurements
+        """
+        return {}
+
     def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
         """`{page_url: [violation, ...]}` for every audited page. `{}` when
         no measurement pass has run.

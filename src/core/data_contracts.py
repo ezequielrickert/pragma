@@ -37,6 +37,11 @@ class PageState:
     # empty on every ordinary crawl navigation.
     # Details: docs/dev/core/interfaces.md#pagestateaccessibility_violations
     accessibility_violations: List[Dict[str, Any]] = field(default_factory=list)
+    # Declared :hover/:focus styles per control, and where Tab actually
+    # goes. Same story: measurement pass only.
+    # Details: docs/dev/core/interfaces.md#pagestatemeasurements
+    pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
+    tab_order: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
