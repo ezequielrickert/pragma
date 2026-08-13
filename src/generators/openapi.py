@@ -87,17 +87,33 @@ def _capitalized(word: str) -> str:
     return f"{word[:1].upper()}{word[1:]}"
 
 
-def _operation_id(request: InferredRequest, resource: str) -> str:
-    """`createOrder`, `listOrders`, `deleteOrder`.
+def _verb_and_subject(request: InferredRequest, resource: str) -> Tuple[str, str]:
+    """The CRUD verb this operation performs and what it performs it on.
 
     Plural only for a listing, singular everywhere else: `POST /orders`
-    creates one order, and `createOrders` would claim otherwise. This is
-    the naming a reader of the generated client will see, so it is worth
-    getting the number right.
+    creates one order, and `createOrders` would claim otherwise. This ends
+    up in generated client code, so the number is worth getting right even
+    though nothing validates it.
     """
     verb = _CRUD_VERBS.get(request.method) or ("list" if request.query_params else "get")
-    subject = resource if verb == "list" else _singular(resource)
+    return verb, resource if verb == "list" else _singular(resource)
+
+
+def _operation_id(request: InferredRequest, resource: str) -> str:
+    """`createOrder`, `listOrders`, `deleteOrder`."""
+    verb, subject = _verb_and_subject(request, resource)
     return f"{verb}{_capitalized(subject)}"
+
+
+def _summary(request: InferredRequest, resource: str) -> str:
+    """`"List orders"`, `"Create item"` - a phrase, not a restatement.
+
+    An earlier version repeated the operationId and the raw endpoint,
+    which also showed `{id}` while the path key above it showed
+    `{orderId}` - the same parameter under two names, one line apart.
+    """
+    verb, subject = _verb_and_subject(request, resource)
+    return f"{_capitalized(verb)} {subject}"
 
 
 def _resource_name(path: str) -> str:
@@ -180,7 +196,7 @@ def _operation(request: InferredRequest, names: List[str], schemas: _SchemaRegis
     resource = _resource_name(_host_and_path(request.endpoint)[1])
     operation: Dict[str, Any] = {
         "operationId": _operation_id(request, resource),
-        "summary": f"{_operation_id(request, resource)} ({request.method} {request.endpoint})",
+        "summary": _summary(request, resource),
         "responses": _responses(request, schemas, resource),
     }
     description = _observed_description(request)

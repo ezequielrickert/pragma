@@ -38,14 +38,21 @@ Each parameter is renamed after the segment before it, singularised -
 than a numbered fallback. The numeric suffix exists only for the case
 where two preceding segments produce the same name anyway.
 
-## _operation_id
+## _verb_and_subject
 
 Singular for everything except a listing: `POST /orders` creates one
 order, so `createOrders` would be wrong about what the operation does.
 `listOrders` keeps the plural because a listing genuinely returns many.
 
 This is the name that ends up in generated client code, so the number is
-worth getting right even though nothing validates it.
+worth getting right even though nothing validates it. `_operation_id` and
+`_summary` both read from here, so `createOrder` and "Create order" can
+never disagree about what an operation does.
+
+`summary` is a phrase ("List orders"), not a restatement of the
+operationId. An earlier version repeated the id plus the raw endpoint,
+which also printed `{id}` one line under a path key reading `{orderId}` -
+the same parameter under two names.
 
 ## _schemaregistry
 

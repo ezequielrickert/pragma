@@ -196,3 +196,15 @@ def test_output_is_parseable_yaml():
     text = OpenAPIDocument().generate(_Request())
 
     assert yaml.safe_load(text)["openapi"] == "3.0.3"
+
+
+def test_summary_is_a_phrase_not_a_restatement_of_the_operation_id():
+    """It also must not print the raw {id} endpoint one line under a path
+    key that reads {orderId} - the same parameter under two names."""
+    document = _document(_request(method="POST", endpoint="api.example.com/orders/{id}/items",
+                                  status_codes=(201,)))
+
+    operation = document["paths"]["/orders/{orderId}/items"]["post"]
+
+    assert operation["summary"] == "Create item"
+    assert "{id}" not in operation["summary"]
