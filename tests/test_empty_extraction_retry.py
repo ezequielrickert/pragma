@@ -12,11 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from src.crawlers.crawl4ai_crawler import (
-    _EMPTY_EXTRACTION_MIN_NODES,
-    Crawl4AICrawler,
-    Crawl4AICrawlerConfig,
-)
+from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "late_render"
 
@@ -66,7 +62,12 @@ def test_a_page_that_genuinely_has_nothing_is_not_retried_into_existence(fixture
     assert state.title == "Solo texto"
 
 
-def test_the_node_threshold_is_below_any_real_screen():
-    """It separates "we looked too early" from "this page is a stub". Set
-    too high, the retry never fires on a small app screen."""
-    assert 10 <= _EMPTY_EXTRACTION_MIN_NODES <= 100
+def test_a_redirecting_shell_is_retried_even_though_it_is_tiny(fixture_server):
+    """The measurement that removed the node guard: empanad.app's landing
+    holds at 35 nodes with no controls, redirects, and the destination sits
+    at 36 nodes with no controls for another 0.4s before rendering. Both
+    plateaus are below any "this page is substantial" threshold, so gating
+    the retry on size skipped exactly the case it was written for."""
+    state = _discover(f"{fixture_server}/tiny_shell.html", wait_seconds=0.6)
+
+    assert [c["text"] for c in state.components] == ["Entrar"]

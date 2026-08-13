@@ -31,11 +31,12 @@ _ACTION_MARK = "window.__pragma_last_action__"
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_blocked_resource_types
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
-# Below this many DOM elements, "no components and no links" is a
-# believable description of the page rather than a sign we looked too
-# early. Well under any real application screen, well above an error page.
-# Details: docs/dev/crawlers/crawl4ai_crawler.md#_retry_empty_extraction
-_EMPTY_EXTRACTION_MIN_NODES = 50
+# How many times _wait_for_new_content will start over because the page
+# navigated under it. A redirect chain is real (a landing page bouncing
+# through auth, then to the app); an unbounded one is a trap, and each
+# restart costs a full ceiling.
+# Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
+_NAVIGATION_RESTARTS = 3
 
 # _wait_for_new_content's poll step.
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_adaptive_wait_step_seconds
@@ -100,29 +101,45 @@ async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
     states is ridden out the same way a single one is; the fixed hold
     window is what makes "quiet" mean "actually done," not merely
     "unchanged for one sample."
+    A page that *navigates* mid-wait - a landing page redirecting to the
+    real application - destroys the JS context, and reading the signal
+    raises. That used to return immediately and hand the caller a page in
+    the middle of moving; discovery then read the old, empty document.
+    Now the wait treats it for what it is - a new page, which is the
+    thing it was waiting for - and starts over on it with a fresh budget.
     Details: docs/dev/crawlers/crawl4ai_crawler.md#_wait_for_new_content
     """
     if ceiling_seconds <= 0:
         return
-    try:
-        last_signal = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
-    except Exception:
-        return  # torn-down context - let the caller's own extraction handle it
-    last_change_time: Optional[float] = None
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ceiling_seconds
+    restarts_left = _NAVIGATION_RESTARTS
+    last_signal: Optional[str] = None
+    last_change_time: Optional[float] = None
+
     while loop.time() < deadline:
-        await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
         try:
             signal = await page.evaluate(_DOM_CHANGE_SIGNAL_JS)
-        except Exception:
-            return
+        except Exception as exc:
+            if not _is_navigation_context_error(exc) or restarts_left <= 0:
+                return  # genuinely dead page, or a redirect chain past its budget
+            # The page moved. Wait out the new document instead of handing
+            # the caller a half-navigated one.
+            restarts_left -= 1
+            deadline = loop.time() + ceiling_seconds
+            last_signal, last_change_time = None, None
+            await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
+            continue
+
         now = loop.time()
-        if signal != last_signal:
+        if last_signal is None:
+            last_signal = signal  # first read of this document - nothing to compare yet
+        elif signal != last_signal:
             last_change_time = now  # re-armed on every change, not just the first
+            last_signal = signal
         elif last_change_time is not None and now - last_change_time >= _STABLE_HOLD_SECONDS:
             return  # changed at least once, quiet for the full hold window since
-        last_signal = signal
+        await asyncio.sleep(_ADAPTIVE_WAIT_STEP_SECONDS)
 
 
 @dataclass
@@ -318,20 +335,12 @@ class Crawl4AICrawler:
         """
         if data.get("components") or data.get("links"):
             return data
-        try:
-            node_count = await page.evaluate("() => document.querySelectorAll('*').length")
-        except Exception:
-            return data  # torn-down context - nothing to retry against
-        if node_count < _EMPTY_EXTRACTION_MIN_NODES:
-            return data
 
         await _wait_for_new_content(page, self.wait_seconds)
         retried = await run_extraction(page)
         found = len(retried.get("components") or []) + len(retried.get("links") or [])
         if self.debug_log:
-            self.debug_log.log_hook(
-                "empty_extraction_retry", nodes=node_count, found_on_retry=found
-            )
+            self.debug_log.log_hook("empty_extraction_retry", found_on_retry=found)
         return retried if found else data
 
     async def _before_retrieve_html(self, page, context, config, **kwargs):

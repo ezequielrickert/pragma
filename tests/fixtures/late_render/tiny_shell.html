@@ -1,0 +1,15 @@
+<!doctype html><html lang="es"><head><title>Cascara chica</title></head>
+<body>
+  <!-- Deliberately under any plausible node threshold: the real case that
+       broke this was a 35-node landing page that settles, redirects, and
+       only then renders its controls. Gating the retry on page size skipped
+       it. Text long enough that crawl4ai's anti-bot heuristic accepts it. -->
+  <p>Cargando el pedido, un momento por favor. Esta pantalla se reemplaza sola
+     en cuanto termina de resolverse la sesion del grupo de compra.</p>
+  <div id="app"></div>
+  <script>
+    setTimeout(() => {
+      document.getElementById('app').innerHTML = '<button id="go">Entrar</button>';
+    }, 1200);
+  </script>
+</body></html>

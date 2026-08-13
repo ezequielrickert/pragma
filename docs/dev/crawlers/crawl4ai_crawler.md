@@ -712,6 +712,45 @@ visits instead of once per visit. See
 `docs/dev/crawlers/mechanical_loop.md#session_recycle_after` for picking
 that number.
 
+## _wait_for_new_content-navigation
+
+A page that navigates mid-wait destroys the JS context, and reading the
+DOM signal raises. That used to `return` with the comment "let the
+caller's own extraction handle it" - and the caller has no way to know the
+page moved underneath it, so discovery read the old document.
+
+The wait now recognises a redirect for what it is: the new page *is* what
+it was waiting for. It restarts on that document with a fresh budget,
+because the new page has only just begun and inheriting the spent
+remainder would leave it no room to render.
+
+Bounded by `_NAVIGATION_RESTARTS`. A redirect chain is real - a landing
+page bouncing through auth and then into the app - but an unbounded one is
+a trap, and each restart costs a whole ceiling.
+
+Only a genuine navigation error restarts (`_is_navigation_context_error`).
+Any other failure still returns at once: a dead page must not consume the
+budget.
+
+## the timeline this was measured against
+
+Sampled live on empanad.app every 300 ms, which is what settled the
+design:
+
+| t | nodes | controls | url |
+|---|---|---|---|
+| 0.3s | 35 | 0 | `/` |
+| 0.6s | 35 | 0 | `/` — quiet, empty |
+| 0.9s | 36 | 0 | `/o/{token}` — redirected |
+| 1.3s | 36 | 0 | `/o/{token}` — quiet again, still empty |
+| 1.6s | 61 | 3 | `/o/{token}` — controls at last |
+
+**Two** plateaus where the DOM is quiet and has nothing on it, either of
+which satisfies the settle heuristic. That is why the redirect fix alone
+only halved the failures: with `wait_seconds: 1.0`, a restart at 0.9s
+gives a deadline of ~1.9s, and the 1.6s render plus 0.4s of required quiet
+lands at ~2.0s - just outside.
+
 ## _retry_empty_extraction
 
 Zero components **and** zero links on a page with a real DOM is almost
@@ -725,11 +764,25 @@ exists for, on an application whose plateau outlasts that 0.4s window.
 components, and documents that all rendered empty. Nothing errored: the
 crawl accepted "this page has nothing on it" as a finding.
 
-The retry is exactly one extra attempt, gated on the page having at least
-`_EMPTY_EXTRACTION_MIN_NODES` elements. A page that genuinely has no
-controls and no links - a legal notice, an error page - stays empty
-instead of being retried into existence, and pays at most one extra
-settle-wait.
+Exactly one extra attempt, on **any** empty extraction. An earlier version
+gated it on the page having at least 50 elements, which sounds prudent and
+skipped precisely the case it was written for: both plateaus in the table
+above sit at 35 and 36 nodes. A "is this page substantial" threshold
+cannot tell a redirecting shell from a stub, because they are the same
+size.
+
+A page that genuinely has no controls and no links - a legal notice, an
+error page - stays empty rather than being retried into existence, and
+pays one extra settle-wait for it. That is the whole cost, and it buys the
+case that matters.
+
+The two fixes compose, and neither works alone: the retry's own wait is
+the one that now recognises redirects, so a late render lands inside the
+second budget.
+
+**Measured**, six consecutive CLI runs against empanad.app each time:
+3 of 3 failures before, 3 of 6 with the redirect fix alone, 0 of 6 with
+both.
 
 Returns the original data when the retry also finds nothing, so a second
 empty result never looks different from the first.
