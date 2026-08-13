@@ -6,9 +6,33 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-# xhr/fetch only - not images/fonts/stylesheets/documents/websockets.
+# Asynchronous API traffic - the obvious case.
 # Details: docs/dev/crawlers/network_filter.md#_meaningful_resource_types
-_MEANINGFUL_RESOURCE_TYPES = {"xhr", "fetch"}
+_ASYNC_RESOURCE_TYPES = {"xhr", "fetch"}
+
+# A classic <form method="post"> that navigates the page is resource_type
+# "document", not xhr/fetch - and a server-rendered legacy application, the
+# whole point of this project, submits data that way.
+# Details: docs/dev/crawlers/network_filter.md#_is_meaningful
+_NAVIGATION_RESOURCE_TYPE = "document"
+
+
+def _is_meaningful(event: Dict[str, Any]) -> bool:
+    """Whether one `request` event describes a call worth documenting.
+
+    Args:
+        event: one raw crawl4ai network event with `event_type == "request"`.
+
+    Returns:
+        `True` for any `xhr`/`fetch` request, and for a `document` request
+        whose method isn't GET - see
+        `docs/dev/crawlers/network_filter.md#_is_meaningful` for why
+        plain page navigations stay excluded while form submits don't.
+    """
+    resource_type = event.get("resource_type")
+    if resource_type in _ASYNC_RESOURCE_TYPES:
+        return True
+    return resource_type == _NAVIGATION_RESOURCE_TYPE and (event.get("method") or "").upper() != "GET"
 
 
 def _json_shape(value: Any) -> Any:
@@ -85,20 +109,25 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
     failures_by_url: Dict[str, str] = {}
     response_body_by_url: Dict[str, str] = {}
     post_data_by_url: Dict[str, str] = {}
+    sent_at_by_url: Dict[str, float] = {}
+    received_at_by_url: Dict[str, float] = {}
     for event in raw_events:
         event_type = event.get("event_type")
         if event_type == "response":
             url = event.get("url")
             statuses_by_url[url] = event.get("status")
+            _remember_timestamp(received_at_by_url, event)
             body_text = (event.get("body") or {}).get("text")
             if body_text:
                 response_body_by_url[url] = body_text
         elif event_type == "response_capture_error":
             # Body unreadable but the response did arrive - no status either way.
             statuses_by_url.setdefault(event.get("url"), None)
+            _remember_timestamp(received_at_by_url, event)
         elif event_type == "request_failed":
             failures_by_url[event.get("url")] = event.get("failure_text") or "request failed"
         elif event_type == "request":
+            _remember_timestamp(sent_at_by_url, event)
             post_data = event.get("post_data")
             if post_data:
                 post_data_by_url[event.get("url")] = post_data
@@ -107,7 +136,7 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
     for event in raw_events:
         if event.get("event_type") != "request":
             continue
-        if event.get("resource_type") not in _MEANINGFUL_RESOURCE_TYPES:
+        if not _is_meaningful(event):
             continue
         url = event.get("url")
         failed = url in failures_by_url
@@ -121,6 +150,24 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
                 "failure_text": failures_by_url.get(url) if failed else None,
                 "body_shape": _shape_of_json_text(post_data_by_url.get(url)),
                 "response_shape": _shape_of_json_text(response_body_by_url.get(url)),
+                "latency_ms": _latency_ms(sent_at_by_url.get(url), received_at_by_url.get(url)),
             }
         )
     return results
+
+
+def _remember_timestamp(into: Dict[str, float], event: Dict[str, Any]) -> None:
+    """Record one event's `timestamp` under its url, if it has both."""
+    timestamp = event.get("timestamp")
+    url = event.get("url")
+    if url and isinstance(timestamp, (int, float)):
+        into[url] = float(timestamp)
+
+
+def _latency_ms(sent_at: Optional[float], received_at: Optional[float]) -> Optional[int]:
+    """Whole milliseconds between a request and its response.
+    Details: docs/dev/crawlers/network_filter.md#_latency_ms
+    """
+    if sent_at is None or received_at is None or received_at < sent_at:
+        return None
+    return round((received_at - sent_at) * 1000)
