@@ -1,0 +1,510 @@
+openapi: 3.0.3
+info:
+  title: www.empanad.app - inferred API contract
+  version: 0.1.0
+  description: 'Inferred from traffic observed during an automated crawl, not from
+    server source. Security schemes are named from request header names only - never
+    from a credential - so this says which scheme an endpoint uses and never what
+    the token was. Examples and field constraints (enum, pattern, minimum) are absent
+    by design: the crawler records the shape of every request and response and never
+    their values, so there is nothing to derive them from. Endpoints the crawl never
+    reached are absent too - see the crawl coverage document.'
+paths:
+  /rest/v1/global_flavors:
+    get:
+      operationId: listGlobal_flavors
+      summary: List global_flavors
+      responses:
+        '200':
+          description: Observed response (HTTP 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    is_active:
+                      type: boolean
+                    sort_order:
+                      type: number
+                    created_at:
+                      type: string
+                  required:
+                  - id
+                  - name
+                  - is_active
+                  - sort_order
+                  - created_at
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`, `body > div#root > main > div
+        > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body
+        > div#root > main > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 116-306 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: is_active
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: order
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+  /rest/v1/order_custom_flavors:
+    get:
+      operationId: listOrder_custom_flavors
+      summary: List order_custom_flavors
+      responses:
+        '200':
+          description: Observed response (HTTP 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {}
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`, `body > div#root > main > div
+        > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body
+        > div#root > main > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 107-302 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: order_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+  /rest/v1/orders:
+    get:
+      operationId: listOrders
+      summary: List orders
+      responses:
+        '200':
+          description: Observed response (HTTP 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    share_token:
+                      type: string
+                    host_token:
+                      type: string
+                    title:
+                      type: string
+                    status:
+                      type: string
+                    created_at:
+                      type: string
+                    updated_at:
+                      type: string
+                    total_price:
+                      nullable: true
+                    shop_slug:
+                      nullable: true
+                  required:
+                  - id
+                  - share_token
+                  - host_token
+                  - title
+                  - status
+                  - created_at
+                  - updated_at
+                  - total_price
+                  - shop_slug
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`, `body > div#root > main > div
+        > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body
+        > div#root > main > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 132-648 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: share_token
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createOrder
+      summary: Create order
+      responses:
+        '201':
+          description: Observed response (HTTP 201).
+          content:
+            application/vnd.pgrst.object+json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body > div#root > main
+        > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 246-1049 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      security:
+      - bearerAuth: []
+  /rest/v1/participant_selections:
+    delete:
+      operationId: deleteParticipant_selection
+      summary: Delete participant_selection
+      responses:
+        '204':
+          description: Observed response (HTTP 204).
+      description: 'Triggered by: `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(1) > div > button:nth-of-type(1)` on
+        `empanad.app/o/{token}`, `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(2) > div > button:nth-of-type(1)` on
+        `empanad.app/o/{token}`, `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(3) > div > button:nth-of-type(1)` on
+        `empanad.app/o/{token}`, `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(4) > div > button:nth-of-type(1)` on
+        `empanad.app/o/{token}`. Observed latency: 119-1010 ms (measured through the
+        crawl''s own browser; relative signal, not a performance figure).'
+      parameters:
+      - name: id
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+    get:
+      operationId: listParticipant_selections
+      summary: List participant_selections
+      responses:
+        '200':
+          description: Observed response (HTTP 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {}
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`, `body > div#root > main > div
+        > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body
+        > div#root > main > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 122-264 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: order_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createParticipant_selection
+      summary: Create participant_selection
+      responses:
+        '201':
+          description: Observed response (HTTP 201).
+          content:
+            application/vnd.pgrst.object+json:
+              schema:
+                $ref: '#/components/schemas/Participant_selectionResponse'
+      description: 'Triggered by: `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(1) > button` on `empanad.app/o/{token}`,
+        `body > div#root > main > div > section:nth-of-type(1) > div:nth-of-type(2)
+        > div:nth-of-type(2) > button` on `empanad.app/o/{token}`, `body > div#root
+        > main > div > section:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3)
+        > button` on `empanad.app/o/{token}`, `body > div#root > main > div > section:nth-of-type(1)
+        > div:nth-of-type(2) > div:nth-of-type(4) > button` on `empanad.app/o/{token}`.
+        Observed latency: 225-498 ms (measured through the crawl''s own browser; relative
+        signal, not a performance figure).'
+      parameters:
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Participant_selectionRequest'
+      security:
+      - bearerAuth: []
+  /rest/v1/participants:
+    get:
+      operationId: listParticipants
+      summary: List participants
+      responses:
+        '200':
+          description: Observed response (HTTP 200).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    order_id:
+                      type: string
+                    display_name:
+                      type: string
+                    participant_token:
+                      type: string
+                    joined_at:
+                      type: string
+                    last_seen_at:
+                      type: string
+                    finalized_at:
+                      nullable: true
+                  required:
+                  - id
+                  - order_id
+                  - display_name
+                  - participant_token
+                  - joined_at
+                  - last_seen_at
+                  - finalized_at
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(1)
+        > a` on `empanad.app/o/{token}`, `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`, `body > div#root > main > div
+        > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:4e921c8fd3`, `body
+        > div#root > main > div > div:nth-of-type(1) > a` on `empanad.app/o/{token}#state:7c270e58a2`.
+        Fired on page load of: empanad.app/o/{token}. Observed latency: 119-264 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: order_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createParticipant
+      summary: Create participant
+      responses:
+        '201':
+          description: Observed response (HTTP 201).
+          content:
+            application/vnd.pgrst.object+json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+      description: 'Triggered by: `body > div#root > main > div > div:nth-of-type(3)
+        > form > button` on `empanad.app/o/{token}`. Observed latency: 840-840 ms
+        (measured through the crawl''s own browser; relative signal, not a performance
+        figure).'
+      parameters:
+      - name: select
+        in: query
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParticipantRequest'
+      security:
+      - bearerAuth: []
+servers:
+- url: https://obvwnqnvzifrzyklvqdf.supabase.co
+components:
+  schemas:
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        share_token:
+          type: string
+        host_token:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        total_price:
+          nullable: true
+        shop_slug:
+          nullable: true
+      required:
+      - id
+      - share_token
+      - host_token
+      - title
+      - status
+      - created_at
+      - updated_at
+      - total_price
+      - shop_slug
+    OrderRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        share_token:
+          type: string
+        host_token:
+          type: string
+      required:
+      - title
+      - share_token
+      - host_token
+    Participant_selectionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        order_id:
+          type: string
+        participant_id:
+          type: string
+        flavor_type:
+          type: string
+        global_flavor_id:
+          type: string
+        custom_flavor_id:
+          nullable: true
+        qty:
+          type: number
+        updated_at:
+          type: string
+      required:
+      - id
+      - order_id
+      - participant_id
+      - flavor_type
+      - global_flavor_id
+      - custom_flavor_id
+      - qty
+      - updated_at
+    Participant_selectionRequest:
+      type: object
+      properties:
+        order_id:
+          type: string
+        participant_id:
+          type: string
+        flavor_type:
+          type: string
+        global_flavor_id:
+          type: string
+        custom_flavor_id:
+          nullable: true
+        qty:
+          type: number
+      required:
+      - order_id
+      - participant_id
+      - flavor_type
+      - global_flavor_id
+      - custom_flavor_id
+      - qty
+    ParticipantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        order_id:
+          type: string
+        display_name:
+          type: string
+        participant_token:
+          type: string
+        joined_at:
+          type: string
+        last_seen_at:
+          type: string
+        finalized_at:
+          nullable: true
+      required:
+      - id
+      - order_id
+      - display_name
+      - participant_token
+      - joined_at
+      - last_seen_at
+      - finalized_at
+    ParticipantRequest:
+      type: object
+      properties:
+        order_id:
+          type: string
+        display_name:
+          type: string
+        participant_token:
+          type: string
+      required:
+      - order_id
+      - display_name
+      - participant_token
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
