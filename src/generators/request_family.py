@@ -157,6 +157,7 @@ def build_inferred_requests(
                 "body_shape": "", "response_shape": "",
                 "triggered_by": set(), "loaded_by": set(),
                 "status_codes": set(), "latencies_ms": [],
+                "auth_schemes": set(), "media_types": set(),
             },
         )
         bucket["body_shape"] = _merge_shape(bucket["body_shape"], req.get("body_shape") or "")
@@ -165,6 +166,10 @@ def build_inferred_requests(
             bucket["status_codes"].add(req["status"])
         if isinstance(req.get("latency_ms"), int):
             bucket["latencies_ms"].append(req["latency_ms"])
+        if req.get("auth_scheme"):
+            bucket["auth_schemes"].add(req["auth_scheme"])
+        if req.get("media_type"):
+            bucket["media_types"].add(req["media_type"])
         return bucket
 
     for comp in components:
@@ -194,6 +199,8 @@ def build_inferred_requests(
             loaded_by=tuple(sorted(data["loaded_by"])),
             status_codes=tuple(sorted(data["status_codes"])),
             latencies_ms=tuple(sorted(data["latencies_ms"])),
+            auth_schemes=tuple(sorted(data["auth_schemes"])),
+            media_types=tuple(sorted(data["media_types"])),
         )
         for (method, endpoint, query_params), data in sorted(buckets.items())
     ]

@@ -705,3 +705,27 @@ def test_an_unstamped_interaction_reads_back_as_unordered_not_missing(store):
 
     assert interaction["visit_id"] == ""
     assert interaction["step_seq"] == 0
+
+
+def test_page_metadata_round_trips(store):
+    """Meta tags were extracted on every navigation and thrown away every
+    time - the page's own account of what it is."""
+    import json as _json
+
+    site = "pragma-test.local"
+    store.record_page_metadata(site, "home", _json.dumps({"description": "Una tienda", "og:type": "website"}))
+
+    assert store.get_page_metadata(site) == {"home": {"description": "Una tienda", "og:type": "website"}}
+
+
+def test_the_ledger_returns_the_layer_a_filter_depends_on(store):
+    """accessibility.undersized_targets excludes the cursor:pointer
+    discovery net by reading `layer`. It was recorded and never returned,
+    so that filter silently never fired on real data."""
+    site = "pragma-test.local"
+    store.record_component(site, "home", "div#x", tag="div", role="button", input_type="", layer="pointer")
+
+    record = store.get_component_ledger(site)["home"]["div#x"]
+
+    assert record["layer"] == "pointer"
+    assert record["role"] == "button"

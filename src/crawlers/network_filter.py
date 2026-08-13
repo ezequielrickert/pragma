@@ -17,6 +17,50 @@ _ASYNC_RESOURCE_TYPES = {"xhr", "fetch"}
 _NAVIGATION_RESOURCE_TYPE = "document"
 
 
+# Request headers whose mere presence identifies an authentication scheme.
+# Only the *name* is ever kept, and for `authorization` only the scheme
+# word - never a credential.
+# Details: docs/dev/crawlers/network_filter.md#_auth_scheme
+_API_KEY_HEADER_HINTS = ("api-key", "apikey", "x-auth", "auth-token", "access-token", "x-token")
+
+
+def _auth_scheme(headers: Dict[str, str]) -> str:
+    """The authentication scheme a request used, from header names alone.
+
+    Args:
+        headers: the request's headers, as crawl4ai captured them.
+
+    Returns:
+        `"bearer"`/`"basic"`/... - the first word of an `Authorization`
+        header, lowercased, which is a scheme name and never a secret. Or
+        the *name* of an API-key-looking header (`"header:x-api-key"`), or
+        `"cookie"` when the request carried one. `""` when nothing
+        suggests authentication.
+
+        Values are never read. A bearer token, a basic credential and a
+        session cookie all stay entirely out of the graph - the same
+        names-not-values discipline `query_param_names` already follows.
+    Details: docs/dev/crawlers/network_filter.md#_auth_scheme
+    """
+    lowered = {name.lower(): value for name, value in (headers or {}).items()}
+    authorization = lowered.get("authorization", "")
+    if authorization:
+        scheme = authorization.split(" ", 1)[0].strip().lower()
+        return scheme or "authorization"
+    for name in lowered:
+        if any(hint in name for hint in _API_KEY_HEADER_HINTS):
+            return f"header:{name}"
+    return "cookie" if "cookie" in lowered else ""
+
+
+def _media_type(headers: Dict[str, str]) -> str:
+    """The response's media type, without charset. `""` when unstated."""
+    for name, value in (headers or {}).items():
+        if name.lower() == "content-type":
+            return (value or "").split(";")[0].strip().lower()
+    return ""
+
+
 def _is_meaningful(event: Dict[str, Any]) -> bool:
     """Whether one `request` event describes a call worth documenting.
 
@@ -32,7 +76,13 @@ def _is_meaningful(event: Dict[str, Any]) -> bool:
     resource_type = event.get("resource_type")
     if resource_type in _ASYNC_RESOURCE_TYPES:
         return True
-    return resource_type == _NAVIGATION_RESOURCE_TYPE and (event.get("method") or "").upper() != "GET"
+    if resource_type != _NAVIGATION_RESOURCE_TYPE:
+        return False
+    # The method is what separates the two document cases, not crawl4ai's
+    # `is_navigation_request` flag: that is true for a link click and a form
+    # submit alike, so it cannot tell them apart.
+    # Details: docs/dev/crawlers/network_filter.md#_is_meaningful
+    return (event.get("method") or "").upper() != "GET"
 
 
 def _json_shape(value: Any) -> Any:
@@ -106,6 +156,9 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
         return []
 
     statuses_by_url: Dict[str, Optional[int]] = {}
+    status_text_by_url: Dict[str, str] = {}
+    media_type_by_url: Dict[str, str] = {}
+    auth_scheme_by_url: Dict[str, str] = {}
     failures_by_url: Dict[str, str] = {}
     response_body_by_url: Dict[str, str] = {}
     post_data_by_url: Dict[str, str] = {}
@@ -116,6 +169,8 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
         if event_type == "response":
             url = event.get("url")
             statuses_by_url[url] = event.get("status")
+            status_text_by_url[url] = event.get("status_text") or ""
+            media_type_by_url[url] = _media_type(event.get("headers") or {})
             _remember_timestamp(received_at_by_url, event)
             body_text = (event.get("body") or {}).get("text")
             if body_text:
@@ -128,6 +183,9 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
             failures_by_url[event.get("url")] = event.get("failure_text") or "request failed"
         elif event_type == "request":
             _remember_timestamp(sent_at_by_url, event)
+            scheme = _auth_scheme(event.get("headers") or {})
+            if scheme:
+                auth_scheme_by_url[event.get("url")] = scheme
             post_data = event.get("post_data")
             if post_data:
                 post_data_by_url[event.get("url")] = post_data
@@ -151,6 +209,9 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
                 "body_shape": _shape_of_json_text(post_data_by_url.get(url)),
                 "response_shape": _shape_of_json_text(response_body_by_url.get(url)),
                 "latency_ms": _latency_ms(sent_at_by_url.get(url), received_at_by_url.get(url)),
+                "status_text": status_text_by_url.get(url, ""),
+                "media_type": media_type_by_url.get(url, ""),
+                "auth_scheme": auth_scheme_by_url.get(url, ""),
             }
         )
     return results

@@ -34,6 +34,7 @@ def test_xhr_and_fetch_requests_are_kept_with_joined_status():
         "method": "GET", "url": "/api/ping", "resource_type": "fetch",
         "status": 200, "failed": False, "failure_text": None,
         "body_shape": "", "response_shape": "", "latency_ms": None,
+        "status_text": "", "media_type": "", "auth_scheme": "",
     }
     legacy = next(r for r in result if r["url"] == "/api/legacy")
     assert legacy["status"] == 201
@@ -192,3 +193,67 @@ def test_latency_is_none_when_no_response_ever_arrived():
     ]
 
     assert filter_meaningful_requests(events)[0]["latency_ms"] is None
+
+
+def test_an_authorization_header_yields_its_scheme_and_never_its_credential():
+    """The whole point of reading headers at all: `bearer` is a scheme name,
+    the token after it is a secret that must never reach the graph."""
+    events = [
+        {"event_type": "request", "url": "/api/x", "method": "POST", "resource_type": "fetch",
+         "headers": {"Authorization": "Bearer eyJhbGciOi.REDACT-ME"}},
+        {"event_type": "response", "url": "/api/x", "status": 201, "headers": {}},
+    ]
+
+    result = filter_meaningful_requests(events)[0]
+
+    assert result["auth_scheme"] == "bearer"
+    assert "REDACT-ME" not in str(result)
+
+
+def test_an_api_key_header_is_identified_by_its_name():
+    events = [
+        {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
+         "headers": {"X-API-Key": "secret-value-here"}},
+    ]
+
+    result = filter_meaningful_requests(events)[0]
+
+    assert result["auth_scheme"] == "header:x-api-key"
+    assert "secret-value-here" not in str(result)
+
+
+def test_a_cookie_is_reported_as_a_scheme_without_its_contents():
+    events = [
+        {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
+         "headers": {"Cookie": "session=abc123; user=real@person.com"}},
+    ]
+
+    result = filter_meaningful_requests(events)[0]
+
+    assert result["auth_scheme"] == "cookie"
+    assert "abc123" not in str(result)
+    assert "real@person.com" not in str(result)
+
+
+def test_a_request_with_no_auth_headers_reports_no_scheme():
+    events = [
+        {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
+         "headers": {"Accept": "application/json"}},
+    ]
+
+    assert filter_meaningful_requests(events)[0]["auth_scheme"] == ""
+
+
+def test_the_response_media_type_is_read_without_its_charset():
+    """The contract assumed application/json for everything; an endpoint
+    answering XML or a redirect was described wrongly."""
+    events = [
+        {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch"},
+        {"event_type": "response", "url": "/api/x", "status": 200,
+         "status_text": "OK", "headers": {"Content-Type": "application/xml; charset=utf-8"}},
+    ]
+
+    result = filter_meaningful_requests(events)[0]
+
+    assert result["media_type"] == "application/xml"
+    assert result["status_text"] == "OK"

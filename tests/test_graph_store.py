@@ -195,9 +195,14 @@ def test_memory_store_record_component_interaction_auto_creates_node():
     ledger = store.get_component_ledger("a.com")
     # `source_path` is always present, blank included - both backends hand
     # back one shape, and Neo4j's now comes off :INTERACTED relationships
-    # where every property exists on every edge.
+    # where every property exists on every edge. `visit_id`/`step_seq` are
+    # blank/0 here because this call passes no `step`, which is exactly how
+    # an unordered interaction is distinguished from a missing one.
     assert ledger["a.com/x"]["button#go"]["interactions"] == [
-        {"action": "click", "value": "", "resulting_url": "a.com/y", "source_path": ""}
+        {
+            "action": "click", "value": "", "resulting_url": "a.com/y", "source_path": "",
+            "visit_id": "", "step_seq": 0,
+        }
     ]
 
 

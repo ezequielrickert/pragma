@@ -121,3 +121,29 @@ Inherits an existing limitation rather than introducing one: every map in
 `filter_meaningful_requests` is keyed by url, so two requests to the same
 url within one batch overwrite each other. That was already true of
 `status`.
+
+## _auth_scheme
+
+crawl4ai captures request headers on every event, and this module threw
+them away wholesale - the same situation `timestamp` was in before the
+latency work. Reading them is what turns "no security schemes, by design"
+into a real `securitySchemes` block.
+
+**Names, never values.** For `Authorization`, only the scheme word is
+kept: `Bearer eyJhbGci...` becomes `"bearer"`. A scheme name is not a
+secret; the token after it is, and it never leaves this function. An
+API-key-looking header contributes its *name* (`header:x-api-key`), and a
+`Cookie` header contributes only the fact that one was present. This is
+the same names-not-values discipline `query_param_names` has always
+followed, applied to a second place the same secrets could have leaked
+from.
+
+Tested by asserting the credential is absent from the output, not merely
+that the scheme is present - a test that only checks the good case would
+pass on an implementation that leaked.
+
+## _media_type
+
+The response's `content-type`, charset stripped. Without it the API
+contract assumed `application/json` for everything, so an endpoint
+answering XML or a redirect was described wrongly rather than vaguely.
