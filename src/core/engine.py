@@ -15,6 +15,7 @@ from ..crawlers.debug_log import CrawlDebugLog, prune_old_runs
 from ..crawlers.fill_value_agent import make_ai_fill_value_fn
 from ..crawlers.fill_values import default_placeholder_fill_value
 from ..crawlers.graph_sink import GraphStoreSink
+from ..crawlers.measurement_pass import run_measurement_pass
 from ..crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from ..generators.component_family import (
     build_component_families,
@@ -187,6 +188,7 @@ class Engine:
         prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
         documents: Optional[List[str]] = None,
+        measurement_pass: bool = False,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -223,6 +225,7 @@ class Engine:
         # None keeps PragmaConfig's own default rather than duplicating the
         # list here - see docs/dev/core/config.md#documents.
         self.documents = documents if documents is not None else list(PragmaConfig().documents)
+        self.measurement_pass = measurement_pass
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -273,6 +276,7 @@ class Engine:
             prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
             documents=config.documents,
+            measurement_pass=config.measurement_pass,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -330,6 +334,14 @@ class Engine:
         # already in the graph - must run before synthesis reads it below.
         _apply_component_families(self.graph_store, site, self.agent)
         _apply_request_graph(self.graph_store, site)
+
+        if self.measurement_pass:
+            # After the crawl and before synthesis: it writes to the graph
+            # the accessibility document then reads.
+            # Details: docs/dev/core/engine.md#measurement_pass
+            result = await run_measurement_pass(self.graph_store, site, headless=self.headless)
+            print(f"Measurement pass: audited {len(result.measured)} pages, "
+                  f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
 
         run_timestamp = _timestamp()
         request = DocumentRequest(

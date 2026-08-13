@@ -188,6 +188,29 @@ class Neo4jGraphStore(
             )
             return {r["url"]: r["value"] for r in result}
 
+    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                SET p.accessibility_violations = $entry
+                """,
+                site=site, page_url=page_url, entry=violations_json,
+            )
+
+    def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.accessibility_violations IS NOT NULL
+                RETURN p.url AS url, p.accessibility_violations AS violations
+                """,
+                site=site,
+            )
+            found = {r["url"]: json.loads(r["violations"]) for r in result}
+            return {url: violations for url, violations in found.items() if violations}
+
     def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
         with self._session() as session:
             session.run(

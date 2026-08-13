@@ -15,7 +15,7 @@ from crawl4ai.async_configs import CacheMode
 from ..core.interfaces import PageState
 from .debug_log import CrawlDebugLog
 from .network_filter import filter_meaningful_requests
-from .page_extraction import run_extraction
+from .page_extraction import run_accessibility_audit, run_extraction
 from .target_load_throttle import TargetLoadThrottle
 
 # Hands a click/fill's own success/failure back to Python.
@@ -127,6 +127,16 @@ class Crawl4AICrawlerConfig:
     page_timeout_seconds: float = 15.0
     prefetch: bool = False
     block_images: bool = False
+    # Viewport the browser renders at. The crawl default is small on purpose
+    # (less render cost per navigation); the measurement pass overrides it
+    # with something a person would actually use.
+    # Details: docs/dev/crawlers/crawl4ai_crawler.md#viewport
+    viewport_width: int = 800
+    viewport_height: int = 600
+    # Run axe-core after each navigation. Off during the crawl: it costs a
+    # second per page and its contrast results are wrong with images blocked.
+    # Details: docs/dev/crawlers/crawl4ai_crawler.md#audit_accessibility
+    audit_accessibility: bool = False
     interaction_timeout_seconds: Optional[float] = None
     # Cap on the polite delay grown between navigations when the target
     # server itself is slowing down. `None` disables backoff (and the
@@ -161,6 +171,9 @@ class Crawl4AICrawler:
         self.page_timeout_seconds = config.page_timeout_seconds
         self.prefetch = config.prefetch
         self.block_images = config.block_images
+        self.viewport_width = config.viewport_width
+        self.viewport_height = config.viewport_height
+        self.audit_accessibility = config.audit_accessibility
         self.interaction_timeout_seconds = config.interaction_timeout_seconds
         # Adaptive pacing/circuit-breaker against a straining target server -
         # a separate small class (not inline here) since it has its own,
@@ -187,8 +200,8 @@ class Crawl4AICrawler:
             headless=self.headless,
             light_mode=True,
             memory_saving_mode=True,
-            viewport_width=800,
-            viewport_height=600,
+            viewport_width=self.viewport_width,
+            viewport_height=self.viewport_height,
         )
         self._crawler = AsyncWebCrawler(config=browser_config)
         # Hooks must be registered before __aenter__() is awaited below.
@@ -276,6 +289,8 @@ class Crawl4AICrawler:
         await _wait_for_new_content(page, self.wait_seconds)
         session_id = config.session_id or "default"
         data = await run_extraction(page)
+        if self.audit_accessibility:
+            data["accessibility_violations"] = await run_accessibility_audit(page)
         self._stash[session_id] = data
         if self.debug_log:
             self.debug_log.log_hook(
@@ -388,6 +403,7 @@ class Crawl4AICrawler:
             description=data.get("description", ""),
             text_content=data.get("text_content", []),
             network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
+            accessibility_violations=data.get("accessibility_violations", []),
         )
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)

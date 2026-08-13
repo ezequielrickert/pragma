@@ -96,7 +96,13 @@ class PragmaConfig:
     # order. The master document ("Start Here") always runs last and is
     # not listed here - it is the pipeline's closing step, not an optional
     # document. Details: docs/dev/core/config.md#documents
-    documents: List[str] = field(default_factory=lambda: ["coverage", "prd", "tree", "openapi", "catalog", "flows"])
+    documents: List[str] = field(default_factory=lambda: ["coverage", "prd", "tree", "openapi", "catalog", "flows", "usability", "tokens", "accessibility"])
+    # Re-visit the crawled pages once more with images on and a realistic
+    # viewport, running the accessibility audit. Costs one extra navigation
+    # per page and no interaction; off by default because it is only worth
+    # paying for when the accessibility/design documents are wanted.
+    # Details: docs/dev/core/config.md#measurement_pass
+    measurement_pass: bool = False
     # Component-tree rendering mode: Unicode box-drawing by default.
     # Details: docs/dev/core/config.md#tree_ascii
     tree_ascii: bool = False

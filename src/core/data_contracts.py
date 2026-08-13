@@ -33,6 +33,10 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
+    # axe-core WCAG violations; only ever populated by the measurement pass,
+    # empty on every ordinary crawl navigation.
+    # Details: docs/dev/core/interfaces.md#pagestateaccessibility_violations
+    accessibility_violations: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
