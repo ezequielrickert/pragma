@@ -15,7 +15,7 @@
 | D5 | Catálogo de componentes (props + variantes) | Atomic Design, nivel átomo | **hecho** (`component_catalog.py`) | 3 |
 | D6 | Flujos de usuario | FSM / diagrama de estados | **hecho** (`user_flows.py`) | 4 |
 | D7 | Auditoría de usabilidad | Heurísticas de Nielsen | **hecho** (`usability.py`) | 5a |
-| D10 | Especificación visual (design tokens) | W3C Design Tokens | falta | 5b |
+| D10 | Especificación visual (design tokens) | W3C Design Tokens | **hecho** (`design_tokens.py`), sin espaciado | 5b |
 | D11 | Auditoría de accesibilidad | WCAG 2.1 AA vía axe-core | falta | 5c |
 | D8 | Especificación de comportamiento | BDD / Gherkin | falta | 6 |
 | D12 | Documento maestro (explica y referencia a los demás) | — | **hecho** (`master_document.py`) | 0 (motor) / última etapa |
