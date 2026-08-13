@@ -1,0 +1,16 @@
+<!doctype html><html lang="es"><head><title>Render tardio</title></head>
+<body>
+  <!-- A shell that settles, then swaps in the real screen a second later.
+       Fifty-plus nodes so the page is clearly not an error page, and no
+       button or link until the swap - the exact shape that made a real
+       crawl record one page and nothing else. -->
+  <div id="shell"></div>
+  <script>
+    const shell = document.getElementById('shell');
+    shell.innerHTML = Array.from({length: 60}, (_, i) => '<div>fila ' + i + '</div>').join('');
+    setTimeout(() => {
+      shell.insertAdjacentHTML('beforeend',
+        '<button id="comprar">Comprar</button><a href="/otra">Otra pagina</a>');
+    }, 1200);
+  </script>
+</body></html>

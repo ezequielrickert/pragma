@@ -31,6 +31,12 @@ _ACTION_MARK = "window.__pragma_last_action__"
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_blocked_resource_types
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
+# Below this many DOM elements, "no components and no links" is a
+# believable description of the page rather than a sign we looked too
+# early. Well under any real application screen, well above an error page.
+# Details: docs/dev/crawlers/crawl4ai_crawler.md#_retry_empty_extraction
+_EMPTY_EXTRACTION_MIN_NODES = 50
+
 # _wait_for_new_content's poll step.
 # Details: docs/dev/crawlers/crawl4ai_crawler.md#_adaptive_wait_step_seconds
 _ADAPTIVE_WAIT_STEP_SECONDS = 0.1
@@ -287,6 +293,47 @@ class Crawl4AICrawler:
         else:
             await route.continue_()
 
+    async def _retry_empty_extraction(self, page, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Look again when discovery found nothing on a page that clearly has something.
+
+        Zero components *and* zero links on a page with a real DOM is
+        almost never true - it is the settle-wait having returned on an
+        intermediate render, the same failure `_STABLE_HOLD_SECONDS`
+        exists for, on an app whose plateau outlasts that window.
+        Confirmed live on empanad.app: `before_retrieve_html` logged 0
+        components against 21,891 characters of HTML, and the whole crawl
+        produced one page and nothing else.
+
+        Args:
+            page: the live page, still open.
+            data: whatever `run_extraction` just returned.
+
+        Returns:
+            The retried extraction when it found more, otherwise `data`
+            unchanged - a page that genuinely has no controls and no links
+            (a plain text page) stays empty rather than being retried
+            forever. Exactly one extra attempt, so the worst case is one
+            more settle-wait on such a page.
+        Details: docs/dev/crawlers/crawl4ai_crawler.md#_retry_empty_extraction
+        """
+        if data.get("components") or data.get("links"):
+            return data
+        try:
+            node_count = await page.evaluate("() => document.querySelectorAll('*').length")
+        except Exception:
+            return data  # torn-down context - nothing to retry against
+        if node_count < _EMPTY_EXTRACTION_MIN_NODES:
+            return data
+
+        await _wait_for_new_content(page, self.wait_seconds)
+        retried = await run_extraction(page)
+        found = len(retried.get("components") or []) + len(retried.get("links") or [])
+        if self.debug_log:
+            self.debug_log.log_hook(
+                "empty_extraction_retry", nodes=node_count, found_on_retry=found
+            )
+        return retried if found else data
+
     async def _before_retrieve_html(self, page, context, config, **kwargs):
         """Discovery point for a plain navigation pass (no `js_code` this call).
         Details: docs/dev/crawlers/crawl4ai_crawler.md#_before_retrieve_html
@@ -294,6 +341,7 @@ class Crawl4AICrawler:
         await _wait_for_new_content(page, self.wait_seconds)
         session_id = config.session_id or "default"
         data = await run_extraction(page)
+        data = await self._retry_empty_extraction(page, data)
         if self.audit_accessibility:
             data["accessibility_violations"] = await run_accessibility_audit(page)
             data["pseudo_styles"] = await extract_pseudo_styles(page)

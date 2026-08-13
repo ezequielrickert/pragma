@@ -711,3 +711,33 @@ cost as approach 2 above, just paid once per `session_recycle_after`
 visits instead of once per visit. See
 `docs/dev/crawlers/mechanical_loop.md#session_recycle_after` for picking
 that number.
+
+## _retry_empty_extraction
+
+Zero components **and** zero links on a page with a real DOM is almost
+never a true description of that page. It is the settle-wait having
+returned on an intermediate render - the same failure `_STABLE_HOLD_SECONDS`
+exists for, on an application whose plateau outlasts that 0.4s window.
+
+**The failure it was written from.** A real crawl of empanad.app logged
+`before_retrieve_html` with `components: 0, links: 0` against
+`html_length: 21891`, and the whole run produced one page node, no
+components, and documents that all rendered empty. Nothing errored: the
+crawl accepted "this page has nothing on it" as a finding.
+
+The retry is exactly one extra attempt, gated on the page having at least
+`_EMPTY_EXTRACTION_MIN_NODES` elements. A page that genuinely has no
+controls and no links - a legal notice, an error page - stays empty
+instead of being retried into existence, and pays at most one extra
+settle-wait.
+
+Returns the original data when the retry also finds nothing, so a second
+empty result never looks different from the first.
+
+Only on the plain-navigation path (`_before_retrieve_html`), not after a
+scripted click: an interaction that reveals nothing is an ordinary
+outcome, not a symptom.
+
+Tested through a real browser against a fixture that settles as a shell
+and swaps in its screen 1.2s later. Nothing short of a real render
+reproduces a timing race.
