@@ -96,7 +96,7 @@ class PragmaConfig:
     # order. The master document ("Start Here") always runs last and is
     # not listed here - it is the pipeline's closing step, not an optional
     # document. Details: docs/dev/core/config.md#documents
-    documents: List[str] = field(default_factory=lambda: ["coverage", "prd", "tree", "openapi", "catalog", "flows", "usability", "tokens", "accessibility"])
+    documents: List[str] = field(default_factory=lambda: ["coverage", "prd", "tree", "openapi", "catalog", "flows", "usability", "tokens", "accessibility", "gherkin", "sequences"])
     # Re-visit the crawled pages once more with images on and a realistic
     # viewport, running the accessibility audit. Costs one extra navigation
     # per page and no interaction; off by default because it is only worth

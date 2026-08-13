@@ -66,11 +66,14 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - openapi            # available names: coverage, prd, tree, openapi, catalog,
 #   - catalog            #                  catalog-data, flows,
 #                        usability, tokens,
-#                        tokens-data, accessibility, export
+#                        tokens-data, accessibility,
+#                        gherkin, sequences, export
 #   - flows
 #   - usability
 #   - tokens
 #   - accessibility
+#   - gherkin
+#   - sequences
 #   - catalog-data
 #   - export
 measurement_pass: false  # after the crawl, re-visit each finished page once with images enabled

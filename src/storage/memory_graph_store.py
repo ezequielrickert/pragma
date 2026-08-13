@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore, InferredRequest
+from ..core.interfaces import ComponentFacts, ComponentFamily, GraphStore, InferredRequest, VisitStep
 from ..core.registry import GRAPH_STORE_REGISTRY
 
 # ComponentFacts field names, in the fixed order every component record
@@ -201,6 +201,7 @@ class InMemoryGraphStore(GraphStore):
         value: str = "",
         resulting_url: str = "",
         source_path: str = "",
+        step: Optional[VisitStep] = None,
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
@@ -211,7 +212,12 @@ class InMemoryGraphStore(GraphStore):
         # the same shape. Every reader already treats "" as absent.
         # Details: docs/dev/storage/memory_graph_store.md#record_component_interaction
         record["interactions"].append(
-            {"action": action, "value": value, "resulting_url": resulting_url, "source_path": source_path}
+            {
+                "action": action, "value": value, "resulting_url": resulting_url,
+                "source_path": source_path,
+                "visit_id": step.visit_id if step else "",
+                "step_seq": step.seq if step else 0,
+            }
         )
 
     def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:

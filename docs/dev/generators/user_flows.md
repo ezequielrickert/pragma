@@ -35,8 +35,10 @@ documenting.
 
 ## mixed
 
-The honest limit of this document, found by rendering it rather than by
-reasoning about it.
+The honest limit of the first version of this document, found by rendering
+it rather than by reasoning about it. **Now resolved for any graph crawled
+with interaction stamping** (see `_requests_for_move`); what follows is
+why it existed and why the marker is still reachable.
 
 Requests are stored **per interaction** - `record_component_network`
 appends one JSON batch per interaction - but `get_component_ledger`
@@ -54,11 +56,11 @@ leading to several whose requests disagree gets `mixed`, the endpoint
 still reported and the status withheld. Where every request agrees there
 is no ambiguity to flag, so the outcome stands.
 
-Fixing this properly needs per-interaction attribution to survive the
-read - which is the `visit_id`/`step_seq` ordering Fase 6 introduces. Not
-worth pulling forward: the ambiguity is rare (it needs one control with
-several destinations *and* disagreeing responses) and is now stated rather
-than papered over.
+Fixing it properly needed per-interaction attribution to survive the read,
+which is the `visit_id`/`step_seq` stamping Fase 6 added. It now does, so
+a current crawl resolves each branch exactly. The marker remains for
+graphs written before that, where the ambiguity is real and must not be
+papered over by machinery that cannot actually see the answer.
 
 ## build_flow_graph
 
@@ -84,6 +86,21 @@ fail loudly.
 
 ## UserFlowsDocument
 
-States up front that requests are attributed to the **control**, not to
-the individual move, and why. A reader who takes a per-move status at face
-value would be drawing conclusions the data does not support.
+States up front how requests are attributed and when that attribution
+fails - see `_requests_for_move`. A reader taking a per-move status at
+face value should know whether it was resolved or pooled.
+
+## _requests_for_move
+
+The fix for what `mixed` was introduced to declare.
+
+Interactions now carry the position they happened at (`VisitStep`), and so
+do the requests they fired, so a control clicked twice has each click's
+response separable from the other's. A move is matched to its own
+interactions by comparing `route_shape(resulting_url)` to the destination
+state - the interaction stores the literal URL, the edge stores the shape.
+
+Falls back to the control's pooled requests, flagged inexact, when nothing
+is stamped. That flag is what keeps `mixed` alive for graphs written
+before the stamping existed: a document reading an old graph must not
+silently gain precision it does not have.

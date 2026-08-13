@@ -75,7 +75,8 @@ _INTERACTIONS_COLLECT = (
     "WITH c, i ORDER BY i.seq "
     "WITH c, [x IN collect(i) | {"
     "action: x.action, value: x.value, "
-    "resulting_url: x.resulting_url, source_path: x.source_path"
+    "resulting_url: x.resulting_url, source_path: x.source_path, "
+    "visit_id: coalesce(x.visit_id, ''), step_seq: coalesce(x.step_seq, 0)"
     "}] AS interactions"
 )
 

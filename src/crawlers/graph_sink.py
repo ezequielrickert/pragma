@@ -7,7 +7,7 @@ import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..core.interfaces import ComponentFacts, GraphStore
+from ..core.interfaces import ComponentFacts, GraphStore, VisitStep
 from ..generators.component_classifier import (
     classify_component_type,
     describe_options,
@@ -295,20 +295,38 @@ class GraphStoreSink:
             return representative, path
         return path, ""
 
-    async def record_interaction(self, page_key: str, path: str, action: str, value: str, resulting_url: str) -> None:
+    async def record_interaction(
+        self, page_key: str, path: str, action: str, value: str, resulting_url: str,
+        step: Optional[VisitStep] = None,
+    ) -> None:
         """One call per *attempted* interaction, success or failure.
+        `step` places it in its visit's sequence - see `VisitStep`.
         Details: docs/dev/crawlers/graph_sink.md#record_interaction
         """
         write_path, source_path = self._resolve_write_path(page_key, path)
         await self._write(
             self.graph_store.record_component_interaction, self.site, page_key, write_path,
             action=action, value=value, resulting_url=resulting_url, source_path=source_path,
+            step=step,
         )
 
-    async def record_component_network(self, page_key: str, path: str, requests: List[Dict[str, Any]]) -> None:
+    async def record_component_network(
+        self, page_key: str, path: str, requests: List[Dict[str, Any]],
+        step: Optional[VisitStep] = None,
+    ) -> None:
         """One call per interaction that triggered >=1 meaningful (xhr/fetch) request.
+
+        Each request is stamped with the interaction's own `step` before
+        being written. That stamp is what lets a reader tell which request
+        belongs to which interaction after the store flattens every batch
+        into one list - without it, a control clicked twice pools its
+        responses and neither can be attributed.
         Details: docs/dev/crawlers/graph_sink.md#record_component_network
         """
+        if step is not None:
+            requests = [
+                {**request, "visit_id": step.visit_id, "step_seq": step.seq} for request in requests
+            ]
         write_path, source_path = self._resolve_write_path(page_key, path)
         payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
         await self._write(

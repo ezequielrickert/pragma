@@ -11,6 +11,7 @@ from .data_contracts import (  # noqa: F401 - re-exported, see module docstring 
     ComponentFamily,
     InferredRequest,
     PageState,
+    VisitStep,
 )
 
 # PageState/ComponentFacts/ComponentFamily/InferredRequest are re-exported
@@ -224,8 +225,12 @@ class GraphStore(ABC):
         value: str = "",
         resulting_url: str = "",
         source_path: str = "",
+        step: Optional["VisitStep"] = None,
     ) -> None:
         """Mark a component as interacted with and append one interaction record.
+        `step` places this interaction in its visit's sequence - see
+        `VisitStep`. `None` records it unordered, which is what every
+        caller predating the trace work does.
         `source_path` names the specific member that acted when `path` is a
         consolidated choice-group/dropdown's representative node rather than
         the member itself - "" when they're the same (the ordinary case).

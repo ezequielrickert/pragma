@@ -19,7 +19,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..core.documents import DocumentGenerator, DocumentRequest
 from ..core.registry import DOCUMENT_REGISTRY
+from ..utils.urls import route_shape
 from .ledger import flat_component_ledger
+from .traces import requests_for
 
 OK = "ok"
 ERROR = "error"
@@ -69,6 +71,36 @@ def _trigger_label(component: Optional[Dict[str, Any]], path: str) -> str:
     if not component:
         return path
     return (component.get("text") or component.get("component_type") or path).strip() or path
+
+
+def _requests_for_move(component: Optional[Dict[str, Any]], to_state: str) -> Tuple[List[Dict[str, Any]], bool]:
+    """The requests this specific move fired, and whether that is exact.
+
+    Interactions carry the position they happened at (`VisitStep`), and so
+    do the requests they fired, so a control clicked twice can have each
+    click's response separated from the other's - which is what stops the
+    successful branch being labelled with the failed branch's status.
+
+    Falls back to the control's pooled requests, flagged inexact, when
+    nothing is stamped: data written before the stamping existed.
+    Details: docs/dev/generators/user_flows.md#_requests_for_move
+    """
+    if not component:
+        return [], True
+    matching = [
+        interaction
+        for interaction in component.get("interactions") or []
+        if interaction.get("visit_id")
+        and route_shape(interaction.get("resulting_url") or "") == to_state
+    ]
+    if not matching:
+        return list(component.get("network_requests") or []), False
+    requests: List[Dict[str, Any]] = []
+    for interaction in matching:
+        requests.extend(
+            requests_for(component, interaction["visit_id"], interaction.get("step_seq") or 0)
+        )
+    return requests, True
 
 
 def _is_failure(request: Dict[str, Any]) -> bool:
@@ -140,9 +172,10 @@ def build_flow_graph(edges: Sequence[Dict[str, str]], components: Sequence[Dict[
         path = edge.get("component", "")
         component = by_key.get((from_state, path))
         trigger = _trigger_label(component, path)
-        requests = (component or {}).get("network_requests") or []
+        requests, exact = _requests_for_move(component, to_state)
         outcome, status, endpoint = _request_outcome(requests)
-        if len(destinations[(from_state, path)]) > 1 and not _outcomes_agree(requests):
+        # Ambiguity only survives where the stamps could not resolve it.
+        if not exact and len(destinations[(from_state, path)]) > 1 and not _outcomes_agree(requests):
             outcome, status = MIXED, None
         key = (from_state, to_state, trigger, edge.get("action", ""))
         # An error outcome seen on any repeat of the same move wins - the
@@ -232,10 +265,10 @@ class UserFlowsDocument(DocumentGenerator):
             f"{len(flow.states)} screens, {len(flow.transitions)} distinct moves between them. "
             "States are route shapes, not raw URLs, so many instances of one screen collapse into one node.",
             "",
-            "Requests are attributed to the **control** that fired them, not to an individual move: "
-            "they are stored per interaction but flattened into one list when read back. Where one "
-            "control led to several screens with disagreeing outcomes, the move is marked "
-            "*not attributable* rather than given a status it may not have had.",
+            "Each request is attributed to the interaction that fired it, using the position both "
+            "carry. A move is marked *not attributable* only where that position is missing - a "
+            "graph crawled before interactions were stamped - rather than being given a status it "
+            "may not have had.",
             "",
             render_state_diagram(flow),
             "",

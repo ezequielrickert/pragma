@@ -40,6 +40,32 @@ class PageState:
 
 
 @dataclass
+class VisitStep:
+    """Where one interaction sits in the sequence of a single page visit.
+
+    A scenario is a *sequence*, and the graph recorded facts per component
+    with no ordering between them. `visit_id` says which pass an
+    interaction belonged to; `seq` orders it within that pass. Together
+    they are what turns a pile of interactions into a trace.
+
+    Mutable and created per `PageVisitor.visit()` call, deliberately: one
+    `PageVisitor` is shared across concurrent workers, so a counter on the
+    visitor itself would interleave two pages' steps into one nonsense
+    sequence.
+
+    Details: docs/dev/core/data_contracts.md#visitstep
+    """
+
+    visit_id: str
+    seq: int = 0
+
+    def take(self) -> "VisitStep":
+        """Advance and return a frozen snapshot of this step's position."""
+        self.seq += 1
+        return VisitStep(visit_id=self.visit_id, seq=self.seq)
+
+
+@dataclass
 class ComponentFacts:
     """DOM-attribute and computed-style facts about a discovered element,
     beyond the core identity/geometry `record_component` already took as

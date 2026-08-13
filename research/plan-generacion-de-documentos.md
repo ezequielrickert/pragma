@@ -17,7 +17,7 @@
 | D7 | Auditoría de usabilidad | Heurísticas de Nielsen | **hecho** (`usability.py`) | 5a |
 | D10 | Especificación visual (design tokens) | W3C Design Tokens | **hecho** (`design_tokens.py`), sin espaciado | 5b |
 | D11 | Auditoría de accesibilidad | WCAG 2.1 AA vía axe-core | **hecho** (`accessibility.py`) | 5c |
-| D8 | Especificación de comportamiento | BDD / Gherkin | falta | 6 |
+| D8 | Especificación de comportamiento | BDD / Gherkin | **hecho** (`gherkin.py`) | 6 |
 | D12 | Documento maestro (explica y referencia a los demás) | — | **hecho** (`master_document.py`) | 0 (motor) / última etapa |
 
 ---
