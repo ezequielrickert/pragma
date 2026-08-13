@@ -1,0 +1,111 @@
+# `src/generators/component_catalog.py`
+
+## module
+
+D5: what the site is built from, per component, with props and variants.
+
+**Why this is not the Atomic Design pyramid.** The plan
+(`research/plan-generacion-de-documentos.md`, Fase 3) originally proposed
+deriving atoms, molecules, organisms and templates from CSS-path prefixes.
+Two things killed that:
+
+- The graph does not contain the containers. Discovery records interactive
+  elements and text leaves; the `<div>`, `<nav>` and `<section>` that
+  *are* the molecules and organisms are never nodes. What a prefix gives
+  you is a shared string, not an element - so you cannot tell a `<nav>`
+  from an anonymous layout `<div>`, and the tag is the strongest signal
+  there is for what an organism is.
+- The pyramid feeds nothing. Someone rebuilding this UI needs a
+  component's props and variants; the level it sits at is a label.
+
+So the level is reported only where the captured data actually settles it,
+and omitted otherwise. Organisms and templates stay out of scope until the
+nearest landmark ancestor is captured too - one line in
+`discover_components.js`, with an exact precedent in the same file
+(`form: el.closest('form')`), but not worth doing before the catalogue
+exists and shows what is missing.
+
+**No new capture, no model call.** Families already exist, and every prop
+below is a `ComponentFacts` field the crawl has been persisting all along.
+
+## _prop_fields
+
+The fields that describe a component's *interface*. Style and geometry
+(`color`, `background_color`, `font_size`, `rect`) are deliberately
+absent: they belong to the design-token document, D10. The one exception
+is `background_color`, read in `_variants` - not as a prop, but as the
+thing that tells two variants apart.
+
+## CatalogProp
+
+`varies` is what makes this useful. A field every instance shares and a
+field each instance sets differently look identical in the data, and the
+difference is exactly "fixed trait" versus "prop you must pass": a
+`required` that is `true` on all twelve inputs is part of the component,
+while a `placeholder` that differs on all twelve is an argument.
+
+## CatalogVariant
+
+Keyed by modifier classes *and* background colour, because a design system
+can express the same distinction either way - a `btn-danger` class or a
+hardcoded red. Grouping on only one of them merges variants that a reader
+can plainly see are different.
+
+## CatalogEntry
+
+## component_name
+
+A single-word parenthetical is kept, a longer one dropped.
+
+`text field (email)` and `text field (password)` are genuinely different
+components and must not collide, so `email` stays. `combobox (searchable
+dropdown)` and `custom control (component-library element, no native
+tag/role)` are one component with a prose gloss; keeping those produces
+identifiers nobody would type.
+
+## _atomic_level
+
+Two things in the captured data speak to composition: an indivisible HTML
+tag, and `facts.form` (discovery already records `el.closest('form')`).
+Everything else would be a guess, and the field is omitted instead - an
+empty level is readable as "not determined", while a wrong one is read as
+fact.
+
+## _variants
+
+`common_classes` already holds what the whole family shares, so whatever
+remains on an individual member **is** the modifier. That is what turns a
+primary/secondary pair into two variants of one component instead of two
+separate components - and it comes free from the clustering that already
+happened.
+
+## build_catalog
+
+## member_count
+
+Counted from the members actually resolved against the ledger, not from
+`family.member_paths`.
+
+A family node can name a component the ledger no longer holds - families
+are rebuilt from scratch each run, and a `fresh: false` graph can carry
+stale membership. Reporting "3 instances" while describing two, with a
+variant table that sums to two, is the kind of quiet inconsistency that
+makes a reader stop trusting every other number in the document. `used_on`
+is derived the same way and for the same reason.
+
+## ComponentCatalogDocument
+
+States plainly that `hover`, `focus` and `active` are absent, because the
+crawl only ever observes components at rest. A component catalogue without
+interaction states is incomplete for Storybook, and a reader should learn
+that from the document rather than from a missing story.
+
+## ComponentCatalogData
+
+The same entries as JSON, so a design-system or Storybook generator
+consumes structure instead of parsing prose. Shares `build_catalog` with
+the Markdown document, so the two can never describe different components.
+
+Registered separately rather than emitted as a fenced block inside the
+Markdown: one generator writes one file, and a JSON payload buried in a
+`.md` is exactly the "parse the prose" problem it exists to avoid.
