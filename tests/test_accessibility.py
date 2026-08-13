@@ -139,6 +139,9 @@ def test_an_unrun_measurement_pass_is_not_reported_as_a_clean_result():
         def get_accessibility_violations(self, site):
             return {}
 
+        def get_page_measurements(self, site):
+            return {}
+
         def get_component_ledger(self, site):
             return {}
 
@@ -158,6 +161,9 @@ def test_the_document_states_what_automation_cannot_find():
         def get_accessibility_violations(self, site):
             return {PAGE: [_violation()]}
 
+        def get_page_measurements(self, site):
+            return {}
+
         def get_component_ledger(self, site):
             return {}
 
@@ -166,5 +172,56 @@ def test_the_document_states_what_automation_cannot_find():
     )
 
     assert "a clean report is not a compliant application" in text.lower()
-    assert "Keyboard operation" in text
+    # Keyboard operation is covered now (see keyboard_findings); what stays
+    # out is anything needing human judgement.
+    assert "not automatable" in text
     assert "div > button" in text
+
+
+# --- keyboard walk (Fase 8) ---
+
+def _stop(path, dom_index=0, focus_visible=True, offscreen=False):
+    return {"path": path, "dom_index": dom_index, "focus_visible": focus_visible, "offscreen": offscreen}
+
+
+def test_a_control_focused_with_no_visible_indicator_is_flagged():
+    """The common failure: a reset stylesheet removing the UA outline and
+    never putting anything back."""
+    from src.generators.accessibility import keyboard_findings
+
+    findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", focus_visible=False)]}})
+
+    assert [f.rule_id for f in findings] == ["focus-visible"]
+    assert findings[0].criteria == ("wcag21aa", "wcag247")
+
+
+def test_a_tab_order_that_goes_backwards_is_flagged():
+    """Unreachable by reading the DOM, which is why the pass presses real
+    keys - it is usually a positive tabindex."""
+    from src.generators.accessibility import keyboard_findings
+
+    findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 5), _stop("b", 1)]}})
+
+    assert "focus-order" in [f.rule_id for f in findings]
+
+
+def test_a_tab_order_that_follows_the_document_is_not_flagged():
+    from src.generators.accessibility import keyboard_findings
+
+    findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 0), _stop("b", 1), _stop("c", 2)]}})
+
+    assert findings == []
+
+
+def test_focus_landing_on_something_with_no_size_is_flagged():
+    from src.generators.accessibility import keyboard_findings
+
+    findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 0, offscreen=True)]}})
+
+    assert "focus-offscreen" in [f.rule_id for f in findings]
+
+
+def test_a_page_with_no_keyboard_walk_produces_nothing():
+    from src.generators.accessibility import keyboard_findings
+
+    assert keyboard_findings({PAGE: {"tab_order": []}}) == []

@@ -211,6 +211,29 @@ class Neo4jGraphStore(
             found = {r["url"]: json.loads(r["violations"]) for r in result}
             return {url: violations for url, violations in found.items() if violations}
 
+    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                SET p.measurements = $entry
+                """,
+                site=site, page_url=page_url, entry=measurements_json,
+            )
+
+    def get_page_measurements(self, site: str) -> Dict[str, Any]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.measurements IS NOT NULL
+                RETURN p.url AS url, p.measurements AS measurements
+                """,
+                site=site,
+            )
+            found = {r["url"]: json.loads(r["measurements"]) for r in result}
+            return {url: value for url, value in found.items() if value}
+
     def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
         with self._session() as session:
             session.run(

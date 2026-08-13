@@ -546,11 +546,11 @@ Separada a propósito: es la única parte cara del plan y no bloquea nada de lo 
 - **Mensajes de error tras un submit fallido**: `record_text_content` corre una vez por visita,
   no por interacción. Necesitaría re-extraer texto después de cada interacción con status 4xx.
   Coste medio, valor alto — es el candidato de esta fase que más rinde.
-- **Estados visuales `hover` y `focus`**: hoy sólo se capturan los estilos en reposo. Un pase que
+- ~~Estados visuales `hover` y `focus`~~ — **hecho**: hoy sólo se capturan los estilos en reposo. Un pase que
   aplique `:hover`/`:focus` por CSS y re-lea los estilos completaría D10 con los estados que un
   sistema de componentes necesita sí o sí. Coste medio, y es lo que separa un design-token
   "colores y tipografías" de una especificación de componente usable.
-- **Foco visible, orden de tabulación y navegación por teclado** (WCAG 2.4.7, 2.4.3, 2.1.1):
+- ~~Foco visible, orden de tabulación y navegación por teclado~~ — **hecho** (WCAG 2.4.7, 2.4.3):
   requiere recorrer la página con `Tab` durante el crawl. Completa D11 con los criterios que hoy
   quedan afuera.
 - **Presencia de indicador de carga durante la espera**: requiere un snapshot del DOM *durante*

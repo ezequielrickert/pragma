@@ -52,6 +52,18 @@ class ColorToken:
 
 
 @dataclass(frozen=True)
+class StateToken:
+    """One value a control takes on `:hover` or `:focus`.
+    Details: docs/dev/generators/design_tokens.md#statetoken
+    """
+
+    state: str
+    property: str
+    value: str
+    usage_count: int
+
+
+@dataclass(frozen=True)
 class TypeToken:
     """One step of the type scale.
     Details: docs/dev/generators/design_tokens.md#typetoken
@@ -146,6 +158,30 @@ _NAMING_NOTE = (
     "presented as a fact. Rename them when you adopt them."
 )
 
+def build_state_tokens(measurements: Dict[str, Dict[str, Any]]) -> List["StateToken"]:
+    """The `:hover`/`:focus` values a site declares, grouped by what they are.
+
+    Read from the stylesheets rather than from a forced pseudo-state,
+    because a declared value *is* what a token is - `#1a4f9c` as written
+    beats the same colour resolved through whatever an element inherited.
+
+    A site serving its CSS cross-origin reports fewer of these than it has:
+    `cssRules` throws for those stylesheets and there is no way around it.
+    Details: docs/dev/generators/design_tokens.md#build_state_tokens
+    """
+    counts: Dict[Tuple[str, str, str], int] = {}
+    for page in measurements.values():
+        for entry in page.get("pseudo_styles") or []:
+            for state, declarations in (entry.get("states") or {}).items():
+                for prop, value in declarations.items():
+                    if value:
+                        counts[(state, prop, value)] = counts.get((state, prop, value), 0) + 1
+    return [
+        StateToken(state=state, property=prop, value=value, usage_count=count)
+        for (state, prop, value), count in sorted(counts.items(), key=lambda item: (item[0][0], -item[1]))
+    ]
+
+
 _SPACING_NOTE = (
     "Spacing tokens are absent. They would come from element geometry, which the crawl measures at "
     "an 800x600 viewport chosen for speed - a spacing scale derived from that describes a layout "
@@ -184,6 +220,28 @@ class DesignTokensDocument(DocumentGenerator):
             lines += ["## Type scale", "", "| Token | Size | Weight | Uses |", "|---|---|---|---|"]
             lines += [f"| `{t.name}` | {t.font_size} | {t.font_weight} | {t.usage_count} |" for t in types]
             lines.append("")
+
+        states = build_state_tokens(request.graph_store.get_page_measurements(request.site))
+        if states:
+            lines += [
+                "## Interaction states",
+                "",
+                "Declared `:hover` and `:focus` values, read from the stylesheets during the "
+                "measurement pass. A component catalogue without these is not usable in Storybook.",
+                "",
+                "| State | Property | Value | Uses |",
+                "|---|---|---|---|",
+            ]
+            lines += [f"| {s.state} | `{s.property}` | `{s.value}` | {s.usage_count} |" for s in states]
+        else:
+            lines += [
+                "## Interaction states",
+                "",
+                "None were read. Either the measurement pass has not run, or the site serves its CSS "
+                "cross-origin - the browser refuses to expose those rules, and there is no way "
+                "around it. Absent is not the same as 'this site declares no hover styles'.",
+            ]
+        lines.append("")
         return "\n".join(lines)
 
 
@@ -206,5 +264,9 @@ class DesignTokensData(DocumentGenerator):
             "spacing": {"absent": True, "reason": _SPACING_NOTE},
             "color": [asdict(token) for token in build_color_tokens(components)],
             "type": [asdict(token) for token in build_type_tokens(components)],
+            "state": [
+                asdict(token)
+                for token in build_state_tokens(request.graph_store.get_page_measurements(request.site))
+            ],
         }
         return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"

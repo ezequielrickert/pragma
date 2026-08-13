@@ -28,6 +28,69 @@ EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
 # Details: docs/dev/crawlers/page_extraction.md#run_accessibility_audit
 AXE_SOURCE = _load_js("axe.min.js")
 AXE_RUN_JS = _load_js("axe_run.js")
+EXTRACT_PSEUDO_STYLES_JS = _load_js("extract_pseudo_styles.js")
+PROBE_FOCUS_JS = _load_js("probe_focus.js")
+
+# Tab presses per page before the keyboard walk gives up. A page with more
+# focusable controls than this reports a truncated sequence, which the
+# document states - an unbounded loop on a page with a focus trap would
+# never end. Details: docs/dev/crawlers/page_extraction.md#walk_tab_order
+_MAX_TAB_STEPS = 60
+
+
+async def extract_pseudo_styles(page) -> List[Dict[str, Any]]:
+    """The `:hover`/`:focus` styles declared for each interactive control.
+
+    Args:
+        page: a live Playwright page, already settled.
+
+    Returns:
+        `[{"path", "states": {"hover": {...}, "focus": {...}}}]` for every
+        control any stylesheet gives a state style to. `[]` when nothing
+        declares one, and also when every stylesheet is cross-origin -
+        `cssRules` throws for those, and there is no way around it, so a
+        site serving its CSS from a CDN reports fewer state styles than it
+        has.
+    Details: docs/dev/crawlers/page_extraction.md#extract_pseudo_styles
+    """
+    try:
+        return list(await page.evaluate(EXTRACT_PSEUDO_STYLES_JS))
+    except Exception as exc:
+        print(f"Warning: pseudo-style extraction failed: {exc}")
+        return []
+
+
+async def walk_tab_order(page) -> List[Dict[str, Any]]:
+    """Press Tab repeatedly, describing what receives focus each time.
+
+    Real key presses rather than a walk of the DOM, because the whole
+    point is WCAG 2.4.3: a tab order that disagrees with reading order is
+    invisible to anything that only reads the DOM.
+
+    Args:
+        page: a live Playwright page, already settled.
+
+    Returns:
+        One entry per stop, in the order focus actually visited them.
+        Stops early when focus returns to somewhere already visited (the
+        sequence has wrapped) and gives up at `_MAX_TAB_STEPS`.
+    Details: docs/dev/crawlers/page_extraction.md#walk_tab_order
+    """
+    stops: List[Dict[str, Any]] = []
+    seen: set = set()
+    try:
+        for _ in range(_MAX_TAB_STEPS):
+            await page.keyboard.press("Tab")
+            stop = await page.evaluate(PROBE_FOCUS_JS)
+            if not stop or not stop.get("path"):
+                break
+            if stop["path"] in seen:
+                break  # wrapped around - the sequence is complete
+            seen.add(stop["path"])
+            stops.append(stop)
+    except Exception as exc:
+        print(f"Warning: keyboard walk stopped early: {exc}")
+    return stops
 
 
 async def run_accessibility_audit(page) -> List[Dict[str, Any]]:

@@ -34,8 +34,8 @@ _IMPACT_ORDER = {"critical": 0, "serious": 1, "moderate": 2, "minor": 3}
 _COVERAGE_NOTE = (
     "Automated testing finds on the order of a third of real WCAG problems. Everything here is a "
     "genuine violation - axe reports only what it can determine without judgement - but a clean "
-    "report is not a compliant application. Keyboard operation, focus order and visible focus are "
-    "absent entirely: they need the page driven by keyboard, which the measurement pass does not do."
+    "report is not a compliant application. Judgement-dependent criteria (is this label clear, is "
+    "this order logical to a person) are not automatable and are absent."
 )
 
 
@@ -120,6 +120,68 @@ def undersized_targets(components: Sequence[Dict[str, Any]]) -> List[Accessibili
     ]
 
 
+def keyboard_findings(measurements: Dict[str, Dict[str, Any]]) -> List[AccessibilityFinding]:
+    """What the Tab walk found: invisible focus, and a tab order that
+    disagrees with reading order.
+
+    Neither is reachable by reading the DOM, which is the whole reason the
+    measurement pass presses real keys. A tab order matching source order
+    is the default; one that does not is usually a positive `tabindex`,
+    and it is invisible to any check that walks the document instead.
+    Details: docs/dev/generators/accessibility.md#keyboard_findings
+    """
+    findings: List[AccessibilityFinding] = []
+    for page_url, page in sorted(measurements.items()):
+        stops = page.get("tab_order") or []
+        if not stops:
+            continue
+
+        invisible = [stop["path"] for stop in stops if not stop.get("focus_visible")]
+        if invisible:
+            findings.append(
+                AccessibilityFinding(
+                    page_url=page_url, rule_id="focus-visible", impact="serious",
+                    criteria=("wcag21aa", "wcag247"),
+                    help="Focused control shows no visible focus indicator.",
+                    help_url="https://www.w3.org/WAI/WCAG21/Understanding/focus-visible.html",
+                    element_count=len(invisible), resolved_paths=tuple(invisible[:25]), unresolved=0,
+                )
+            )
+
+        # A stop whose DOM position goes backwards relative to the previous
+        # one means Tab jumped against reading order.
+        indexes = [stop.get("dom_index", -1) for stop in stops]
+        out_of_order = [
+            stops[i]["path"]
+            for i in range(1, len(indexes))
+            if indexes[i] >= 0 and indexes[i - 1] >= 0 and indexes[i] < indexes[i - 1]
+        ]
+        if out_of_order:
+            findings.append(
+                AccessibilityFinding(
+                    page_url=page_url, rule_id="focus-order", impact="moderate",
+                    criteria=("wcag2a", "wcag243"),
+                    help="Tab order does not follow the order the content is written in.",
+                    help_url="https://www.w3.org/WAI/WCAG21/Understanding/focus-order.html",
+                    element_count=len(out_of_order), resolved_paths=tuple(out_of_order[:25]), unresolved=0,
+                )
+            )
+
+        offscreen = [stop["path"] for stop in stops if stop.get("offscreen")]
+        if offscreen:
+            findings.append(
+                AccessibilityFinding(
+                    page_url=page_url, rule_id="focus-offscreen", impact="serious",
+                    criteria=("wcag2a", "wcag241"),
+                    help="Tab moves focus to a control with no size on screen - a keyboard user "
+                         "loses their place with nothing to see.",
+                    help_url="https://www.w3.org/WAI/WCAG21/Understanding/no-keyboard-trap.html",
+                    element_count=len(offscreen), resolved_paths=tuple(offscreen[:25]), unresolved=0,
+                )
+            )
+    return findings
+
+
 @DOCUMENT_REGISTRY.register("accessibility")
 class AccessibilityDocument(DocumentGenerator):
     """Details: docs/dev/generators/accessibility.md#accessibilitydocument"""
@@ -130,8 +192,13 @@ class AccessibilityDocument(DocumentGenerator):
 
     def generate(self, request: DocumentRequest) -> str:
         violations = request.graph_store.get_accessibility_violations(request.site)
+        measurements = request.graph_store.get_page_measurements(request.site)
         components = flat_component_ledger(request.graph_store, request.site)
-        findings = build_axe_findings(violations) + undersized_targets(components)
+        findings = (
+            build_axe_findings(violations)
+            + keyboard_findings(measurements)
+            + undersized_targets(components)
+        )
 
         lines = [f"# Accessibility Audit: {request.site}", ""]
         if not violations:
