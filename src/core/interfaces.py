@@ -267,6 +267,26 @@ class GraphStore(ABC):
         """
         raise NotImplementedError
 
+    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
+        """Replace one page's recorded axe-core violations.
+
+        Replace, not append: the measurement pass re-audits a page from
+        scratch, so a second run's results supersede the first rather than
+        stacking with them.
+
+        Not abstract - a backend with no measurement pass wired to it can
+        ignore this, the same way `apply_tag_labels` is a no-op outside
+        Neo4j. Both shipped backends do implement it.
+        Details: docs/dev/core/interfaces.md#record_accessibility_violations
+        """
+
+    def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        """`{page_url: [violation, ...]}` for every audited page. `{}` when
+        no measurement pass has run.
+        Details: docs/dev/core/interfaces.md#get_accessibility_violations
+        """
+        return {}
+
     @abstractmethod
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         """All known components for one page, one query per page visit.

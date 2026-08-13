@@ -28,6 +28,8 @@ class _SiteData:
     text_content: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     # {page_url: [request, ...]} for requests the page's own load fired.
     page_network: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    # {page_url: [violation, ...]} from the measurement pass's axe run.
+    accessibility: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     component_families: List[ComponentFamily] = field(default_factory=list)
     inferred_requests: List[InferredRequest] = field(default_factory=list)
 
@@ -211,6 +213,12 @@ class InMemoryGraphStore(GraphStore):
         record["interactions"].append(
             {"action": action, "value": value, "resulting_url": resulting_url, "source_path": source_path}
         )
+
+    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
+        self._site(site).accessibility[page_url] = json.loads(violations_json)
+
+    def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        return {url: list(v) for url, v in self._site(site).accessibility.items() if v}
 
     def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
         self._site(site).page_network.setdefault(page_url, []).extend(json.loads(requests_json))

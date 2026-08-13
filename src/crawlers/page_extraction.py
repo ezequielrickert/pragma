@@ -4,7 +4,7 @@ Details: docs/dev/crawlers/page_extraction.md#module
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 _JS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "js")
 
@@ -20,6 +20,38 @@ EXTRACT_LINKS_JS = _load_js("extract_links.js")
 EXTRACT_DESCRIPTION_JS = _load_js("extract_description.js")
 EXTRACT_METADATA_JS = _load_js("extract_metadata.js")
 EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
+
+# Vendored third-party engine, unmodified: axe-core 4.10.2, Deque Systems,
+# MPL-2.0. Read once at import like every other asset here, but injected
+# with add_script_tag rather than evaluated - it is a UMD bundle that
+# defines window.axe, not an expression to evaluate.
+# Details: docs/dev/crawlers/page_extraction.md#run_accessibility_audit
+AXE_SOURCE = _load_js("axe.min.js")
+AXE_RUN_JS = _load_js("axe_run.js")
+
+
+async def run_accessibility_audit(page) -> List[Dict[str, Any]]:
+    """Inject axe-core and return this page's WCAG A/AA violations.
+
+    Args:
+        page: a live Playwright page, already settled.
+
+    Returns:
+        One dict per violated rule - `rule_id`, `impact`, `criteria`, the
+        offending `nodes` (each resolved to this project's own CSS path
+        where possible), and `total_nodes` before the per-rule cap. `[]`
+        when the page has no violations, and also when axe could not run
+        at all: an accessibility audit is not worth failing a whole
+        measurement pass over, and a page that reports nothing is
+        distinguishable from an absent page by the coverage document.
+    Details: docs/dev/crawlers/page_extraction.md#run_accessibility_audit
+    """
+    try:
+        await page.add_script_tag(content=AXE_SOURCE)
+        return list(await page.evaluate(AXE_RUN_JS))
+    except Exception as exc:
+        print(f"Warning: accessibility audit failed on {getattr(page, 'url', '?')!r}: {exc}")
+        return []
 
 
 async def run_extraction(page) -> Dict[str, Any]:
