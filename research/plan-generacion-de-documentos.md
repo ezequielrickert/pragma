@@ -14,7 +14,7 @@
 | D4 | Contrato de API | OpenAPI 3.0 | **hecho** (`openapi.py`) | 2 |
 | D5 | Catálogo de componentes (props + variantes) | Atomic Design, nivel átomo | **hecho** (`component_catalog.py`) | 3 |
 | D6 | Flujos de usuario | FSM / diagrama de estados | **hecho** (`user_flows.py`) | 4 |
-| D7 | Auditoría de usabilidad | Heurísticas de Nielsen | falta | 5a |
+| D7 | Auditoría de usabilidad | Heurísticas de Nielsen | **hecho** (`usability.py`) | 5a |
 | D10 | Especificación visual (design tokens) | W3C Design Tokens | falta | 5b |
 | D11 | Auditoría de accesibilidad | WCAG 2.1 AA vía axe-core | falta | 5c |
 | D8 | Especificación de comportamiento | BDD / Gherkin | falta | 6 |

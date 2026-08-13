@@ -11,6 +11,7 @@ from ..generators import coverage  # noqa: F401  (registers "coverage")
 from ..generators import graph_export  # noqa: F401  (registers "export")
 from ..generators import graph_prd_synthesizer  # noqa: F401  (registers "prd")
 from ..generators import openapi  # noqa: F401  (registers "openapi")
+from ..generators import usability  # noqa: F401  (registers "usability")
 from ..generators import user_flows  # noqa: F401  (registers "flows")
 from ..storage import memory_graph_store  # noqa: F401  (registers "memory")
 
