@@ -265,10 +265,10 @@ class UserFlowsDocument(DocumentGenerator):
             f"{len(flow.states)} screens, {len(flow.transitions)} distinct moves between them. "
             "States are route shapes, not raw URLs, so many instances of one screen collapse into one node.",
             "",
-            "Requests are attributed to the **control** that fired them, not to an individual move: "
-            "they are stored per interaction but flattened into one list when read back. Where one "
-            "control led to several screens with disagreeing outcomes, the move is marked "
-            "*not attributable* rather than given a status it may not have had.",
+            "Each request is attributed to the interaction that fired it, using the position both "
+            "carry. A move is marked *not attributable* only where that position is missing - a "
+            "graph crawled before interactions were stamped - rather than being given a status it "
+            "may not have had.",
             "",
             render_state_diagram(flow),
             "",
