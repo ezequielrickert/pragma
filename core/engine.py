@@ -21,7 +21,7 @@ from generators.component_family import (
     label_for_tag,
     tags_with_multiple_instances,
 )
-from generators.component_family_narrator import narrate_family_purposes
+from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from generators.request_family import build_inferred_requests
@@ -88,7 +88,16 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     families = build_component_families(components)
     print(f"Grouped {len(components)} components into {len(families)} families.")
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
-    families = narrate_family_purposes(agent, families, member_texts)
+    # Read before record_component_families wipes them: a family whose members
+    # did not change keeps its sentence rather than buying it again, which is
+    # what keeps a site crawled in short resumable passes from re-narrating
+    # everything every pass. Details: docs/dev/core/engine.md#known-purposes
+    known_purposes = {
+        family_signature(existing): existing.purpose
+        for existing in graph_store.get_component_families(site)
+        if existing.purpose
+    }
+    families = narrate_family_purposes(agent, families, member_texts, known_purposes)
     graph_store.record_component_families(site, families)
 
     tags = tags_with_multiple_instances(components)
@@ -306,6 +315,11 @@ class Engine:
                 ),
             )
             await mechanical.crawl_site(url)
+            # Read before the crawler goes out of scope: the documents
+            # below have to say whether they describe a whole site or one
+            # budgeted slice of it.
+            # Details: docs/dev/core/engine.md#stopped_reason
+            stopped_reason = mechanical.stopped_reason or ""
 
         if debug_log:
             await debug_log.close()
@@ -337,7 +351,11 @@ class Engine:
             graph_store=self.graph_store,
             site=site,
             agent=self.agent,
-            settings={"prd_synth_batch_size": self.prd_synth_batch_size, "tree_ascii": self.tree_ascii},
+            settings={
+                "prd_synth_batch_size": self.prd_synth_batch_size,
+                "tree_ascii": self.tree_ascii,
+                "stopped_reason": stopped_reason,
+            },
         )
         naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
         produced = run_document_pipeline(request, naming, self._document_names())

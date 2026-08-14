@@ -77,15 +77,28 @@ def build_coverage(graph_store: GraphStore, site: str) -> CrawlCoverage:
     )
 
 
-def render_coverage_banner(coverage: CrawlCoverage) -> str:
-    """The two-line block every Markdown document opens with.
+def render_coverage_banner(coverage: CrawlCoverage, stopped_reason: str = "") -> str:
+    """The block every Markdown document opens with.
+
+    `stopped_reason` names the budget that cut the run short, when one did.
+    Without it a partial document is indistinguishable from a complete one
+    for a small site: "3/40 pages" reads the same whether the crawl found
+    only three pages or was told to stop after three. The difference matters
+    because one of them is finished and the other has a next run.
     Details: docs/dev/generators/coverage.md#render_coverage_banner
     """
+    partial = (
+        f">\n> **This run stopped early:** {stopped_reason}. The pages it did not reach are "
+        f"still recorded as pending - run the same URL again to continue from there.\n"
+        if stopped_reason
+        else ""
+    )
     return (
         f"> **Crawl coverage:** {coverage.pages_finished}/{coverage.pages_total} pages "
         f"({coverage.pages_percent}%), {coverage.components_explored}/{coverage.components_total} "
         f"components interacted with ({coverage.components_percent}%), "
         f"{coverage.endpoints_discovered} API endpoints discovered.\n"
+        f"{partial}"
         f">\n"
         f"> {PUBLIC_SURFACE_CAVEAT}\n"
     )

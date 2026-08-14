@@ -14,7 +14,7 @@ Details: docs/dev/generators/component_family_narrator.md#module
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from core.interfaces import Agent, ComponentFamily
 
@@ -29,10 +29,29 @@ PURPOSE_SYSTEM_INSTRUCTION = (
 )
 
 
+def family_signature(family: ComponentFamily) -> Tuple:
+    """A key for one family that survives re-clustering.
+
+    Families are rebuilt from scratch every run (`record_component_families`
+    DETACH DELETEs and recreates), and that is deliberate - it is what lets a
+    component found on page 1 be re-clustered with page 20's evidence on a
+    later pass. So a family has no stable identity to cache a narration
+    against, and reusing a purpose across a membership change would leave it
+    describing a group that no longer exists.
+
+    What is stable is the family's *content*: same tag, same type, same
+    shared classes, same members means the same group, whoever built it. Sort
+    the members so a backend's collection order cannot change the key.
+    Details: docs/dev/generators/component_family_narrator.md#family_signature
+    """
+    return (family.tag, family.component_type, tuple(family.common_classes), tuple(sorted(family.member_paths)))
+
+
 def narrate_family_purposes(
     agent: Agent,
     families: List[ComponentFamily],
     member_texts: Dict[Tuple[str, str], str],
+    known_purposes: Optional[Dict[Tuple, str]] = None,
 ) -> List[ComponentFamily]:
     """Fill in `purpose` for every family that has at least one member with
     visible text, via one `agent.generate()` call each.
@@ -79,17 +98,34 @@ def narrate_family_purposes(
     # short of its own total. Building the texts here rather than testing
     # for them twice keeps "has any text" defined in exactly one place.
     # Details: docs/dev/generators/component_family_narrator.md#narrate_family_purposes-progress
+    cached = known_purposes or {}
     texts_per_family = [
         [text for text in (member_texts.get(mp, "") for mp in family.member_paths) if text]
         for family in families
     ]
-    total_calls = sum(1 for texts in texts_per_family if texts)
+    # A family whose content is unchanged since the last run keeps its
+    # sentence instead of buying it again. Without this, walking a site in
+    # short resumable passes re-narrates everything the earlier passes
+    # already did - the cost of N passes over a growing graph, which is what
+    # would make incremental crawling more expensive than one long run.
+    # Details: docs/dev/generators/component_family_narrator.md#known_purposes
+    reused = sum(
+        1 for family, texts in zip(families, texts_per_family)
+        if texts and cached.get(family_signature(family))
+    )
+    total_calls = sum(1 for texts in texts_per_family if texts) - reused
+    if reused:
+        print(f"Reusing {reused} component family purpose(s) unchanged since the last run.")
     if total_calls:
         print(f"Narrating {total_calls} component families ({total_calls} model calls)...")
     family_number = 0
     for family, texts in zip(families, texts_per_family):
         if not texts:
             narrated.append(family)
+            continue
+        remembered = cached.get(family_signature(family))
+        if remembered:
+            narrated.append(replace(family, purpose=remembered))
             continue
         family_number += 1
         # Printed before the call, not after: the whole point is showing
