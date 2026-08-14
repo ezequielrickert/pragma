@@ -1,4 +1,4 @@
-# `src/generators/component_classifier.py`
+# `generators/component_classifier.py`
 
 ## module
 
@@ -95,7 +95,7 @@ consolidating; it gets `record_component`'s ordinary per-element path.
 
 Written by `GraphStoreSink.record_inventory` to collapse what used to be
 one Neo4j `Component` node per discovered option into a single
-representative node per list (see graph_sink.md#_record_choice_group) -
+representative node per list (see graph_sink/sink.md#_record_choice_group) -
 a dropdown with 5 choices no longer produces 5 near-identical nodes
 differing only by which choice they are.
 
@@ -136,7 +136,7 @@ private `_format_variants`, used only for that module's rendered
 `variants=[...]` tree line) so `graph_sink.py` can call the exact same
 formatting logic to compute `option_labels` - the clean projection of a
 Component's raw `options` JSON stored directly on the graph node (see
-`docs/dev/crawlers/graph_sink.md#_option_labels_for`), instead of that
+`docs/dev/spiders/orchestration/graph_sink/component_facts.md#option_labels_for`), instead of that
 clean form only ever existing inside a generated `.md` file. Both
 callers now share one implementation; there is no `component_tree.py`
 copy left to drift out of sync with it.

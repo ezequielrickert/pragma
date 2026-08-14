@@ -1,4 +1,4 @@
-"""Regression tests for MechanicalCrawler (src/crawlers/mechanical_loop.py),
+"""Regression tests for MechanicalCrawler (spiders/orchestration/mechanical_loop.py),
 Phase 2 of the crawl4ai migration - the mechanical, no-AI, no-per-step-decision
 interaction loop that replaces SimplePRDGenerator._execute_loop.
 
@@ -23,12 +23,13 @@ from typing import Any, Dict, List
 
 import pytest
 
-from src.core.interfaces import PageState
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
-from src.storage.memory_graph_store import InMemoryGraphStore
-from src.utils.urls import route_shape
+from core.interfaces import PageState
+from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.orchestration.graph_sink import GraphStoreSink
+from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
+from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from database.memory_graph_store import InMemoryGraphStore
+from utils.urls import route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -462,7 +463,7 @@ def test_effective_concurrency_is_full_below_the_taper_start_ratio():
     fake.target_slowdown_ratio = 1.3
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=4))
 
-    assert mech._effective_concurrency() == 4
+    assert mech._pacing.effective_concurrency() == 4
 
 
 def test_effective_concurrency_tapers_linearly_between_start_and_end_ratio():
@@ -476,7 +477,7 @@ def test_effective_concurrency_tapers_linearly_between_start_and_end_ratio():
         fake, config=MechanicalCrawlerConfig(page_concurrency=5, min_page_concurrency=1)
     )
 
-    assert mech._effective_concurrency() == 3  # halfway between 5 and 1
+    assert mech._pacing.effective_concurrency() == 3  # halfway between 5 and 1
 
 
 def test_effective_concurrency_floors_at_min_page_concurrency_when_severely_degraded():
@@ -488,7 +489,7 @@ def test_effective_concurrency_floors_at_min_page_concurrency_when_severely_degr
         fake, config=MechanicalCrawlerConfig(page_concurrency=4, min_page_concurrency=1)
     )
 
-    assert mech._effective_concurrency() == 1
+    assert mech._pacing.effective_concurrency() == 1
 
 
 def test_effective_concurrency_reads_as_healthy_when_crawler_has_no_slowdown_signal():
@@ -497,7 +498,7 @@ def test_effective_concurrency_reads_as_healthy_when_crawler_has_no_slowdown_sig
     fake = _FakeFanOutCrawler()
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(page_concurrency=4))
 
-    assert mech._effective_concurrency() == 4
+    assert mech._pacing.effective_concurrency() == 4
 
 
 def test_target_degradation_caps_real_concurrent_overlap_below_page_concurrency():

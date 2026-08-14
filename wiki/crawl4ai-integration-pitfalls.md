@@ -7,7 +7,7 @@ then needs to know, precisely, whether that action succeeded and whether it caus
 crawl4ai wraps Playwright, so [browser-automation-pitfalls.md](browser-automation-pitfalls.md)'s
 lessons about the underlying DOM/selector layer still apply underneath this - this doc is about the
 extra layer of gotchas crawl4ai's own abstraction introduces on top, found while building Pragma's
-mechanical (non-LLM) crawl4ai-driven interaction loop (`src/crawlers/`).
+mechanical (non-LLM) crawl4ai-driven interaction loop (`spiders/`).
 
 ## A click/fill that triggers real navigation must stop that page's work immediately, not continue to the next action
 
@@ -397,7 +397,7 @@ order page visited. Once the failures started, `components` discovered on that p
 the rest of the pass - no further genuine progress, just one doomed selector after another, each
 costing a full `wait_seconds` round trip for nothing.
 
-**Why it happens**: the mechanical interaction loop (`src/crawlers/mechanical_loop.py`) already had a
+**Why it happens**: the mechanical interaction loop (`spiders/orchestration/mechanical_loop.py`) already had a
 same-page re-inventory/re-diff mechanism, but only on the **success** branch of each interaction - a
 click/fill that changes the DOM without navigating re-discovers current state and diffs it for newly
 revealed components (see [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md)'s ghost-node

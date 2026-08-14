@@ -1,6 +1,6 @@
-"""Unit tests for the user-flow state machine (src/generators/user_flows.py).
+"""Unit tests for the user-flow state machine (generators/user_flows.py).
 Pure functions over hand-built edges and ledger rows."""
-from src.generators.user_flows import (
+from generators.user_flows import (
     ERROR,
     MIXED,
     OK,
@@ -174,8 +174,8 @@ def test_a_trigger_with_a_colon_does_not_break_the_diagram_syntax():
 # --- document ---
 
 def test_the_document_reports_error_branches_and_dead_ends():
-    from src.core.documents import DocumentRequest
-    from src.generators.user_flows import UserFlowsDocument
+    from core.documents import DocumentRequest
+    from generators.user_flows import UserFlowsDocument
 
     class _Store:
         def get_edges(self, site):
@@ -194,8 +194,8 @@ def test_the_document_reports_error_branches_and_dead_ends():
 
 
 def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
-    from src.core.documents import DocumentRequest
-    from src.generators.user_flows import UserFlowsDocument
+    from core.documents import DocumentRequest
+    from generators.user_flows import UserFlowsDocument
 
     class _Store:
         def get_edges(self, site):

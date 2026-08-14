@@ -16,13 +16,13 @@ serving a 4k window.
 
 **Fix pattern**: cap what goes into every prompt, always, regardless of provider — never assume
 the deployed model has room for "everything." See `batch_size` in `_build_iteration_prompt`
-(`src/generators/prd_generator.py`) — it slices both the pending-routes list and the DNA/component
+(`generators/prd_generator.py`) — it slices both the pending-routes list and the DNA/component
 list to a fixed count every iteration, no matter how large the underlying site is.
 
 **Update — this exact bug reappeared in a different generator, because the discipline was never
 ported when the old one was replaced:** `prd_generator.py`'s `SimplePRDGenerator` (the source of
 the `batch_size` fix above) was deleted during the crawl4ai migration and replaced by
-`GraphPRDSynthesizer` (`src/generators/graph_prd_synthesizer.py`). Its **final aggregate call**
+`GraphPRDSynthesizer` (`generators/graph_prd_synthesizer.py`). Its **final aggregate call**
 (`synthesize()` — one `agent.generate()` combining every page's full narrated component catalog
 plus the entire Mermaid navigation graph into one prompt, asking for one completion containing the
 whole output document) had no cap and no `try/except` at all. Confirmed live on empanad.app: 4/4
@@ -47,7 +47,7 @@ and append it to the output afterward instead.
 ## `max_tokens` (output budget) and context window (input capacity) are two different limits — don't fix one by shrinking the other
 
 **Symptom observed**: `RuntimeError: Response truncated: the model hit max_tokens before finishing
-(finish_reason: 'length')` (`LocalAgent._raise_if_truncated`, `src/agents/local_agent.py`) was
+(finish_reason: 'length')` (`LocalAgent._raise_if_truncated`, `agents/local_agent.py`) was
 initially proposed to be fixed with a RAG/retrieval layer — feed the model a smaller, retrieved
 subset of the corpus instead of everything, on the reasoning "the model has a small token limit."
 
@@ -106,7 +106,7 @@ on first load (model warm-up) or CPU inference.
 **Fix pattern**: don't hardcode a single timeout for "the LLM call" across all providers. A cloud
 API timing out after 120s usually indicates a real problem; a local model taking 300-600s can be
 completely normal. Make timeout a per-provider config value (see `LocalConfig.timeout` in
-`src/agents/local_agent.py`), default it generously for local (300s+), and let it be raised
+`agents/local_agent.py`), default it generously for local (300s+), and let it be raised
 further per deployment (`agents.local.timeout` in `pragma.yaml`) rather than picking one number
 that has to work everywhere.
 

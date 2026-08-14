@@ -1,4 +1,4 @@
-# `src/generators/json_schema.py`
+# `generators/json_schema.py`
 
 ## module
 

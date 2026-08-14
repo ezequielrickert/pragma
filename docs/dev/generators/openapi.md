@@ -1,4 +1,4 @@
-# `src/generators/openapi.py`
+# `generators/openapi.py`
 
 ## module
 

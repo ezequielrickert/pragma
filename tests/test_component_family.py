@@ -1,5 +1,5 @@
 """Unit tests for component_family.py's pure clustering logic."""
-from src.generators.component_family import (
+from generators.component_family import (
     ComponentFamily,
     build_component_families,
     label_for_tag,

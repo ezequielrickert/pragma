@@ -13,6 +13,12 @@
       "skillPath": "skills/clean-code-principles/SKILL.md",
       "computedHash": "4c22dca6110d58f1454523dc3f192ef20d91f538233da9132b407edd041a4762"
     },
+    "crawl4ai": {
+      "source": "basher83/agent-auditor",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/crawl4ai/SKILL.md",
+      "computedHash": "c3bdedb276282af891f6867ac84b0cea769c25543d327c13dd8887317a6183b5"
+    },
     "generating-python-code": {
       "source": "josemartinrodriguezmortaloni/opencode-config",
       "sourceType": "github",

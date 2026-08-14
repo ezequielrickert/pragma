@@ -1,4 +1,4 @@
-# `src/generators/gherkin.py`
+# `generators/gherkin.py`
 
 ## module
 

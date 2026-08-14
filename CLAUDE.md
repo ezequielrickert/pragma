@@ -15,7 +15,8 @@ where a separate skill-lock tool tracks their upstream sources — see `skills-l
 Run them as a pipeline whenever a task involves writing or editing source code, not just at
 the end of a big feature:
 
-1. **While writing Python** (`src/`, `tests/`, any `.py` file) — apply `python-clean-code`
+1. **While writing Python** (`core/`, `agents/`, `database/`, `spiders/`, `generators/`,
+   `utils/`, `tests/`, any `.py` file) — apply `python-clean-code`
    as you go: max 3 function args, no output args, no flag args, no dead code, no
    commented-out code.
 2. **Before presenting a diff or finishing a code task** — run `clean-code-principles`

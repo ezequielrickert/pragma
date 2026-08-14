@@ -166,7 +166,7 @@ file:line - [principle] Description of issue
 Example:
 ```
 src/services/UserService.ts:15 - [solid-srp] Class handles validation, persistence, and notifications
-src/utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
+utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
 src/models/Order.ts:28 - [name-meaningful] Variable 'x' should describe its purpose
 ```
 

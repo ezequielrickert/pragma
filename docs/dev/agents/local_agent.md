@@ -1,4 +1,4 @@
-# `src/agents/local_agent.py`
+# `agents/local_agent.py`
 
 ## LocalConfig
 
@@ -8,7 +8,7 @@ other module should read those env vars directly.
 
 ## max_tokens
 
-Unset by default (unlike `OpenAIAgent`'s hardcoded `max_tokens=1200`) -
+Unset by default (no hardcoded cap) -
 a local reasoning model (DeepSeek-R1 and similar) can legitimately need
 many tokens of chain-of-thought before it reaches its actual answer,
 and guessing a "safe" default risks silently truncating that
@@ -20,7 +20,7 @@ Post-crawl4ai-migration: this is plain text-completion only - the
 native OpenAI-style tool-calling ladder (`act()`/`_act_native`/
 `_parse_tool_call`) that used to live here existed solely to fill a
 per-step structured action schema, which no longer exists (see
-`src/core/interfaces.py`'s module doc). `generate()` is used by the
+`core/interfaces.py`'s module doc). `generate()` is used by the
 fill-value (Phase 4) and synthesis (Phase 5) call sites, both plain
 text completions.
 

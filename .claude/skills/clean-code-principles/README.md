@@ -74,7 +74,7 @@ file:line - [rule-id] Description of issue
 Example:
 ```
 src/services/UserService.ts:15 - [solid-srp-class] Class handles validation, persistence, and email
-src/utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
+utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
 src/models/Order.ts:28 - [core-yagni-abstractions] Generic abstraction used in only one place
 ```
 

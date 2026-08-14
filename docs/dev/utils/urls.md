@@ -1,4 +1,4 @@
-# `src/utils/urls.py`
+# `utils/urls.py`
 
 ## module
 
@@ -7,9 +7,9 @@ game - get canonicalization right or nothing else matters") and
 wiki/browser-automation-pitfalls.md's redirect-normalization lesson.
 
 Extracted from `SimplePRDGenerator._clean_url`
-(`src/generators/prd_generator.py`) as a standalone function during the
+(`generators/prd_generator.py`) as a standalone function during the
 crawl4ai migration, since the new mechanical crawler
-(`src/crawlers/mechanical_loop.py`) needs it from more call sites than
+(`spiders/orchestration/mechanical_loop.py`) needs it from more call sites than
 the old single class did: crawl4ai's own `after_goto`/link extraction,
 the interaction-frontier's page-key lookups, and eventually every
 `GraphStore` call site once Phase 3 wires live writes. Logic - strip
@@ -50,7 +50,7 @@ lookahead/backtracking risk on an unbounded-length path segment.
 
 `_TOKEN_SEGMENT_RE.match(segment) and _looks_generated(segment)` as one
 named, public function - `route_shape` (below) was the only caller for a
-while, but `src/generators/request_family.py::normalized_endpoint`
+while, but `generators/request_family.py::normalized_endpoint`
 (2026-08-12) needed the identical "does this look like a generated id"
 judgment for API endpoint paths, not page paths - a dynamic order id in
 `/rest/v1/orders/{id}/items` is the same kind of per-instance noise a
@@ -87,7 +87,7 @@ third one:
   would mean a real navigation between two same-shaped hash instances
   (e.g. a "start a new order" button) stops being detected as a
   navigation at all, silently reusing selectors built for a page the
-  session has already left. See `docs/dev/crawlers/page_visitor.md#visit`
+  session has already left. See `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit`
   for the full split.
 
 Never use this value as the literal URL to navigate to - it is lossy by

@@ -5,7 +5,7 @@
 > proposed fix for the `max_tokens` truncation crash in `GraphPRDSynthesizer.synthesize()`
 > (2026-08-10) - that investigation concluded RAG was the wrong tool for *that* problem (see
 > `docs/explicativos/` for the incident, and the actual fix landed as bounded map-reduce batching
-> in `src/generators/graph_prd_synthesizer.py`). This doc preserves the RAG research itself, since
+> in `generators/graph_prd_synthesizer.py`). This doc preserves the RAG research itself, since
 > it's genuinely useful if a different feature - ad-hoc Q&A/chat over a crawled site's data - is
 > ever built.
 
@@ -52,7 +52,7 @@ standing up a separate vector database, when the day comes.**
   [Neo4j's vector-search-with-filters post](https://neo4j.com/blog/genai/vector-search-with-filters-in-neo4j-v2026-01-preview/).
 - **Nothing in this codebase does this today.** Confirmed by direct search: zero hits for
   `chunk`/`embedding`/`vector`/`rag` anywhere in `src/`. `Neo4jGraphStore`
-  (`src/storage/neo4j_graph_store.py`) has three plain B-tree property indexes (on `site`) and no
+  (`database/neo4j_graph_store.py`) has three plain B-tree property indexes (on `site`) and no
   full-text or vector index at all. Building this means the whole pipeline from scratch: choosing
   an embedding model, a chunking strategy for `Component.text`/`TextContent.text` (currently
   unbounded-length raw extracted text - would need real chunking, unlike `Page.description` which
@@ -77,9 +77,9 @@ This is the one decision that matters most if this is ever built, and it's speci
 project's current architecture, not a generic RAG concern.
 
 **Every LLM call in this codebase today is a single flat-string completion.** `Agent.generate(prompt,
-system_instruction) -> str` is the entire interface (`src/core/interfaces.py`). There is no
+system_instruction) -> str` is the entire interface (`core/interfaces.py`). There is no
 tool-calling ladder to reuse - `LocalAgent`'s own docstring
-(`src/agents/local_agent.py`) states plainly that the native OpenAI-style tool-calling support that
+(`agents/local_agent.py`) states plainly that the native OpenAI-style tool-calling support that
 used to exist was **deliberately removed** post-crawl4ai-migration, because the per-step structured
 action schema it existed for no longer exists. Reintroducing tool-calling to let the model *decide*
 when to query the RAG backend would mean rebuilding that removed ladder from scratch.

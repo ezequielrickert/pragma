@@ -1,4 +1,4 @@
-# `src/generators/ledger.py`
+# `generators/ledger.py`
 
 ## module
 

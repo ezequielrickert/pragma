@@ -1,4 +1,4 @@
-# `src/core/documents.py`
+# `core/documents.py`
 
 ## module
 

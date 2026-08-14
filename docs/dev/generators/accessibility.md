@@ -1,4 +1,4 @@
-# `src/generators/accessibility.py`
+# `generators/accessibility.py`
 
 ## module
 

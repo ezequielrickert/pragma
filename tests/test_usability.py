@@ -1,7 +1,7 @@
-"""Unit tests for the usability audit (src/generators/usability.py).
+"""Unit tests for the usability audit (generators/usability.py).
 Every rule is a pure function over hand-built rows."""
-from src.core.interfaces import ComponentFamily, InferredRequest
-from src.generators.usability import (
+from core.interfaces import ComponentFamily, InferredRequest
+from generators.usability import (
     inconsistent_action_naming,
     inconsistent_family_styling,
     missing_semantic_input_type,
@@ -160,8 +160,8 @@ def test_an_enabled_control_is_never_reported():
 # --- document ---
 
 def test_findings_are_ordered_by_severity():
-    from src.core.documents import DocumentRequest
-    from src.generators.usability import build_findings
+    from core.documents import DocumentRequest
+    from generators.usability import build_findings
 
     class _Store:
         def get_component_ledger(self, site):
@@ -190,8 +190,8 @@ def test_findings_are_ordered_by_severity():
 
 def test_an_empty_audit_says_what_it_did_not_check():
     """"No findings" from six rules must not read as "this app is usable"."""
-    from src.core.documents import DocumentRequest
-    from src.generators.usability import UsabilityDocument
+    from core.documents import DocumentRequest
+    from generators.usability import UsabilityDocument
 
     class _Store:
         def get_component_ledger(self, site):

@@ -1,5 +1,5 @@
 """Unit tests for the shared Cypher-fragment helpers in
-src/storage/neo4j_graph_store.py (docs/explicativos/plan-almacenamiento.md
+database/neo4j_graph_store.py (docs/explicativos/plan-almacenamiento.md
 Fase B - "repeated Cypher patterns" finding). Pure string assertions, no
 live Neo4j needed - unlike tests/test_neo4j_graph_store_integration.py
 (which self-skips without a reachable instance), these run unconditionally
@@ -10,7 +10,7 @@ import pytest
 
 neo4j = pytest.importorskip("neo4j")  # only need the driver package importable, not a live server
 
-from src.storage.neo4j_graph_store import _COMPONENT_BLANK_STUB, _page_ensure_clause
+from database.neo4j_graph_store import _COMPONENT_BLANK_STUB, _page_ensure_clause
 
 
 def test_page_ensure_clause_defaults_every_field_for_the_given_variable():

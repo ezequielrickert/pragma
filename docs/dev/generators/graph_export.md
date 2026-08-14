@@ -1,4 +1,4 @@
-# `src/generators/graph_export.py`
+# `generators/graph_export.py`
 
 ## module
 

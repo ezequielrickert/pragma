@@ -19,7 +19,7 @@ pytest-asyncio dependency for a suite this small).
 import asyncio
 import os
 
-from src.crawlers.debug_log import CrawlDebugLog
+from spiders.browser.debug_log import CrawlDebugLog
 
 
 def test_save_page_markdown_preserves_earlier_snapshots_in_history_file(tmp_path):

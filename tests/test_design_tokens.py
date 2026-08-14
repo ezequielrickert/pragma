@@ -1,15 +1,15 @@
 """Unit tests for the design-token document and its colour maths
-(src/generators/design_tokens.py, color_space.py)."""
+(generators/design_tokens.py, color_space.py)."""
 import json
 
-from src.generators.color_space import (
+from generators.color_space import (
     JUST_NOTICEABLE_DIFFERENCE,
     parse_css_color,
     perceptual_distance,
     to_hex,
     to_lab,
 )
-from src.generators.design_tokens import build_color_tokens, build_type_tokens
+from generators.design_tokens import build_color_tokens, build_type_tokens
 
 
 def _component(color="rgb(0, 0, 0)", background="rgb(255, 255, 255)", size="16px", weight="400"):
@@ -137,8 +137,8 @@ def test_components_with_no_font_size_are_skipped():
 
 def test_the_document_says_its_names_are_positional_not_semantic():
     """Naming a colour `brand-primary` would be a guess presented as fact."""
-    from src.core.documents import DocumentRequest
-    from src.generators.design_tokens import DesignTokensDocument
+    from core.documents import DocumentRequest
+    from generators.design_tokens import DesignTokensDocument
 
     class _Store:
         def get_component_ledger(self, site):
@@ -158,8 +158,8 @@ def test_the_document_says_its_names_are_positional_not_semantic():
 def test_the_document_explains_why_spacing_is_absent():
     """Absent because the crawl measures at 800x600, not because nobody
     thought of it - and a reader should be able to tell those apart."""
-    from src.core.documents import DocumentRequest
-    from src.generators.design_tokens import DesignTokensDocument
+    from core.documents import DocumentRequest
+    from generators.design_tokens import DesignTokensDocument
 
     class _Store:
         def get_component_ledger(self, site):
@@ -177,8 +177,8 @@ def test_the_document_explains_why_spacing_is_absent():
 
 
 def test_the_json_document_is_parseable():
-    from src.core.documents import DocumentRequest
-    from src.generators.design_tokens import DesignTokensData
+    from core.documents import DocumentRequest
+    from generators.design_tokens import DesignTokensData
 
     class _Store:
         def get_component_ledger(self, site):
@@ -202,7 +202,7 @@ def _pseudo(path="a", states=None):
 
 
 def test_declared_hover_values_become_state_tokens():
-    from src.generators.design_tokens import build_state_tokens
+    from generators.design_tokens import build_state_tokens
 
     tokens = build_state_tokens({"p": {"pseudo_styles": [_pseudo(), _pseudo("b")]}})
 
@@ -213,7 +213,7 @@ def test_declared_hover_values_become_state_tokens():
 
 
 def test_hover_and_focus_are_separate_tokens():
-    from src.generators.design_tokens import build_state_tokens
+    from generators.design_tokens import build_state_tokens
 
     tokens = build_state_tokens({
         "p": {"pseudo_styles": [_pseudo(states={
@@ -226,7 +226,7 @@ def test_hover_and_focus_are_separate_tokens():
 
 
 def test_no_measurement_pass_means_no_state_tokens():
-    from src.generators.design_tokens import build_state_tokens
+    from generators.design_tokens import build_state_tokens
 
     assert build_state_tokens({}) == []
 
@@ -234,8 +234,8 @@ def test_no_measurement_pass_means_no_state_tokens():
 def test_the_document_explains_why_state_styles_may_be_missing():
     """Cross-origin stylesheets cannot be read, and a reader has to be able
     to tell that from "this site declares no hover styles"."""
-    from src.core.documents import DocumentRequest
-    from src.generators.design_tokens import DesignTokensDocument
+    from core.documents import DocumentRequest
+    from generators.design_tokens import DesignTokensDocument
 
     class _Store:
         def get_component_ledger(self, site):

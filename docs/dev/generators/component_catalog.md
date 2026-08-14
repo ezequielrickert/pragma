@@ -1,4 +1,4 @@
-# `src/generators/component_catalog.py`
+# `generators/component_catalog.py`
 
 ## module
 

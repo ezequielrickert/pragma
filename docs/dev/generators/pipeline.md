@@ -1,4 +1,4 @@
-# `src/generators/pipeline.py`
+# `generators/pipeline.py`
 
 ## module
 

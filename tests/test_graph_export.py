@@ -1,11 +1,11 @@
-"""Unit tests for src/generators/graph_export.py - built directly against
+"""Unit tests for generators/graph_export.py - built directly against
 InMemoryGraphStore, no live crawl needed, same convention
 tests/test_component_tree.py already established (build_graph_export only
 touches GraphStore's read surface)."""
 import json
 
-from src.generators.graph_export import build_graph_export, generate_graph_export_document
-from src.storage.memory_graph_store import InMemoryGraphStore
+from generators.graph_export import build_graph_export, generate_graph_export_document
+from database.memory_graph_store import InMemoryGraphStore
 
 SITE = "export-test-site"
 

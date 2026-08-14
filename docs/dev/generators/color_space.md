@@ -1,4 +1,4 @@
-# `src/generators/color_space.py`
+# `generators/color_space.py`
 
 ## module
 

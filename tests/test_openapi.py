@@ -1,13 +1,13 @@
-"""Unit tests for the OpenAPI document (src/generators/openapi.py and
+"""Unit tests for the OpenAPI document (generators/openapi.py and
 json_schema.py). Fully deterministic - no model, no browser, no store."""
 import json
 
 import pytest
 import yaml
 
-from src.core.interfaces import InferredRequest
-from src.generators.json_schema import schema_from_shape
-from src.generators.openapi import build_openapi_document, path_template
+from core.interfaces import InferredRequest
+from generators.json_schema import schema_from_shape
+from generators.openapi import build_openapi_document, path_template
 
 openapi_spec_validator = pytest.importorskip("openapi_spec_validator")
 
@@ -183,7 +183,7 @@ def test_an_empty_crawl_still_produces_a_valid_document():
 
 
 def test_output_is_parseable_yaml():
-    from src.generators.openapi import OpenAPIDocument
+    from generators.openapi import OpenAPIDocument
 
     class _Store:
         def get_inferred_requests(self, site):

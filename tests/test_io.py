@@ -1,4 +1,4 @@
-"""Tests for src/utils/io.py's run-manifest helpers
+"""Tests for utils/io.py's run-manifest helpers
 (docs/explicativos/plan-almacenamiento.md Fase A) - record_run_manifest is
 the append-only index Engine writes to on every run, get_latest_run is its
 read-side counterpart.
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.utils.io import generate_docs_index, get_latest_run, record_run_manifest
+from utils.io import generate_docs_index, get_latest_run, record_run_manifest
 
 
 @pytest.fixture

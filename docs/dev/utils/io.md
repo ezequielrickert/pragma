@@ -1,4 +1,4 @@
-# `src/utils/io.py`
+# `utils/io.py`
 
 ## record_run_manifest
 

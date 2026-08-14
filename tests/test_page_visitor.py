@@ -1,5 +1,5 @@
 """Regression coverage for PageVisitor's fill-value cache
-(src/crawlers/page_visitor.py's `_fill_value_cache`/`_fill_value`).
+(spiders/orchestration/page_visitor.py's `_fill_value_cache`/`_fill_value`).
 
 Every fillable field previously called `fill_value_fn` fresh, even when a
 page has two fields with the same shape (same tag/role/name/form/text -
@@ -13,8 +13,8 @@ instead of a real-browser fixture here.
 import asyncio
 from typing import Any, Dict, List
 
-from src.core.interfaces import PageState
-from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from core.interfaces import PageState
+from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
 
 def _fillable(path: str, text: str) -> Dict[str, Any]:

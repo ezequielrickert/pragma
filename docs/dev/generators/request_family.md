@@ -1,4 +1,4 @@
-# `src/generators/request_family.py`
+# `generators/request_family.py`
 
 ## module
 

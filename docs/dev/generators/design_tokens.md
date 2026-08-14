@@ -1,4 +1,4 @@
-# `src/generators/design_tokens.py`
+# `generators/design_tokens.py`
 
 ## module
 

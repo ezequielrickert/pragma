@@ -1,4 +1,4 @@
-# `src/core/wizard.py`
+# `core/wizard.py`
 
 ## module
 

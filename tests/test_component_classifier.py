@@ -2,7 +2,7 @@
 no LLM, no scraper, pure functions over plain component dicts."""
 import json
 
-from src.generators.component_classifier import (
+from generators.component_classifier import (
     choice_text_by_path,
     classify_component_type,
     describe_options,
