@@ -1,16 +1,26 @@
-# Written by `python3 src/cli.py config`. Edit freely or re-run the wizard.
-scraper: playwright
+# Written by `python3 cli.py config`. Edit freely or re-run the wizard.
+#
+# Seven settings were removed here on 2026-08-14: scraper, generator,
+# logs_dir, progress_logs_dir, graph_logs_dir, batch_size and max_iterations.
+# None of them were fields on PragmaConfig, so the loader had been dropping
+# all seven in silence. max_iterations: 40 was the costly one - it read like a
+# 40-page cap and bounded nothing, and the run it was meant to stop went 12
+# hours. The loader now names any key it does not recognize on startup.
 agent: local
-generator: simple
 graph_store: neo4j
 out_dir: docs
-logs_dir: research_logs
-progress_logs_dir: progress_logs
-graph_logs_dir: graph_logs
 headless: true
-max_iterations: 40
 wait_seconds: 15.0
-batch_size: 20
+
+# How much one run does before stopping and leaving the rest Pending for the
+# next one, which resumes from exactly there. Comment the whole block out
+# (or pass --full) to crawl until the frontier drains.
+crawl_budget:
+  pages: 20
+  # Worth keeping even though `pages` is the real intent: a page whose DOM
+  # keeps producing new components finishes no page at all, so a page-only
+  # budget never trips. This is the backstop that still returns the terminal.
+  minutes: 90
 agents:
   gemini:
     model: models/gemini-2.0-flash

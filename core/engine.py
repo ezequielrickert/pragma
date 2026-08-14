@@ -15,7 +15,7 @@ from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.measurement_pass import run_measurement_pass
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from generators.component_family import (
     build_component_families,
     label_for_tag,
@@ -157,6 +157,7 @@ class Engine:
         out_dir: str = "data/output",
         site: str = "",
         max_pages: Optional[int] = None,
+        crawl_budget: Optional[CrawlBudget] = None,
         headless: bool = True,
         wait_seconds: float = 1.0,
         interaction_wait_seconds: Optional[float] = None,
@@ -181,6 +182,7 @@ class Engine:
         self.out_dir = out_dir
         self.site = site
         self.max_pages = max_pages
+        self.crawl_budget = crawl_budget or CrawlBudget()
         self.headless = headless
         self.wait_seconds = wait_seconds
         self.interaction_wait_seconds = interaction_wait_seconds
@@ -237,6 +239,7 @@ class Engine:
             out_dir=config.out_dir,
             site=site,
             max_pages=config.max_pages,
+            crawl_budget=CrawlBudget(**config.crawl_budget),
             headless=config.headless,
             wait_seconds=config.wait_seconds,
             interaction_wait_seconds=config.interaction_wait_seconds,
@@ -295,6 +298,7 @@ class Engine:
                     sink=sink,
                     fill_value_fn=fill_value_fn,
                     max_pages=self.max_pages,
+                    budget=self.crawl_budget,
                     max_visits_per_route_shape=self.max_visits_per_route_shape,
                     page_concurrency=self.page_concurrency,
                     base_url=url,

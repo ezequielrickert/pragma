@@ -52,6 +52,12 @@ class PragmaConfig:
     # Total pages before stopping; None = unbounded.
     # Details: docs/dev/core/config.md#max_pages
     max_pages: Optional[int] = None
+    # What one run may do before stopping and leaving the rest Pending for the
+    # next one. All-unset means "until the frontier drains", which is what
+    # every run did before this existed - a long run is this dict empty, not a
+    # separate mode. Keys: pages, nodes, minutes.
+    # Details: docs/dev/core/config.md#crawl_budget
+    crawl_budget: Dict[str, Any] = field(default_factory=dict)
     # Pages per GraphPRDSynthesizer batch-summarize call.
     # Details: docs/dev/core/config.md#prd_synth_batch_size
     prd_synth_batch_size: int = 5

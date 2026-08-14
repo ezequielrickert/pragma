@@ -12,6 +12,7 @@ from ..graph_sink import GraphStoreInteractionTracker
 from ..interaction_tracker import InMemoryInteractionTracker, InteractionTracker
 from ..page_visitor import PageVisitor
 from ..visit_result import ComponentInteraction, PageVisitResult
+from .budget import BudgetTracker
 from .config import MechanicalCrawlerConfig
 from .frontier import UrlFrontier
 from .worker_pacing import WorkerPacing
@@ -56,6 +57,12 @@ class MechanicalCrawler:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#visit-counters
         self._unique_visits = 0
         self._requeued_visits = 0
+        self._budget = BudgetTracker(config.budget)
+        # Set once when a budget trips, then read by every other worker to
+        # stop taking new pages. Also the "was this run partial" answer the
+        # document pipeline needs afterwards.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#stopped_reason
+        self.stopped_reason: Optional[str] = None
         self._page_visitor = PageVisitor(
             crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links, config
         )
@@ -123,6 +130,23 @@ class MechanicalCrawler:
                 print(f"Warning: could not recycle session {browser_session_id!r}: {exc}")
         return 0
 
+    def _budget_exhausted(self) -> bool:
+        """Whether this run is done taking new pages, announcing the reason
+        the first time so it is said once rather than once per worker.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_budget_exhausted
+        """
+        if self.stopped_reason is not None:
+            return True
+        reason = self._budget.exhausted_reason()
+        if reason is None:
+            return False
+        self.stopped_reason = reason
+        print(
+            f"\nStopping this run: {reason}. "
+            f"{self._frontier.queued_count()} page(s) stay pending for the next one."
+        )
+        return True
+
     def _report_visit(self, worker_id: int, url: str, result: PageVisitResult) -> None:
         """One line per finished visit, naming the worker so concurrent
         output stays readable, and splitting unique visits from requeues so a
@@ -152,6 +176,13 @@ class MechanicalCrawler:
             try:
                 if self.max_pages is not None and self._pages_visited >= self.max_pages:
                     continue  # cap reached - drain without visiting, see doc for soft-bound caveat
+                # Same drain-don't-break discipline as max_pages above: the
+                # queue still has to be consumed and task_done()'d or
+                # crawl_site's join() never returns. Whatever is drained here
+                # stays Pending in the graph, which is what the next run
+                # resumes from. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
+                if self._budget_exhausted():
+                    continue
                 key = clean_url(url)
                 if self.tracker.is_visited(key):
                     continue
@@ -166,6 +197,13 @@ class MechanicalCrawler:
                 visits_since_recycle = await self._recycle_session_if_due(browser_session_id, visits_since_recycle)
                 self.page_results.append(result)
                 self._pages_visited += 1
+                self._budget.record_page()
+                # The page node plus everything discovered on it - an estimate
+                # of graph growth, not a query, so the budget check stays free.
+                # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#budget-nodes
+                self._budget.record_nodes(
+                    1 + result.components_discovered + result.links_discovered
+                )
                 if result.interrupted_by_navigation:
                     # Requeue resolved_url directly - see doc for the redirect bug this avoids.
                     # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-requeue
