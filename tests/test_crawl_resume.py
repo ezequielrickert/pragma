@@ -105,3 +105,29 @@ def test_no_sink_means_nothing_to_resume_from():
     asyncio.run(mech.crawl_site(START))
 
     assert crawler.fetched == [START]
+
+
+def test_a_sampled_route_shape_is_not_sampled_again_next_run():
+    """max_visits_per_route_shape was per-run, not per-site: the counter
+    lived only in memory, so each resume started it at zero and a site
+    crawled in five short runs sampled up to five URLs of a shape where one
+    long run sampled one. Same site, two different graphs."""
+    store = InMemoryGraphStore()
+    store.connect()
+    store.upsert_page(SITE, "shop.example/o/{token}", status="Finished")
+    store.upsert_page(SITE, "shop.example/o/aB1cD2eF3gH4iJ5kL6mN", status="Pending")
+
+    crawler = _crawl(store)
+
+    assert not any("/o/" in url for url in crawler.fetched)
+
+
+def test_an_unfinished_shape_is_still_open():
+    """Priming must not lock out a shape nothing has completed yet."""
+    store = InMemoryGraphStore()
+    store.connect()
+    store.upsert_page(SITE, "shop.example/cart", status="Pending")
+
+    crawler = _crawl(store)
+
+    assert any("cart" in url for url in crawler.fetched)

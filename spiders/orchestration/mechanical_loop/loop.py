@@ -74,6 +74,19 @@ class MechanicalCrawler:
         """
         return self._page_visitor.errors
 
+    def _finished_route_shapes(self) -> List[str]:
+        """Route shapes a previous run already sampled.
+
+        Page keys in the graph are already route-shaped (`visit` derives
+        `page_key` that way), so a Finished page's url *is* its shape - no
+        separate stored counter, and nothing to keep in sync.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_finished_route_shapes
+        """
+        if self.sink is None:
+            return []
+        rows = self.sink.graph_store.get_progress_table_rows(self.sink.site)
+        return [row["url"] for row in rows if row.get("status") == "Finished"]
+
     def _resume_urls(self) -> List[str]:
         """Pages a previous run left unfinished, so a crawl that stopped early
         picks up where it stopped instead of re-deriving the whole frontier
@@ -98,6 +111,10 @@ class MechanicalCrawler:
         """
         if self._frontier.base_url is None:
             self._frontier.base_url = start_url
+        # Before any enqueue: the route-shape gate runs inside enqueue, so
+        # priming afterwards would let already-sampled shapes back in.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-prime
+        self._frontier.prime_route_shape_visits(self._finished_route_shapes())
         self._frontier.enqueue(start_url)
         # After start_url, so the entry point is always visited first.
         # `enqueue` re-applies scope, dedup and the route-shape cap, so a
