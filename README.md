@@ -18,7 +18,7 @@ Then just run an analysis with the URL as the only required input:
 Everything else - which agent/model, which graph store, output folder, headless mode, crawl
 budget - comes from what you configured. Any of it can still be overridden per run with flags,
 without touching your saved config:
-- `--agent <name>` / `--provider <name>` (`gemini`, `openai`, `local`, `mock`)
+- `--agent <name>` / `--provider <name>` (`local`, `mock`)
 - `--graph-store <name>` (`memory`, `neo4j`)
 - `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
   `--config <path/to/other.yaml>`
@@ -50,12 +50,10 @@ builder function) with `@AGENT_REGISTRY.register("name")` / `@GRAPH_STORE_REGIST
 and import the module from `src/core/bootstrap.py` so it registers itself at startup.
 
 Provider config is encapsulated per agent, not piled into one growing `.env`: each agent module
-(e.g. `src/agents/gemini_agent.py`) owns a small `Config` dataclass with a `from_env()`
-classmethod that is the single source of truth for which env vars that provider needs. Nobody
-else reads `GEMINI_API_KEY`, `OPENAI_MODEL`, etc. directly. Non-secret per-provider settings
-(model name, endpoint) can also be set in `pragma.yaml` under an `agents:` block, keyed by
-provider name - only the block for the provider you're actually using is read, so switching to
-`--agent mock` or `--agent local` never requires you to look at Gemini/OpenAI settings at all.
+(e.g. `src/agents/local_agent.py`) owns a small `Config` dataclass with a `from_env()`
+classmethod that is the single source of truth for which env vars that provider needs. Non-secret
+per-provider settings (model name, endpoint) can also be set in `pragma.yaml` under an `agents:`
+block, keyed by provider name - only the block for the provider you're actually using is read.
 Keep API keys and credential file paths in `.env`, never in a committed YAML file. Adding a new
 provider (e.g. Anthropic) means adding one new agent module with its own `Config` + `from_env()`
 and registering it - no changes anywhere else. The `config` wizard's provider-specific prompts

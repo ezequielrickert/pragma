@@ -64,7 +64,7 @@ now, unlike agents/graph stores which are genuinely pluggable and still resolved
 `src/core/registry.py`:
 
 - **`AGENT_REGISTRY`**: implementations of the `Agent` interface ("The Brain"/LLM backend) —
-  `gemini`, `openai`, `local`, `mock`. `Agent` is now just `generate(prompt, system_instruction)`
+  `local`, `mock`. `Agent` is now just `generate(prompt, system_instruction)`
   — there is no more per-step decision schema for a backend to implement (see "What changed" below).
 - **`GRAPH_STORE_REGISTRY`**: implementations of the `GraphStore` interface — `memory`, `neo4j`.
 
@@ -271,18 +271,12 @@ different calls, including with the fill-value call above):
 Each agent module owns a small `Config` dataclass colocated with its implementation, with a
 `from_env()` classmethod that is the *only* place that reads that provider's env vars:
 
-- `GeminiConfig` (`src/agents/gemini_agent.py`): `GEMINI_API_KEY`, `GEMINI_MODEL`.
-- `GeminiOAuthConfig` (`src/agents/gemini_oauth_agent.py`): `GOOGLE_APPLICATION_CREDENTIALS`,
-  `GEMINI_MODEL`.
-- `OpenAIConfig` (`src/agents/openai_agent.py`): `OPENAI_API_KEY`, `OPENAI_MODEL`.
 - `LocalConfig` (`src/agents/local_agent.py`): `LOCAL_API_URL`, `LOCAL_MODEL`.
 
-`src/agents/providers.py` (the `gemini`/`openai` registry builders) only decides *which* class to
-instantiate and applies optional overrides on top of each `Config.from_env()`. Those overrides come
-from `PragmaConfig.agents`, an optional nested `agents:` block in `pragma.yaml` keyed by provider
-name (see `pragma.example.yaml`), letting non-secret settings (model name, base URL) live in
-version-controllable config scoped per provider instead of more prefixed globals in `.env`. Secrets
-(API keys, credential paths) stay in `.env` only.
+Non-secret overrides come from `PragmaConfig.agents`, an optional nested `agents:` block in
+`pragma.yaml` keyed by provider name (see `pragma.example.yaml`), letting settings (model name,
+base URL) live in version-controllable config scoped per provider instead of more prefixed
+globals in `.env`. Secrets (API keys, credential paths) stay in `.env` only.
 
 `python3 src/cli.py config` (`src/core/wizard.py`) is the interactive front door to all of this: an
 arrow-key menu (via `questionary`, with a plain-`input()` fallback when there's no TTY) walks

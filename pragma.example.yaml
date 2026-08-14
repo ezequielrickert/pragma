@@ -6,7 +6,7 @@
 # Copy to pragma.yaml (auto-loaded) or pass --config <path>.
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
-agent: gemini        # gemini | openai | local | mock
+agent: local          # local | mock
 graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
                       # (see docker-compose.yml) and is the crawl's live, primary source of truth -
                       # written to as the crawl happens, then read back by GraphPRDSynthesizer
@@ -123,10 +123,6 @@ export_json: false    # also write docs/{slug}_export_{timestamp}.json - the ful
 # Keep API keys and credential file paths in .env, not here, since this file
 # may be committed to version control.
 agents:
-  gemini:
-    model: models/gemini-1.5-flash-latest
-  openai:
-    model: gpt-4o-mini
   local:
     base_url: http://localhost:1234/v1/chat/completions
     model: my-local-model

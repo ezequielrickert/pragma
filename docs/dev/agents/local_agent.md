@@ -8,7 +8,7 @@ other module should read those env vars directly.
 
 ## max_tokens
 
-Unset by default (unlike `OpenAIAgent`'s hardcoded `max_tokens=1200`) -
+Unset by default (no hardcoded cap) -
 a local reasoning model (DeepSeek-R1 and similar) can legitimately need
 many tokens of chain-of-thought before it reaches its actual answer,
 and guessing a "safe" default risks silently truncating that

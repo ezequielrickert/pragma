@@ -6,7 +6,7 @@ Wiring configuration for the Engine (which plugins, and crawl-tuning
 settings).
 
 `agents` holds optional per-provider settings (model, endpoint, etc.),
-keyed by provider name, e.g. `{"gemini": {"model": "..."}}`. Secrets
+keyed by provider name, e.g. `{"local": {"model": "..."}}`. Secrets
 should stay in env vars / `.env`; `agents` is meant for non-secret,
 provider-specific overrides that would otherwise clutter a single flat
 `.env` as more providers are added. Each provider is still free to fall

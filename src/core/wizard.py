@@ -19,29 +19,6 @@ ENV_FILE = ".env"
 # Per-provider prompts. Non-secret fields are persisted to pragma.yaml's `agents:`
 # block; secret fields are persisted to .env under their own env var name.
 PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
-    "gemini": [
-        {
-            "name": "model",
-            "label": "Gemini model",
-            "default": "models/gemini-1.5-flash-latest",
-            "secret": False,
-        },
-        {
-            "name": "api_key",
-            "label": "Gemini API key (blank = keep current / use OAuth instead)",
-            "secret": True,
-            "env": "GEMINI_API_KEY",
-        },
-    ],
-    "openai": [
-        {"name": "model", "label": "OpenAI model", "default": "gpt-3.5-turbo", "secret": False},
-        {
-            "name": "api_key",
-            "label": "OpenAI API key (blank = keep current)",
-            "secret": True,
-            "env": "OPENAI_API_KEY",
-        },
-    ],
     "local": [
         {
             "name": "base_url",

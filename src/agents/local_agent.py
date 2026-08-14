@@ -33,7 +33,7 @@ class LocalConfig:
             timeout=int(env_timeout) if env_timeout else 300,
             # Only needed for a server fronted by tunnel auth (see _headers).
             api_key=os.getenv("LOCAL_API_KEY"),
-            # Unset by default, unlike OpenAIAgent's hardcoded max_tokens.
+            # Unset by default - no hardcoded cap.
             # Details: docs/dev/agents/local_agent.md#max_tokens
             max_tokens=int(env_max_tokens) if env_max_tokens else None,
         )

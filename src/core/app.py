@@ -24,8 +24,6 @@ EXIT = "Exit"
 
 # Relevant secrets per provider, for "View current configuration" only.
 SECRET_ENV_VARS: Dict[str, List[str]] = {
-    "gemini": ["GEMINI_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"],
-    "openai": ["OPENAI_API_KEY"],
     "local": [],
     "mock": [],
 }

@@ -57,7 +57,6 @@ aimed at onboarding rather than a specific line of code.
 | `src/core/wizard.py` | [wizard.md](core/wizard.md) |
 | `src/core/app.py` | [app.md](core/app.md) |
 | `src/core/bootstrap.py` | [bootstrap.md](core/bootstrap.md) |
-| `src/core/login_helper.py` | [login_helper.md](core/login_helper.md) |
 | `src/core/prompts.py` | [prompts.md](core/prompts.md) |
 | `src/cli.py` | [cli.md](cli.md) |
 | `src/storage/neo4j_graph_store.py` | [neo4j_graph_store.md](storage/neo4j_graph_store.md) |
@@ -69,6 +68,3 @@ aimed at onboarding rather than a specific line of code.
 | `src/utils/io.py` | [io.md](utils/io.md) |
 | `src/utils/urls.py` | [urls.md](utils/urls.md) |
 | `src/agents/local_agent.py` | [local_agent.md](agents/local_agent.md) |
-| `src/agents/gemini_agent.py` | [gemini_agent.md](agents/gemini_agent.md) |
-| `src/agents/openai_agent.py` | [openai_agent.md](agents/openai_agent.md) |
-| `src/agents/providers.py` | [providers.md](agents/providers.md) |

@@ -16,7 +16,7 @@ class PragmaConfig:
     """
 
     url: Optional[str] = None
-    agent: str = "openai"
+    agent: str = "local"
     graph_store: str = "memory"
     out_dir: str = "docs"
     headless: bool = True
