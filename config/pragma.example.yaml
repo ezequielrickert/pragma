@@ -29,9 +29,6 @@ headless: true         # run without a visible browser window - real, measured s
                        # every single interaction pays this cost - it's typically the single largest
                        # fixed cost in a real crawl's wall-clock time (confirmed live: ~145
                        # interactions in one run, ~4s of fixed wait apiece)
-element_budget: 200  # max components MechanicalCrawler mechanically interacts with per page per
-                      # visit-pass - the backstop against a pathological reveal-chain, not a
-                      # normal-case limit (200 is generous enough that ordinary pages never hit it)
 # max_pages: 50       # total pages to visit before stopping; unset = unbounded (crawl until the
                        # URL frontier is exhausted)
 page_concurrency: 1   # how many pages MechanicalCrawler visits at once. 1 = fully sequential

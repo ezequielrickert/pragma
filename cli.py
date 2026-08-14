@@ -91,22 +91,6 @@ def parse_args(argv: list) -> argparse.Namespace:
         "pre-hydration HTML shell satisfies the default wait condition before real content renders.",
     )
     parser.add_argument(
-        "--element-budget",
-        type=int,
-        dest="element_budget",
-        help="Max components MechanicalCrawler mechanically interacts with per page per visit-pass "
-        "(default: 200) - the backstop against a pathological reveal-chain, not a normal-case limit.",
-    )
-    parser.add_argument(
-        "--max-passes-per-page",
-        type=int,
-        dest="max_passes_per_page",
-        help="Max times to revisit the same page to keep draining its interaction frontier "
-        "(default: 10) - a page with more components than --element-budget needs more than one "
-        "pass; this bounds how many before giving up on a page that keeps generating new content "
-        "faster than one pass can keep up with.",
-    )
-    parser.add_argument(
         "--max-pages",
         type=int,
         dest="max_pages",

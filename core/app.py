@@ -40,9 +40,7 @@ def _print_config(config: PragmaConfig) -> None:
     print(f"  debug_logs_keep_last: {config.debug_logs_keep_last if config.debug_logs_keep_last else '(unbounded)'}")
     print(f"  export_json:    {config.export_json}")
     print(f"  tree_ascii:     {config.tree_ascii}")
-    print(f"  element_budget: {config.element_budget}")
     print(f"  max_pages:      {config.max_pages}")
-    print(f"  max_passes_per_page: {config.max_passes_per_page}")
 
     provider_options = config.agents.get(config.agent, {})
     if provider_options:

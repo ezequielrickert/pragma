@@ -122,23 +122,6 @@ def test_fillable_field_gets_placeholder_value_and_is_recorded_as_fill(fixture_s
     assert not fill.error
 
 
-def test_element_budget_caps_interactions_and_flags_remaining_frontier(fixture_server):
-    """A pathological reveal chain (chain.html, 5 buttons each revealing the
-    next, no navigating elements at all) must stop at the configured
-    per-visit ceiling (element_budget * max_passes_per_page), not run
-    unbounded - and must report that the frontier wasn't fully drained.
-    max_passes_per_page=1 makes that ceiling equal to element_budget alone,
-    isolating this test to element_budget's own capping behavior specifically
-    (see test_graph_sink.py's tests for the multi-round case where the two
-    combine to eventually drain a page bigger than one element_budget)."""
-    mech, results = _crawl(f"{fixture_server}/chain.html", max_pages=1, element_budget=2, max_passes_per_page=1)
-    chain_result = results[0]
-    successful = [i for i in chain_result.interactions if not i.error]
-    assert len(successful) == 2
-    assert chain_result.budget_exhausted_with_frontier_remaining is True
-    assert chain_result.interrupted_by_navigation is False
-
-
 def test_already_interacted_components_are_skipped_on_full_revisit(fixture_server):
     """Consult-before-act: re-crawling from scratch with a tracker that
     already has every component of a page marked interacted must produce
@@ -1130,8 +1113,10 @@ def test_churning_same_page_widget_converges_instead_of_looping_forever():
     """The actual fix: a same-page widget that re-renders under a fresh path
     on every interaction must be recognized, by content identity, as already
     handled - not re-offered as "new" work on every single reveal, which
-    would otherwise never converge (bounded only by element_budget *
-    max_passes_per_page, i.e. up to 2000 by default)."""
+    would otherwise never converge. There is no numeric interaction ceiling
+    to fall back on if this dedup were wrong (see
+    docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop) -
+    this test is the actual backstop against an infinite same-page loop."""
     fake = _FakeChurningWidgetCrawler()
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=5))
     results = asyncio.run(mech.crawl_site(fake.page_url))
@@ -1140,7 +1125,7 @@ def test_churning_same_page_widget_converges_instead_of_looping_forever():
     # rendered" instance was correctly recognized as the same widget by
     # content identity and never re-offered.
     assert fake.click_count == 1
-    assert not any(r.budget_exhausted_with_frontier_remaining for r in results)
+    assert not any(r.interrupted_by_navigation for r in results)
 
 
 class _FakeDeadSessionCrawler:

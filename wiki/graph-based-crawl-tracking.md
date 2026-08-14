@@ -436,6 +436,21 @@ status), never marked complete just because a pass happened. That's what makes t
 *honest*: a future run (or a human) can see precisely what's left, instead of the coverage gap
 being indistinguishable from "this page genuinely has no more components."
 
+**Update — pragma later removed the cap entirely, on purpose:** the numeric ceiling
+(`element_budget * max_rounds_per_page`) above was pragma's own original choice, not a
+requirement of the fix pattern itself. Once the project's priority was made explicit — a
+complete graph matters more than a bounded worst-case runtime, and a component silently
+un-interacted past a budget was indistinguishable from "this page has no more components" in
+the persisted store — the cap was deleted outright rather than raised or made optional. The
+loop became `while frontier_has_unactioned_items: ...` with no second condition at all. The
+underlying lesson is unchanged and is actually sharper without the cap: same-page continuation
+must *never* go through a re-navigating requeue, regardless of whether anything bounds how long
+that continuation runs. A cap remains a legitimate choice for a codebase that wants a runaway
+backstop (the fix pattern above is still correct as one way to build it) — it's just no longer
+assumed necessary. What *is* still a hard requirement, capped or not: a page whose frontier
+never fully drains (interrupted by navigation, or — for a codebase that keeps a cap — by
+exhausting it) must stay persisted-but-incomplete, never marked done just because a pass ran.
+
 ## Making the frontier concurrent: `Queue.join()`, not a `while queue: ...` loop
 
 **Symptom observed**: a real crawl of ~150 interactions took ~14 minutes wall-clock. Reading the
@@ -486,9 +501,10 @@ including visit order - raising it is opt-in, not a rewrite of the single-worker
 document explicitly rather than silently accept: any shared counter-based cap (a `max_pages`-style
 backstop) becomes a *soft* bound once concurrency > 1 - two workers can each pass a
 "have we hit the cap" check before either increments the shared counter, since there's a real `await`
-between the check and the increment. Same "documented, deliberate looseness" already established for
-`element_budget`/`max_passes_per_page` elsewhere in this doc - not worth a lock for a backstop that
-was never meant to be exact.
+between the check and the increment. Same "documented, deliberate looseness" as any other
+counter-based backstop in a concurrent frontier (see the previous section's "Update" note on why
+this project no longer keeps one for per-node work specifically) - not worth a lock for a backstop
+that was never meant to be exact.
 
 ## Not every path onto the frontier goes through the dedup guard - a bypass built for one reason can let two workers claim the same item
 
@@ -569,6 +585,13 @@ like genuinely new, never-before-seen work, and kept getting appended and clicke
 (bounded by `element_budget * max_passes_per_page`, 2000 by default) but indistinguishable from stuck in
 practice - each attempt costs a real network round trip, so 2000 of them against one uncooperative widget
 consumes the time budget of an entire large crawl.
+
+**Update — that numeric bound is gone in pragma now**, per the "Update" note on the per-node-work
+section above: this project removed its interaction cap entirely, so a churning widget that somehow
+evaded the content-identity dedup below would no longer be "consumes 2000 attempts and stops," it
+would be genuinely infinite. This raises, not lowers, the stakes of the fix pattern below actually
+holding - a codebase that drops its numeric backstop is now relying entirely on dedup-by-identity
+being correct, with nothing left to catch a case it misses.
 
 **Fix pattern**: track every component identity ever interacted with (success or failure) for a given
 canonical page/state key - not just the ones proven to trigger navigation (a separate, narrower set kept
