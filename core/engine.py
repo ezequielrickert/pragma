@@ -265,7 +265,10 @@ class Engine:
 
     async def _run_async(self, url: str) -> EngineRunResult:
         site = self.site or urlparse(url).netloc
-        sink = GraphStoreSink(self.graph_store, site)
+        # Same base_url/allow_subdomains the frontier gates on, so a link is
+        # judged in-scope identically whether it is queued or recorded.
+        # Details: docs/dev/core/engine.md#sink-scope
+        sink = GraphStoreSink(self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains)
 
         debug_log: Optional[CrawlDebugLog] = None
         if self.debug_logs_dir:
