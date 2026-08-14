@@ -1,0 +1,41 @@
+# Written by `python3 src/cli.py config`. Edit freely or re-run the wizard.
+scraper: playwright
+agent: local
+generator: simple
+graph_store: neo4j
+out_dir: docs
+logs_dir: research_logs
+progress_logs_dir: progress_logs
+graph_logs_dir: graph_logs
+headless: true
+max_iterations: 40
+wait_seconds: 15.0
+batch_size: 20
+agents:
+  gemini:
+    model: models/gemini-2.0-flash
+  openai:
+    model: gpt-3.5-turbo
+  local:
+    # Reached through a Tailscale tunnel - requires LOCAL_API_KEY in .env for
+    # bearer-token auth (see .env.example); this hostname itself isn't secret.
+    base_url: https://local.tailb3c4a4.ts.net/v1/chat/completions
+    # model: intentionally left unset here (was "qwen/qwen2.5-coder-7b-instruct").
+    # This field wins over .env's LOCAL_MODEL (pragma.yaml > env var precedence -
+    # see ARCHITECTURE.md), which silently pinned every run to that model
+    # regardless of what LOCAL_MODEL got changed to in .env between the
+    # gemma-4 vs. "modelo nuevo" comparison (docs/explicativos/
+    # avance-corridas-gemma-empanadapp.md) - both runs actually requested
+    # qwen2.5-coder-7b-instruct, which is why that doc couldn't confirm gemma
+    # was really being compared. Leaving this unset makes .env's LOCAL_MODEL
+    # (src/agents/local_agent.py::LocalConfig - "the single place that knows
+    # about LOCAL_MODEL") the one place to change per run - re-set this only
+    # if you want pragma.yaml to override .env on purpose again.
+    timeout: 1800
+    max_tokens: 8192
+graph_stores:
+  neo4j:
+    host: localhost
+    port: 7687
+    database: neo4j
+    user: neo4j
