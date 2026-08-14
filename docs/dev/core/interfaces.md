@@ -81,7 +81,7 @@ fill. Re-reading `.value` into `ComponentFacts` would just be a second,
 possibly-stale copy of the same fact.
 
 `spiders.graph_sink._component_facts` (see
-`docs/dev/spiders/orchestration/graph_sink.md#_component_facts`) is the one place a
+`docs/dev/spiders/orchestration/graph_sink/component_facts.md#component_facts`) is the one place a
 raw JS-discovered component dict gets mapped onto this dataclass; both
 `GraphStore` backends' `_FACTS_FIELDS` constant (see
 `docs/dev/database/neo4j_graph_store.md#record_component`) derive their
@@ -258,7 +258,7 @@ code path.
 `GraphStoreSink.record_interaction` when `path` is a consolidated
 dropdown/choice-group's representative node rather than the specific
 member that actually acted (see
-`docs/dev/spiders/orchestration/graph_sink.md#_resolve_write_path`) - both backends
+`docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path`) - both backends
 embed it into the interaction entry only when non-empty, so an ordinary
 (ungrouped) interaction's JSON shape is byte-for-byte unchanged from
 before this field existed.
@@ -377,7 +377,7 @@ own identity keeps the interaction surface untouched by construction.
 Create or refresh a text-content record - idempotent upsert, same
 discipline as `record_component`'s descriptive fields, but with no
 interaction state to preserve (none exists for non-interactive text).
-Called once per page visit (see `docs/dev/spiders/orchestration/page_visitor.md#visit`),
+Called once per page visit (see `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit`),
 *not* re-called on same-page reveals the way `record_inventory` now is
 for `Component` - text revealed only by an interaction is a real,
 structurally-symmetric gap to the ghost-node bug, but out of scope for

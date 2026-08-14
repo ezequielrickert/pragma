@@ -99,7 +99,7 @@ interaction entry's JSON only when non-empty - `{"action", "value",
 "resulting_url"}` for an ordinary interaction, `{"action", "value",
 "resulting_url", "source_path"}` when `GraphStoreSink` redirected a
 consolidated group member's interaction onto its representative node
-(see docs/dev/spiders/orchestration/graph_sink.md#_resolve_write_path). Conditional,
+(see docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path). Conditional,
 not always-present-and-empty, so every interaction JSON blob written
 before this field existed stays byte-identical to what this same call
 would produce today.

@@ -87,7 +87,7 @@ third one:
   would mean a real navigation between two same-shaped hash instances
   (e.g. a "start a new order" button) stops being detected as a
   navigation at all, silently reusing selectors built for a page the
-  session has already left. See `docs/dev/spiders/orchestration/page_visitor.md#visit`
+  session has already left. See `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit`
   for the full split.
 
 Never use this value as the literal URL to navigate to - it is lossy by

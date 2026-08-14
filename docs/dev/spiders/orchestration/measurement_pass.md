@@ -53,7 +53,7 @@ hand-rolled `for page_url in navigable:` loop that used to call
 already-known URLs, no interaction, no session reused between pages - is
 exactly what `arun_many()` is built for, unlike the main crawl's own
 click/fill loop (see
-`docs/dev/spiders/browser/crawl4ai_crawler.md#discover_pages_many` for why
+`docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_pages_many` for why
 that one keeps its own throttle instead). A `None` `PageState` in the
 returned list is this pass's "skipped with a warning" page, same
 contract as before.

@@ -88,7 +88,7 @@ Per-page cap on how many components `MechanicalCrawler` mechanically
 interacts with in a single visit-pass - the backstop against a
 pathological reveal-chain, not a normal-case limiter (default generous
 enough that ordinary pages never hit it). See
-`docs/dev/spiders/orchestration/mechanical_loop.md#module`.
+`docs/dev/spiders/orchestration/mechanical_loop/loop.md#module`.
 
 ## max_pages
 

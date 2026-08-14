@@ -1,5 +1,5 @@
-"""Live `GraphStore` wiring for `MechanicalCrawler` - a tracker and a writer.
-Details: docs/dev/spiders/orchestration/graph_sink.md#module
+"""Writes a MechanicalCrawler crawl's facts into GraphStore as they happen.
+Details: docs/dev/spiders/orchestration/graph_sink/sink.md#module
 """
 from __future__ import annotations
 
@@ -7,105 +7,27 @@ import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.interfaces import ComponentFacts, GraphStore, VisitStep
+from core.interfaces import GraphStore, VisitStep
 from generators.component_classifier import (
     classify_component_type,
-    describe_options,
-    format_option_choices,
     group_choice_sets,
     group_option_families,
     group_steppers,
 )
 from utils.urls import clean_url
-
-
-def _option_labels_for(options_json: str) -> List[str]:
-    """Clean, human-readable display strings for one `options` JSON blob -
-    the same shape `component_tree.py`'s rendered `variants=[...]` line
-    uses, computed once here so it can be stored alongside the raw JSON
-    instead of only ever existing inside a generated .md file.
-    Details: docs/dev/spiders/orchestration/graph_sink.md#_option_labels_for
-    """
-    return format_option_choices(describe_options(options_json))
-
-
-def _component_facts(comp: Dict[str, Any]) -> ComponentFacts:
-    """Map one JS-discovered component dict's attribute/style facts onto `ComponentFacts`.
-    `value` is deliberately left out: a fill's actual value is already captured by
-    `record_component_interaction` at the moment it's set, which is the reliable source -
-    re-reading a live `.value` here would just be a second, possibly-stale copy of the
-    same fact (discovery can run before or after a fill).
-    Details: docs/dev/spiders/orchestration/graph_sink.md#_component_facts
-    """
-    attributes = comp.get("attributes") or {}
-    style = comp.get("style") or {}
-    return ComponentFacts(
-        css_class=attributes.get("class", ""),
-        element_id=attributes.get("id", ""),
-        href=attributes.get("href", ""),
-        placeholder=comp.get("placeholder", ""),
-        label=comp.get("label", ""),
-        name=comp.get("name", ""),
-        disabled=bool(comp.get("disabled", False)),
-        required=bool(comp.get("required", False)),
-        form=comp.get("form", ""),
-        color=style.get("color", ""),
-        background_color=style.get("background_color", ""),
-        font_size=style.get("font_size", ""),
-        font_weight=style.get("font_weight", ""),
-        display=style.get("display", ""),
-        position=style.get("position", ""),
-    )
-
-
-class GraphStoreInteractionTracker:
-    """`InteractionTracker` backed by `GraphStore` reads, with a per-instance
-    local read cache. Details: docs/dev/spiders/orchestration/graph_sink.md#graphstoreinteractiontracker
-    """
-
-    def __init__(self, graph_store: GraphStore, site: str) -> None:
-        self.graph_store = graph_store
-        self.site = site
-        # page_url -> {path: {..., "interacted": bool}}, populated lazily.
-        self._states_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        self._visited_cache: Dict[str, bool] = {}  # page_url -> bool, same discipline.
-
-    def _states_for(self, page_url: str) -> Dict[str, Dict[str, Any]]:
-        if page_url not in self._states_cache:
-            self._states_cache[page_url] = self.graph_store.get_component_states(self.site, page_url)
-        return self._states_cache[page_url]
-
-    def is_interacted(self, page_url: str, path: str) -> bool:
-        return bool(self._states_for(page_url).get(path, {}).get("interacted"))
-
-    def mark_interacted(self, page_url: str, path: str) -> None:
-        """Cache-only; `GraphStoreSink.record_interaction` does the real write.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#mark_interacted
-        """
-        self._states_cache.setdefault(page_url, {}).setdefault(path, {})["interacted"] = True
-
-    def is_visited(self, page_url: str) -> bool:
-        if page_url not in self._visited_cache:
-            self._visited_cache[page_url] = self.graph_store.is_visited(self.site, page_url)
-        return self._visited_cache[page_url]
-
-    def mark_visited(self, page_url: str) -> None:
-        """Cache-only; `GraphStoreSink.record_page_finished` does the real write.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#mark_visited
-        """
-        self._visited_cache[page_url] = True
+from .component_facts import component_facts, option_labels_for
 
 
 class GraphStoreSink:
     """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they happen.
-    Details: docs/dev/spiders/orchestration/graph_sink.md#graphstoresink
+    Details: docs/dev/spiders/orchestration/graph_sink/sink.md#graphstoresink
     """
 
     def __init__(self, graph_store: GraphStore, site: str) -> None:
         self.graph_store = graph_store
         self.site = site
         # page_url -> {member_path: representative_path}, populated by
-        # record_inventory. Details: docs/dev/spiders/orchestration/graph_sink.md#_resolve_write_path
+        # record_inventory. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path
         self._representative_for: Dict[str, Dict[str, str]] = {}
 
     async def _write(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
@@ -113,13 +35,13 @@ class GraphStoreSink:
         `GraphStore` backends (e.g. `Neo4jGraphStore`) are synchronous - each
         call is its own network round-trip - so calling `fn` directly here
         would stall every other crawl worker sharing this event loop for the
-        duration. Details: docs/dev/spiders/orchestration/graph_sink.md#_write
+        duration. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
         """
         await asyncio.to_thread(fn, *args, **kwargs)
 
     async def record_page_arrival(self, page_key: str, description: str = "", title: str = "") -> None:
         """Cheapest "this page exists" signal, called before discovery/interaction.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_page_arrival
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_arrival
         """
         await self._write(
             self.graph_store.upsert_page, self.site, page_key,
@@ -129,7 +51,7 @@ class GraphStoreSink:
     async def record_page_metadata(self, page_key: str, metadata: Dict[str, str]) -> None:
         """The page's own `<meta>` tags - extracted on every navigation
         since long before anything stored them.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_page_metadata
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_metadata
         """
         if not metadata:
             return
@@ -139,7 +61,7 @@ class GraphStoreSink:
 
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_page_network
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_network
         """
         if not requests:
             return
@@ -149,7 +71,7 @@ class GraphStoreSink:
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_text_content
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_text_content
         """
         entries = []
         for entry in text_content:
@@ -174,7 +96,7 @@ class GraphStoreSink:
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
     ) -> None:
         """Full, unconditional component + link inventory for one discovery pass.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_inventory
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_inventory
         """
         choice_sets = group_choice_sets(components)
         option_families = group_option_families(components)
@@ -199,7 +121,7 @@ class GraphStoreSink:
                 await self._write(
                     self.graph_store.record_component_options,
                     self.site, page_key, increment_path, stepper_json,
-                    option_labels=_option_labels_for(stepper_json),
+                    option_labels=option_labels_for(stepper_json),
                 )
 
         for name, members in choice_sets.items():
@@ -233,7 +155,7 @@ class GraphStoreSink:
         a group's node gets exactly the same real tag/text/role/rect/
         component_type an ungrouped component would - no separate "blank
         ghost node" code path for the representative.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#_component_args
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_component_args
         """
         path = comp.get("path")
         if not path:
@@ -252,7 +174,7 @@ class GraphStoreSink:
             "width": rect.get("width"),
             "height": rect.get("height"),
             "component_type": classify_component_type(comp),
-            "facts": _component_facts(comp),
+            "facts": component_facts(comp),
         }
 
     async def _record_choice_group(
@@ -266,7 +188,7 @@ class GraphStoreSink:
         the representative's own `record_component(s)` args rather than
         writing them here, so the caller can batch it into the same call as
         every ungrouped component from this discovery pass.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#_record_choice_group
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_record_choice_group
         """
         representative = members[0]
         representative_path = representative.get("path")
@@ -284,7 +206,7 @@ class GraphStoreSink:
         )
         await self._write(
             self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary,
-            option_labels=_option_labels_for(option_summary),
+            option_labels=option_labels_for(option_summary),
         )
         page_map = self._representative_for.setdefault(page_key, {})
         for member in members:
@@ -299,7 +221,7 @@ class GraphStoreSink:
         group's representative node instead of creating its own - the
         original `path` is returned as `source_path` so which specific
         option acted is relocated, not lost.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#_resolve_write_path
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path
         """
         representative = self._representative_for.get(page_key, {}).get(path)
         if representative and representative != path:
@@ -312,7 +234,7 @@ class GraphStoreSink:
     ) -> None:
         """One call per *attempted* interaction, success or failure.
         `step` places it in its visit's sequence - see `VisitStep`.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_interaction
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_interaction
         """
         write_path, source_path = self._resolve_write_path(page_key, path)
         await self._write(
@@ -332,7 +254,7 @@ class GraphStoreSink:
         belongs to which interaction after the store flattens every batch
         into one list - without it, a control clicked twice pools its
         responses and neither can be attributed.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_component_network
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_component_network
         """
         if step is not None:
             requests = [
@@ -346,12 +268,12 @@ class GraphStoreSink:
 
     async def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_revealed_options
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_revealed_options
         """
         payload = json.dumps({"trigger": trigger_path, "revealed_options": revealed})
         await self._write(
             self.graph_store.record_component_options, self.site, page_key, trigger_path, payload,
-            option_labels=_option_labels_for(payload),
+            option_labels=option_labels_for(payload),
         )
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
@@ -360,7 +282,7 @@ class GraphStoreSink:
 
     async def record_page_finished(self, page_key: str, component_count: int) -> None:
         """Called once a page's pass completes without being cut short by navigation.
-        Details: docs/dev/spiders/orchestration/graph_sink.md#record_page_finished
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_finished
         """
         await self._write(
             self.graph_store.upsert_page, self.site, page_key, status="Finished", components=component_count

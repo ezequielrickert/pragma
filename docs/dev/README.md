@@ -2,7 +2,7 @@
 
 Every file under a top-level Python package (`core/`, `agents/`, `database/`, `spiders/`,
 `generators/`, `utils/`) gets a matching file here, at the same relative path
-(`spiders/orchestration/mechanical_loop.py` → `docs/dev/spiders/orchestration/mechanical_loop.md`).
+(`spiders/orchestration/mechanical_loop/loop.py` → `docs/dev/spiders/orchestration/mechanical_loop/loop.md`).
 The source file keeps a short (≤2-line) comment or docstring at each
 decision point; anything longer - the "why," the bug it fixes, the
 tradeoff it accepts - lives in the matching doc under a heading named
@@ -40,19 +40,32 @@ aimed at onboarding rather than a specific line of code.
 
 | Source file | Doc |
 |---|---|
-| `spiders/browser/crawl4ai_crawler.py` | [crawl4ai_crawler.md](spiders/browser/crawl4ai_crawler.md) |
+| `spiders/browser/crawl4ai_crawler/config.py` | [config.md](spiders/browser/crawl4ai_crawler/config.md) |
+| `spiders/browser/crawl4ai_crawler/page_state.py` | [page_state.md](spiders/browser/crawl4ai_crawler/page_state.md) |
+| `spiders/browser/crawl4ai_crawler/hooks.py` | [hooks.md](spiders/browser/crawl4ai_crawler/hooks.md) |
+| `spiders/browser/crawl4ai_crawler/crawler.py` | [crawler.md](spiders/browser/crawl4ai_crawler/crawler.md) |
+| `spiders/browser/crawl4ai_crawler/quiet_logger.py` | [quiet_logger.md](spiders/browser/crawl4ai_crawler/quiet_logger.md) |
 | `spiders/browser/debug_log.py` | [debug_log.md](spiders/browser/debug_log.md) |
 | `spiders/browser/dom_settle.py` | [dom_settle.md](spiders/browser/dom_settle.md) |
+| `spiders/browser/target_load_throttle.py` | [target_load_throttle.md](spiders/browser/target_load_throttle.md) |
 | `spiders/content/component_matching.py` | [component_matching.md](spiders/content/component_matching.md) |
 | `spiders/content/fill_value_agent.py` | [fill_value_agent.md](spiders/content/fill_value_agent.md) |
 | `spiders/content/fill_values.py` | [fill_values.md](spiders/content/fill_values.md) |
 | `spiders/content/network_filter.py` | [network_filter.md](spiders/content/network_filter.md) |
 | `spiders/content/page_extraction.py` | [page_extraction.md](spiders/content/page_extraction.md) |
-| `spiders/orchestration/graph_sink.py` | [graph_sink.md](spiders/orchestration/graph_sink.md) |
+| `spiders/orchestration/graph_sink/component_facts.py` | [component_facts.md](spiders/orchestration/graph_sink/component_facts.md) |
+| `spiders/orchestration/graph_sink/tracker.py` | [tracker.md](spiders/orchestration/graph_sink/tracker.md) |
+| `spiders/orchestration/graph_sink/sink.py` | [sink.md](spiders/orchestration/graph_sink/sink.md) |
 | `spiders/orchestration/interaction_tracker.py` | [interaction_tracker.md](spiders/orchestration/interaction_tracker.md) |
-| `spiders/orchestration/mechanical_loop.py` | [mechanical_loop.md](spiders/orchestration/mechanical_loop.md) |
+| `spiders/orchestration/mechanical_loop/config.py` | [config.md](spiders/orchestration/mechanical_loop/config.md) |
+| `spiders/orchestration/mechanical_loop/frontier.py` | [frontier.md](spiders/orchestration/mechanical_loop/frontier.md) |
+| `spiders/orchestration/mechanical_loop/worker_pacing.py` | [worker_pacing.md](spiders/orchestration/mechanical_loop/worker_pacing.md) |
+| `spiders/orchestration/mechanical_loop/loop.py` | [loop.md](spiders/orchestration/mechanical_loop/loop.md) |
 | `spiders/orchestration/measurement_pass.py` | [measurement_pass.md](spiders/orchestration/measurement_pass.md) |
-| `spiders/orchestration/page_visitor.py` | [page_visitor.md](spiders/orchestration/page_visitor.md) |
+| `spiders/orchestration/page_visitor/frontier.py` | [frontier.md](spiders/orchestration/page_visitor/frontier.md) |
+| `spiders/orchestration/page_visitor/recovery.py` | [recovery.md](spiders/orchestration/page_visitor/recovery.md) |
+| `spiders/orchestration/page_visitor/outcomes.py` | [outcomes.md](spiders/orchestration/page_visitor/outcomes.md) |
+| `spiders/orchestration/page_visitor/visitor.py` | [visitor.md](spiders/orchestration/page_visitor/visitor.md) |
 | `spiders/orchestration/visit_result.py` | [visit_result.md](spiders/orchestration/visit_result.md) |
 | `core/interfaces.py` | [interfaces.md](core/interfaces.md) |
 | `core/engine.py` | [engine.md](core/engine.md) |

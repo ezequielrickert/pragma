@@ -10,7 +10,7 @@ tests) only ever read them.
 
 `"click"` | `"fill"` for a real attempted interaction; `"discover"` for a
 page that never even loaded (`discover_page` itself raised - see
-`docs/dev/spiders/orchestration/page_visitor.md#_discovery_failed`), recorded with
+`docs/dev/spiders/orchestration/page_visitor/visitor.md#_discovery_failed`), recorded with
 `path=""` since there's no specific component to point at. Not an enum -
 this is the one place outside `PageVisitor` that cares which value it
 holds (a crawl's error report grouping "pages that never loaded" apart
