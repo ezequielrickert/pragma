@@ -78,10 +78,35 @@ Con presupuesto infinito ese `while` se agota solo una vez y post-procesa una ve
 presupuesto finito corta antes, post-procesa igual, y la corrida siguiente entra por el
 mismo `while` con la frontera sembrada desde `get_pending()`.
 
-**Por qué los tres presupuestos y no uno**: miden cosas distintas y ninguno cubre solo.
-`pages` es el más intuitivo. `nodes` es el peso de Neo4j. `minutes` es el único que
-garantiza que vuelvas a la terminal — porque una sola página patológica (§5) puede
-colgarse para siempre sin terminar una página ni crear un nodo.
+#### La superficie concreta: `pages`, y un flag para apagarlo
+
+Decisión tomada (Julieta, 2026-08-14): **cortar por páginas.** El caso de uso es
+"20 páginas, miro los datos, sigo con otras 20", y `pages` es la unidad que se
+corresponde con eso. `nodes` y `minutes` quedan como opcionales, no como el default.
+
+```yaml
+crawl_budget:
+  pages: 20        # el corte normal
+  nodes: null      # opcional
+  minutes: null    # opcional, red de seguridad
+```
+
+Y para la corrida larga —dejarlo toda la noche— un flag que apaga el presupuesto sin
+tener que editar el YAML:
+
+```bash
+python cli.py https://sitio --full            # ignora crawl_budget, corre hasta agotar
+python cli.py https://sitio --max-pages-per-run 50   # override puntual
+```
+
+`--full` no es un segundo modo: pone los tres presupuestos en `null` y entra por el
+mismo `while`. Un solo camino de código, dos ergonomías.
+
+**El riesgo de cortar sólo por páginas, dicho una vez**: si una página cae en el §5 del
+diagnóstico (bucle de revelado sin techo desde el PR #40), nunca termina, el contador de
+páginas nunca avanza, y el corte por `pages` no llega nunca. Volvés a la corrida de 12 h.
+Por eso `minutes` conviene igual, seteado alto —digamos 90— como red que normalmente no
+se toca. No cambia el comportamiento normal y te devuelve la terminal en el caso malo.
 
 **Y `fresh` deja de ser un flag que hay que acordarse.** Con un solo camino, purgar es
 una acción explícita y aparte (`--purge`, o `fresh: true` pedido a mano), no el default
@@ -175,8 +200,51 @@ Para **catálogos de página** el caché sí es correcto y seguro: la clave es `
 que es estable entre corridas, y una página terminada no cambia. Y ahí está el volumen
 real — una llamada por página contra una por familia, y las páginas son muchas más.
 
-**Recomendación**: cachear catálogos de página por `page_url`, y **no** cachear familias.
-Re-narrar familias en cada corte es el precio correcto de tener el clustering bien.
+#### ¿Y no conviene apendear familias en vez de borrar y rehacer?
+
+Pregunta de Julieta: *"en vez de delete y hacerlos de cero, ver los nodos y si alguno
+concuerda mejor con otra familia apendearlo sin borrar todo"*.
+
+El instinto —no rehacer trabajo— es correcto, pero **el clustering es la parte que no
+cuesta nada**. `generators/component_family.py` lo dice en su primera línea: *"Pure,
+deterministic inference […] no I/O, no LLM"*. Es CPU: bucketear por
+`(tag, component_type)` y Jaccard sobre `css_class` dentro de cada bucket. Rehacerlo
+entero es gratis.
+
+Lo que cuesta es `narrate_family_purposes`: una llamada al modelo por familia.
+
+Y apendear tendría dos costos reales:
+
+1. **Rompe la equivalencia** que pedimos en §1b. Un clustering incremental depende de
+   qué corrida vio qué primero: la familia resultante deja de ser función del ledger y
+   pasa a ser función del *historial de corridas*. Varias cortas y una larga dejarían de
+   dar lo mismo, que es justo lo que queremos evitar.
+2. **"Si concuerda mejor con otra familia" es el rebuild.** Para saber si un componente
+   encaja mejor en otro lado hay que compararlo contra todas las familias existentes —
+   que es exactamente lo que hace el clustering completo, sólo que con más estado y más
+   formas de equivocarse.
+
+**La salida que sí sirve**: seguir rehaciendo el clustering (gratis, correcto), y cachear
+la **narración** con una clave que sobreviva al re-clustering — la firma estructural de
+la familia:
+
+```
+(tag, component_type, common_classes, member_paths ordenados)
+```
+
+Si una familia vuelve con firma idéntica, es la misma familia: se reusa su `purpose`. Si
+cambió de miembros, se re-narra, que es lo correcto porque el grupo cambió.
+
+En la práctica la mayoría de las familias se estabilizan temprano, así que a partir de
+la tercera o cuarta pasada casi todas las llamadas se ahorran — sin perder ni la
+corrección del clustering ni la equivalencia.
+
+Esto **corrige lo que dice arriba** ("no cachear familias"): no se puede cachear por
+identidad de familia, pero sí por firma. Requiere guardar la firma junto al `purpose`,
+que hoy no se hace porque el `DETACH DELETE` borra todo.
+
+**Recomendación**: cachear catálogos de página por `page_url`, cachear propósitos de
+familia por firma estructural, y seguir rehaciendo el clustering entero siempre.
 
 ## Diseño
 
@@ -215,6 +283,36 @@ Un detalle que hay que decidir: **el orden**. `get_pending` devuelve `ORDER BY p
 que es alfabético y arbitrario. Para "varias pasadas controlables" probablemente
 convenga priorizar por profundidad o por grado de entrada, pero eso es una mejora
 posterior, no un bloqueante.
+
+### Los documentos no se apendean: se re-proyectan (y eso es lo que querías)
+
+Pregunta de Julieta: *"en vez de hacer los doc de 0, que apendee o junte la nueva data
+con la data que ya había en esos docs"*.
+
+**Eso ya pasa, por construcción.** La distinción que importa:
+
+- **El grafo acumula.** Con `fresh: false`, la corrida 2 escribe encima del grafo de la
+  corrida 1. Al terminar, el grafo tiene las 40 páginas.
+- **El documento es una vista del grafo, no un acumulador.** Se genera leyendo el grafo
+  entero (`get_progress_table_rows`, `get_component_ledger`, `get_edges`).
+
+Entonces "hacerlo de 0" en la corrida 2 **no** produce el documento de las 20 páginas
+nuevas: produce el documento de las 40. Regenerar *es* el merge. No se pierde nada de la
+corrida 1.
+
+Además cada corrida escribe archivos nuevos con su propio timestamp
+(`DocumentNaming(out_dir, slug, timestamp=run_timestamp)`), así que quedan las dos
+versiones y se pueden diffear — que es justo el control que buscabas.
+
+**Y apendear texto sería peor, no mejor.** Un documento apendeado no puede corregir lo
+que la corrida anterior escribió y ahora es falso: la cobertura ("20 páginas"), el
+resumen del sitio, el grafo de navegación. Quedarían dos secciones contradiciéndose y
+ninguna forma de saber cuál vale. La proyección no tiene ese problema porque no hay
+estado viejo que sobreviva.
+
+**Lo que sí conviene no rehacer son las llamadas al modelo**, que es probablemente lo que
+te hacía ruido. Eso es el caché de narración (paso 7), y ahí sí hay trabajo real que
+ahorrar. Rehacer el *documento* es barato; rehacer la *narración* no.
 
 ### Documentos parciales
 
@@ -270,7 +368,7 @@ lo demás y es una línea.
 | 4 | Persistir `route_shape` y derivar su contador (§1b-b) | sin esto varias cortas crawlean más que una larga |
 | 5 | Número de secuencia de descubrimiento y orden estable (§1b-c) | sin esto el orden decide qué URL sobrevive al cap |
 | 6 | Marcar documentos parciales | sin esto los documentos mienten por omisión |
-| 7 | Cachear catálogos de página por `page_url` | recién acá, con el costo real medido |
+| 7 | Cachear narración: catálogos por `page_url`, propósitos por firma de familia | recién acá, con el costo real medido |
 | 8 | Elegir backstop para §5 del diagnóstico | conversación con Ezequiel, no fix |
 
 Los pasos 2 y 3 son separables: el 2 solo ya da valor (reanudar tras un corte manual),
