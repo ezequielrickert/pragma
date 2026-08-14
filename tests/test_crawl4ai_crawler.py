@@ -137,21 +137,35 @@ def test_wait_seconds_exits_as_soon_as_content_appears_not_the_full_ceiling(fixt
     """wait_seconds/interaction_wait_seconds are a ceiling, not a flat sleep -
     `_wait_for_new_content` polls in short steps and returns the moment new
     content is found, rather than always sleeping the full configured amount.
-    `delayed_render.html`'s content appears at 1.5s; a 5s ceiling must still
-    finish well under 5s once it does, not just eventually return correct
-    content at the full ceiling's cost."""
+    `delayed_render.html`'s content appears at 1.5s, so a 15s ceiling must
+    finish far short of 15s once it does, not just eventually return correct
+    content at the full ceiling's cost.
+
+    The clock covers one navigation only, not the `async with` around it, and
+    a warm-up navigation runs first. Both exist because this test used to
+    time browser launch too and failed at 13-14s on Windows against an early
+    exit that was working correctly: launching Chromium costs ~3.5s, and
+    crawl4ai's *first* per-session context creation another ~7.4s, neither of
+    which `_wait_for_new_content` has any say over. The measured navigation
+    still gets its own session_id rather than reusing the warm-up's, since
+    every navigation in a real crawl pays that per-session cost too (~2.5s
+    warm) - the point is to exclude the one-off launch, not to flatter the
+    result with a page crawl4ai already has open."""
 
     async def timed_discover(ceiling: float) -> float:
-        start = asyncio.get_event_loop().time()
+        url = f"{fixture_server}/delayed_render.html"
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=ceiling)) as crawler:
-            await crawler.discover_page(f"{fixture_server}/delayed_render.html")
-        return asyncio.get_event_loop().time() - start
+            await crawler.discover_page(url, session_id="warm-up")
+            start = asyncio.get_running_loop().time()
+            await crawler.discover_page(url, session_id="measured")
+            return asyncio.get_running_loop().time() - start
 
-    elapsed = asyncio.run(timed_discover(5))
-    # 1.5s content delay + poll granularity + real browser/extraction
-    # overhead, comfortably short of the 5s ceiling it would take if this
-    # were still a flat sleep.
-    assert elapsed < 3.0
+    elapsed = asyncio.run(timed_discover(15))
+    # 1.5s content delay + _STABLE_HOLD_SECONDS + per-session context
+    # creation and extraction. A flat sleep could not come in under the 15s
+    # ceiling at all, so the margin here is wide on purpose - this asserts a
+    # behavior, not a performance budget.
+    assert elapsed < 10.0
 
 
 def test_settle_wait_survives_a_short_plateau_before_the_real_change(fixture_server):
