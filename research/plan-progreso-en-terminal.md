@@ -286,6 +286,26 @@ El progreso en terminal **no arregla** ese bug, lo hace visible. Las causas est�
 documentadas aparte, en `research/diagnostico-corrida-sin-fin.md`. El orden sano es:
 A′ primero (para poder ver qué pasa), después los arreglos de ese diagnóstico.
 
+**Actualización tras el PR #40 (`d59ce99`, 2026-08-14)**: Ezequiel eliminó el techo de
+interacciones por página, que era el último backstop numérico del crawl. Eso vuelve a
+A′ más necesario, no menos, y además le cambia la forma.
+
+Con el techo puesto, una página atascada terminaba igual (a las 2000 interacciones) y
+el crawl seguía; alcanzaba con contar visitas únicas vs. revisitas. Sin techo, el crawl
+puede quedarse **para siempre dentro de una sola visita**, sin emitir ni una línea:
+`while idx < len(frontier)` sobre una lista que el propio cuerpo del bucle hace crecer
+(`outcomes.py:130`).
+
+Así que A′ necesita una línea más de las que decía arriba — **progreso dentro de la
+visita**, no sólo por visita:
+
+```
+worker 2 | página 37 (12 únicas, 25 revisitas) | frontera: 240 pendientes
+  ↳ interacción 118, frontera de la página: 213 y subiendo
+```
+
+Ese "y subiendo" es la firma exacta del §5 del diagnóstico, y hoy es invisible.
+
 ## Pipeline de calidad
 
 Aplica `CLAUDE.md`: `python-clean-code` mientras se escribe, `clean-code-principles`
