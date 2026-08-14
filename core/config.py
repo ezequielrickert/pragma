@@ -8,6 +8,14 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 import yaml
 
+# Where `load()` looks when no --config is passed, in order. The first entry
+# is what `core/wizard.py` writes, and the two disagreed between cc8273d and
+# now - the wizard wrote pragma.yaml while this module read config/pragma.yaml
+# only, so a wizard-generated config was silently ignored on every run. Both
+# are honored so neither existing layout breaks.
+# Details: docs/dev/core/config.md#default_config_paths
+DEFAULT_CONFIG_PATHS = ("pragma.yaml", "config/pragma.yaml")
+
 
 @dataclass
 class PragmaConfig:
@@ -107,12 +115,21 @@ class PragmaConfig:
             if val:
                 setattr(self, field_name, val)
 
+    def _default_yaml_path(self) -> Optional[Path]:
+        """First existing path in `DEFAULT_CONFIG_PATHS`, or `None`.
+        Details: docs/dev/core/config.md#_default_yaml_path
+        """
+        return next((p for p in (Path(c) for c in DEFAULT_CONFIG_PATHS) if p.exists()), None)
+
     def _apply_yaml(self, yaml_path: Optional[str]) -> None:
-        path = Path(yaml_path) if yaml_path else Path("config/pragma.yaml")
-        if not path.exists():
-            if yaml_path:
+        if yaml_path:
+            path = Path(yaml_path)
+            if not path.exists():
                 raise FileNotFoundError(f"Config file not found: {yaml_path}")
-            return
+        else:
+            path = self._default_yaml_path()
+            if path is None:
+                return
 
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         valid = {f.name for f in fields(self)}

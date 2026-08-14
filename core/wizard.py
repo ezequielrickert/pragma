@@ -11,9 +11,13 @@ from dotenv import dotenv_values
 
 from utils.io import upsert_env_vars
 from . import prompts
+from .config import DEFAULT_CONFIG_PATHS
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
-PRAGMA_YAML = "pragma.yaml"
+# Read from the same list `PragmaConfig.load()` searches, so what the wizard
+# writes is always what a plain run picks up. These two drifted apart once
+# already - see DEFAULT_CONFIG_PATHS' own comment.
+PRAGMA_YAML = DEFAULT_CONFIG_PATHS[0]
 ENV_FILE = ".env"
 
 # Per-provider prompts. Non-secret fields are persisted to pragma.yaml's `agents:`
