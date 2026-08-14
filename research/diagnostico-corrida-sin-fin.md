@@ -210,6 +210,10 @@ ignorado. Y `--max-pages` pasó de ser *un* freno a ser **el único**.
    Los tres son compatibles con su objetivo. Lo que no conviene es dejar las cinco sin
    ninguna.
 
+   El diseño de las dos primeras está desarrollado en
+   [`plan-corridas-incrementales.md`](plan-corridas-incrementales.md), que además cubre
+   el caso "cortar y reanudar" con la to-do list que el grafo ya persiste.
+
 ## Lo que este diagnóstico **no** afirma
 
 No reproduje la corrida de 12 h: no hay Docker/neo4j levantado acá, y los
