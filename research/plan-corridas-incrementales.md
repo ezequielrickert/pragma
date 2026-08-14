@@ -38,37 +38,104 @@ frontera con `get_pending(site)` además de con `start_url`.
 
 ### 1. ¿Se puede elegir entre varias corridas cortas y una sola larga?
 
-Sí, y conviene que sea **una decisión explícita y única**, no la suma de tres flags que
-hay que acordarse de combinar.
+Sí — y la mejor forma no es tener dos modos, sino **que no haya modos**.
 
-Propuesta: un modo, con el default siendo exactamente lo de hoy.
+#### La versión mala (la que había escrito primero)
+
+Un `crawl_mode: one_shot | incremental` con dos caminos de código. El problema es
+evidente en cuanto se escribe: son dos caminos que hay que mantener de acuerdo, y todo
+lo que se agregue después hay que agregarlo dos veces o se desincronizan. La pregunta
+"¿da lo mismo una larga que varias cortas?" no debería depender de que alguien se
+acuerde de mantener la paridad.
+
+#### La versión buena: un solo camino, el presupuesto es un número
+
+El crawl es **siempre** reanudable y **siempre** acotado. "Una larga" es simplemente el
+presupuesto en infinito:
 
 ```yaml
-crawl_mode: one_shot     # one_shot (default) | incremental
-crawl_budget:            # sólo se lee en incremental
-  pages: 40              # páginas terminadas
-  nodes: 500             # nodos creados en el grafo
-  minutes: 30            # tiempo de pared
+crawl_budget:
+  pages: null      # null = sin límite
+  nodes: null
+  minutes: null
 ```
 
-- `one_shot` — el comportamiento actual, sin cambios: correr hasta agotar la frontera.
-  Quien hoy corre sin tocar nada sigue igual.
-- `incremental` — sembrar desde `get_pending()`, cortar en **el primero** de los tres
-  presupuestos que se alcance, siempre en borde de página, generar documentos parciales
-  y dejar el resto `Pending` para la próxima.
+Sin configurar nada, los tres son `null`, el bucle corre una sola vez hasta agotar la
+frontera, y el comportamiento es exactamente el de hoy. Con cualquiera puesto, corta y
+deja el resto `Pending`. **No hay dos modos que puedan divergir, porque hay un solo
+camino de código.**
+
+La estructura queda:
+
+```
+sembrar frontera desde start_url + get_pending(site)
+while frontier no vacía and presupuesto no agotado:
+    visitar página
+post-procesar (familias, endpoints, documentos)
+```
+
+Con presupuesto infinito ese `while` se agota solo una vez y post-procesa una vez. Con
+presupuesto finito corta antes, post-procesa igual, y la corrida siguiente entra por el
+mismo `while` con la frontera sembrada desde `get_pending()`.
 
 **Por qué los tres presupuestos y no uno**: miden cosas distintas y ninguno cubre solo.
-`pages` es el más intuitivo. `nodes` es el que te importaba a vos, el peso de Neo4j.
-`minutes` es el único que garantiza que vuelvas a la terminal — porque una sola página
-patológica (§5) puede colgarse para siempre sin terminar una página ni crear un nodo,
-y ahí los otros dos no te salvan.
+`pages` es el más intuitivo. `nodes` es el peso de Neo4j. `minutes` es el único que
+garantiza que vuelvas a la terminal — porque una sola página patológica (§5) puede
+colgarse para siempre sin terminar una página ni crear un nodo.
 
-**Por qué un modo explícito y no inferirlo** de si hay presupuesto configurado: porque
-`fresh: true` es el default y purga el grafo. Un usuario que pone un presupuesto y se
-olvida de `--no-fresh` borraría en cada corrida la to-do list que venía a continuar, en
-silencio. Con un modo explícito, `incremental` implica `fresh: false` y el conflicto se
-resuelve en un solo lugar. Si alguien pide `incremental` **y** `fresh: true` a la vez,
-eso es un error de configuración y hay que decirlo al arrancar, no obedecerlo.
+**Y `fresh` deja de ser un flag que hay que acordarse.** Con un solo camino, purgar es
+una acción explícita y aparte (`--purge`, o `fresh: true` pedido a mano), no el default
+que silenciosamente borra la to-do list que venías a continuar.
+
+### 1b. ¿Qué falta para que de verdad den lo mismo?
+
+Tres condiciones. Una ya se cumple, dos no.
+
+**(a) El post-proceso tiene que ser función pura e idempotente del grafo. ✅ Ya lo es.**
+
+`record_component_families` y `record_inferred_requests` son **rebuild completo**: borran
+todo lo del sitio y lo recrean desde el ledger acumulado. Correr el post-proceso cinco
+veces converge al mismo estado que correrlo una vez al final. Esto es la base de todo y
+sale gratis.
+
+**(b) Todo contador que decida algo tiene que vivir en el grafo, no en memoria. ❌ Falta uno.**
+
+`UrlFrontier._route_shape_visits` (`frontier.py:33`) es un `Dict` en memoria, y
+`grep route_shape` sobre `database/` no devuelve nada: **no se persiste**.
+
+Consecuencia concreta, y es la respuesta directa a tu pregunta: con
+`max_visits_per_route_shape: 1`, una corrida larga muestrea **una** URL por forma de
+ruta. Cinco corridas cortas resetean el contador cinco veces y muestrean **hasta cinco**.
+Hoy varias cortas crawlean *más* que una larga, y el grafo sale distinto.
+
+Arreglo: guardar `route_shape` como propiedad del nodo `Page` al crearlo, y derivar el
+contador con una query en vez de mantenerlo en memoria. No hace falta estado nuevo, sólo
+dejar de tenerlo dónde se pierde.
+
+**(c) El orden de visita tiene que ser el mismo. ❌ Hoy no lo es.**
+
+Una corrida larga visita en el orden de la cola viva (BFS desde la semilla). Una
+reanudada siembra desde `get_pending()`, que ordena `ORDER BY p.url` — alfabético.
+
+Con el cap de (b) puesto, el orden **decide qué URL de cada forma de ruta se queda**, así
+que dos órdenes distintos dan dos grafos distintos.
+
+Arreglo: número de secuencia de descubrimiento como propiedad de `Page`, y `get_pending`
+ordenando por él. Así la reanudación reproduce el orden que la corrida larga habría
+seguido.
+
+### 1c. Lo que **no** se puede igualar, y hay que aceptar
+
+- **La narración del modelo.** Dos llamadas con el mismo prompt no dan el mismo texto.
+  El grafo puede ser idéntico; los documentos van a diferir en redacción siempre. Con el
+  caché de catálogos por página esto se reduce, no se elimina.
+- **Un sitio que cambia entre corridas.** Inherente a reanudar. Una larga ve el sitio en
+  un instante; cinco cortas lo ven en cinco. No hay arreglo, sólo conciencia.
+- **El presupuesto por `minutes` es irreproducible por definición.** Corta en un punto
+  que depende de la velocidad de la máquina y de la red. Es el único que garantiza
+  terminar (§1) y el único que rompe la reproducibilidad — tensión real, sin salida
+  elegante. Si querés corridas comparables entre sí, cortá por `pages` o `nodes`; usá
+  `minutes` como red de seguridad, con un valor alto que normalmente no se alcance.
 
 ### 2. ¿Las familias se rehacen o se van apendeando?
 
@@ -199,13 +266,19 @@ lo demás y es una línea.
 | 0 | Arreglar la ruta del config (§3 del diagnóstico) | sin esto nada de lo que sigue se puede configurar |
 | 1 | A′ de `plan-progreso-en-terminal.md` | hay que poder *ver* el crawl antes de cambiarle el corte |
 | 2 | Cablear el resume: `crawl_site` siembra con `get_pending()` | pieza más grande, casi toda existe |
-| 3 | `crawl_mode` + `crawl_budget`, corte en borde de página | el corte propiamente dicho |
-| 4 | Marcar documentos parciales | sin esto los documentos mienten por omisión |
-| 5 | Cachear catálogos de página por `page_url` | recién acá, con el costo real medido |
-| 6 | Elegir backstop para §5 | conversación con Ezequiel, no fix |
+| 3 | `crawl_budget` con default `null`, corte en borde de página | el corte propiamente dicho; un solo camino de código |
+| 4 | Persistir `route_shape` y derivar su contador (§1b-b) | sin esto varias cortas crawlean más que una larga |
+| 5 | Número de secuencia de descubrimiento y orden estable (§1b-c) | sin esto el orden decide qué URL sobrevive al cap |
+| 6 | Marcar documentos parciales | sin esto los documentos mienten por omisión |
+| 7 | Cachear catálogos de página por `page_url` | recién acá, con el costo real medido |
+| 8 | Elegir backstop para §5 del diagnóstico | conversación con Ezequiel, no fix |
 
 Los pasos 2 y 3 son separables: el 2 solo ya da valor (reanudar tras un corte manual),
 y el 3 sin el 2 sería un corte sin retorno.
+
+**4 y 5 son los que compran la equivalencia.** Sin ellos el corte funciona igual, pero
+varias cortas y una larga dan grafos distintos, y entonces la elección deja de ser
+operativa y pasa a ser semántica — que es justo lo que no queremos.
 
 ## Lo que este plan no propone
 
