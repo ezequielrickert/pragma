@@ -229,14 +229,32 @@ barras, que es el problema difícil acá.
 
 | Nivel | Estado | Depende de |
 |---|---|---|
-| **A′ — línea por visita del crawl, con únicas vs. revisitas** | **pendiente, prioridad 1** | nada |
+| A′ — línea por visita del crawl, con únicas vs. revisitas | **hecho (2026-08-14)** | nada |
 | A — línea por fase | **hecho (2026-08-14)** | nada |
 | B — contador por ítem | **hecho (2026-08-14)** | nada |
 | C — reporter | pendiente, sólo con un segundo consumidor | A y B hechos |
 | D — UI | **congelado hasta que Julieta lo pida** | C |
 
-A′ quedó pendiente a pedido de Julieta, que pidió A y B solos. Sigue siendo el único
-que ataca la falla que costó 12 horas.
+### Qué quedó implementado en A′
+
+Una línea por visita terminada, desde `MechanicalCrawler._worker`:
+
+```
+worker 0 | visit 1 (1 unique, 0 requeued) | queued: 0 | done: http://...
+```
+
+El split único/re-encolado es el dato diagnóstico: únicas subiendo es cobertura,
+re-encoladas subiendo solas es el crawl re-caminando lo que ya conoce.
+
+Y el progreso **intra-visita** que pedía la corrección de arriba, mudo hasta las 100
+interacciones sobre una misma página:
+
+```
+  still on shop.example/cart: 200 interactions, page frontier 213
+```
+
+Esa segunda línea es la que hace visible el §5 del diagnóstico: si la frontera de la
+página crece tan rápido como el índice, la visita no va a terminar nunca.
 
 ### Qué quedó implementado en A y B
 

@@ -407,19 +407,40 @@ lo demás y es una línea.
 
 ## Orden de trabajo
 
-| # | Qué | Por qué en este lugar |
+| # | Qué | Estado |
 |---|---|---|
-| 0 | Arreglar la ruta del config (§3 del diagnóstico) | sin esto nada de lo que sigue se puede configurar |
-| 0b | Avisar de claves YAML desconocidas | convierte la clase entera de bug de `max_iterations` en un mensaje |
-| 1 | Scope en el sink: los links externos dejan de ser `Pending` | prerrequisito — sin esto la to-do list tiene tareas imposibles |
-| 1b | A′ de `plan-progreso-en-terminal.md` | hay que poder *ver* el crawl antes de cambiarle el corte |
-| 2 | Cablear el resume: `crawl_site` siembra con `get_pending()` | pieza más grande, casi toda existe |
-| 3 | `crawl_budget` con default `null`, corte en borde de página | el corte propiamente dicho; un solo camino de código |
-| 4 | Persistir `route_shape` y derivar su contador (§1b-b) | sin esto varias cortas crawlean más que una larga |
-| 5 | Número de secuencia de descubrimiento y orden estable (§1b-c) | sin esto el orden decide qué URL sobrevive al cap |
-| 6 | Marcar documentos parciales | sin esto los documentos mienten por omisión |
-| 7 | Cachear narración: catálogos por `page_url`, propósitos por firma de familia | recién acá, con el costo real medido |
-| 8 | Elegir backstop para §5 del diagnóstico | conversación con Ezequiel, no fix |
+| 0 | Arreglar la ruta del config (§3 del diagnóstico) | **hecho** |
+| 0b | Avisar de claves YAML desconocidas | **hecho** |
+| 1 | Scope en el sink: los links externos dejan de ser `Pending` | **hecho** |
+| 1b | A′ de `plan-progreso-en-terminal.md` | **hecho** |
+| 2 | Cablear el resume: `crawl_site` siembra con `get_pending()` | **hecho** |
+| 3 | `crawl_budget` con default `null`, corte en borde de página | **hecho** |
+| 4 | Contador de `route_shape` que sobrevive entre corridas (§1b-b) | **hecho** |
+| 5 | Orden de descubrimiento estable (§1b-c) | **pendiente** — ver abajo |
+| 6 | Marcar documentos parciales | **hecho** |
+| 7a | Cachear propósitos de familia por firma | **hecho** |
+| 7b | Cachear catálogos de página por `page_url` | **pendiente** — ver abajo |
+| 8 | Elegir backstop para §5 del diagnóstico | pendiente, conversación con Ezequiel |
+
+### Lo que quedó pendiente, y por qué
+
+**Paso 5 — orden de descubrimiento estable.** Una corrida larga visita en el orden de
+la cola viva (BFS desde la semilla); una reanudada, en el de `get_pending()`, que es
+alfabético. Con el cap de forma de ruta puesto, el orden decide qué URL de cada forma
+sobrevive.
+
+No está hecho porque requiere un campo nuevo en el nodo `Page` (número de secuencia),
+en los dos backends y en la interfaz, más el orden en `get_pending`. Es un cambio de
+esquema, y hacerlo a medias es peor que no hacerlo. El paso 4 —que sí está— cubre la
+parte que rompía la equivalencia de forma observable: sin él, varias cortas
+**muestreaban más páginas** que una larga. Sin el 5, muestrean la misma cantidad pero
+pueden elegir instancias distintas de una misma forma de ruta.
+
+**Paso 7b — caché de catálogos de página.** Es la porción más grande del costo (una
+llamada por página contra una por familia). No está hecho porque, a diferencia de los
+propósitos de familia, **no hay dónde guardarlo**: `ComponentFamily.purpose` ya era un
+campo persistido que se podía releer, y para la narración por página no existe ningún
+campo equivalente en la interfaz `GraphStore`. Necesita un slot de storage primero.
 
 Los pasos 2 y 3 son separables: el 2 solo ya da valor (reanudar tras un corte manual),
 y el 3 sin el 2 sería un corte sin retorno.
