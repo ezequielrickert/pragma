@@ -67,13 +67,34 @@ def narrate_family_purposes(
         - a copy with `purpose` left as `""`, if `agent.generate()`
           raised for that one family - never lets one narration failure
           abort the rest of the families in `families`.
+
+    Prints a `family i/n` line per model call. This is the slowest step
+    between the end of the crawl and the first written document, and it
+    was previously silent - see research/plan-progreso-en-terminal.md.
     """
     narrated: List[ComponentFamily] = []
-    for family in families:
-        texts = [text for text in (member_texts.get(mp, "") for mp in family.member_paths) if text]
+    # Resolved once per family, up front: families with no member text are
+    # skipped without a call, so the denominator has to count the calls, not
+    # the families - "3/12" has to mean "3 of 12 model calls" or it stalls
+    # short of its own total. Building the texts here rather than testing
+    # for them twice keeps "has any text" defined in exactly one place.
+    # Details: docs/dev/generators/component_family_narrator.md#narrate_family_purposes-progress
+    texts_per_family = [
+        [text for text in (member_texts.get(mp, "") for mp in family.member_paths) if text]
+        for family in families
+    ]
+    total_calls = sum(1 for texts in texts_per_family if texts)
+    if total_calls:
+        print(f"Narrating {total_calls} component families ({total_calls} model calls)...")
+    family_number = 0
+    for family, texts in zip(families, texts_per_family):
         if not texts:
             narrated.append(family)
             continue
+        family_number += 1
+        # Printed before the call, not after: the whole point is showing
+        # which family the run is currently blocked on.
+        print(f"  family {family_number}/{total_calls}: {family.tag} ({family.component_type})")
         prompt = (
             f"Component pattern: {family.tag} ({family.component_type})\n"
             f"Used {len(family.member_paths)} times, with these visible texts:\n"

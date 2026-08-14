@@ -153,15 +153,26 @@ class GraphPRDSynthesizer:
 
     def _narrate_page_catalog(self, site: str) -> Dict[str, str]:
         """One `agent.generate()` call per page; a failure degrades to raw facts.
+
+        Prints a `page i/n` line per call - see
+        research/plan-progreso-en-terminal.md for why this loop and
+        `narrate_family_purposes` are the two that needed a counter.
         Details: docs/dev/generators/graph_prd_synthesizer.md#_narrate_page_catalog
         """
         ledger = self.graph_store.get_component_ledger(site)
         narrations: Dict[str, str] = {}
+        # Pages whose facts come back empty are skipped without a call, so
+        # like the family narrator the denominator counts calls, not pages.
+        facts_by_page = {}
         for page_url in sorted(ledger.keys()):
             facts = _build_page_facts(ledger[page_url])
-            if not facts:
-                continue
+            if facts:
+                facts_by_page[page_url] = facts
+        if facts_by_page:
+            print(f"Narrating {len(facts_by_page)} page catalogs ({len(facts_by_page)} model calls)...")
+        for page_number, (page_url, facts) in enumerate(facts_by_page.items(), 1):
             facts_block = "\n".join(_render_fact_line(i, f) for i, f in enumerate(facts, 1))
+            print(f"  page {page_number}/{len(facts_by_page)}: {page_url}")
             prompt = f"Page: {page_url}\n\nComponents:\n{facts_block}\n\nWrite the documentation entries."
             try:
                 narrations[page_url] = self.agent.generate(prompt, system_instruction=CATALOG_SYSTEM_INSTRUCTION)
@@ -188,8 +199,11 @@ class GraphPRDSynthesizer:
         Details: docs/dev/generators/graph_prd_synthesizer.md#_summarize_batches
         """
         batches = [page_lines[i : i + self.batch_size] for i in range(0, len(page_lines), self.batch_size)]
+        if batches:
+            print(f"Summarizing {len(batches)} sections ({len(batches)} model calls)...")
         summaries: List[str] = []
-        for batch in batches:
+        for batch_number, batch in enumerate(batches, 1):
+            print(f"  section {batch_number}/{len(batches)} ({len(batch)} pages)")
             batch_block = "\n".join(batch)
             prompt = (
                 f"Site: {site}\n\n"
@@ -206,6 +220,7 @@ class GraphPRDSynthesizer:
         """Combine condensed section summaries into the overview narrative.
         Details: docs/dev/generators/graph_prd_synthesizer.md#_reduce
         """
+        print(f"Reducing {len(section_summaries)} section summaries into the overview (1 model call)...")
         prompt = (
             f"Site: {site}\n\n"
             f"Section summaries ({len(section_summaries)}):\n\n" + "\n\n---\n\n".join(section_summaries) + "\n\n"

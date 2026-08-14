@@ -86,6 +86,7 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     """
     components = flat_component_ledger(graph_store, site)
     families = build_component_families(components)
+    print(f"Grouped {len(components)} components into {len(families)} families.")
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
     families = narrate_family_purposes(agent, families, member_texts)
     graph_store.record_component_families(site, families)
@@ -314,13 +315,20 @@ class Engine:
 
         # Whole-site passes, after every component the crawl found is
         # already in the graph - must run before synthesis reads it below.
+        # Each phase announces itself: everything from here to the last
+        # written document used to run silent, which made a long run
+        # indistinguishable from a hung one.
+        # Details: research/plan-progreso-en-terminal.md
+        print("\nCrawl finished. Grouping components into families...")
         _apply_component_families(self.graph_store, site, self.agent)
+        print("Inferring API endpoints from captured requests...")
         _apply_request_graph(self.graph_store, site)
 
         if self.measurement_pass:
             # After the crawl and before synthesis: it writes to the graph
             # the accessibility document then reads.
             # Details: docs/dev/core/engine.md#measurement_pass
+            print("Measurement pass: re-visiting each page with images on...")
             result = await run_measurement_pass(self.graph_store, site, headless=self.headless)
             print(f"Measurement pass: audited {len(result.measured)} pages, "
                   f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
@@ -335,6 +343,8 @@ class Engine:
         naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
         produced = run_document_pipeline(request, naming, self._document_names())
         paths = {document.name: document.path for document in produced}
+
+        print("Writing run manifest and index...")
 
         finished_pages, total_pages = self.graph_store.count_visited(site)
         unexplored_components, total_components = self.graph_store.count_unexplored_components(site)

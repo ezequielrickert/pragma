@@ -82,8 +82,15 @@ def run_document_pipeline(
         document never links to a file that isn't there.
     Details: docs/dev/generators/pipeline.md#run_document_pipeline
     """
+    # Announced per document, not just as a batch: generator cost is wildly
+    # uneven - most are deterministic and instant, while "prd" and "gherkin"
+    # each make a model call per page/scenario. A single "generating N
+    # documents" line would hide an hour inside one of them.
+    # Details: research/plan-progreso-en-terminal.md
+    print(f"\nGenerating {len(names)} documents, then the master document...")
     produced: List[ProducedDocument] = []
-    for name in names:
+    for position, name in enumerate(names, 1):
+        print(f"[{position}/{len(names)}] {name}")
         try:
             generator: DocumentGenerator = DOCUMENT_REGISTRY.create(name)
             path = naming.path_for(generator.name, generator.extension)
@@ -91,6 +98,7 @@ def run_document_pipeline(
         except Exception as exc:  # noqa: BLE001 - one document failing must not lose the others
             print(f"Document '{name}' could not be generated: {exc}")
 
+    print("[master] assembling Start Here")
     master = MasterDocument()
     master_request = replace(request, produced=tuple(produced))
     produced.append(
