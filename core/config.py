@@ -41,15 +41,9 @@ class PragmaConfig:
     # Aborts image/media/font network requests outright; a real behavior change.
     # Details: docs/dev/core/config.md#block_images
     block_images: bool = True
-    # Per-page interaction cap, a backstop not a normal-case limiter.
-    # Details: docs/dev/core/config.md#element_budget
-    element_budget: int = 200
     # Total pages before stopping; None = unbounded.
     # Details: docs/dev/core/config.md#max_pages
     max_pages: Optional[int] = None
-    # Max revisits to drain one page's interaction frontier.
-    # Details: docs/dev/core/config.md#max_passes_per_page
-    max_passes_per_page: int = 10
     # Pages per GraphPRDSynthesizer batch-summarize call.
     # Details: docs/dev/core/config.md#prd_synth_batch_size
     prd_synth_batch_size: int = 5

@@ -22,10 +22,10 @@ Circuit breaker for `visit`'s interaction loop - see
 bounds (a session parked on a page that never finishes loading makes the
 silent-navigation check itself fail the same way every real interaction
 does, so nothing else stops the pass from burning the entire remaining
-frontier one interaction-timeout at a time). Deliberately small and
-deliberately not the same knob as `element_budget`/`max_passes_per_page`
-(those bound normal, working exploration; this bounds a pass that's
-already shown it isn't converging).
+frontier one interaction-timeout at a time). Deliberately small: this
+isn't a general exploration limit (the interaction loop has none - see
+`visit-frontier-loop` below), it's specifically for a pass that's already
+shown it isn't converging.
 
 ## PageVisitor
 
@@ -173,14 +173,21 @@ freshly-reloaded page's own churned selectors can't be caught by the path
 check alone - `Frontier.eligible()` is what applies both the
 navigation-trigger and interacted-identity exclusions here.
 
-## visit-max-total-interactions
+## visit-frontier-loop
 
-The real per-visit ceiling: `element_budget` is deliberately not the hard
-stop here - a page whose components exceed one budget's worth keeps
-going, within this same continuous session (no re-navigation - see
-`docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site` on
-why that would reset same-page reveal state), for up to
-`max_passes_per_page` "rounds" worth of budget before giving up.
+No numeric ceiling on how many components one visit interacts with -
+removed deliberately, since this project's priority is a complete graph
+over a bounded-worst-case runtime (see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#module`'s note
+on why `element_budget`/`max_passes_per_page` no longer exist). The loop
+terminates when the frontier itself is exhausted (`idx == len(frontier)`)
+or one of the three `break` paths below fires - convergence for an
+ordinary page comes entirely from `Frontier`'s content-identity dedup
+(`docs/dev/spiders/orchestration/page_visitor/frontier.md`), not from any
+cap in this file. A page whose DOM genuinely regenerates distinct new
+component identities forever (an infinite-scroll or live-chat-style feed)
+has no backstop here and will not terminate - an accepted, not a
+mitigated, tradeoff.
 
 ## visit-guards
 
@@ -309,26 +316,17 @@ Same-URL DOM change - a real, equally-authoritative discovery snapshot in
 its own right, not just a source of "new" frontier candidates. See
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_same_page_reveal`.
 
-## visit-budget-exhausted
-
-Only a true budget exhaustion, not a navigation-interrupted pass (which
-also leaves `idx < len(frontier)`, but for an unrelated reason - see
-`docs/dev/spiders/orchestration/visit_result.md#pagevisitresultinterrupted_by_navigation`).
-
 ## visit-record-page-finished
 
-A pass cut short - by navigation, or by hitting `element_budget` with
-real components still un-interacted - leaves the page genuinely
-incomplete. It must stay Pending for its follow-up pass (see
+A pass cut short by navigation leaves the page genuinely incomplete. It
+must stay Pending for its follow-up pass (see
 `docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site`'s
 requeue logic and
 `docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_finished`),
-not be marked Finished here just because *a* pass happened. Before this
-fix, a budget-exhausted pass (unlike a navigation-interrupted one) was
-incorrectly marked Finished on its very first pass, permanently losing
-whatever didn't fit in that one visit's budget - the same root shape as
-the Phase 0 ghost-node bug, just for "was this page actually fully
-explored" instead of "does this component have real data."
+not be marked Finished here just because *a* pass happened. With no
+numeric ceiling on the interaction loop itself (see `visit-frontier-loop`
+above), a navigation interruption is now the only way a pass ends without
+having drained its own frontier.
 `known_components`, not `state.components` (the *initial* snapshot
 only) - a page that went through same-page reveals or a state transition
 finishes with `page_key`/`known_components` both pointing at whatever

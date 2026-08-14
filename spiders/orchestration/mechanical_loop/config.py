@@ -14,11 +14,9 @@ from ..graph_sink import GraphStoreSink
 class MechanicalCrawlerConfig:
     """Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#mechanicalcrawlerconfig"""
 
-    element_budget: int = 200
     fill_value_fn: Callable[[Dict[str, Any], str], Awaitable[str]] = default_placeholder_fill_value
     max_pages: Optional[int] = None
     sink: Optional[GraphStoreSink] = None
-    max_passes_per_page: int = 10
     max_visits_per_route_shape: int = 1
     # See PragmaConfig.page_concurrency for why this default isn't 1 anymore.
     page_concurrency: int = 4

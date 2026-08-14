@@ -2,8 +2,8 @@
 
 ## module
 
-The mechanical, exhaustive-but-bounded interaction loop that replaces the
-old per-step LLM decision loop. Fill values default to a deterministic
+The mechanical, exhaustive interaction loop that replaces the old
+per-step LLM decision loop. Fill values default to a deterministic
 placeholder (`fill_values.default_placeholder_fill_value`) but accept a
 real AI-backed one (`fill_value_agent.make_ai_fill_value_fn`) via
 `MechanicalCrawlerConfig.fill_value_fn` - the only AI call in the crawl
@@ -17,12 +17,13 @@ Two frontiers, composed but never conflated:
   in deterministic discovery order. Owned by `frontier.py`'s `UrlFrontier`,
   not this class directly - see that module's own doc.
 - **Component/interaction frontier**: per page, every *visible*,
-  not-yet-interacted-with component, capped by `element_budget` per page
-  (the backstop against a pathological reveal-chain, not a normal-case
-  limiter - default generous). A click/fill that changes the DOM on the
-  *same* URL gets its newly-revealed components appended to the same
-  pass's frontier (still budget-capped); a click/fill that navigates to a
-  *different* URL gets that URL queued onto the URL frontier instead of
+  not-yet-interacted-with component - no numeric ceiling (see
+  `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop`
+  for why that cap was removed and what it cost when it existed).
+  A click/fill that changes the DOM on the *same* URL gets its
+  newly-revealed components appended to the same pass's frontier;
+  a click/fill that navigates to a *different* URL gets that URL queued
+  onto the URL frontier instead of
   being followed inline - avoiding a depth-first recursive blowup is the
   whole reason interaction and navigation are handled as two separate
   frontiers rather than one. Owned by `PageVisitor`
@@ -38,9 +39,9 @@ the two collaborators' own reasons to change.
 
 Drives `Crawl4AICrawler` through a full site crawl with no per-step AI
 decision: every page reachable via links gets visited (`PageVisitor`, via
-`_worker`), every visible not-yet-interacted component on each page gets
-clicked or filled, up to `element_budget` interactions per page per pass.
-This class owns the *site*-level URL frontier and worker orchestration;
+`_worker`), and every visible not-yet-interacted component on each page
+gets clicked or filled - no cap on how many. This class owns the
+*site*-level URL frontier and worker orchestration;
 the per-page interaction state machine lives in `PageVisitor`.
 
 `page_concurrency` (via `WorkerPacing`) controls how many pages get
@@ -57,8 +58,7 @@ What raising `page_concurrency` changes, precisely:
 - `max_pages` becomes a *soft* bound - concurrent workers can each pass
   the "have I hit the cap" check before either increments the shared
   counter, so the crawl can overshoot by up to `page_concurrency - 1`
-  pages. Same "documented, deliberate looseness" as `element_budget`/
-  `max_passes_per_page` elsewhere in this class - not worth a lock for a
+  pages - a documented, deliberate looseness, not worth a lock for a
   backstop that was never meant to be exact.
 - Each worker owns its own `session_id` (`f"worker-{worker_id}"`, see
   `_worker` below) for its entire lifetime, not one per page - so
@@ -199,18 +199,18 @@ so there's no "same session" left to resume - "session" here means a
 live DOM state to keep interacting with, not the underlying browser tab,
 which stays this worker's own `browser_session_id` (see `_worker` above)
 regardless of which URL gets requeued or which worker eventually
-dequeues it. Budget exhaustion (see
-`PageVisitResult.budget_exhausted_with_frontier_remaining`) is handled
-entirely inside `PageVisitor.visit`'s own internal round loop instead,
-deliberately *without* ever re-navigating - a fresh navigation resets any
-same-page DOM state a reveal depends on (confirmed empirically:
-re-navigating after a budget-exhausted pass reset a reveal-chain's
-trigger back to its pristine unclicked state, but the tracker still
-correctly remembered it as already-interacted from the first pass and
-skipped it - permanently stranding everything downstream of that
-trigger). A page whose frontier still isn't drained even after
-`max_passes_per_page` internal rounds simply stays Pending (see
-`PageVisitor.visit`) rather than being requeued here.
+dequeues it.
+
+With no numeric ceiling on `PageVisitor.visit`'s own interaction loop
+(see `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop`),
+navigation is now the only reason a pass ends without having drained its
+frontier - so this is the only requeue path left. An earlier version of
+this cap tried re-navigating on a cut-short pass instead of requeuing;
+that was wrong for the same underlying reason a navigation-interrupted
+pass can't simply re-navigate either: a fresh navigation resets any
+same-page DOM state a reveal depends on, while the tracker still
+correctly remembers earlier interactions as done - stranding everything
+downstream of a reveal trigger that a re-navigation silently rewound.
 
 `resolved_url`, not the original `url` this worker popped: see
 `docs/dev/spiders/orchestration/visit_result.md#pagevisitresultinterrupted_by_navigation`

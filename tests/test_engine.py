@@ -44,7 +44,6 @@ def test_engine_run_produces_prd_and_tree_documents(fixture_server):
             agent,
             graph_store,
             out_dir=out_dir,
-            element_budget=200,
             max_pages=15,
             wait_seconds=0,
             debug_logs_dir="",  # no debug artifacts needed for this smoke test
@@ -95,7 +94,6 @@ def test_ai_fill_values_false_skips_the_per_field_agent_call(fixture_server):
             agent,
             graph_store,
             out_dir=out_dir,
-            element_budget=200,
             max_pages=15,
             wait_seconds=0,
             debug_logs_dir="",
@@ -117,7 +115,7 @@ def test_engine_run_records_manifest_and_skips_export_by_default(fixture_server)
         graph_store = GRAPH_STORE_REGISTRY.create("memory")
         graph_store.connect()
         engine = Engine(
-            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            agent, graph_store, out_dir=out_dir, max_pages=15,
             wait_seconds=0, debug_logs_dir="",
         )
         result = engine.run(f"{fixture_server}/index.html")
@@ -146,7 +144,7 @@ def test_engine_run_export_json_writes_a_third_document(fixture_server):
         graph_store = GRAPH_STORE_REGISTRY.create("memory")
         graph_store.connect()
         engine = Engine(
-            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            agent, graph_store, out_dir=out_dir, max_pages=15,
             wait_seconds=0, debug_logs_dir="", export_json=True,
         )
         result = engine.run(f"{fixture_server}/index.html")
@@ -172,7 +170,7 @@ def test_engine_run_regenerates_docs_index(fixture_server):
         graph_store = GRAPH_STORE_REGISTRY.create("memory")
         graph_store.connect()
         engine = Engine(
-            agent, graph_store, out_dir=out_dir, element_budget=200, max_pages=15,
+            agent, graph_store, out_dir=out_dir, max_pages=15,
             wait_seconds=0, debug_logs_dir="",
         )
         result = engine.run(f"{fixture_server}/index.html")

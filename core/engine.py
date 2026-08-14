@@ -155,14 +155,12 @@ class Engine:
         graph_store: GraphStore,
         out_dir: str = "data/output",
         site: str = "",
-        element_budget: int = 200,
         max_pages: Optional[int] = None,
         headless: bool = True,
         wait_seconds: float = 1.0,
         interaction_wait_seconds: Optional[float] = None,
         debug_logs_dir: str = "data/debug_logs",
         tree_ascii: bool = False,
-        max_passes_per_page: int = 10,
         max_visits_per_route_shape: int = 1,
         ai_fill_values: bool = True,
         page_concurrency: int = 4,
@@ -181,7 +179,6 @@ class Engine:
         self.graph_store = graph_store
         self.out_dir = out_dir
         self.site = site
-        self.element_budget = element_budget
         self.max_pages = max_pages
         self.headless = headless
         self.wait_seconds = wait_seconds
@@ -197,7 +194,6 @@ class Engine:
         # Details: docs/dev/core/engine.md#__init__-allow_subdomains
         self.allow_subdomains = allow_subdomains
         self.tree_ascii = tree_ascii
-        self.max_passes_per_page = max_passes_per_page
         self.max_visits_per_route_shape = max_visits_per_route_shape
         # False skips the per-fillable-field AI call entirely.
         # Details: docs/dev/core/engine.md#__init__-ai_fill_values
@@ -239,14 +235,12 @@ class Engine:
             graph_store,
             out_dir=config.out_dir,
             site=site,
-            element_budget=config.element_budget,
             max_pages=config.max_pages,
             headless=config.headless,
             wait_seconds=config.wait_seconds,
             interaction_wait_seconds=config.interaction_wait_seconds,
             debug_logs_dir=config.debug_logs_dir,
             tree_ascii=config.tree_ascii,
-            max_passes_per_page=config.max_passes_per_page,
             max_visits_per_route_shape=config.max_visits_per_route_shape,
             ai_fill_values=config.ai_fill_values,
             page_concurrency=config.page_concurrency,
@@ -295,10 +289,8 @@ class Engine:
                 crawler,
                 config=MechanicalCrawlerConfig(
                     sink=sink,
-                    element_budget=self.element_budget,
                     fill_value_fn=fill_value_fn,
                     max_pages=self.max_pages,
-                    max_passes_per_page=self.max_passes_per_page,
                     max_visits_per_route_shape=self.max_visits_per_route_shape,
                     page_concurrency=self.page_concurrency,
                     base_url=url,

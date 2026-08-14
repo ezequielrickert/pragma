@@ -82,14 +82,6 @@ nothing for this project). A real behavior change (a site whose
 interactive elements depend on images actually loading could behave
 differently) - off by default, opt in per-site once confirmed safe.
 
-## element_budget
-
-Per-page cap on how many components `MechanicalCrawler` mechanically
-interacts with in a single visit-pass - the backstop against a
-pathological reveal-chain, not a normal-case limiter (default generous
-enough that ordinary pages never hit it). See
-`docs/dev/spiders/orchestration/mechanical_loop/loop.md#module`.
-
 ## max_pages
 
 Total pages `MechanicalCrawler.crawl_site` will visit before stopping,
@@ -97,16 +89,6 @@ Total pages `MechanicalCrawler.crawl_site` will visit before stopping,
 re-queued after a navigation-interrupted pass (see
 `docs/dev/spiders/orchestration/visit_result.md#pagevisitresultinterrupted_by_navigation`)
 counts as its own visit here.
-
-## max_passes_per_page
-
-Max times `MechanicalCrawler` will revisit the same page to keep
-draining its interaction frontier (a page whose components exceed
-`element_budget` needs more than one pass) before giving up on it
-gracefully. Backstop against a page that keeps generating genuinely new
-content faster than one pass's budget can keep up with
-(infinite-scroll/live-chat-style) - same "backstop against a
-pathological case" philosophy as `element_budget` itself.
 
 ## prd_synth_batch_size
 
@@ -118,8 +100,7 @@ fix for a single unbounded synthesis prompt hitting a local model's
 4/4 runs: see docs/explicativos/avance-corridas-gemma-empanadapp.md).
 Kept small deliberately - each page's block already includes a full
 narrated component catalog, not just a short label, so this is a
-heavier per-item budget than `element_budget`/`max_passes_per_page`
-above.
+heavier per-item budget than `max_pages` above.
 
 ## max_visits_per_route_shape
 

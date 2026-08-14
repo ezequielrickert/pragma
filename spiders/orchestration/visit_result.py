@@ -26,7 +26,6 @@ class PageVisitResult:
     components_discovered: int
     interactions: List[ComponentInteraction] = field(default_factory=list)
     links_discovered: int = 0
-    budget_exhausted_with_frontier_remaining: bool = False
     # The literal, redirect-resolved URL this visit actually landed on.
     # Details: docs/dev/spiders/orchestration/visit_result.md#pagevisitresultresolved_url
     resolved_url: str = ""
