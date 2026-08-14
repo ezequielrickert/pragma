@@ -138,6 +138,17 @@ class PragmaConfig:
                 setattr(self, key, val)
         print(f"Loaded config from {path}")
 
+        # Named, not just counted: an ignored key is almost always a typo or a
+        # setting that was renamed out from under an existing file, and both
+        # are invisible otherwise. `max_iterations: 40` sat in this repo's own
+        # pragma.yaml bounding nothing at all - the run it was meant to cap
+        # went 12 hours. Details: docs/dev/core/config.md#_apply_yaml-unknown-keys
+        unknown = sorted(key for key in data if key not in valid)
+        if unknown:
+            print(f"Warning: {path} has {len(unknown)} setting(s) this version does not know, ignored:")
+            for key in unknown:
+                print(f"  {key} - see config/pragma.example.yaml for the current names")
+
     def _apply_overrides(self, overrides: Optional[Dict[str, Any]]) -> None:
         for key, val in (overrides or {}).items():
             if val is not None:
