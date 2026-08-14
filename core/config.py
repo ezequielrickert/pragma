@@ -67,13 +67,6 @@ class PragmaConfig:
     # don't just trade wall-clock time for the same OOM risk.
     # Details: docs/dev/core/config.md#page_concurrency
     page_concurrency: int = 4
-    # Real Chromium processes in Crawl4AICrawlerPool. `None` ties it to
-    # page_concurrency (one dedicated browser per worker, the default).
-    # Set lower to have several workers share each browser process (less
-    # memory, less isolation) - never higher than page_concurrency, since a
-    # browser with no worker ever routed to it would just sit idle.
-    # Details: docs/dev/core/config.md#browser_pool_size
-    browser_pool_size: Optional[int] = None
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.
     # Details: docs/dev/core/config.md#allow_subdomains
     allow_subdomains: bool = False

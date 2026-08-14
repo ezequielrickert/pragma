@@ -13,29 +13,11 @@ from pathlib import Path
 import pytest
 
 from core import bootstrap  # noqa: F401  (registers agent/graph-store plugins)
-from core.engine import Engine, EngineRunResult, _resolve_pool_size
+from core.engine import Engine, EngineRunResult
 from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 from spiders.content.fill_value_agent import FILL_VALUE_SYSTEM_INSTRUCTION
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
-
-
-def test_resolve_pool_size_defaults_to_page_concurrency_when_unset():
-    """browser_pool_size=None must mean one dedicated browser per worker -
-    the pre-existing 1:1 behavior, unchanged for anyone who never sets it."""
-    assert _resolve_pool_size(None, page_concurrency=8) == 8
-
-
-def test_resolve_pool_size_honors_a_smaller_explicit_value():
-    """A lower browser_pool_size decouples worker count from browser count -
-    several workers sharing each browser process."""
-    assert _resolve_pool_size(3, page_concurrency=8) == 3
-
-
-def test_resolve_pool_size_clamps_a_value_above_page_concurrency():
-    """A pool member no worker is ever routed to would launch and sit idle -
-    browser_pool_size can't usefully exceed page_concurrency."""
-    assert _resolve_pool_size(20, page_concurrency=8) == 8
 
 
 @pytest.fixture(scope="module")

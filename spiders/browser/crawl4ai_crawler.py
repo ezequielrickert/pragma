@@ -7,9 +7,9 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, MemoryAdaptiveDispatcher
 from crawl4ai.async_configs import CacheMode
 
 from core.interfaces import PageState
@@ -73,11 +73,7 @@ class Crawl4AICrawler:
     Details: docs/dev/spiders/browser/crawl4ai_crawler.md#crawl4aicrawler
     """
 
-    def __init__(
-        self,
-        config: Optional[Crawl4AICrawlerConfig] = None,
-        throttle: Optional[TargetLoadThrottle] = None,
-    ) -> None:
+    def __init__(self, config: Optional[Crawl4AICrawlerConfig] = None) -> None:
         config = config or Crawl4AICrawlerConfig()
         self.headless = config.headless
         self.interaction_wait_seconds = (
@@ -97,11 +93,8 @@ class Crawl4AICrawler:
         # Adaptive pacing/circuit-breaker against a straining target server -
         # a separate small class (not inline here) since it has its own,
         # unrelated reason to change from everything else in this file.
-        # `throttle` lets Crawl4AICrawlerPool inject one shared instance across
-        # every browser process it owns - one target server, one load signal,
-        # regardless of how many physical browsers are watching it.
         # Details: docs/dev/spiders/browser/target_load_throttle.md#module
-        self._throttle = throttle or TargetLoadThrottle(
+        self._throttle = TargetLoadThrottle(
             config.backoff_ceiling_seconds, config.circuit_breaker_cooldown_seconds
         )
         self._crawler: Optional[AsyncWebCrawler] = None
@@ -352,8 +345,26 @@ class Crawl4AICrawler:
             )
 
         data = self._stash.pop(session_id, {})
-        page_state = PageState(
-            url=self._resolved_url(result, url),
+        page_state = self._page_state_from_result(result, url, data)
+        # The requested url, not page_state.url - see _save_markdown for why.
+        self._save_markdown(url, result)
+        return page_state
+
+    @staticmethod
+    def _resolved_url(result, requested_url: str) -> str:
+        """`result.url` is always the requested URL; use `redirected_url` instead.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler.md#_resolved_url
+        """
+        return getattr(result, "redirected_url", None) or result.url or requested_url
+
+    def _page_state_from_result(self, result, requested_url: str, data: Dict[str, Any]) -> PageState:
+        """Assemble a `PageState` from one `arun()` result plus its stashed
+        extraction dict - shared by `discover_page`, `_interact`, and
+        `discover_pages_many` rather than repeated per call site.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler.md#_page_state_from_result
+        """
+        return PageState(
+            url=self._resolved_url(result, requested_url),
             title=data.get("title", ""),
             metadata=data.get("metadata", {}),
             components=data.get("components", []),
@@ -365,16 +376,71 @@ class Crawl4AICrawler:
             pseudo_styles=data.get("pseudo_styles", []),
             tab_order=data.get("tab_order", []),
         )
-        # The requested url, not page_state.url - see _save_markdown for why.
-        self._save_markdown(url, result)
-        return page_state
 
-    @staticmethod
-    def _resolved_url(result, requested_url: str) -> str:
-        """`result.url` is always the requested URL; use `redirected_url` instead.
-        Details: docs/dev/spiders/browser/crawl4ai_crawler.md#_resolved_url
+    async def discover_pages_many(self, urls: List[str]) -> List[Tuple[str, Optional[PageState]]]:
+        """Navigate to every url in `urls` concurrently via crawl4ai's own
+        `arun_many()`/`MemoryAdaptiveDispatcher`, instead of this crawler's
+        own per-navigation throttle loop.
+
+        Built for `measurement_pass.py`'s shape - many independent,
+        already-known URLs, no interaction, no session reuse across calls -
+        which is exactly what `arun_many()` is designed for (`discover_page`/
+        `_interact`'s single-URL, session-reusing shape is not: crawl4ai has
+        no hook to run more `arun()` calls against a URL's session before
+        moving to the next one, so that loop stays on `TargetLoadThrottle`).
+        Each url gets its own `session_id` (itself) so `_before_retrieve_html`
+        stashes into a distinct key per page instead of colliding on
+        "default" - same reasoning as `discover_page`'s own default.
+
+        Returns one `(url, PageState)` per successful page, and `(url, None)`
+        for a page that failed to load - the batch's own contract, not
+        `discover_page`'s raise-on-failure one: a single bad page costs a
+        result, not the whole pass.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler.md#discover_pages_many
         """
-        return getattr(result, "redirected_url", None) or result.url or requested_url
+        if self._crawler is None:
+            raise RuntimeError(
+                "Crawl4AICrawler must be used as an async context manager"
+            )
+        if not urls:
+            return []
+        configs = [
+            CrawlerRunConfig(
+                session_id=url,
+                # A config with no url_matcher matches every URL - without
+                # this, arun_many()'s dispatcher binds every concurrent task
+                # to configs[0] (confirmed live: two distinct URLs both
+                # resolved to the first config's session_id, silently
+                # colliding in self._stash and losing one page's extraction
+                # entirely). `target=url` captures this iteration's url by
+                # value, not the loop variable by reference.
+                # Details: docs/dev/spiders/browser/crawl4ai_crawler.md#discover_pages_many-url_matcher
+                url_matcher=lambda candidate, target=url: candidate == target,
+                cache_mode=CacheMode.BYPASS,
+                wait_for="css:body",
+                capture_network_requests=True,
+                page_timeout=int(self.page_timeout_seconds * 1000),
+                prefetch=self.prefetch,
+            )
+            for url in urls
+        ]
+        results = await self._crawler.arun_many(
+            urls=urls, config=configs, dispatcher=MemoryAdaptiveDispatcher()
+        )
+        # Keyed by url, not positionally - result.url is always the
+        # requested url regardless of arun_many()'s own internal ordering.
+        results_by_url = {result.url: result for result in results}
+
+        pages: List[Tuple[str, Optional[PageState]]] = []
+        for url in urls:
+            result = results_by_url.get(url)
+            if result is None or not result.success:
+                pages.append((url, None))
+                continue
+            data = self._stash.pop(url, {})
+            pages.append((url, self._page_state_from_result(result, url, data)))
+            self._save_markdown(url, result)
+        return pages
 
     def _save_markdown(self, session_id: str, result) -> None:
         """Save crawl4ai's markdown conversion of the page, if debug logging is on.
@@ -426,17 +492,7 @@ class Crawl4AICrawler:
             error = (action_result or {}).get("error", "no action result captured")
             raise RuntimeError(f"interaction failed on {url!r}: {error}")
 
-        raw_events = getattr(result, "network_requests", None) or []
-        page_state = PageState(
-            url=self._resolved_url(result, url),
-            title=data.get("title", ""),
-            metadata=data.get("metadata", {}),
-            components=data.get("components", []),
-            links=data.get("links", []),
-            description=data.get("description", ""),
-            network_requests=filter_meaningful_requests(raw_events),
-            text_content=data.get("text_content", []),
-        )
+        page_state = self._page_state_from_result(result, url, data)
         self._save_markdown(
             url, result
         )  # the requested url, not page_state.url - see discover_page()

@@ -3,7 +3,7 @@ Details: docs/dev/spiders/orchestration/page_visitor.md#module
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 from uuid import uuid4
 
 from core.interfaces import PageState, VisitStep
@@ -22,7 +22,6 @@ from .visit_result import ComponentInteraction, PageVisitResult
 
 if TYPE_CHECKING:
     from ..browser.crawl4ai_crawler import Crawl4AICrawler
-    from ..browser.crawl4ai_crawler_pool import Crawl4AICrawlerPool
     from .graph_sink import GraphStoreSink
     from .mechanical_loop import MechanicalCrawlerConfig
 
@@ -38,7 +37,7 @@ class PageVisitor:
 
     def __init__(
         self,
-        crawler: Union["Crawl4AICrawler", "Crawl4AICrawlerPool"],
+        crawler: "Crawl4AICrawler",
         tracker: InteractionTracker,
         enqueue_url: Callable[[str], None],
         enqueue_links: Callable[[List[Dict[str, str]]], None],

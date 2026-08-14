@@ -413,6 +413,60 @@ than opening a new one per page. See
 `docs/dev/spiders/orchestration/mechanical_loop.md#_worker` and
 `docs/dev/spiders/orchestration/page_visitor.md#visit`.
 
+## _page_state_from_result
+
+Shared `PageState`-assembly logic, factored out of `discover_page`'s and
+`_interact`'s own bodies once `discover_pages_many` needed the exact same
+construction a third time. `_interact`'s `PageState` used to omit
+`accessibility_violations`/`pseudo_styles`/`tab_order` explicitly; folding
+it into this shared helper just means those three now default to whatever
+`data.get(..., [])` returns - empty, since `_on_execution_ended` (the hook
+`_interact` triggers) never populates them, only `_before_retrieve_html`
+does. No behavior change, one fewer near-duplicate block.
+
+## discover_pages_many
+
+Navigate to every url in a batch concurrently via crawl4ai's own
+`arun_many()` + `MemoryAdaptiveDispatcher`, instead of this crawler's own
+per-navigation `TargetLoadThrottle` loop. Built specifically for
+`measurement_pass.py`'s shape - many independent, already-known URLs, no
+interaction, no session reused across calls - which is exactly what
+`arun_many()` is designed for; `discover_page`/`click`/`fill`'s shape
+(one URL, many sequential `arun()` calls against the same session, each
+depending on the last) has no equivalent in `arun_many()`, so that path
+keeps its own throttle rather than trying to fit this one.
+
+Each URL gets its own `CrawlerRunConfig(session_id=url, ...)`, matching
+`discover_page`'s own `session_id = session_id or url` default so
+`_before_retrieve_html`'s stash write never collides across concurrently-
+running pages.
+
+**`url_matcher` is required, not optional, on every one of those configs.**
+Found the hard way: `arun_many()`'s dispatcher resolves which config
+belongs to which URL via `CrawlerRunConfig.is_match(url)`, and a config
+with no `url_matcher` matches *every* URL unconditionally (see
+`crawl4ai`'s own `async_dispatcher.py::select_config`, which returns the
+first config where `is_match()` is true). Without setting one, every
+concurrently-dispatched URL silently resolved to `configs[0]`'s
+`session_id` - live-verified with two distinct fixture pages, where both
+pages' hook invocations reported the *same* `session_id`, and the second
+page's real extraction was lost entirely (its `self._stash` entry was
+just overwritten by the first page's data, read back as an empty
+`components: []`). Each config now sets
+`url_matcher=lambda candidate, target=url: candidate == target`, closing
+over `url` by value via the default argument (not the loop variable by
+reference, which would have every lambda close over the same final
+`url`). `tests/test_crawl4ai_crawler.py::test_discover_pages_many_returns_a_page_state_per_url_in_order`
+pins this regression.
+
+Returns `(url, PageState)` per successful page and `(url, None)` for a
+page that failed to load or timed out - the batch's own tolerant
+contract, not `discover_page`'s raise-on-failure one, so one bad page in
+the batch doesn't cost the rest (mirrored by
+`test_discover_pages_many_reports_a_failed_page_as_none_without_costing_the_rest`,
+which forces a real timeout via a slow fixture endpoint alongside a
+normal one).
+
 ## _resolved_url
 
 `result.url` is always the *requested* URL, unchanged regardless of what

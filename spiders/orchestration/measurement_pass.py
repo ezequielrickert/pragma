@@ -70,11 +70,17 @@ async def run_measurement_pass(graph_store: GraphStore, site: str, headless: boo
         headless: same meaning as everywhere else in this project.
 
     Returns:
-        A `MeasurementResult`. One navigation per page, no interaction -
-        every page is already a distinct `route_shape` in the graph
-        (`max_visits_per_route_shape` sees to that during the crawl), so
-        visiting each one *is* the sampled pass rather than an exhaustive
-        one.
+        A `MeasurementResult`. One navigation per page, no interaction, no
+        session reused across pages - every page is already a distinct
+        `route_shape` in the graph (`max_visits_per_route_shape` sees to
+        that during the crawl), so visiting each one *is* the sampled pass
+        rather than an exhaustive one. That shape - many independent,
+        already-known URLs - is exactly what crawl4ai's own `arun_many()`
+        is built for, so this pass uses `Crawl4AICrawler.discover_pages_many`
+        (backed by `arun_many`/`MemoryAdaptiveDispatcher`) instead of a
+        hand-rolled loop; unlike the main crawl's `discover_page`/`click`/
+        `fill` chain, there's no cross-call session state here for a custom
+        throttle to protect.
 
         A page that fails to load is skipped with a warning rather than
         aborting: the pass is an enhancement, and losing it entirely
@@ -95,11 +101,10 @@ async def run_measurement_pass(graph_store: GraphStore, site: str, headless: boo
     )
     measured: List[str] = []
     async with Crawl4AICrawler(config) as crawler:
-        for page_url in navigable:
-            try:
-                state = await crawler.discover_page(f"https://{page_url}")
-            except Exception as exc:  # noqa: BLE001 - one bad page must not cost the pass
-                print(f"Measurement pass: could not re-visit {page_url}: {exc}")
+        pages = await crawler.discover_pages_many([f"https://{page_url}" for page_url in navigable])
+        for page_url, (_, state) in zip(navigable, pages):
+            if state is None:
+                print(f"Measurement pass: could not re-visit {page_url}: navigation failed")
                 continue
             graph_store.record_accessibility_violations(
                 site, page_url, json.dumps(state.accessibility_violations)

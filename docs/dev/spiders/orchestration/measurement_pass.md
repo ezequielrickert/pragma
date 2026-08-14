@@ -45,3 +45,15 @@ sample.
 A page that fails to load is skipped with a warning rather than aborting
 the pass. This is an enhancement on top of a finished crawl, and losing
 all of it because one page 500s would be a poor trade.
+
+Navigation itself goes through `Crawl4AICrawler.discover_pages_many` (a
+single `arun_many()`/`MemoryAdaptiveDispatcher` batch call) instead of a
+hand-rolled `for page_url in navigable:` loop that used to call
+`discover_page` once per page. This pass's shape - many independent,
+already-known URLs, no interaction, no session reused between pages - is
+exactly what `arun_many()` is built for, unlike the main crawl's own
+click/fill loop (see
+`docs/dev/spiders/browser/crawl4ai_crawler.md#discover_pages_many` for why
+that one keeps its own throttle instead). A `None` `PageState` in the
+returned list is this pass's "skipped with a warning" page, same
+contract as before.

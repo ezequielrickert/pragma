@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 import psutil
 
 from utils.urls import clean_url, is_in_scope, route_shape
 from ..browser.crawl4ai_crawler import Crawl4AICrawler
-from ..browser.crawl4ai_crawler_pool import Crawl4AICrawlerPool
 from ..content.fill_values import default_placeholder_fill_value
 from .graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from .interaction_tracker import InMemoryInteractionTracker, InteractionTracker
@@ -71,14 +70,14 @@ class MechanicalCrawlerConfig:
 
 
 class MechanicalCrawler:
-    """Drives `Crawl4AICrawler` (or a `Crawl4AICrawlerPool`) through a full
-    site crawl; owns the URL frontier only.
+    """Drives `Crawl4AICrawler` through a full site crawl; owns the URL
+    frontier only.
     Details: docs/dev/spiders/orchestration/mechanical_loop.md#mechanicalcrawler
     """
 
     def __init__(
         self,
-        crawler: Union[Crawl4AICrawler, Crawl4AICrawlerPool],
+        crawler: Crawl4AICrawler,
         tracker: Optional[InteractionTracker] = None,
         config: Optional[MechanicalCrawlerConfig] = None,
     ) -> None:
