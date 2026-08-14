@@ -9,6 +9,47 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
+EMOJI_MARKERS = {
+    'done': '✅',
+    'stats': '📊',
+    'bullet': '•',
+}
+
+ASCII_MARKERS = {
+    'done': '[OK]',
+    'stats': '[STATS]',
+    'bullet': '-',
+}
+
+
+def _pick_markers() -> Dict[str, str]:
+    """Use emoji markers, or ASCII stand-ins when stdout cannot encode them.
+
+    Windows stdout falls back to cp1252, which has no code point for U+2705.
+    """
+    encoding = sys.stdout.encoding or 'ascii'
+    try:
+        ''.join(EMOJI_MARKERS.values()).encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return ASCII_MARKERS
+    return EMOJI_MARKERS
+
+
+def _soften_encoding_errors():
+    """Print '?' rather than crashing on text the console cannot encode.
+
+    Cleaned files are read as UTF-8, so previewed lines can hold characters
+    outside the console's encoding no matter which markers are in use.
+    """
+    try:
+        sys.stdout.reconfigure(errors='replace')
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
+MARKERS = _pick_markers()
+
+
 class SlopCleaner:
     def __init__(self, filepath: str, aggressive: bool = False):
         self.filepath = Path(filepath)
@@ -86,7 +127,7 @@ class SlopCleaner:
             old_text = text
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
             if text != old_text:
-                self.changes_made.append(f"Simplified: '{pattern}' → '{replacement}'")
+                self.changes_made.append(f"Simplified: '{pattern}' -> '{replacement}'")
         
         return text
     
@@ -250,13 +291,13 @@ class SlopCleaner:
             backup_path = self.filepath.with_suffix(self.filepath.suffix + '.backup')
             self.filepath.rename(backup_path)
             output_path = self.filepath
-            print(f"✅ Created backup: {backup_path}")
-        
+            print(f"{MARKERS['done']} Created backup: {backup_path}")
+
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(cleaned)
-        
-        print(f"✅ Saved cleaned text to: {output_path}")
-        print(f"\n📊 Changes made: {len(self.changes_made)}")
+
+        print(f"{MARKERS['done']} Saved cleaned text to: {output_path}")
+        print(f"\n{MARKERS['stats']} Changes made: {len(self.changes_made)}")
         
         if self.changes_made:
             print("\nSummary of changes:")
@@ -267,14 +308,14 @@ class SlopCleaner:
                 change_counts[category] = change_counts.get(category, 0) + 1
             
             for category, count in change_counts.items():
-                print(f"  • {category}: {count} instance(s)")
+                print(f"  {MARKERS['bullet']} {category}: {count} instance(s)")
     
     def preview(self, context_lines: int = 2):
         """Preview changes without saving."""
         cleaned = self.clean()
         
         if cleaned == self.text:
-            print("✅ No changes needed - text is already clean!")
+            print(f"{MARKERS['done']} No changes needed - text is already clean!")
             return
         
         print(f"\n{'='*70}")
@@ -299,11 +340,13 @@ class SlopCleaner:
         if changes_shown == max_changes_to_show:
             print(f"... and more changes (showing first {max_changes_to_show})")
         
-        print(f"\n📊 Total changes: {len(self.changes_made)}")
+        print(f"\n{MARKERS['stats']} Total changes: {len(self.changes_made)}")
         print("\nRun with --save to apply changes")
 
 
 def main():
+    _soften_encoding_errors()
+
     if len(sys.argv) < 2:
         print("Usage: python clean_slop.py <file> [options]")
         print("\nOptions:")
