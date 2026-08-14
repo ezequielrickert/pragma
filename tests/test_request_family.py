@@ -1,7 +1,7 @@
 """Unit tests for request_family.py's pure endpoint-inference logic."""
 import json
 
-from src.generators.request_family import (
+from generators.request_family import (
     build_inferred_requests,
     normalized_endpoint,
     query_param_names,

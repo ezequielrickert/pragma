@@ -1,4 +1,4 @@
-# `src/generators/user_flows.py`
+# `generators/user_flows.py`
 
 ## module
 

@@ -1,16 +1,16 @@
 """Unit tests for traces, the Gherkin specification and its sequence
-diagrams (src/generators/traces.py, gherkin.py). The .feature output is
+diagrams (generators/traces.py, gherkin.py). The .feature output is
 checked with the real Cucumber parser, not by asserting substrings."""
 import pytest
 
-from src.core.documents import DocumentRequest
-from src.generators.gherkin import (
+from core.documents import DocumentRequest
+from generators.gherkin import (
     GherkinDocument,
     SequenceDiagramsDocument,
     render_scenario,
     render_sequence_diagram,
 )
-from src.generators.traces import build_traces, requests_for
+from generators.traces import build_traces, requests_for
 
 gherkin_parser = pytest.importorskip("gherkin.parser")
 from gherkin.token_scanner import TokenScanner  # noqa: E402

@@ -1,4 +1,4 @@
-# `src/core/engine.py`
+# `core/engine.py`
 
 ## module
 
@@ -20,7 +20,7 @@ into the existing prose PRD" requirement, extended the same way for the
 `export_path` is `None` whenever `export_json` is off (the default) -
 callers should treat `None` as "not generated this run," not as a
 failure. `manifest_path` is always set: recording this run in
-`docs/runs.json` (`src/utils/io.py::record_run_manifest`) is
+`docs/runs.json` (`utils/io.py::record_run_manifest`) is
 unconditional, unlike the export - it's cheap bookkeeping, not an extra
 artifact someone has to opt into.
 
@@ -28,7 +28,7 @@ artifact someone has to opt into.
 
 `docs/index.md` - a browsable Markdown index of every run recorded in
 the manifest, regenerated fresh on every run (Fase E,
-`src/utils/io.py::generate_docs_index`). Always set, same as
+`utils/io.py::generate_docs_index`). Always set, same as
 `manifest_path` - this is bookkeeping over `runs.json`, not an opt-in
 artifact.
 
@@ -48,7 +48,7 @@ A link (or a redirect a click lands on) that leaves this crawl's own
 site is out of scope and never itself visited, even though the
 interaction/edge that led there is still recorded. See
 `MechanicalCrawlerConfig`'s own `base_url`/`allow_subdomains` entries and
-`src/utils/urls.py`'s `is_in_scope()` for what "same site" means here.
+`utils/urls.py`'s `is_in_scope()` for what "same site" means here.
 
 ## __init__-ai_fill_values
 

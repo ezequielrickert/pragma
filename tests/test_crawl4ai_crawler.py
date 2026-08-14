@@ -1,4 +1,4 @@
-"""Regression tests for Crawl4AICrawler (src/crawlers/crawl4ai_crawler.py),
+"""Regression tests for Crawl4AICrawler (spiders/crawl4ai_crawler.py),
 the Phase 1 replacement for PlaywrightScraper._discover_components.
 
 Each case here maps to a specific, previously-fixed bug documented in
@@ -20,7 +20,7 @@ from typing import List
 
 import pytest
 
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "discovery"
 

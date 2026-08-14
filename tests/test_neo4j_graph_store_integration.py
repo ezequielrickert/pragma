@@ -43,7 +43,7 @@ _TEST_SITE_CLEANUP_QUERIES = (
 def _existing_instance_reachable() -> bool:
     """Tier 1 - the fast path, no container startup at all."""
     try:
-        from src.storage.neo4j_graph_store import Neo4jGraphStore
+        from database.neo4j_graph_store import Neo4jGraphStore
 
         s = Neo4jGraphStore()
         s.connect()
@@ -131,7 +131,7 @@ def store(_neo4j_connection):
             "`testcontainers` with a running Docker daemon, to exercise this file."
         )
 
-    from src.storage.neo4j_graph_store import Neo4jGraphStore
+    from database.neo4j_graph_store import Neo4jGraphStore
 
     s = Neo4jGraphStore(**_neo4j_connection)
     s.connect()
@@ -232,7 +232,7 @@ def test_record_component_persists_position(store):
 
 
 def test_record_component_persists_facts(store):
-    from src.core.interfaces import ComponentFacts
+    from core.interfaces import ComponentFacts
 
     site = "pragma-test.local"
     facts = ComponentFacts(
@@ -438,7 +438,7 @@ def test_apply_tag_labels_adds_a_dynamic_label_without_dropping_component(store)
 
 
 def test_record_component_families_roundtrips_and_replaces_on_rerun(store):
-    from src.core.interfaces import ComponentFamily
+    from core.interfaces import ComponentFamily
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -460,7 +460,7 @@ def test_record_component_families_roundtrips_and_replaces_on_rerun(store):
 
 
 def test_record_component_families_persists_narrated_purpose(store):
-    from src.core.interfaces import ComponentFamily
+    from core.interfaces import ComponentFamily
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -479,7 +479,7 @@ def test_record_component_families_persists_narrated_purpose(store):
 
 
 def test_record_inferred_requests_roundtrips_and_replaces_on_rerun(store):
-    from src.core.interfaces import InferredRequest
+    from core.interfaces import InferredRequest
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -501,7 +501,7 @@ def test_record_inferred_requests_roundtrips_and_replaces_on_rerun(store):
 
 
 def test_inferred_requests_group_by_method_into_one_request_family(store):
-    from src.core.interfaces import InferredRequest
+    from core.interfaces import InferredRequest
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -527,7 +527,7 @@ def test_inferred_requests_group_by_method_into_one_request_family(store):
 
 
 def test_clear_site_removes_component_families_too(store):
-    from src.core.interfaces import ComponentFamily
+    from core.interfaces import ComponentFamily
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -541,7 +541,7 @@ def test_clear_site_removes_component_families_too(store):
 
 
 def test_clear_site_removes_inferred_requests_too(store):
-    from src.core.interfaces import InferredRequest
+    from core.interfaces import InferredRequest
 
     site = "pragma-test.local"
     store.record_component(site, "home", "btn1", tag="button")
@@ -586,7 +586,7 @@ def test_caption_does_not_clobber_the_dom_name_attribute(store):
     """`ComponentFacts.name` is the DOM `name` attribute and is persisted as
     `c.name`. An earlier revision called the caption `name` too and silently
     overwrote it - this is the regression guard."""
-    from src.core.interfaces import ComponentFacts
+    from core.interfaces import ComponentFacts
 
     site = "pragma-test.local"
     store.record_component(
@@ -607,7 +607,7 @@ def test_caption_does_not_clobber_the_dom_name_attribute(store):
 def test_inferred_nodes_are_labelled_apart_from_observed_ones(store):
     """Telling what the crawl saw from what the model deduced is both a
     legibility affordance and the precondition for auditing a deduction."""
-    from src.core.interfaces import InferredRequest
+    from core.interfaces import InferredRequest
 
     site = "pragma-test.local"
     store.record_component(site, "shop/", "div > button", tag="button", text="Comprar")
@@ -659,7 +659,7 @@ def test_pages_with_no_load_requests_are_absent_from_the_ledger(store):
 
 
 def test_inferred_request_persists_status_codes_and_load_attribution(store):
-    from src.core.interfaces import InferredRequest
+    from core.interfaces import InferredRequest
 
     site = "pragma-test.local"
     store.record_inferred_requests(
@@ -681,7 +681,7 @@ def test_inferred_request_persists_status_codes_and_load_attribution(store):
 def test_an_interaction_carries_the_position_it_happened_at(store):
     """A scenario is a sequence; the graph recorded facts with no ordering
     between components until visit_id/step_seq were stamped on."""
-    from src.core.interfaces import VisitStep
+    from core.interfaces import VisitStep
 
     site = "pragma-test.local"
     step = VisitStep(visit_id="visit-abc")

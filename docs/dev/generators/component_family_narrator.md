@@ -1,4 +1,4 @@
-# `src/generators/component_family_narrator.py`
+# `generators/component_family_narrator.py`
 
 ## module
 
@@ -45,7 +45,7 @@ have no text at all (nothing meaningful to narrate - the call would just
 be spent asking the model to describe blank input). A failed call leaves
 `purpose` at `""` for that one family and moves on to the next - see
 `Engine._apply_component_families` for where this is called from
-(`src/core/engine.py`), always right after clustering and before the
+(`core/engine.py`), always right after clustering and before the
 result is written to `GraphStore`.
 
 **Verified against real narration** (a deterministic stub agent, not a

@@ -1,4 +1,4 @@
-# `src/generators/component_tree.py`
+# `generators/component_tree.py`
 
 ## module
 

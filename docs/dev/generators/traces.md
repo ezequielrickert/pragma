@@ -1,4 +1,4 @@
-# `src/generators/traces.py`
+# `generators/traces.py`
 
 ## module
 

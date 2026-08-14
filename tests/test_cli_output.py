@@ -1,8 +1,8 @@
-"""Unit tests for the CLI's end-of-run document listing (src/cli.py).
+"""Unit tests for the CLI's end-of-run document listing (cli.py).
 Pure formatting over an EngineRunResult - no crawl, no browser, no disk."""
-from src.cli import _print_documents
-from src.core.documents import ProducedDocument
-from src.core.engine import EngineRunResult
+from cli import _print_documents
+from core.documents import ProducedDocument
+from core.engine import EngineRunResult
 
 TIMESTAMP = "20260812T210000Z"
 

@@ -116,7 +116,7 @@ Sin esto, cada documento nuevo engorda `engine.py` y duplica lectura de grafo.
 
 1. **Extraer el aplanado del ledger.** `engine.py:92-97` y `engine.py:132-137` ya son idénticos
    línea por línea, y están a punto de duplicarse cinco veces más. Un
-   `flatten_component_ledger(graph_store, site)` en `src/generators/` y ambos lo llaman.
+   `flatten_component_ledger(graph_store, site)` en `generators/` y ambos lo llaman.
 2. **Registro de generadores, en dos etapas.** `Engine.run` hoy cablea D1/D2/D3 a mano; con diez
    documentos eso no escala. Un protocolo `DocumentGenerator` (`generate(graph_store, site) -> str`
    + `extension`) y un `DOCUMENT_REGISTRY`, siguiendo el mismo patrón que `AGENT_REGISTRY` y
@@ -145,7 +145,7 @@ Sin esto, cada documento nuevo engorda `engine.py` y duplica lectura de grafo.
 6. **Escribir la tabla de mapeo de ontología** (sección 1) en `ARCHITECTURE.md`, para que nadie
    vuelva a proponer renombrar `:Component` a `:DOM_Element`.
 
-**Criterio de aceptación**: agregar un documento = un archivo nuevo en `src/generators/` + una
+**Criterio de aceptación**: agregar un documento = un archivo nuevo en `generators/` + una
 entrada de registro + un flag de config. `engine.py` no crece.
 
 **Coste LLM**: cero.
@@ -337,7 +337,7 @@ traducirla 1:1; un documento que sólo describe el pasado no sirve para eso.
 #### 5.0 — El pase de medición (prerrequisito de 5b y 5c)
 
 El navegador del crawl está afinado para velocidad, no para representar lo que ve un usuario
-([crawl4ai_crawler.py:186](src/crawlers/crawl4ai_crawler.py:186)): viewport 800×600,
+([crawl4ai_crawler.py:186](spiders/crawl4ai_crawler.py:186)): viewport 800×600,
 `light_mode`, `memory_saving_mode`, y `block_images` descartando `image`/`media`/`font`. Todo
 `rect` del grafo está medido a 800×600, sin webfonts y sin imágenes de fondo.
 
@@ -420,9 +420,9 @@ sobre gradiente, con ~90 reglas mantenidas por Deque contra las siete escritas a
 
 **Cómo se integra, concretamente:**
 
-1. **`axe.min.js` vendorizado en `src/crawlers/js/`**, como sexto asset junto a
+1. **`axe.min.js` vendorizado en `spiders/js/`**, como sexto asset junto a
    `discover_components.js` y compañía, cargado con el mismo `_load_js()` de
-   [page_extraction.py](src/crawlers/page_extraction.py). **No** se usa `@axe-core/playwright`:
+   [page_extraction.py](spiders/page_extraction.py). **No** se usa `@axe-core/playwright`:
    es un paquete npm y en este proyecto no hay Node en ningún lado (`requirements.txt` es Python
    puro, Docker sólo levanta Neo4j). Cero dependencias Python nuevas.
 2. **Corre dentro del pase de medición (5.0)**, no durante el crawl principal. Es el encaje
@@ -622,7 +622,7 @@ investigación pide y el plan no cubría.
 `capture_network_requests=True` está puesto sólo en `Crawl4AICrawler._interact()`, nunca en
 `discover_page()`. Está documentado y el razonamiento es correcto *para su propósito original*:
 "las peticiones de una carga de página no son atribuibles a la interacción de un componente"
-([crawl4ai_crawler.md#_interact-network-capture](docs/dev/crawlers/crawl4ai_crawler.md)). Pero
+([crawl4ai_crawler.md#_interact-network-capture](docs/dev/spiders/crawl4ai_crawler.md)). Pero
 ese razonamiento no aplica a D4: **un endpoint no necesita componente disparador para ser parte
 del contrato de la API.** Una SPA que carga sus datos al entrar a la ruta pierde todos esos
 endpoints, y hoy nada lo reporta. Requiere decisión nueva: capturar también en `discover_page()`
@@ -637,7 +637,7 @@ admitir `document` cuando el método no es GET, que es la señal barata de "esto
 datos, no una navegación".
 
 **H3. `login_helper` está huérfano.**
-[login_helper.py](src/core/login_helper.py) guarda el `storage_state` y te dice que uses
+[login_helper.py](core/login_helper.py) guarda el `storage_state` y te dice que uses
 `--storage-state` o `storage_state_path:` en `pragma.yaml`, pero **nada en `src/` lee ninguno de
 los dos**, y `cli.py` no tiene subcomando `login`. Verificado por búsqueda directa: `storage_state`
 sólo aparece dentro de ese archivo.

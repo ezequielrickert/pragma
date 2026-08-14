@@ -1,8 +1,8 @@
-"""Unit tests for the accessibility document (src/generators/accessibility.py)
+"""Unit tests for the accessibility document (generators/accessibility.py)
 and the measurement pass's page selection. No browser: axe's own output is
 fed in as the fixtures it produces."""
-from src.crawlers.measurement_pass import _navigable, _pages_to_measure
-from src.generators.accessibility import (
+from spiders.measurement_pass import _navigable, _pages_to_measure
+from generators.accessibility import (
     MINIMUM_TARGET_PX,
     build_axe_findings,
     undersized_targets,
@@ -132,8 +132,8 @@ def test_only_finished_pages_are_measured_and_shaped_ones_are_reported():
 # --- document ---
 
 def test_an_unrun_measurement_pass_is_not_reported_as_a_clean_result():
-    from src.core.documents import DocumentRequest
-    from src.generators.accessibility import AccessibilityDocument
+    from core.documents import DocumentRequest
+    from generators.accessibility import AccessibilityDocument
 
     class _Store:
         def get_accessibility_violations(self, site):
@@ -154,8 +154,8 @@ def test_an_unrun_measurement_pass_is_not_reported_as_a_clean_result():
 
 
 def test_the_document_states_what_automation_cannot_find():
-    from src.core.documents import DocumentRequest
-    from src.generators.accessibility import AccessibilityDocument
+    from core.documents import DocumentRequest
+    from generators.accessibility import AccessibilityDocument
 
     class _Store:
         def get_accessibility_violations(self, site):
@@ -187,7 +187,7 @@ def _stop(path, dom_index=0, focus_visible=True, offscreen=False):
 def test_a_control_focused_with_no_visible_indicator_is_flagged():
     """The common failure: a reset stylesheet removing the UA outline and
     never putting anything back."""
-    from src.generators.accessibility import keyboard_findings
+    from generators.accessibility import keyboard_findings
 
     findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", focus_visible=False)]}})
 
@@ -198,7 +198,7 @@ def test_a_control_focused_with_no_visible_indicator_is_flagged():
 def test_a_tab_order_that_goes_backwards_is_flagged():
     """Unreachable by reading the DOM, which is why the pass presses real
     keys - it is usually a positive tabindex."""
-    from src.generators.accessibility import keyboard_findings
+    from generators.accessibility import keyboard_findings
 
     findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 5), _stop("b", 1)]}})
 
@@ -206,7 +206,7 @@ def test_a_tab_order_that_goes_backwards_is_flagged():
 
 
 def test_a_tab_order_that_follows_the_document_is_not_flagged():
-    from src.generators.accessibility import keyboard_findings
+    from generators.accessibility import keyboard_findings
 
     findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 0), _stop("b", 1), _stop("c", 2)]}})
 
@@ -214,7 +214,7 @@ def test_a_tab_order_that_follows_the_document_is_not_flagged():
 
 
 def test_focus_landing_on_something_with_no_size_is_flagged():
-    from src.generators.accessibility import keyboard_findings
+    from generators.accessibility import keyboard_findings
 
     findings = keyboard_findings({PAGE: {"tab_order": [_stop("a", 0, offscreen=True)]}})
 
@@ -222,6 +222,6 @@ def test_focus_landing_on_something_with_no_size_is_flagged():
 
 
 def test_a_page_with_no_keyboard_walk_produces_nothing():
-    from src.generators.accessibility import keyboard_findings
+    from generators.accessibility import keyboard_findings
 
     assert keyboard_findings({PAGE: {"tab_order": []}}) == []

@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from src.core import bootstrap  # noqa: F401  (registers agent/graph-store plugins)
-from src.core.engine import Engine, EngineRunResult, _resolve_pool_size
-from src.core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
-from src.crawlers.fill_value_agent import FILL_VALUE_SYSTEM_INSTRUCTION
+from core import bootstrap  # noqa: F401  (registers agent/graph-store plugins)
+from core.engine import Engine, EngineRunResult, _resolve_pool_size
+from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
+from spiders.fill_value_agent import FILL_VALUE_SYSTEM_INSTRUCTION
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 

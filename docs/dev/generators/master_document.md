@@ -1,4 +1,4 @@
-# `src/generators/master_document.py`
+# `generators/master_document.py`
 
 ## module
 

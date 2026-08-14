@@ -3,17 +3,17 @@ POC: Mechanical crawl4ai crawler + Neo4j graph + AI-synthesized PRD generator (P
 Setup:
 - pip install -r requirements.txt
 - python3 -m playwright install
-- python3 src/cli.py config
+- python3 cli.py config
 
 `config` launches an interactive setup wizard (arrow-key menus, editable defaults, masked
 API-key input) that persists your choice of agent/graph store, model names, and endpoints
-to `pragma.yaml`, and any secrets (API keys) to `.env`. Run it once; re-run it any time to change
+to `config/pragma.yaml`, and any secrets (API keys) to `.env`. Run it once; re-run it any time to change
 a setting - existing values are shown as defaults you can accept or overwrite, and it never
 touches settings for providers you're not using.
 
 Then just run an analysis with the URL as the only required input:
-- `python3 src/cli.py https://example.com`
-- or: `python3 src/cli.py` (prompts for the URL interactively if none was given)
+- `python3 cli.py https://example.com`
+- or: `python3 cli.py` (prompts for the URL interactively if none was given)
 
 Everything else - which agent/model, which graph store, output folder, headless mode, crawl
 budget - comes from what you configured. Any of it can still be overridden per run with flags,
@@ -23,7 +23,7 @@ without touching your saved config:
 - `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
   `--config <path/to/other.yaml>`
 
-Precedence for every setting: explicit CLI flag > `pragma.yaml` > environment variable (`.env`)
+Precedence for every setting: explicit CLI flag > `config/pragma.yaml` > environment variable (`.env`)
 > built-in default.
 
 Debugging a run: there are no more file-based logs (`research_logs/`/`progress_logs/`/
@@ -37,27 +37,27 @@ how many components `MechanicalCrawler` mechanically interacts with in one visit
 against a pathological reveal-chain rather than a normal-case limit. `--max-pages` caps the total
 number of pages visited (default: unbounded, crawl until the URL frontier is exhausted).
 
-Design: a micro-kernel `Engine` (`src/core/engine.py`) wires an `Agent` ("the brain"/LLM,
-`src/agents/`) and a `GraphStore` ("the graph", `src/storage/`), both resolved by name from plugin
-registries (`src/core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
-(`src/crawlers/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
+Design: a micro-kernel `Engine` (`core/engine.py`) wires an `Agent` ("the brain"/LLM,
+`agents/`) and a `GraphStore` ("the graph", `database/`), both resolved by name from plugin
+registries (`core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
+(`spiders/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
 discovery and interaction) crawls the site and writes live to the graph store
-(`GraphStoreSink`, `src/crawlers/graph_sink.py`); `GraphPRDSynthesizer`
-(`src/generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
+(`GraphStoreSink`, `spiders/graph_sink.py`); `GraphPRDSynthesizer`
+(`generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
 Markdown PRD. See `ARCHITECTURE.md` for the full data flow. To add a new agent or graph-store
-plugin, implement the relevant interface in `src/core/interfaces.py`, decorate the class (or a
+plugin, implement the relevant interface in `core/interfaces.py`, decorate the class (or a
 builder function) with `@AGENT_REGISTRY.register("name")` / `@GRAPH_STORE_REGISTRY.register("name")`,
-and import the module from `src/core/bootstrap.py` so it registers itself at startup.
+and import the module from `core/bootstrap.py` so it registers itself at startup.
 
 Provider config is encapsulated per agent, not piled into one growing `.env`: each agent module
-(e.g. `src/agents/local_agent.py`) owns a small `Config` dataclass with a `from_env()`
+(e.g. `agents/local_agent.py`) owns a small `Config` dataclass with a `from_env()`
 classmethod that is the single source of truth for which env vars that provider needs. Non-secret
-per-provider settings (model name, endpoint) can also be set in `pragma.yaml` under an `agents:`
+per-provider settings (model name, endpoint) can also be set in `config/pragma.yaml` under an `agents:`
 block, keyed by provider name - only the block for the provider you're actually using is read.
 Keep API keys and credential file paths in `.env`, never in a committed YAML file. Adding a new
 provider (e.g. Anthropic) means adding one new agent module with its own `Config` + `from_env()`
 and registering it - no changes anywhere else. The `config` wizard's provider-specific prompts
-(`PROVIDER_FIELDS` in `src/core/wizard.py`) are the one place to extend when adding a provider's
+(`PROVIDER_FIELDS` in `core/wizard.py`) are the one place to extend when adding a provider's
 interactive setup.
 
 ## Wiki

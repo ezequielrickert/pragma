@@ -154,7 +154,7 @@ file:line - [rule-id] Description of issue
 Example:
 ```
 src/services/UserService.ts:15 - [solid-srp-class] Class handles validation, persistence, and notifications
-src/utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
+utils/helpers.ts:42 - [core-dry] Email validation duplicated from validators/email.ts
 src/models/Order.ts:28 - [core-kiss-simplicity] Overly complex abstraction for simple use case
 ```
 

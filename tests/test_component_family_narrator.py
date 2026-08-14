@@ -1,8 +1,8 @@
 """Unit tests for component_family_narrator.narrate_family_purposes."""
 from typing import List, Optional, Tuple
 
-from src.core.interfaces import Agent, ComponentFamily
-from src.generators.component_family_narrator import (
+from core.interfaces import Agent, ComponentFamily
+from generators.component_family_narrator import (
     PURPOSE_SYSTEM_INSTRUCTION,
     narrate_family_purposes,
 )

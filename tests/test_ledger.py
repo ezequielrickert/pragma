@@ -1,8 +1,8 @@
-"""Unit tests for src/generators/ledger.py - built directly against
+"""Unit tests for generators/ledger.py - built directly against
 InMemoryGraphStore, same convention as tests/test_graph_export.py
 (flat_component_ledger only touches GraphStore's read surface)."""
-from src.generators.ledger import flat_component_ledger
-from src.storage.memory_graph_store import InMemoryGraphStore
+from generators.ledger import flat_component_ledger
+from database.memory_graph_store import InMemoryGraphStore
 
 SITE = "ledger-test-site"
 PAGE = "example.com/catalog"

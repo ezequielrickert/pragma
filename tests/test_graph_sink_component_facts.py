@@ -3,8 +3,8 @@ JS-discovered component dict (discover_components.js's per-element shape)
 onto ComponentFacts, exercised directly so a field-name typo on either side
 of that boundary fails fast instead of silently writing "" to Neo4j/memory.
 """
-from src.core.interfaces import ComponentFacts
-from src.crawlers.graph_sink import _component_facts
+from core.interfaces import ComponentFacts
+from spiders.graph_sink import _component_facts
 
 
 def test_component_facts_maps_attributes_and_style():

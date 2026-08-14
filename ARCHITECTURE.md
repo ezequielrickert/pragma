@@ -58,10 +58,10 @@ sequenceDiagram
 
 ## Micro-kernel: Plugins & Registries
 
-Pragma's kernel is `src/core/engine.py::Engine`. It wires exactly one crawling implementation
-(`Crawl4AICrawler` + `MechanicalCrawler`, `src/crawlers/`) directly — there's only one way to crawl
+Pragma's kernel is `core/engine.py::Engine`. It wires exactly one crawling implementation
+(`Crawl4AICrawler` + `MechanicalCrawler`, `spiders/`) directly — there's only one way to crawl
 now, unlike agents/graph stores which are genuinely pluggable and still resolved via
-`src/core/registry.py`:
+`core/registry.py`:
 
 - **`AGENT_REGISTRY`**: implementations of the `Agent` interface ("The Brain"/LLM backend) —
   `local`, `mock`. `Agent` is now just `generate(prompt, system_instruction)`
@@ -69,12 +69,12 @@ now, unlike agents/graph stores which are genuinely pluggable and still resolved
 - **`GRAPH_STORE_REGISTRY`**: implementations of the `GraphStore` interface — `memory`, `neo4j`.
 
 Each plugin module self-registers via a decorator (`@AGENT_REGISTRY.register("local")` on
-`LocalAgent`, etc.). `src/core/bootstrap.py` imports every plugin module once so their
+`LocalAgent`, etc.). `core/bootstrap.py` imports every plugin module once so their
 registrations run before the CLI resolves names from config.
 
-Configuration (`src/core/config.py::PragmaConfig`) declares which agent/graph-store plugins to use
+Configuration (`core/config.py::PragmaConfig`) declares which agent/graph-store plugins to use
 plus crawl-tuning settings (`element_budget`, `max_pages`, `headless`, `fresh`). It merges, in
-increasing precedence: built-in defaults, environment variables, an optional `pragma.yaml` file,
+increasing precedence: built-in defaults, environment variables, an optional `config/pragma.yaml` file,
 and explicit CLI flags.
 
 ---
@@ -87,7 +87,7 @@ executed via a hand-rolled Playwright wrapper (`PlaywrightScraper`), with a fina
 synthesizing a PRD from an accumulated research log. That entire per-step decision loop is gone:
 
 - **No more numbered-ref action vocabulary.** `Action`/`AgentAction`/`TOOL_SPECS`/
-  `parse_agent_action`/`Agent.act()` (`src/core/interfaces.py`) are deleted — there's no
+  `parse_agent_action`/`Agent.act()` (`core/interfaces.py`) are deleted — there's no
   structured action schema for a model to fill anymore. `LocalAgent`'s native-tool-calling
   fallback ladder went with them; `Agent` is `generate()` only.
 - **No more `Scraper`/`PRDGenerator` ABCs.** They modeled a synchronous, lazily-started,
@@ -98,21 +98,21 @@ synthesizing a PRD from an accumulated research log. That entire per-step decisi
   model to call turn-by-turn — with no more per-step decisions, there's nothing left to wrap.
 - **The discovery JS is preserved, not rewritten.** `PlaywrightScraper._discover_components`'s
   battle-tested selector-uniqueness/ARIA-role/shadow-DOM/accessible-label logic now lives in
-  `src/crawlers/js/discover_components.js`, run via `page.evaluate()` inside a crawl4ai hook
+  `spiders/js/discover_components.js`, run via `page.evaluate()` inside a crawl4ai hook
   (`Crawl4AICrawler`) instead of a Playwright `Page` method. One real bug was found and fixed in
   the port — see the plan/wiki for details.
 - **Neo4j is the primary, live-updated source of truth**, not a secondary debug artifact.
   `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based logs) no longer
   exist — everything they used to capture (route status, the navigation graph, the component
   ledger, page descriptions) is written straight to `GraphStore` as the crawl happens
-  (`GraphStoreSink`, `src/crawlers/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
+  (`GraphStoreSink`, `spiders/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
 
 ---
 
 ## Discovery JS: unchanged battle-tested logic, new host
 
-`src/crawlers/js/discover_components.js` (plus `extract_links.js`/`extract_description.js`/
-`extract_metadata.js`) is what `Crawl4AICrawler` (`src/crawlers/crawl4ai_crawler.py`) runs via
+`spiders/js/discover_components.js` (plus `extract_links.js`/`extract_description.js`/
+`extract_metadata.js`) is what `Crawl4AICrawler` (`spiders/crawl4ai_crawler.py`) runs via
 `page.evaluate()` inside crawl4ai hooks. Every historical fix documented in
 `wiki/browser-automation-pitfalls.md` is preserved:
 
@@ -137,7 +137,7 @@ requested URL, unchanged regardless of what actually happened).
 
 ## Mechanical Interaction: Two Frontiers
 
-`MechanicalCrawler` (`src/crawlers/mechanical_loop.py`) replaces the old per-step decision loop
+`MechanicalCrawler` (`spiders/mechanical_loop.py`) replaces the old per-step decision loop
 with two frontiers, composed but never conflated:
 
 - **URL frontier**: a FIFO queue of discovered-but-not-visited pages, fed by every page's extracted
@@ -169,7 +169,7 @@ the placeholder on any failure.
 
 ## Live Neo4j Wiring
 
-`GraphStoreSink` (`src/crawlers/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
+`GraphStoreSink` (`spiders/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
 directly as the crawl happens:
 
 - `record_page_arrival` — the moment a page is reached (before discovery), plus its description.
@@ -182,7 +182,7 @@ directly as the crawl happens:
 - `record_page_finished` — only when a page's pass completes without being cut short by a
   navigation; an interrupted pass stays `Pending` for its guaranteed follow-up.
 
-`src/utils/urls.py::clean_url()` is the one URL-canonicalization function every call site goes
+`utils/urls.py::clean_url()` is the one URL-canonicalization function every call site goes
 through — scheme, trailing slash, and fragment stripped, so `https://x.com/y/#s` and
 `http://x.com/y` collapse to the same graph-node key (`wiki/graph-based-crawl-tracking.md`'s "node
 identity is the whole game").
@@ -233,23 +233,23 @@ stay as they are.** Renaming would touch six storage modules plus their tests an
 
 Documents are plugins, resolved by name from `PragmaConfig.documents` through
 `DOCUMENT_REGISTRY` — the same registry pattern as agents and graph stores. Each implements
-`DocumentGenerator` (`src/core/documents.py`): declare `name`/`title`/`purpose`/`extension`,
+`DocumentGenerator` (`core/documents.py`): declare `name`/`title`/`purpose`/`extension`,
 implement `generate(request) -> str`, never touch the filesystem.
 
-`src/generators/pipeline.py` runs them, prepends the crawl-coverage banner to every Markdown
+`generators/pipeline.py` runs them, prepends the crawl-coverage banner to every Markdown
 document, writes each file, and closes with the master "Start Here" document — which indexes
 whatever was produced and is the only generator that reads other generators' output rather than
 the graph. A generator that raises is logged and skipped: one failed document must not cost a
 twenty-minute crawl its other eight.
 
-Adding a document is a new module in `src/generators/`, one `@DOCUMENT_REGISTRY.register(...)`
-class, one import in `src/core/bootstrap.py`, and its name in config. `Engine` does not change.
+Adding a document is a new module in `generators/`, one `@DOCUMENT_REGISTRY.register(...)`
+class, one import in `core/bootstrap.py`, and its name in config. `Engine` does not change.
 
 ---
 
 ## Post-hoc Synthesis
 
-`GraphPRDSynthesizer` (`src/generators/graph_prd_synthesizer.py`) reads only from `GraphStore` —
+`GraphPRDSynthesizer` (`generators/graph_prd_synthesizer.py`) reads only from `GraphStore` —
 `get_progress_table_rows`, `get_edges`, `get_component_ledger`, `get_page_descriptions` — and writes
 nothing back. It runs independently of any live crawl: given a `site` whose graph was populated
 hours or days ago, `synthesize()` needs nothing else.
@@ -271,39 +271,39 @@ different calls, including with the fill-value call above):
 Each agent module owns a small `Config` dataclass colocated with its implementation, with a
 `from_env()` classmethod that is the *only* place that reads that provider's env vars:
 
-- `LocalConfig` (`src/agents/local_agent.py`): `LOCAL_API_URL`, `LOCAL_MODEL`.
+- `LocalConfig` (`agents/local_agent.py`): `LOCAL_API_URL`, `LOCAL_MODEL`.
 
 Non-secret overrides come from `PragmaConfig.agents`, an optional nested `agents:` block in
-`pragma.yaml` keyed by provider name (see `pragma.example.yaml`), letting settings (model name,
+`config/pragma.yaml` keyed by provider name (see `config/pragma.example.yaml`), letting settings (model name,
 base URL) live in version-controllable config scoped per provider instead of more prefixed
 globals in `.env`. Secrets (API keys, credential paths) stay in `.env` only.
 
-`python3 src/cli.py config` (`src/core/wizard.py`) is the interactive front door to all of this: an
+`python3 cli.py config` (`core/wizard.py`) is the interactive front door to all of this: an
 arrow-key menu (via `questionary`, with a plain-`input()` fallback when there's no TTY) walks
 through agent/graph-store selection and that provider's `PROVIDER_FIELDS`, then writes non-secret
-answers to `pragma.yaml` and secret answers to `.env` via `upsert_env_vars()` (`src/utils/io.py`).
+answers to `config/pragma.yaml` and secret answers to `.env` via `upsert_env_vars()` (`utils/io.py`).
 
 Consequences: switching `--agent` never requires knowing another provider's variables, and adding a
 new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent` subclass +
 `AnthropicConfig.from_env()`, register a builder in `providers.py`, and add one import to
-`src/core/bootstrap.py`. No other file changes.
+`core/bootstrap.py`. No other file changes.
 
 ---
 
 ## Directory Roles
 
-- **`src/core/`**: The Kernel — `Engine`, plugin registries, shared interfaces/contracts
+- **`core/`**: The Kernel — `Engine`, plugin registries, shared interfaces/contracts
   (`PageState`, `Agent`, `GraphStore`), and layered configuration (`PragmaConfig`).
-- **`src/crawlers/`**: The crawl itself — `Crawl4AICrawler` ("The Hands", crawl4ai-backed discovery
+- **`spiders/`**: The crawl itself — `Crawl4AICrawler` ("The Hands", crawl4ai-backed discovery
   + interaction), `MechanicalCrawler` (the two-frontier orchestration loop), `GraphStoreSink`/
   `GraphStoreInteractionTracker` (live Neo4j wiring), `fill_value_agent.py`/`fill_values.py`
   (AI/placeholder fill values), plus the discovery JS assets in `js/`.
-- **`src/agents/`**: LLM interface implementations ("The Brain") — `generate()` only.
-- **`src/storage/`**: `GraphStore` implementations (`InMemoryGraphStore`, `Neo4jGraphStore`).
-- **`src/generators/`**: `GraphPRDSynthesizer` (post-hoc, graph-reading synthesis) and
+- **`agents/`**: LLM interface implementations ("The Brain") — `generate()` only.
+- **`database/`**: `GraphStore` implementations (`InMemoryGraphStore`, `Neo4jGraphStore`).
+- **`generators/`**: `GraphPRDSynthesizer` (post-hoc, graph-reading synthesis) and
   `component_classifier.py` (pure, deterministic component classification/grouping, no LLM/browser
   dependency).
-- **`src/utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
+- **`utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
 - **`docs/`**: Final generated Digital Blueprint PRDs — the only output artifact; there are no more
   `research_logs/`/`progress_logs/`/`graph_logs/` file-based debug logs, since `GraphStore` is now
   the live, queryable record of a crawl (inspect it directly, or via a database browser for

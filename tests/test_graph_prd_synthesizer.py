@@ -1,5 +1,5 @@
 """Regression tests for Phase 5 of the crawl4ai migration:
-GraphPRDSynthesizer (src/generators/graph_prd_synthesizer.py).
+GraphPRDSynthesizer (generators/graph_prd_synthesizer.py).
 """
 import asyncio
 import http.server
@@ -10,11 +10,11 @@ from typing import List, Optional
 
 import pytest
 
-from src.core.interfaces import Agent
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
-from src.generators.graph_prd_synthesizer import (
+from core.interfaces import Agent
+from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.graph_sink import GraphStoreSink
+from spiders.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from generators.graph_prd_synthesizer import (
     CATALOG_SYSTEM_INSTRUCTION,
     REDUCE_SYSTEM_INSTRUCTION,
     SYNTHESIS_SYSTEM_INSTRUCTION,
@@ -23,7 +23,7 @@ from src.generators.graph_prd_synthesizer import (
     _render_fact_line,
     build_mermaid_graph,
 )
-from src.storage.memory_graph_store import InMemoryGraphStore
+from database.memory_graph_store import InMemoryGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 SITE = "synth-test-site"

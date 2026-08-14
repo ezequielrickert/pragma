@@ -1,4 +1,4 @@
-# `src/core/data_contracts.py`
+# `core/data_contracts.py`
 
 ## module
 

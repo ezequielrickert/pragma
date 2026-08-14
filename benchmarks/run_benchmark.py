@@ -5,7 +5,7 @@ import json
 # Simple harness: run the CLI and measure elapsed time
 def run(url):
     start = time.time()
-    proc = subprocess.run(['python', 'src/cli.py', '--url', url], capture_output=True, text=True)
+    proc = subprocess.run(['python', 'cli.py', '--url', url], capture_output=True, text=True)
     elapsed = time.time() - start
     return {'url': url, 'returncode': proc.returncode, 'elapsed': elapsed, 'stdout': proc.stdout, 'stderr': proc.stderr}
 

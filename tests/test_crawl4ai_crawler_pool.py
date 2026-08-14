@@ -1,4 +1,4 @@
-"""Unit tests for Crawl4AICrawlerPool (src/crawlers/crawl4ai_crawler_pool.py).
+"""Unit tests for Crawl4AICrawlerPool (spiders/crawl4ai_crawler_pool.py).
 
 Constructing a Crawl4AICrawler doesn't launch a browser - only __aenter__
 does (see Crawl4AICrawler.__aenter__) - so these test the pool's own
@@ -7,7 +7,7 @@ browser involved, matching tests/test_target_load_throttle.py's convention.
 """
 import asyncio
 
-from src.crawlers.crawl4ai_crawler_pool import Crawl4AICrawlerPool
+from spiders.crawl4ai_crawler_pool import Crawl4AICrawlerPool
 
 
 def test_a_session_id_sticks_to_the_same_pool_member_until_recycled():

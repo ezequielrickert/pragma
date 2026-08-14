@@ -1,9 +1,9 @@
-"""Unit tests for src/generators/component_tree.py - built directly against
+"""Unit tests for generators/component_tree.py - built directly against
 InMemoryGraphStore, no live crawl needed (build_component_tree/render_ascii_tree
 only touch GraphStore's read surface)."""
 import json
 
-from src.generators.component_tree import (
+from generators.component_tree import (
     SiteTree,
     TreeLeaf,
     TreePage,
@@ -11,7 +11,7 @@ from src.generators.component_tree import (
     generate_component_tree_document,
     render_ascii_tree,
 )
-from src.storage.memory_graph_store import InMemoryGraphStore
+from database.memory_graph_store import InMemoryGraphStore
 
 SITE = "tree-test-site"
 

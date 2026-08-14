@@ -1,5 +1,5 @@
 """Regression tests for Phase 4 of the crawl4ai migration: AI-generated fill
-values (src/crawlers/fill_value_agent.py).
+values (spiders/fill_value_agent.py).
 """
 import asyncio
 import http.server
@@ -9,14 +9,14 @@ from typing import List, Optional, Tuple
 
 import pytest
 
-from src.core.interfaces import Agent
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from src.crawlers.fill_value_agent import (
+from core.interfaces import Agent
+from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.fill_value_agent import (
     FILL_VALUE_SYSTEM_INSTRUCTION,
     generate_fill_value,
     make_ai_fill_value_fn,
 )
-from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 

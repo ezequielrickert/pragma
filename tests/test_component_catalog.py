@@ -1,9 +1,9 @@
-"""Unit tests for the component catalogue (src/generators/component_catalog.py).
+"""Unit tests for the component catalogue (generators/component_catalog.py).
 Pure functions over hand-built families and ledger rows - no store, no model."""
 import json
 
-from src.core.interfaces import ComponentFamily
-from src.generators.component_catalog import build_catalog, component_name
+from core.interfaces import ComponentFamily
+from generators.component_catalog import build_catalog, component_name
 
 PAGE = "shop/"
 
@@ -157,7 +157,7 @@ def test_a_family_whose_members_are_missing_from_the_ledger_is_skipped():
 
 
 def test_the_json_document_is_parseable_and_carries_the_same_entries():
-    from src.generators.component_catalog import ComponentCatalogData
+    from generators.component_catalog import ComponentCatalogData
 
     class _Store:
         def get_component_families(self, site):
@@ -177,7 +177,7 @@ def test_the_json_document_is_parseable_and_carries_the_same_entries():
 
 
 def test_the_markdown_document_says_which_states_it_cannot_show():
-    from src.generators.component_catalog import ComponentCatalogDocument
+    from generators.component_catalog import ComponentCatalogDocument
 
     class _Store:
         def get_component_families(self, site):

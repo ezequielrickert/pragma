@@ -1,4 +1,4 @@
-# `src/generators/coverage.py`
+# `generators/coverage.py`
 
 ## module
 

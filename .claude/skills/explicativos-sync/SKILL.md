@@ -17,14 +17,14 @@ paso separado para "después"):
 > `modulo3-api-server-y-rest-scraper.md` se eliminaron (describían `PlaywrightScraper`/
 > `src/api_server/`/`RestScraper`, que ya no existen), y `arquitectura.md`/`neo4j.md` quedaron
 > parcialmente desactualizados — ver el aviso al inicio de cada uno. Esta tabla sigue apuntando a
-> los archivos viejos hasta que alguien la revise contra `src/crawlers/*` (`mechanical_loop.py`,
+> los archivos viejos hasta que alguien la revise contra `spiders/*` (`mechanical_loop.py`,
 > `crawl4ai_crawler.py`, `graph_sink.py`) - no la sigas al pie de la letra sin confirmar que el
 > archivo de código todavía existe.
 
 | Si editaste... | Actualizá... |
 |---|---|
-| `src/storage/neo4j_graph_store.py`, `src/storage/memory_graph_store.py`, la clase `GraphStore` en `src/core/interfaces.py` | `docs/explicativos/neo4j.md` |
-| `src/core/engine.py`, `src/core/registry.py`, `src/core/config.py`, `src/cli.py`, `src/core/wizard.py` | `docs/explicativos/arquitectura.md` (revisar primero si sigue teniendo sentido actualizarlo o si conviene escribir un doc nuevo para `src/crawlers/*`) |
+| `database/neo4j_graph_store.py`, `database/memory_graph_store.py`, la clase `GraphStore` en `core/interfaces.py` | `docs/explicativos/neo4j.md` |
+| `core/engine.py`, `core/registry.py`, `core/config.py`, `cli.py`, `core/wizard.py` | `docs/explicativos/arquitectura.md` (revisar primero si sigue teniendo sentido actualizarlo o si conviene escribir un doc nuevo para `spiders/*`) |
 
 ## Proceso
 

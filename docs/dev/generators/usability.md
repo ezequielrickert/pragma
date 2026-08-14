@@ -1,4 +1,4 @@
-# `src/generators/usability.py`
+# `generators/usability.py`
 
 ## module
 

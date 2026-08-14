@@ -1,16 +1,16 @@
-"""Unit tests for the document pipeline (src/generators/pipeline.py,
+"""Unit tests for the document pipeline (generators/pipeline.py,
 coverage.py, master_document.py) - built against InMemoryGraphStore and a
 stub agent, no crawl or browser needed."""
 from pathlib import Path
 
 import pytest
 
-from src.core import bootstrap  # noqa: F401  (registers the document generators)
-from src.core.documents import DocumentGenerator, DocumentRequest
-from src.core.registry import DOCUMENT_REGISTRY
-from src.generators.coverage import build_coverage, render_coverage_banner
-from src.generators.pipeline import DocumentNaming, run_document_pipeline
-from src.storage.memory_graph_store import InMemoryGraphStore
+from core import bootstrap  # noqa: F401  (registers the document generators)
+from core.documents import DocumentGenerator, DocumentRequest
+from core.registry import DOCUMENT_REGISTRY
+from generators.coverage import build_coverage, render_coverage_banner
+from generators.pipeline import DocumentNaming, run_document_pipeline
+from database.memory_graph_store import InMemoryGraphStore
 
 SITE = "pipeline-test-site"
 TIMESTAMP = "20260812T120000Z"

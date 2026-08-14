@@ -1,4 +1,4 @@
-# `src/core/config.py`
+# `core/config.py`
 
 ## PragmaConfig
 
@@ -65,7 +65,7 @@ against that session silently ate a full 30s before failing - see
 Skips crawl4ai's own markdown-generation/content-scraping pipeline
 (crawl4ai's `prefetch` option) - real savings, since this project never
 reads that pipeline's output (all facts come from this project's own
-discovery JS instead). One real side effect: `debug_logs/*/pages/*.md`
+discovery JS instead). One real side effect: `data/debug_logs/*/pages/*.md`
 snapshots (crawl4ai's markdown conversion of each page) come back empty
 while this is on - leave `False` during an active debugging session that
 still wants to read those; `True` for a bulk/production run. See
@@ -88,14 +88,14 @@ Per-page cap on how many components `MechanicalCrawler` mechanically
 interacts with in a single visit-pass - the backstop against a
 pathological reveal-chain, not a normal-case limiter (default generous
 enough that ordinary pages never hit it). See
-`docs/dev/crawlers/mechanical_loop.md#module`.
+`docs/dev/spiders/mechanical_loop.md#module`.
 
 ## max_pages
 
 Total pages `MechanicalCrawler.crawl_site` will visit before stopping,
 `None` = unbounded (crawl until the URL frontier is exhausted). A page
 re-queued after a navigation-interrupted pass (see
-`docs/dev/crawlers/visit_result.md#pagevisitresultinterrupted_by_navigation`)
+`docs/dev/spiders/visit_result.md#pagevisitresultinterrupted_by_navigation`)
 counts as its own visit here.
 
 ## max_passes_per_page
@@ -129,7 +129,7 @@ confirmed live on empanad.app: each token is a distinct real identity
 (`clean_url()` correctly keeps them apart), so an unbounded frontier
 would treat every new token as a brand-new page forever and never
 converge, burning a full interaction pass on what's structurally the
-same page every time. `route_shape()` (`src/utils/urls.py`) collapses
+same page every time. `route_shape()` (`utils/urls.py`) collapses
 same-shaped URLs for this bounding check only - real navigation/identity
 is untouched. Default 1: an ordinary site has no repeated route shapes
 at all, so this never fires; raise it to deliberately sample more than
@@ -160,7 +160,7 @@ hard, bound on `max_pages` once concurrency > 1).
 ## allow_subdomains
 
 Whether same-site scoping (which links `MechanicalCrawler`'s URL
-frontier will actually visit - see `src/utils/urls.py`'s
+frontier will actually visit - see `utils/urls.py`'s
 `is_in_scope()`, the single choke point in `MechanicalCrawler._enqueue()`)
 treats a subdomain (e.g. `blog.example.com`) as in-scope for a crawl of
 `example.com`. A link (or a click/redirect landing) on any *other* host
@@ -184,37 +184,37 @@ genuinely multi-session crawl of a large, stable site.
 
 ## debug_logs_dir
 
-Where per-run debug artifacts go: `debug_logs/{slug}_{timestamp}/debug.md`
+Where per-run debug artifacts go: `data/debug_logs/{slug}_{timestamp}/debug.md`
 (every crawl4ai hook firing, appended live) and `.../pages/{page}.md`
 (crawl4ai's own markdown conversion of each page, last-seen snapshot).
 Set to `""` (empty string) to disable debug logging entirely - see
-`src/crawlers/debug_log.py` and `Engine._run_async`.
+`spiders/debug_log.py` and `Engine._run_async`.
 
 ## debug_logs_keep_last
 
 Max number of past `debug_logs_dir` run directories to keep for this
-same site+URL (see `src/crawlers/debug_log.py::prune_old_runs`), oldest
+same site+URL (see `spiders/debug_log.py::prune_old_runs`), oldest
 deleted first. `None` (default) keeps every run forever, unchanged from
-before this setting existed - opt in once unbounded `debug_logs/` growth
+before this setting existed - opt in once unbounded `data/debug_logs/` growth
 becomes a real disk-space concern for a site crawled repeatedly. A
 no-op whenever `debug_logs_dir` is disabled (there's nothing to prune).
 
 ## export_json
 
-Also write `docs/{slug}_graph_{timestamp}.json` - the full crawl graph
+Also write `data/output/{slug}_graph_{timestamp}.json` - the full crawl graph
 (pages, edges, component ledger, text content) as structured JSON,
 alongside the prose PRD and the ASCII component tree - for a downstream
 tool that wants to consume the crawl's facts as data instead of
 documents meant for a person to read. Off by default so existing
 `out_dir` layouts don't suddenly grow an extra file per run without
-opting in. See `src/generators/graph_export.py`.
+opting in. See `generators/graph_export.py`.
 
 ## tree_ascii
 
-Component-tree document (`docs/{slug}_tree_{timestamp}.md`) rendering
+Component-tree document (`data/output/{slug}_tree_{timestamp}.md`) rendering
 mode - Unicode box-drawing characters (`tree` command style) by default;
 `True` falls back to plain ASCII for terminals/environments that mangle
-Unicode. See `src/generators/component_tree.py::render_ascii_tree`.
+Unicode. See `generators/component_tree.py::render_ascii_tree`.
 
 ## load
 

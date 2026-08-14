@@ -1,4 +1,4 @@
-# `src/core/prompts.py`
+# `core/prompts.py`
 
 ## module
 

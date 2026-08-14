@@ -2,9 +2,9 @@
 
 ```bash
 docker compose up -d neo4j       
-# graph store (skip if graph_store: memory in pragma.yaml)
+# graph store (skip if graph_store: memory in config/pragma.yaml)
 #eze: 
-python3 src/cli.py https://example.com
+python3 cli.py https://example.com
 #juli:
-python src/cli.py https://example.com
+python cli.py https://example.com
 ```

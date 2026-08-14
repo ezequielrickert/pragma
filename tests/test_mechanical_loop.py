@@ -1,4 +1,4 @@
-"""Regression tests for MechanicalCrawler (src/crawlers/mechanical_loop.py),
+"""Regression tests for MechanicalCrawler (spiders/mechanical_loop.py),
 Phase 2 of the crawl4ai migration - the mechanical, no-AI, no-per-step-decision
 interaction loop that replaces SimplePRDGenerator._execute_loop.
 
@@ -23,12 +23,12 @@ from typing import Any, Dict, List
 
 import pytest
 
-from src.core.interfaces import PageState
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from src.crawlers.graph_sink import GraphStoreSink
-from src.crawlers.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
-from src.storage.memory_graph_store import InMemoryGraphStore
-from src.utils.urls import route_shape
+from core.interfaces import PageState
+from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.graph_sink import GraphStoreSink
+from spiders.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
+from database.memory_graph_store import InMemoryGraphStore
+from utils.urls import route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 

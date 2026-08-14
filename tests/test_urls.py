@@ -1,5 +1,5 @@
-"""Regression tests for src/utils/urls.py's canonicalization functions."""
-from src.utils.urls import clean_url, is_in_scope, route_shape
+"""Regression tests for utils/urls.py's canonicalization functions."""
+from utils.urls import clean_url, is_in_scope, route_shape
 
 
 def test_clean_url_strips_scheme_trailing_slash_and_fragment():

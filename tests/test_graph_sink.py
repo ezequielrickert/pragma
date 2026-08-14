@@ -1,5 +1,5 @@
 """Regression tests for Phase 3 of the crawl4ai migration: live GraphStore
-writes via MechanicalCrawler + GraphStoreSink (src/crawlers/graph_sink.py).
+writes via MechanicalCrawler + GraphStoreSink (spiders/graph_sink.py).
 
 Uses InMemoryGraphStore (same GraphStore interface Neo4jGraphStore implements)
 so these run without a live Neo4j instance - matches the existing test suite's
@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from src.crawlers.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from src.crawlers.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
-from src.crawlers.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
-from src.generators.component_classifier import describe_options
-from src.storage.memory_graph_store import InMemoryGraphStore
+from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
+from spiders.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from generators.component_classifier import describe_options
+from database.memory_graph_store import InMemoryGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 SITE = "test-site"

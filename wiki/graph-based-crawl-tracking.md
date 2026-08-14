@@ -108,7 +108,7 @@ read:
 
 **Update — this project's own per-page markdown snapshot violated this principle for a long time,
 because "one snapshot per page" was the wrong mental model:** `CrawlDebugLog.save_page_markdown`
-(`src/crawlers/debug_log.py`) was built overwrite-only, on the reasoning that a page's markdown
+(`spiders/debug_log.py`) was built overwrite-only, on the reasoning that a page's markdown
 snapshot is a "live snapshot" concept — reasonable-sounding, and correct for the case of a literal
 page *revisit*. What that reasoning missed: `save_page_markdown` isn't called once per page visit,
 it's called once per **interaction** within a session (`discover_page`, every `_interact`, every

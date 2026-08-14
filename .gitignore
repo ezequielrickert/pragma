@@ -1,8 +1,8 @@
 .env
-pragma.yaml
+config/pragma.yaml
 
-# Playwright storage-state files (python3 src/cli.py login) contain real session
-# cookies/localStorage - never commit these, wherever the user chose to save them.
+# Playwright storage-state files contain real session cookies/localStorage -
+# never commit these, wherever the user chose to save them.
 storage_state*.json
 
 # Python
@@ -14,29 +14,15 @@ venv/
 # macOS
 .DS_Store
 
-# Generated crawl output (research/progress logs, navigation graphs) - one
-# run creates several timestamped files per site; only committing intentional
-# examples/fixtures is worth doing manually with `git add -f`.
-research_logs/*.md
-progress_logs/*.md
-graph_logs/*.json
-
 # Neo4j backups (scripts/neo4j_backup.sh) - binary dumps of a full crawled
 # graph, potentially large, never worth version-controlling.
 backups/
 
-# Generated crawl output written straight into docs/ (Engine._run_async) - a
-# timestamped PRD/tree/export per run, plus the regenerated index and run
-# manifest. docs/dev/ (hand-maintained companion docs) is untouched by these
-# patterns - a single `*` doesn't cross the dev/ directory boundary - and
-# stays tracked normally.
-docs/*_prd_*.md
-docs/*_tree_*.md
-docs/*_graph_*.json
-docs/index.md
-docs/runs.json
-
-# Per-run debug artifacts (PragmaConfig.debug_logs_dir) - every crawl4ai hook
-# firing plus each visited URL's markdown snapshot history, one directory
-# per run; can carry real page content, never worth version-controlling.
-debug_logs/
+# All generated run output - PRD/tree/catalog/etc. documents, the run index
+# and manifest (PragmaConfig.out_dir, default data/output), and per-run debug
+# artifacts (PragmaConfig.debug_logs_dir, default data/debug_logs). Ignoring
+# the whole directory rather than listing individual filename patterns is
+# deliberate: docs/www.empanad.app__*.md once slipped into git because the
+# old pattern list only covered prd/tree/graph output, not every document
+# type the pipeline can produce.
+data/

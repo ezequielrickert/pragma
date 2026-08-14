@@ -1,4 +1,4 @@
-# `src/core/interfaces.py`
+# `core/interfaces.py`
 
 ## module
 
@@ -7,7 +7,7 @@ live here (`Action`/`AgentAction`/`TOOL_SPECS`/`parse_agent_action`/
 `Agent.act()`) is gone along with the per-step LLM decision loop it
 served - there is no longer a numbered "Clickable elements" list for a
 model to pick from, since `MechanicalCrawler`
-(`src/crawlers/mechanical_loop.py`) interacts with every discovered
+(`spiders/mechanical_loop.py`) interacts with every discovered
 element mechanically. `Scraper`/`PRDGenerator` are gone too: they
 modeled a synchronous, lazily-started, single-`Page`/single-call-return
 shape that doesn't fit `Crawl4AICrawler`'s async, `AsyncWebCrawler`-owns-
@@ -37,7 +37,7 @@ for how it ends up in the final PRD via `GraphPRDSynthesizer`.
 
 Meaningful (xhr/fetch) network requests triggered by the interaction that
 produced this `PageState` - see
-`src/crawlers/network_filter.py::filter_meaningful_requests` for exactly
+`spiders/network_filter.py::filter_meaningful_requests` for exactly
 what "meaningful" means and what each dict contains. Always `[]` for a
 plain navigation (`Crawl4AICrawler.discover_page` never enables capture -
 a page load's own requests aren't attributable to one component's
@@ -47,7 +47,7 @@ interaction the way a click/fill's are); only populated by
 ## PageState.text_content
 
 Non-interactive prose (`<p>`/`<h1-6>`/`<li>`/...), captured once per page
-visit alongside `components` - see `src/crawlers/js/extract_text_content.js`
+visit alongside `components` - see `spiders/js/extract_text_content.js`
 for exactly what's captured and excluded (anything that's an interactive
 component's own label text). Each entry: `{tag, text, path, visible, rect}`.
 
@@ -55,7 +55,7 @@ component's own label text). Each entry: `{tag, text, path, visible, rect}`.
 
 DOM-attribute and computed-style facts about a discovered element, added
 2026-08-11 alongside `discover_components.js`'s `attributes`/`style`
-fields (`src/crawlers/js/discover_components.js`'s `getStyleFacts`)
+fields (`spiders/js/discover_components.js`'s `getStyleFacts`)
 finally getting persisted instead of being computed and discarded before
 reaching `record_component`. Bundled into one dataclass rather than
 fifteen more scalar params on `record_component` itself - that method
@@ -80,11 +80,11 @@ set - the reliable source, since discovery can run before or after a
 fill. Re-reading `.value` into `ComponentFacts` would just be a second,
 possibly-stale copy of the same fact.
 
-`src.crawlers.graph_sink._component_facts` (see
-`docs/dev/crawlers/graph_sink.md#_component_facts`) is the one place a
+`spiders.graph_sink._component_facts` (see
+`docs/dev/spiders/graph_sink.md#_component_facts`) is the one place a
 raw JS-discovered component dict gets mapped onto this dataclass; both
 `GraphStore` backends' `_FACTS_FIELDS` constant (see
-`docs/dev/storage/neo4j_graph_store.md#record_component`) derive their
+`docs/dev/database/neo4j_graph_store.md#record_component`) derive their
 Cypher/dict field lists from `ComponentFacts.__dataclass_fields__` rather
 than hand-listing the fifteen names a second time, so the three places
 (dataclass, Cypher, in-memory dict) can't drift apart from each other.
@@ -97,7 +97,7 @@ Every method is scoped by `site` (the crawled domain) so multiple sites
 can be tracked side by side without their data mixing - the tool is
 expected to crawl many different websites over time, each analyzed
 independently. `url` values passed in and returned are always the
-already-normalized, scheme-stripped node key (see `src.utils.urls.clean_url`)
+already-normalized, scheme-stripped node key (see `utils.urls.clean_url`)
 - the store itself does not re-normalize.
 
 ## upsert_page
@@ -198,7 +198,7 @@ checklist a *precise* map of the page - not just "this exists somewhere"
 but "this exists right here."
 
 `component_type` is a short, deterministic classification (see
-`src.generators.component_classifier.classify_component_type`) - e.g.
+`generators.component_classifier.classify_component_type`) - e.g.
 "checkbox," "text field (email)," "combobox (searchable dropdown)" -
 computed from tag/role/input_type alone, safe to recompute and overwrite
 every call like the other descriptive fields.
@@ -258,7 +258,7 @@ code path.
 `GraphStoreSink.record_interaction` when `path` is a consolidated
 dropdown/choice-group's representative node rather than the specific
 member that actually acted (see
-`docs/dev/crawlers/graph_sink.md#_resolve_write_path`) - both backends
+`docs/dev/spiders/graph_sink.md#_resolve_write_path`) - both backends
 embed it into the interaction entry only when non-empty, so an ordinary
 (ungrouped) interaction's JSON shape is byte-for-byte unchanged from
 before this field existed.
@@ -266,7 +266,7 @@ before this field existed.
 ## record_component_network
 
 Append one JSON-encoded batch of meaningful network requests
-(`src/crawlers/network_filter.py::filter_meaningful_requests`'s output
+(`spiders/network_filter.py::filter_meaningful_requests`'s output
 for one interaction) to a Component's `network_requests` list - same
 append-only-list-of-JSON-strings shape as
 `record_component_interaction`'s `interactions`, not an overwrite like
@@ -285,7 +285,7 @@ visible, x, y, width, height, component_type, options, ...every
 ComponentFacts field}}`.
 
 One query per page visit, not one per component -
-`GraphStoreInteractionTracker` (`src/crawlers/graph_sink.py`) is the
+`GraphStoreInteractionTracker` (`spiders/graph_sink.py`) is the
 caller. `x`/`y`/`width`/`height` are `None` for components recorded
 before position tracking existed, or by a test double that doesn't
 report it. `options` is the raw JSON string set by
@@ -322,7 +322,7 @@ what" record, sourced from real persisted state - what
 
 `apply_tag_labels`/`record_component_families`/`get_component_families`
 are a post-hoc, whole-site pass over already-discovered components (see
-`src/generators/component_family.py`), not part of the live per-page
+`generators/component_family.py`), not part of the live per-page
 crawl write path - `Engine._apply_component_families` calls all three
 once, after a crawl finishes.
 
@@ -353,10 +353,10 @@ deliberately deferred, see the module's own commit history).
 
 Same "post-hoc, whole-site pass, full rebuild every call" contract as
 `record_component_families`/`get_component_families`, one layer over:
-`src/generators/request_family.py` groups network requests already
+`generators/request_family.py` groups network requests already
 captured on Component nodes into distinct `InferredRequest` endpoints
 (see that module's own docstring for the algorithm), and `Engine.
-_apply_request_graph` (`src/core/engine.py`) is what calls both this
+_apply_request_graph` (`core/engine.py`) is what calls both this
 build step and these two `GraphStore` methods, once per crawl, right
 after `_apply_component_families`.
 
@@ -377,7 +377,7 @@ own identity keeps the interaction surface untouched by construction.
 Create or refresh a text-content record - idempotent upsert, same
 discipline as `record_component`'s descriptive fields, but with no
 interaction state to preserve (none exists for non-interactive text).
-Called once per page visit (see `docs/dev/crawlers/page_visitor.md#visit`),
+Called once per page visit (see `docs/dev/spiders/page_visitor.md#visit`),
 *not* re-called on same-page reveals the way `record_inventory` now is
 for `Component` - text revealed only by an interaction is a real,
 structurally-symmetric gap to the ghost-node bug, but out of scope for

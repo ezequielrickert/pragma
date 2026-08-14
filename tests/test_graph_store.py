@@ -1,6 +1,6 @@
 """Tests for the GraphStore abstraction - in-memory (always run) and Neo4j (opt-in)."""
-from src.core.interfaces import ComponentFacts, ComponentFamily, InferredRequest
-from src.storage.memory_graph_store import InMemoryGraphStore
+from core.interfaces import ComponentFacts, ComponentFamily, InferredRequest
+from database.memory_graph_store import InMemoryGraphStore
 
 
 def test_memory_store_upsert_is_idempotent_per_site():
@@ -321,9 +321,9 @@ class _SpyGraphStore(InMemoryGraphStore):
 
 
 def test_engine_from_config_clears_site_when_fresh(tmp_path):
-    from src.core.config import PragmaConfig
-    from src.core.engine import Engine
-    from src.core.registry import GRAPH_STORE_REGISTRY
+    from core.config import PragmaConfig
+    from core.engine import Engine
+    from core.registry import GRAPH_STORE_REGISTRY
 
     GRAPH_STORE_REGISTRY.register("_spy_fresh_test")(_SpyGraphStore)
     config = PragmaConfig(
@@ -337,9 +337,9 @@ def test_engine_from_config_clears_site_when_fresh(tmp_path):
 
 
 def test_engine_from_config_skips_clear_when_not_fresh(tmp_path):
-    from src.core.config import PragmaConfig
-    from src.core.engine import Engine
-    from src.core.registry import GRAPH_STORE_REGISTRY
+    from core.config import PragmaConfig
+    from core.engine import Engine
+    from core.registry import GRAPH_STORE_REGISTRY
 
     GRAPH_STORE_REGISTRY.register("_spy_no_fresh_test")(_SpyGraphStore)
     config = PragmaConfig(

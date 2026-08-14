@@ -73,7 +73,7 @@ they were used as an actual diagnostic checklist multiple times in one session.
 ## Where this came from
 
 Every principle here was extracted from a real bug found while building Pragma's Ralph-Loop
-(`SimplePRDGenerator` in `src/generators/prd_generator.py`) — an LLM agent that autonomously
+(`SimplePRDGenerator` in `generators/prd_generator.py`) — an LLM agent that autonomously
 crawls a website via Playwright. Nothing here is theoretical; each doc names the actual symptom
 that was reported, the actual root cause, and the actual fix, then generalizes it. If you fix
 something in this codebase that reveals a new instance of one of these patterns (or a genuinely

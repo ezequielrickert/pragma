@@ -1,11 +1,11 @@
-# `src/generators/component_family.py`
+# `generators/component_family.py`
 
 ## module
 
 Post-hoc, whole-site inference of reusable component "families" (a
 Button pattern, a combobox pattern, ...) from components a crawl already
 discovered - not part of the live per-page write path `GraphStoreSink`
-drives during a crawl (see `src/core/engine.py::_apply_component_families`
+drives during a crawl (see `core/engine.py::_apply_component_families`
 for where this runs: once, after `MechanicalCrawler.crawl_site` finishes,
 since clustering needs to see every discovered component across the
 whole site at once).
@@ -108,7 +108,7 @@ Buckets by `(tag, component_type)` first - nothing ever merges across
 element kinds regardless of class overlap, which is what makes plain
 (unweighted) Jaccard safe to use inside a bucket (see
 `_similarity_threshold`'s own doc anchor). `common_classes` on each
-returned `ComponentFamily` (`src/core/interfaces.py`) is the
+returned `ComponentFamily` (`core/interfaces.py`) is the
 intersection of every member's own classes - a human-readable summary
 of what the family visually has in common. `member_paths` is sorted
 before being returned, so a round-trip through either `GraphStore`
