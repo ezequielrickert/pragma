@@ -49,6 +49,13 @@ class MechanicalCrawler:
         self._pacing = WorkerPacing(crawler, config)
         self.page_results: List[PageVisitResult] = []
         self._pages_visited = 0
+        # Split deliberately: a requeued visit prints exactly like a fresh one
+        # in crawl4ai's own output, so a crawl churning on the same handful of
+        # pages is indistinguishable from one making progress. Separating them
+        # is the whole diagnostic value of the per-visit line.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#visit-counters
+        self._unique_visits = 0
+        self._requeued_visits = 0
         self._page_visitor = PageVisitor(
             crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links, config
         )
@@ -89,6 +96,19 @@ class MechanicalCrawler:
                 print(f"Warning: could not recycle session {browser_session_id!r}: {exc}")
         return 0
 
+    def _report_visit(self, worker_id: int, url: str, result: PageVisitResult) -> None:
+        """One line per finished visit, naming the worker so concurrent
+        output stays readable, and splitting unique visits from requeues so a
+        crawl churning on the same pages is visibly different from one making
+        progress. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_report_visit
+        """
+        outcome = "requeued" if result.interrupted_by_navigation else "done"
+        print(
+            f"worker {worker_id} | visit {self._pages_visited} "
+            f"({self._unique_visits} unique, {self._requeued_visits} requeued) "
+            f"| queued: {self._frontier.queued_count()} | {outcome}: {url}"
+        )
+
     async def _worker(self, worker_id: int) -> None:
         """One concurrent visitor: pulls a URL, hands it to `PageVisitor`, requeues.
         Reuses one browser tab (keyed by `worker_id`) across every URL it
@@ -122,9 +142,12 @@ class MechanicalCrawler:
                 if result.interrupted_by_navigation:
                     # Requeue resolved_url directly - see doc for the redirect bug this avoids.
                     # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-requeue
+                    self._requeued_visits += 1
                     self._frontier.requeue(result.resolved_url)
                 else:
+                    self._unique_visits += 1
                     self.tracker.mark_visited(key)
                     self._frontier.record_route_shape_visit(url)
+                self._report_visit(worker_id, url, result)
             finally:
                 self._frontier.task_done()

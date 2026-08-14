@@ -71,6 +71,13 @@ class UrlFrontier:
         """
         self._queue.put_nowait(url)
 
+    def queued_count(self) -> int:
+        """How many URLs are still waiting - the denominator a progress line
+        needs to distinguish "working through a long list" from "stuck".
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#queued_count
+        """
+        return self._queue.qsize()
+
     async def get(self) -> str:
         return await self._queue.get()
 

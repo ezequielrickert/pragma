@@ -14,7 +14,7 @@ from generators.component_classifier import (
     group_option_families,
     group_steppers,
 )
-from utils.urls import clean_url, is_in_scope
+from utils.urls import clean_url, is_in_scope, route_shape
 from .component_facts import component_facts, option_labels_for
 
 # Status for a link target the frontier will never visit because it points off
@@ -166,9 +166,15 @@ class GraphStoreSink:
                 continue  # mailto:/tel:/javascript: etc - see mechanical_loop's own identical filter
             if not href:
                 continue
-            link_batch.append({"to_url": clean_url(href), "label": link.get("text", "")})
+            # route_shape, not clean_url: every other page key in the graph
+            # is shaped (visit() derives page_key that way), so recording a
+            # link target unshaped would mint a second node for a screen that
+            # already has a canonical one - exactly what route_shape exists to
+            # prevent. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#link-target-key
+            target = route_shape(href)
+            link_batch.append({"to_url": target, "label": link.get("text", "")})
             if self.base_url and not is_in_scope(href, self.base_url, self.allow_subdomains):
-                off_site.append(clean_url(href))
+                off_site.append(target)
         if link_batch:
             await self._write(self.graph_store.record_links, self.site, page_key, link_batch)
         # After record_links, never instead of it: the edge to an off-site

@@ -29,6 +29,17 @@ if TYPE_CHECKING:
 # never-loading page. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_max_consecutive_unexplained_failures
 _MAX_CONSECUTIVE_UNEXPLAINED_FAILURES = 3
 
+# How many interactions between intra-visit progress lines. Silent below it,
+# so an ordinary page says nothing. Above it, the loop has already done more
+# work than any normal page needs, and since d59ce99 removed the per-page
+# ceiling there is no longer anything that stops it - a page whose DOM keeps
+# minting new component paths grows `frontier` from inside the loop that
+# reads it (outcomes.py's frontier.append), so `while idx < len(frontier)`
+# never ends. Printing the two numbers side by side is what makes that
+# visible: a frontier growing as fast as idx is the signature.
+# Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_progress_every_n_interactions
+_PROGRESS_EVERY_N_INTERACTIONS = 100
+
 
 class PageVisitor:
     """Mechanically interacts with one page's frontier, called once per URL.
@@ -147,6 +158,11 @@ class PageVisitor:
         while idx < len(frontier):
             component = frontier[idx]
             idx += 1
+            if idx % _PROGRESS_EVERY_N_INTERACTIONS == 0:
+                print(
+                    f"  still on {page_key}: {idx} interactions, "
+                    f"page frontier {len(frontier)}"
+                )
             path = component["path"]
             if self.tracker.is_interacted(page_key, path):
                 continue  # revealed again by an earlier interaction this pass, already handled
