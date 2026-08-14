@@ -9,14 +9,14 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 
-from spiders.crawl4ai_crawler import Crawl4AICrawlerConfig
-from spiders.crawl4ai_crawler_pool import Crawl4AICrawlerPool
-from spiders.debug_log import CrawlDebugLog, prune_old_runs
-from spiders.fill_value_agent import make_ai_fill_value_fn
-from spiders.fill_values import default_placeholder_fill_value
-from spiders.graph_sink import GraphStoreSink
-from spiders.measurement_pass import run_measurement_pass
-from spiders.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.browser.crawl4ai_crawler import Crawl4AICrawlerConfig
+from spiders.browser.crawl4ai_crawler_pool import Crawl4AICrawlerPool
+from spiders.browser.debug_log import CrawlDebugLog, prune_old_runs
+from spiders.content.fill_value_agent import make_ai_fill_value_fn
+from spiders.content.fill_values import default_placeholder_fill_value
+from spiders.orchestration.graph_sink import GraphStoreSink
+from spiders.orchestration.measurement_pass import run_measurement_pass
+from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from generators.component_family import (
     build_component_families,
     label_for_tag,

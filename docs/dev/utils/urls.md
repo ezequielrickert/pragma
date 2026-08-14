@@ -9,7 +9,7 @@ wiki/browser-automation-pitfalls.md's redirect-normalization lesson.
 Extracted from `SimplePRDGenerator._clean_url`
 (`generators/prd_generator.py`) as a standalone function during the
 crawl4ai migration, since the new mechanical crawler
-(`spiders/mechanical_loop.py`) needs it from more call sites than
+(`spiders/orchestration/mechanical_loop.py`) needs it from more call sites than
 the old single class did: crawl4ai's own `after_goto`/link extraction,
 the interaction-frontier's page-key lookups, and eventually every
 `GraphStore` call site once Phase 3 wires live writes. Logic - strip
@@ -87,7 +87,7 @@ third one:
   would mean a real navigation between two same-shaped hash instances
   (e.g. a "start a new order" button) stops being detected as a
   navigation at all, silently reusing selectors built for a page the
-  session has already left. See `docs/dev/spiders/page_visitor.md#visit`
+  session has already left. See `docs/dev/spiders/orchestration/page_visitor.md#visit`
   for the full split.
 
 Never use this value as the literal URL to navigate to - it is lossy by

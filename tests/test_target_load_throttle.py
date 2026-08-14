@@ -1,4 +1,4 @@
-"""Unit tests for TargetLoadThrottle (spiders/target_load_throttle.py) -
+"""Unit tests for TargetLoadThrottle (spiders/browser/target_load_throttle.py) -
 the adaptive backoff + circuit breaker extracted out of Crawl4AICrawler once
 that file crossed this repo's file-size SPLIT threshold. Tests the class
 directly, with no Crawl4AICrawler/browser involved - pure arithmetic and
@@ -13,7 +13,7 @@ from typing import List
 
 import pytest
 
-from spiders.target_load_throttle import TargetLoadThrottle
+from spiders.browser.target_load_throttle import TargetLoadThrottle
 
 
 def test_backoff_grows_proportionally_to_how_slow_the_navigation_was():

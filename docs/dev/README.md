@@ -2,7 +2,7 @@
 
 Every file under a top-level Python package (`core/`, `agents/`, `database/`, `spiders/`,
 `generators/`, `utils/`) gets a matching file here, at the same relative path
-(`spiders/mechanical_loop.py` → `docs/dev/spiders/mechanical_loop.md`).
+(`spiders/orchestration/mechanical_loop.py` → `docs/dev/spiders/orchestration/mechanical_loop.md`).
 The source file keeps a short (≤2-line) comment or docstring at each
 decision point; anything longer - the "why," the bug it fixes, the
 tradeoff it accepts - lives in the matching doc under a heading named
@@ -11,7 +11,7 @@ it with a one-line `Details:` pointer:
 
 ```python
 # Deliberately not the same guard as X - see this variable's own note.
-# Details: docs/dev/spiders/page_visitor.md#stale-resynced-since-success
+# Details: docs/dev/spiders/orchestration/page_visitor.md#stale-resynced-since-success
 ```
 
 **Why split it this way:** reading the code should read like code - a
@@ -40,18 +40,20 @@ aimed at onboarding rather than a specific line of code.
 
 | Source file | Doc |
 |---|---|
-| `spiders/component_matching.py` | [component_matching.md](crawlers/component_matching.md) |
-| `spiders/interaction_tracker.py` | [interaction_tracker.md](crawlers/interaction_tracker.md) |
-| `spiders/visit_result.py` | [visit_result.md](crawlers/visit_result.md) |
-| `spiders/page_extraction.py` | [page_extraction.md](crawlers/page_extraction.md) |
-| `spiders/debug_log.py` | [debug_log.md](crawlers/debug_log.md) |
-| `spiders/network_filter.py` | [network_filter.md](crawlers/network_filter.md) |
-| `spiders/fill_values.py` | [fill_values.md](crawlers/fill_values.md) |
-| `spiders/fill_value_agent.py` | [fill_value_agent.md](crawlers/fill_value_agent.md) |
-| `spiders/graph_sink.py` | [graph_sink.md](crawlers/graph_sink.md) |
-| `spiders/mechanical_loop.py` | [mechanical_loop.md](crawlers/mechanical_loop.md) |
-| `spiders/page_visitor.py` | [page_visitor.md](crawlers/page_visitor.md) |
-| `spiders/crawl4ai_crawler.py` | [crawl4ai_crawler.md](crawlers/crawl4ai_crawler.md) |
+| `spiders/browser/crawl4ai_crawler.py` | [crawl4ai_crawler.md](spiders/browser/crawl4ai_crawler.md) |
+| `spiders/browser/debug_log.py` | [debug_log.md](spiders/browser/debug_log.md) |
+| `spiders/browser/dom_settle.py` | [dom_settle.md](spiders/browser/dom_settle.md) |
+| `spiders/content/component_matching.py` | [component_matching.md](spiders/content/component_matching.md) |
+| `spiders/content/fill_value_agent.py` | [fill_value_agent.md](spiders/content/fill_value_agent.md) |
+| `spiders/content/fill_values.py` | [fill_values.md](spiders/content/fill_values.md) |
+| `spiders/content/network_filter.py` | [network_filter.md](spiders/content/network_filter.md) |
+| `spiders/content/page_extraction.py` | [page_extraction.md](spiders/content/page_extraction.md) |
+| `spiders/orchestration/graph_sink.py` | [graph_sink.md](spiders/orchestration/graph_sink.md) |
+| `spiders/orchestration/interaction_tracker.py` | [interaction_tracker.md](spiders/orchestration/interaction_tracker.md) |
+| `spiders/orchestration/mechanical_loop.py` | [mechanical_loop.md](spiders/orchestration/mechanical_loop.md) |
+| `spiders/orchestration/measurement_pass.py` | [measurement_pass.md](spiders/orchestration/measurement_pass.md) |
+| `spiders/orchestration/page_visitor.py` | [page_visitor.md](spiders/orchestration/page_visitor.md) |
+| `spiders/orchestration/visit_result.py` | [visit_result.md](spiders/orchestration/visit_result.md) |
 | `core/interfaces.py` | [interfaces.md](core/interfaces.md) |
 | `core/engine.py` | [engine.md](core/engine.md) |
 | `core/config.py` | [config.md](core/config.md) |
@@ -60,8 +62,8 @@ aimed at onboarding rather than a specific line of code.
 | `core/bootstrap.py` | [bootstrap.md](core/bootstrap.md) |
 | `core/prompts.py` | [prompts.md](core/prompts.md) |
 | `cli.py` | [cli.md](cli.md) |
-| `database/neo4j_graph_store.py` | [neo4j_graph_store.md](storage/neo4j_graph_store.md) |
-| `database/memory_graph_store.py` | [memory_graph_store.md](storage/memory_graph_store.md) |
+| `database/neo4j_graph_store.py` | [neo4j_graph_store.md](database/neo4j_graph_store.md) |
+| `database/memory_graph_store.py` | [memory_graph_store.md](database/memory_graph_store.md) |
 | `generators/component_classifier.py` | [component_classifier.md](generators/component_classifier.md) |
 | `generators/component_tree.py` | [component_tree.md](generators/component_tree.md) |
 | `generators/graph_export.py` | [graph_export.md](generators/graph_export.md) |

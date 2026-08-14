@@ -337,7 +337,7 @@ traducirla 1:1; un documento que sólo describe el pasado no sirve para eso.
 #### 5.0 — El pase de medición (prerrequisito de 5b y 5c)
 
 El navegador del crawl está afinado para velocidad, no para representar lo que ve un usuario
-([crawl4ai_crawler.py:186](spiders/crawl4ai_crawler.py:186)): viewport 800×600,
+([crawl4ai_crawler.py:186](spiders/browser/crawl4ai_crawler.py:186)): viewport 800×600,
 `light_mode`, `memory_saving_mode`, y `block_images` descartando `image`/`media`/`font`. Todo
 `rect` del grafo está medido a 800×600, sin webfonts y sin imágenes de fondo.
 
@@ -420,9 +420,9 @@ sobre gradiente, con ~90 reglas mantenidas por Deque contra las siete escritas a
 
 **Cómo se integra, concretamente:**
 
-1. **`axe.min.js` vendorizado en `spiders/js/`**, como sexto asset junto a
+1. **`axe.min.js` vendorizado en `spiders/content/js/`**, como sexto asset junto a
    `discover_components.js` y compañía, cargado con el mismo `_load_js()` de
-   [page_extraction.py](spiders/page_extraction.py). **No** se usa `@axe-core/playwright`:
+   [page_extraction.py](spiders/content/page_extraction.py). **No** se usa `@axe-core/playwright`:
    es un paquete npm y en este proyecto no hay Node en ningún lado (`requirements.txt` es Python
    puro, Docker sólo levanta Neo4j). Cero dependencias Python nuevas.
 2. **Corre dentro del pase de medición (5.0)**, no durante el crawl principal. Es el encaje
@@ -622,7 +622,7 @@ investigación pide y el plan no cubría.
 `capture_network_requests=True` está puesto sólo en `Crawl4AICrawler._interact()`, nunca en
 `discover_page()`. Está documentado y el razonamiento es correcto *para su propósito original*:
 "las peticiones de una carga de página no son atribuibles a la interacción de un componente"
-([crawl4ai_crawler.md#_interact-network-capture](docs/dev/spiders/crawl4ai_crawler.md)). Pero
+([crawl4ai_crawler.md#_interact-network-capture](docs/dev/spiders/browser/crawl4ai_crawler.md)). Pero
 ese razonamiento no aplica a D4: **un endpoint no necesita componente disparador para ser parte
 del contrato de la API.** Una SPA que carga sus datos al entrar a la ruta pierde todos esos
 endpoints, y hoy nada lo reporta. Requiere decisión nueva: capturar también en `discover_page()`

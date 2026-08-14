@@ -1,5 +1,5 @@
 """The retry that fires when discovery comes back empty on a page that
-clearly has content (spiders/crawl4ai_crawler.py).
+clearly has content (spiders/browser/crawl4ai_crawler.py).
 
 Driven through a real browser against fixtures, because the bug this
 exists for is a timing race: a shell that settles, then swaps in the real
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "late_render"
 

@@ -40,9 +40,9 @@ number of pages visited (default: unbounded, crawl until the URL frontier is exh
 Design: a micro-kernel `Engine` (`core/engine.py`) wires an `Agent` ("the brain"/LLM,
 `agents/`) and a `GraphStore` ("the graph", `database/`), both resolved by name from plugin
 registries (`core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
-(`spiders/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
+(`spiders/orchestration/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
 discovery and interaction) crawls the site and writes live to the graph store
-(`GraphStoreSink`, `spiders/graph_sink.py`); `GraphPRDSynthesizer`
+(`GraphStoreSink`, `spiders/orchestration/graph_sink.py`); `GraphPRDSynthesizer`
 (`generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
 Markdown PRD. See `ARCHITECTURE.md` for the full data flow. To add a new agent or graph-store
 plugin, implement the relevant interface in `core/interfaces.py`, decorate the class (or a

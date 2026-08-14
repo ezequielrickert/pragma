@@ -98,21 +98,21 @@ synthesizing a PRD from an accumulated research log. That entire per-step decisi
   model to call turn-by-turn — with no more per-step decisions, there's nothing left to wrap.
 - **The discovery JS is preserved, not rewritten.** `PlaywrightScraper._discover_components`'s
   battle-tested selector-uniqueness/ARIA-role/shadow-DOM/accessible-label logic now lives in
-  `spiders/js/discover_components.js`, run via `page.evaluate()` inside a crawl4ai hook
+  `spiders/content/js/discover_components.js`, run via `page.evaluate()` inside a crawl4ai hook
   (`Crawl4AICrawler`) instead of a Playwright `Page` method. One real bug was found and fixed in
   the port — see the plan/wiki for details.
 - **Neo4j is the primary, live-updated source of truth**, not a secondary debug artifact.
   `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based logs) no longer
   exist — everything they used to capture (route status, the navigation graph, the component
   ledger, page descriptions) is written straight to `GraphStore` as the crawl happens
-  (`GraphStoreSink`, `spiders/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
+  (`GraphStoreSink`, `spiders/orchestration/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
 
 ---
 
 ## Discovery JS: unchanged battle-tested logic, new host
 
-`spiders/js/discover_components.js` (plus `extract_links.js`/`extract_description.js`/
-`extract_metadata.js`) is what `Crawl4AICrawler` (`spiders/crawl4ai_crawler.py`) runs via
+`spiders/content/js/discover_components.js` (plus `extract_links.js`/`extract_description.js`/
+`extract_metadata.js`) is what `Crawl4AICrawler` (`spiders/browser/crawl4ai_crawler.py`) runs via
 `page.evaluate()` inside crawl4ai hooks. Every historical fix documented in
 `wiki/browser-automation-pitfalls.md` is preserved:
 
@@ -137,7 +137,7 @@ requested URL, unchanged regardless of what actually happened).
 
 ## Mechanical Interaction: Two Frontiers
 
-`MechanicalCrawler` (`spiders/mechanical_loop.py`) replaces the old per-step decision loop
+`MechanicalCrawler` (`spiders/orchestration/mechanical_loop.py`) replaces the old per-step decision loop
 with two frontiers, composed but never conflated:
 
 - **URL frontier**: a FIFO queue of discovered-but-not-visited pages, fed by every page's extracted
@@ -169,7 +169,7 @@ the placeholder on any failure.
 
 ## Live Neo4j Wiring
 
-`GraphStoreSink` (`spiders/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
+`GraphStoreSink` (`spiders/orchestration/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
 directly as the crawl happens:
 
 - `record_page_arrival` — the moment a page is reached (before discovery), plus its description.

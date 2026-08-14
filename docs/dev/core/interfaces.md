@@ -7,7 +7,7 @@ live here (`Action`/`AgentAction`/`TOOL_SPECS`/`parse_agent_action`/
 `Agent.act()`) is gone along with the per-step LLM decision loop it
 served - there is no longer a numbered "Clickable elements" list for a
 model to pick from, since `MechanicalCrawler`
-(`spiders/mechanical_loop.py`) interacts with every discovered
+(`spiders/orchestration/mechanical_loop.py`) interacts with every discovered
 element mechanically. `Scraper`/`PRDGenerator` are gone too: they
 modeled a synchronous, lazily-started, single-`Page`/single-call-return
 shape that doesn't fit `Crawl4AICrawler`'s async, `AsyncWebCrawler`-owns-
@@ -37,7 +37,7 @@ for how it ends up in the final PRD via `GraphPRDSynthesizer`.
 
 Meaningful (xhr/fetch) network requests triggered by the interaction that
 produced this `PageState` - see
-`spiders/network_filter.py::filter_meaningful_requests` for exactly
+`spiders/content/network_filter.py::filter_meaningful_requests` for exactly
 what "meaningful" means and what each dict contains. Always `[]` for a
 plain navigation (`Crawl4AICrawler.discover_page` never enables capture -
 a page load's own requests aren't attributable to one component's
@@ -47,7 +47,7 @@ interaction the way a click/fill's are); only populated by
 ## PageState.text_content
 
 Non-interactive prose (`<p>`/`<h1-6>`/`<li>`/...), captured once per page
-visit alongside `components` - see `spiders/js/extract_text_content.js`
+visit alongside `components` - see `spiders/content/js/extract_text_content.js`
 for exactly what's captured and excluded (anything that's an interactive
 component's own label text). Each entry: `{tag, text, path, visible, rect}`.
 
@@ -55,7 +55,7 @@ component's own label text). Each entry: `{tag, text, path, visible, rect}`.
 
 DOM-attribute and computed-style facts about a discovered element, added
 2026-08-11 alongside `discover_components.js`'s `attributes`/`style`
-fields (`spiders/js/discover_components.js`'s `getStyleFacts`)
+fields (`spiders/content/js/discover_components.js`'s `getStyleFacts`)
 finally getting persisted instead of being computed and discarded before
 reaching `record_component`. Bundled into one dataclass rather than
 fifteen more scalar params on `record_component` itself - that method
@@ -81,7 +81,7 @@ fill. Re-reading `.value` into `ComponentFacts` would just be a second,
 possibly-stale copy of the same fact.
 
 `spiders.graph_sink._component_facts` (see
-`docs/dev/spiders/graph_sink.md#_component_facts`) is the one place a
+`docs/dev/spiders/orchestration/graph_sink.md#_component_facts`) is the one place a
 raw JS-discovered component dict gets mapped onto this dataclass; both
 `GraphStore` backends' `_FACTS_FIELDS` constant (see
 `docs/dev/database/neo4j_graph_store.md#record_component`) derive their
@@ -258,7 +258,7 @@ code path.
 `GraphStoreSink.record_interaction` when `path` is a consolidated
 dropdown/choice-group's representative node rather than the specific
 member that actually acted (see
-`docs/dev/spiders/graph_sink.md#_resolve_write_path`) - both backends
+`docs/dev/spiders/orchestration/graph_sink.md#_resolve_write_path`) - both backends
 embed it into the interaction entry only when non-empty, so an ordinary
 (ungrouped) interaction's JSON shape is byte-for-byte unchanged from
 before this field existed.
@@ -266,7 +266,7 @@ before this field existed.
 ## record_component_network
 
 Append one JSON-encoded batch of meaningful network requests
-(`spiders/network_filter.py::filter_meaningful_requests`'s output
+(`spiders/content/network_filter.py::filter_meaningful_requests`'s output
 for one interaction) to a Component's `network_requests` list - same
 append-only-list-of-JSON-strings shape as
 `record_component_interaction`'s `interactions`, not an overwrite like
@@ -285,7 +285,7 @@ visible, x, y, width, height, component_type, options, ...every
 ComponentFacts field}}`.
 
 One query per page visit, not one per component -
-`GraphStoreInteractionTracker` (`spiders/graph_sink.py`) is the
+`GraphStoreInteractionTracker` (`spiders/orchestration/graph_sink.py`) is the
 caller. `x`/`y`/`width`/`height` are `None` for components recorded
 before position tracking existed, or by a test double that doesn't
 report it. `options` is the raw JSON string set by
@@ -377,7 +377,7 @@ own identity keeps the interaction surface untouched by construction.
 Create or refresh a text-content record - idempotent upsert, same
 discipline as `record_component`'s descriptive fields, but with no
 interaction state to preserve (none exists for non-interactive text).
-Called once per page visit (see `docs/dev/spiders/page_visitor.md#visit`),
+Called once per page visit (see `docs/dev/spiders/orchestration/page_visitor.md#visit`),
 *not* re-called on same-page reveals the way `record_inventory` now is
 for `Component` - text revealed only by an interaction is a real,
 structurally-symmetric gap to the ghost-node bug, but out of scope for

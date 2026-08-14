@@ -11,9 +11,9 @@ from typing import List, Optional
 import pytest
 
 from core.interfaces import Agent
-from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from spiders.graph_sink import GraphStoreSink
-from spiders.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.orchestration.graph_sink import GraphStoreSink
+from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from generators.graph_prd_synthesizer import (
     CATALOG_SYSTEM_INSTRUCTION,
     REDUCE_SYSTEM_INSTRUCTION,

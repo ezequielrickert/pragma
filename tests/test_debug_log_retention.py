@@ -1,4 +1,4 @@
-"""Tests for spiders/debug_log.py::prune_old_runs
+"""Tests for spiders/browser/debug_log.py::prune_old_runs
 (docs/explicativos/plan-almacenamiento.md Fase A) - opt-in retention for
 debug_logs/ run directories."""
 import os
@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from spiders.debug_log import prune_old_runs
+from spiders.browser.debug_log import prune_old_runs
 
 
 @pytest.fixture

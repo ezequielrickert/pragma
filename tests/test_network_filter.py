@@ -1,8 +1,8 @@
-"""Unit tests for filter_meaningful_requests (spiders/network_filter.py) -
+"""Unit tests for filter_meaningful_requests (spiders/content/network_filter.py) -
 pure function, hand-built event dicts, no browser/crawl4ai dependency."""
 import json
 
-from spiders.network_filter import _json_shape, _shape_of_json_text, filter_meaningful_requests
+from spiders.content.network_filter import _json_shape, _shape_of_json_text, filter_meaningful_requests
 
 
 def test_empty_or_none_input_returns_empty():

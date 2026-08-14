@@ -71,7 +71,7 @@ two were never the same data source (see `module` above). Since
 2026-08-11 this collapse is no longer just a dedup of what would
 otherwise be N redundant facts (`seen_choice_groups`) - the ledger
 itself only ever has 1 node for the whole group now (see
-`docs/dev/spiders/graph_sink.md#record_inventory`), so there's only
+`docs/dev/spiders/orchestration/graph_sink.md#record_inventory`), so there's only
 ever 1 to iterate in the first place.
 
 The three-shape `options` disambiguation itself lives in

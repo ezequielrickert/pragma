@@ -1,7 +1,7 @@
 """Unit tests for the accessibility document (generators/accessibility.py)
 and the measurement pass's page selection. No browser: axe's own output is
 fed in as the fixtures it produces."""
-from spiders.measurement_pass import _navigable, _pages_to_measure
+from spiders.orchestration.measurement_pass import _navigable, _pages_to_measure
 from generators.accessibility import (
     MINIMUM_TARGET_PX,
     build_axe_findings,

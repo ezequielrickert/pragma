@@ -136,7 +136,7 @@ private `_format_variants`, used only for that module's rendered
 `variants=[...]` tree line) so `graph_sink.py` can call the exact same
 formatting logic to compute `option_labels` - the clean projection of a
 Component's raw `options` JSON stored directly on the graph node (see
-`docs/dev/spiders/graph_sink.md#_option_labels_for`), instead of that
+`docs/dev/spiders/orchestration/graph_sink.md#_option_labels_for`), instead of that
 clean form only ever existing inside a generated `.md` file. Both
 callers now share one implementation; there is no `component_tree.py`
 copy left to drift out of sync with it.

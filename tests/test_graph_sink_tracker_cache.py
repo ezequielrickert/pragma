@@ -6,7 +6,7 @@ count directly, not just the resulting boolean - the whole point of this
 change is fewer GraphStore calls, which a plain correctness test on the
 boolean result alone wouldn't catch a regression on.
 """
-from spiders.graph_sink import GraphStoreInteractionTracker
+from spiders.orchestration.graph_sink import GraphStoreInteractionTracker
 from database.memory_graph_store import InMemoryGraphStore
 
 SITE = "cache-test-site"

@@ -11,7 +11,7 @@ tests/test_crawl4ai_crawler.py's no-pytest-asyncio-dependency convention.
 """
 import asyncio
 
-from spiders.graph_sink import GraphStoreSink
+from spiders.orchestration.graph_sink import GraphStoreSink
 from generators.component_classifier import describe_options
 from database.memory_graph_store import InMemoryGraphStore
 

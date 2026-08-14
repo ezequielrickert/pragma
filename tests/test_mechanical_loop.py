@@ -1,4 +1,4 @@
-"""Regression tests for MechanicalCrawler (spiders/mechanical_loop.py),
+"""Regression tests for MechanicalCrawler (spiders/orchestration/mechanical_loop.py),
 Phase 2 of the crawl4ai migration - the mechanical, no-AI, no-per-step-decision
 interaction loop that replaces SimplePRDGenerator._execute_loop.
 
@@ -24,9 +24,9 @@ from typing import Any, Dict, List
 import pytest
 
 from core.interfaces import PageState
-from spiders.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
-from spiders.graph_sink import GraphStoreSink
-from spiders.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.orchestration.graph_sink import GraphStoreSink
+from spiders.orchestration.mechanical_loop import InMemoryInteractionTracker, MechanicalCrawler, MechanicalCrawlerConfig
 from database.memory_graph_store import InMemoryGraphStore
 from utils.urls import route_shape
 

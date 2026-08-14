@@ -397,7 +397,7 @@ order page visited. Once the failures started, `components` discovered on that p
 the rest of the pass - no further genuine progress, just one doomed selector after another, each
 costing a full `wait_seconds` round trip for nothing.
 
-**Why it happens**: the mechanical interaction loop (`spiders/mechanical_loop.py`) already had a
+**Why it happens**: the mechanical interaction loop (`spiders/orchestration/mechanical_loop.py`) already had a
 same-page re-inventory/re-diff mechanism, but only on the **success** branch of each interaction - a
 click/fill that changes the DOM without navigating re-discovers current state and diffs it for newly
 revealed components (see [graph-based-crawl-tracking.md](graph-based-crawl-tracking.md)'s ghost-node

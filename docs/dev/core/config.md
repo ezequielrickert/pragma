@@ -88,14 +88,14 @@ Per-page cap on how many components `MechanicalCrawler` mechanically
 interacts with in a single visit-pass - the backstop against a
 pathological reveal-chain, not a normal-case limiter (default generous
 enough that ordinary pages never hit it). See
-`docs/dev/spiders/mechanical_loop.md#module`.
+`docs/dev/spiders/orchestration/mechanical_loop.md#module`.
 
 ## max_pages
 
 Total pages `MechanicalCrawler.crawl_site` will visit before stopping,
 `None` = unbounded (crawl until the URL frontier is exhausted). A page
 re-queued after a navigation-interrupted pass (see
-`docs/dev/spiders/visit_result.md#pagevisitresultinterrupted_by_navigation`)
+`docs/dev/spiders/orchestration/visit_result.md#pagevisitresultinterrupted_by_navigation`)
 counts as its own visit here.
 
 ## max_passes_per_page
@@ -188,12 +188,12 @@ Where per-run debug artifacts go: `data/debug_logs/{slug}_{timestamp}/debug.md`
 (every crawl4ai hook firing, appended live) and `.../pages/{page}.md`
 (crawl4ai's own markdown conversion of each page, last-seen snapshot).
 Set to `""` (empty string) to disable debug logging entirely - see
-`spiders/debug_log.py` and `Engine._run_async`.
+`spiders/browser/debug_log.py` and `Engine._run_async`.
 
 ## debug_logs_keep_last
 
 Max number of past `debug_logs_dir` run directories to keep for this
-same site+URL (see `spiders/debug_log.py::prune_old_runs`), oldest
+same site+URL (see `spiders/browser/debug_log.py::prune_old_runs`), oldest
 deleted first. `None` (default) keeps every run forever, unchanged from
 before this setting existed - opt in once unbounded `data/debug_logs/` growth
 becomes a real disk-space concern for a site crawled repeatedly. A

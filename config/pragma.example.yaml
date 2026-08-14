@@ -58,7 +58,7 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 # debug_logs_keep_last: 5  # keep only the N most recent data/debug_logs/ run directories for this site+URL,
                        # deleting older ones once a run finishes. unset = unbounded (keep every run
                        # forever, unchanged default) - opt in once data/debug_logs/ disk usage becomes a
-                       # real concern for a site crawled repeatedly. See spiders/debug_log.py.
+                       # real concern for a site crawled repeatedly. See spiders/browser/debug_log.py.
 # documents:            # which output documents to generate, by name, in order. Unset uses the
 #   - coverage           # default below. Every run also writes a "Start Here" master document last,
 #   - prd                # indexing whatever was produced - that one is not listed here and cannot be
@@ -80,7 +80,7 @@ measurement_pass: false  # after the crawl, re-visit each finished page once wit
                        # and a 1280x800 viewport, running axe-core. Only navigation - no clicking or
                        # filling - so it costs a fraction of the crawl, not a second one. Required for
                        # the `accessibility` document to have anything to report. See
-                       # spiders/measurement_pass.py.
+                       # spiders/orchestration/measurement_pass.py.
 export_json: false    # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the
                        # prose PRD and the component tree - for a downstream tool that wants the

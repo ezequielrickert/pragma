@@ -62,7 +62,7 @@ class PragmaConfig:
     # How many pages MechanicalCrawler.crawl_site visits concurrently. A
     # serial (1) crawl pays every page's settle-wait/interaction cost back to
     # back; raising this is the single biggest wall-clock lever this project
-    # has (see docs/dev/spiders/mechanical_loop.md), paired with
+    # has (see docs/dev/spiders/orchestration/mechanical_loop.md), paired with
     # MechanicalCrawlerConfig's own memory_ceiling_percent so more workers
     # don't just trade wall-clock time for the same OOM risk.
     # Details: docs/dev/core/config.md#page_concurrency
