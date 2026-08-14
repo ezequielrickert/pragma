@@ -246,6 +246,54 @@ que hoy no se hace porque el `DETACH DELETE` borra todo.
 **Recomendación**: cachear catálogos de página por `page_url`, cachear propósitos de
 familia por firma estructural, y seguir rehaciendo el clustering entero siempre.
 
+## Hallazgo que cambia el plan: `Pending` miente
+
+> Reportado por Julieta el 2026-08-14: corrió `empanad.app` con el `main` actual y
+> *"solo recorrió completa una sola página, y dejó 2 sin visitar"*.
+
+Investigado. **`is_in_scope` se usa en exactamente un lugar de todo el crawl**:
+
+```
+spiders/orchestration/mechanical_loop/frontier.py:42
+```
+
+Es decir, sólo la **frontera** filtra por dominio. El **sink que crea los nodos, no**.
+`GraphStoreSink.record_inventory` (`sink.py:139-149`) arma su `link_batch` filtrando
+únicamente por esquema (`http`/`https`) y href no vacío, y se lo pasa a `record_links`,
+que hace `MERGE` de un `Page` con `status: 'Pending'` para cada destino.
+
+Consecuencia: **cada link externo —Instagram, Facebook, WhatsApp, Google Maps— queda como
+una `Page` en estado `Pending` que nunca, jamás, se va a visitar**, porque la frontera la
+rechaza por scope.
+
+Eso explica el síntoma sin necesidad de que haya un bug en el recorrido: las "2 sin
+visitar" son con toda probabilidad links externos. El crawl hizo lo correcto; lo que está
+mal es **el reporte**.
+
+Y tiene tres consecuencias que este plan tiene que absorber:
+
+1. **`count_visited` es engañoso para siempre.** Cuenta todo nodo `Page` en el total
+   (`neo4j_graph_store.py:405`), así que la cobertura nunca puede llegar a 100% en un
+   sitio que enlace hacia afuera. El documento de cobertura hereda el error.
+2. **El sembrado desde `get_pending()` que propone este plan no funciona como está
+   escrito.** Devolvería URLs externas. La frontera las filtraría por scope, así que no
+   habría crawl infinito — pero el contador de pendientes nunca bajaría a cero, y no
+   habría forma de saber cuándo se terminó. Que es justamente lo que necesitamos para
+   "reanudá hasta terminar".
+3. **Es prerrequisito, no mejora.** Sin esto, el corte y la reanudación se construyen
+   sobre una to-do list que contiene tareas imposibles.
+
+**Arreglo**: que el sink aplique el mismo criterio de scope que la frontera antes de
+crear el nodo. Un link fuera de dominio sigue siendo un dato interesante (a dónde manda
+el sitio), así que no se descarta: se registra distinto —`status: 'External'`— de modo
+que `get_pending` y `count_visited` sólo cuenten lo que de verdad es alcanzable.
+
+**Lo que este hallazgo no descarta**: que además haya páginas *internas* sin visitar. No
+lo puedo verificar sin Neo4j y browser levantados. El paso 1 del orden de trabajo (A′,
+progreso del crawl) existe justamente para que la próxima corrida lo diga sola — si una
+página interna se saltea por el cap de forma de ruta, hoy eso se imprime pero se pierde
+entre el ruido de crawl4ai.
+
 ## Diseño
 
 ### Dónde se corta
@@ -362,7 +410,9 @@ lo demás y es una línea.
 | # | Qué | Por qué en este lugar |
 |---|---|---|
 | 0 | Arreglar la ruta del config (§3 del diagnóstico) | sin esto nada de lo que sigue se puede configurar |
-| 1 | A′ de `plan-progreso-en-terminal.md` | hay que poder *ver* el crawl antes de cambiarle el corte |
+| 0b | Avisar de claves YAML desconocidas | convierte la clase entera de bug de `max_iterations` en un mensaje |
+| 1 | Scope en el sink: los links externos dejan de ser `Pending` | prerrequisito — sin esto la to-do list tiene tareas imposibles |
+| 1b | A′ de `plan-progreso-en-terminal.md` | hay que poder *ver* el crawl antes de cambiarle el corte |
 | 2 | Cablear el resume: `crawl_site` siembra con `get_pending()` | pieza más grande, casi toda existe |
 | 3 | `crawl_budget` con default `null`, corte en borde de página | el corte propiamente dicho; un solo camino de código |
 | 4 | Persistir `route_shape` y derivar su contador (§1b-b) | sin esto varias cortas crawlean más que una larga |
