@@ -67,6 +67,24 @@ class MechanicalCrawler:
         """
         return self._page_visitor.errors
 
+    def _resume_urls(self) -> List[str]:
+        """Pages a previous run left unfinished, so a crawl that stopped early
+        picks up where it stopped instead of re-deriving the whole frontier
+        from `start_url`.
+
+        Reads `GraphStore.get_pending`, which has existed on the interface and
+        in both backends all along with no caller. Needs a sink: without one
+        there is no store holding a previous run's progress.
+
+        A shaped URL carrying a `{token}` placeholder is skipped - it is a
+        canonical storage key, not a navigable address, so there is nothing to
+        fetch. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_resume_urls
+        """
+        if self.sink is None:
+            return []
+        pending = self.sink.graph_store.get_pending(self.sink.site)
+        return [url for url in pending if "{token}" not in url]
+
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
         """Crawl every page reachable from `start_url`, `page_concurrency` at a time.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
@@ -74,6 +92,15 @@ class MechanicalCrawler:
         if self._frontier.base_url is None:
             self._frontier.base_url = start_url
         self._frontier.enqueue(start_url)
+        # After start_url, so the entry point is always visited first.
+        # `enqueue` re-applies scope, dedup and the route-shape cap, so a
+        # stale or now-out-of-scope pending URL is filtered here rather than
+        # trusted. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-resume
+        resumed = self._resume_urls()
+        if resumed:
+            print(f"Resuming: {len(resumed)} page(s) left pending by a previous run.")
+            for url in resumed:
+                self._frontier.enqueue(url)
         workers = [asyncio.create_task(self._worker(i)) for i in range(self._pacing.page_concurrency)]
         await self._frontier.join()
         for worker in workers:

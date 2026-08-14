@@ -72,9 +72,14 @@ class PragmaConfig:
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.
     # Details: docs/dev/core/config.md#allow_subdomains
     allow_subdomains: bool = False
-    # Purge this site's previous graph_store state before crawling.
+    # Purge this site's previous graph_store state before crawling. Defaults
+    # off since resuming became possible: the pending pages a cut-short run
+    # leaves behind ARE the crawl's saved progress, and purging on by default
+    # deleted them before the resume could read them, making an interrupted
+    # crawl silently restart from scratch every time. Pass --fresh to purge
+    # on purpose - e.g. when the site changed and old facts are now wrong.
     # Details: docs/dev/core/config.md#fresh
-    fresh: bool = True
+    fresh: bool = False
     # Where per-run debug artifacts go, including each visited URL's
     # *.history.md markdown snapshots; "" disables debug logging entirely.
     # Details: docs/dev/core/config.md#debug_logs_dir
