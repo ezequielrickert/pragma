@@ -47,8 +47,6 @@ class PageVisitor:
         self.tracker = tracker
         self.sink: Optional["GraphStoreSink"] = config.sink
         self.fill_value_fn = config.fill_value_fn
-        self.element_budget = config.element_budget
-        self.max_passes_per_page = config.max_passes_per_page
         self.state_transition_overlap_threshold = config.state_transition_overlap_threshold
         self.errors: List[ComponentInteraction] = []
         # Collaborators - see each module's own docstring for why it's
@@ -136,10 +134,6 @@ class PageVisitor:
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-content-identity-exclusions
         frontier, seen_paths_this_pass = self._frontier.eligible(page_key, state.components, self.tracker)
         idx = 0
-        interactions_done = 0
-        # element_budget * max_passes_per_page is the real per-visit ceiling.
-        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-max-total-interactions
-        max_total_interactions = self.element_budget * self.max_passes_per_page
 
         # Three independent per-pass guards for the except-block below.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-guards
@@ -147,14 +141,16 @@ class PageVisitor:
         silent_navigation_checked_since_success = False
         consecutive_unexplained_failures = 0
 
-        while idx < len(frontier) and interactions_done < max_total_interactions:
+        # No numeric ceiling - terminates via frontier exhaustion or a break
+        # below, not a component/pass count. Details:
+        # docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop
+        while idx < len(frontier):
             component = frontier[idx]
             idx += 1
             path = component["path"]
             if self.tracker.is_interacted(page_key, path):
                 continue  # revealed again by an earlier interaction this pass, already handled
 
-            interactions_done += 1
             fillable = is_fillable(component)
 
             try:
@@ -253,13 +249,8 @@ class PageVisitor:
                     page_key, known_components, new_state, path, seen_paths_this_pass, frontier
                 )
 
-        # True budget exhaustion only, not a navigation-interrupted pass.
-        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-budget-exhausted
-        result.budget_exhausted_with_frontier_remaining = (
-            not result.interrupted_by_navigation and idx < len(frontier)
-        )
-        if self.sink and not result.interrupted_by_navigation and not result.budget_exhausted_with_frontier_remaining:
-            # A cut-short pass must stay Pending, not be marked Finished here.
+        if self.sink and not result.interrupted_by_navigation:
+            # A navigation-interrupted pass must stay Pending, not be marked Finished here.
             # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-record-page-finished
             await self.sink.record_page_finished(page_key, len(known_components))
         return result

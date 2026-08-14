@@ -106,7 +106,8 @@ the component just acted on), the same way `group_steppers`/
 ## handle_same_page_reveal-append-frontier
 
 Append genuinely-new, visible, not-yet-interacted components to *this
-pass's* frontier, still bounded by the same `element_budget` counter.
+pass's* frontier - no numeric ceiling on how large it can grow (see
+`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop`).
 `page_key` here, not a stale outer value - see
 `transition_to_new_state-frontier-rebuild`: a state transition earlier
 in this same pass can have already swapped it.

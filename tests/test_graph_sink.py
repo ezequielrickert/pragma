@@ -107,14 +107,15 @@ def test_page_title_is_persisted(fixture_server):
 
 
 def test_component_inventory_is_recorded_unconditionally(fixture_server):
-    """Every discovered component gets a Component node, including ones the
-    interaction budget never got around to touching."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/chain.html", max_pages=1, element_budget=1)
+    """Every discovered component gets a Component node purely from
+    discovery, before any interaction happens - `record_inventory` runs
+    right after `discover_page`, independent of the interaction loop."""
+    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/chain.html", max_pages=1)
     page_key = results[0].url
     states = store.get_component_states(SITE, page_key)
     # chain.html's c0 is the only initially-visible button (c1-c4 start
-    # CSS-hidden) - it must be in the inventory regardless of whether the
-    # tight element_budget got around to interacting with it.
+    # CSS-hidden) - it must be in the inventory from the very first
+    # discovery, before this pass ever clicks anything.
     assert any("c0" in path for path in states)
 
 
@@ -292,20 +293,17 @@ def test_static_text_content_captured_as_distinct_kind(fixture_server):
     assert heading["tag"] == "h1"
 
 
-def test_budget_exhausted_page_gets_fully_drained_within_its_round_ceiling(fixture_server):
-    """Regression test for the exhaustive-coverage bug (2026-08-08): a page
-    with more components than element_budget must get ALL of them
-    interacted with, not just however many fit in the first element_budget's
-    worth - handled internally as extra "rounds" within one continuous
-    session (element_budget * max_passes_per_page is the real ceiling), not
-    by re-navigating (which would reset same-page reveal state - see
-    crawl_site's docstring). Not marked Finished until genuinely drained."""
+def test_reveal_chain_gets_fully_drained_in_one_continuous_session(fixture_server):
+    """Regression test for the exhaustive-coverage bug (2026-08-08), still
+    relevant now that there's no per-visit cap at all: a reveal chain must
+    get ALL of its components interacted with, within one continuous
+    session (no re-navigating between reveals, which would reset same-page
+    state - see crawl_site's docstring), not stop partway through."""
     store, sink, (mech, results) = _crawl_with_graph_store(
-        f"{fixture_server}/chain.html", max_pages=15, element_budget=2
+        f"{fixture_server}/chain.html", max_pages=15
     )
     chain_results = [r for r in results if r.url.endswith("chain.html")]
-    assert len(chain_results) == 1, "budget exhaustion is handled internally - still one _visit_page call"
-    assert chain_results[0].budget_exhausted_with_frontier_remaining is False, "must have fully drained"
+    assert len(chain_results) == 1, "one continuous visit, no requeue needed to finish the chain"
 
     page_key = chain_results[0].url
     ledger = store.get_component_ledger(SITE)[page_key]
@@ -317,20 +315,10 @@ def test_budget_exhausted_page_gets_fully_drained_within_its_round_ceiling(fixtu
     assert rows[page_key]["status"] == "Finished", "must be marked Finished once genuinely fully drained"
 
 
-def test_page_exceeding_max_passes_per_page_is_abandoned_gracefully_not_marked_finished(fixture_server):
-    """A page that keeps generating genuinely new content faster than the
-    round ceiling can keep up with (infinite_reveal.html) must be abandoned
-    after element_budget * max_passes_per_page interactions, not looped
-    forever - and must NOT be falsely marked Finished, since it never was."""
-    store, sink, (mech, results) = _crawl_with_graph_store(
-        f"{fixture_server}/infinite_reveal.html",
-        max_pages=50, element_budget=1, max_passes_per_page=3,
-    )
-    infinite_results = [r for r in results if r.url.endswith("infinite_reveal.html")]
-    assert len(infinite_results) == 1, "still one _visit_page call - the round ceiling is internal"
-    assert infinite_results[0].budget_exhausted_with_frontier_remaining is True
-    assert len(infinite_results[0].interactions) == 3, "must stop after exactly element_budget * max_passes_per_page"
-
-    page_key = infinite_results[0].url
-    rows = {r["url"]: r for r in store.get_progress_table_rows(SITE)}
-    assert rows[page_key]["status"] != "Finished", "an abandoned page must never be falsely marked Finished"
+# A page that generates genuinely new content on every interaction, forever
+# (this project's old infinite_reveal.html fixture: every click always spawns
+# exactly one more new button) has no automated regression test - there is no
+# longer any cap to bound it against, so a test exercising it would hang
+# rather than assert. Removed deliberately along with the fixture file. See
+# docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-frontier-loop's
+# note on this being an accepted, not a mitigated, tradeoff.

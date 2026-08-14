@@ -131,19 +131,9 @@ def _prompt_pipeline_settings(existing: Dict[str, Any]) -> Dict[str, Any]:
         "where the default can otherwise see 0 components/links on a page that has real ones)",
         default=str(existing.get("wait_seconds", 2)),
     )
-    element_budget_raw = prompts.text(
-        "Max components mechanically interacted with per page per visit-pass "
-        "(the backstop against a pathological reveal-chain, not a normal-case limit)",
-        default=str(existing.get("element_budget", 200)),
-    )
     max_pages_raw = prompts.text(
         "Max pages to visit per crawl (blank = unbounded, crawl until the URL frontier is exhausted)",
         default=str(existing.get("max_pages", "")),
-    )
-    max_passes_per_page_raw = prompts.text(
-        "Max times to revisit the same page to keep draining its interaction frontier "
-        "(a page with more components than the element budget needs more than one pass)",
-        default=str(existing.get("max_passes_per_page", 10)),
     )
     tree_ascii = prompts.confirm(
         "Render the component-tree document with plain ASCII instead of Unicode box-drawing "
@@ -156,9 +146,7 @@ def _prompt_pipeline_settings(existing: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "headless": bool(headless),
         "wait_seconds": float(wait_seconds_raw) if _is_number(wait_seconds_raw) else 2.0,
-        "element_budget": int(element_budget_raw) if element_budget_raw.isdigit() else 200,
         "max_pages": int(max_pages_raw) if max_pages_raw.isdigit() else None,
-        "max_passes_per_page": int(max_passes_per_page_raw) if max_passes_per_page_raw.isdigit() else 10,
         "tree_ascii": bool(tree_ascii),
     }
 

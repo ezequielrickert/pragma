@@ -10,9 +10,6 @@ instead of a long constructor argument list.
 
 ## MechanicalCrawlerConfig
 
-- `element_budget`: Per-page cap on the component/interaction frontier -
-  a backstop against a pathological reveal-chain, not a normal-case
-  limiter (default generous).
 - `fill_value_fn`: How to choose a value for a "fill" (text-input-like)
   component. Defaults to a deterministic placeholder; pass
   `fill_value_agent.make_ai_fill_value_fn(agent)` for a real AI-backed
@@ -22,11 +19,6 @@ instead of a long constructor argument list.
 - `sink`: Live `GraphStore` writes as the crawl happens. `None` keeps the
   no-persistence default - see `graph_sink/sink.md` for what each call
   actually writes and why it's not folded into `tracker` itself.
-- `max_passes_per_page`: Backstop against a pathological page whose
-  interactions keep revealing genuinely new content faster than
-  `element_budget` can keep up with (an infinite-scroll/live-chat-style
-  page) - together, `element_budget * max_passes_per_page` is the real
-  total-interactions-per-page-visit ceiling.
 - `max_visits_per_route_shape`: Backstop against a site that mints a
   fresh, per-visit-token URL (e.g. `/o/<random-hash>`) on essentially
   every top-level visit - confirmed live on empanad.app. `route_shape()`

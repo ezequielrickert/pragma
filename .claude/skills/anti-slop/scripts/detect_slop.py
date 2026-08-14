@@ -10,6 +10,63 @@ from typing import List, Dict, Tuple
 from collections import defaultdict
 
 
+EMOJI_MARKERS = {
+    'clean': '✅',
+    'moderate': '⚠️',
+    'high': '🚨',
+    'severe': '💀',
+    'high_risk': '🔴',
+    'buzzwords': '📢',
+    'meta': '📝',
+    'structure': '🏗️',
+    'hedging': '🤔',
+    'tips': '💡',
+    'bullet': '•',
+}
+
+ASCII_MARKERS = {
+    'clean': '[OK]',
+    'moderate': '[WARN]',
+    'high': '[HIGH]',
+    'severe': '[SEVERE]',
+    'high_risk': '[!!]',
+    'buzzwords': '[!]',
+    'meta': '[!]',
+    'structure': '[!]',
+    'hedging': '[!]',
+    'tips': '[>]',
+    'bullet': '-',
+}
+
+
+def _pick_markers() -> Dict[str, str]:
+    """Use emoji markers, or ASCII stand-ins when stdout cannot encode them.
+
+    Windows stdout falls back to cp1252, which has no code point for U+2705.
+    """
+    encoding = sys.stdout.encoding or 'ascii'
+    try:
+        ''.join(EMOJI_MARKERS.values()).encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return ASCII_MARKERS
+    return EMOJI_MARKERS
+
+
+def _soften_encoding_errors():
+    """Print '?' rather than crashing on text the console cannot encode.
+
+    Scanned files are read as UTF-8, so quoted lines can hold characters
+    outside the console's encoding no matter which markers are in use.
+    """
+    try:
+        sys.stdout.reconfigure(errors='replace')
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
+MARKERS = _pick_markers()
+
+
 # High-risk phrases that nearly always indicate AI slop
 HIGH_RISK_PHRASES = [
     r"delve into",
@@ -175,13 +232,13 @@ class SlopDetector:
     def _generate_summary(self, score: int) -> str:
         """Generate a human-readable summary."""
         if score < 20:
-            return "✅ Low slop detected - Writing appears authentic and purposeful"
+            return f"{MARKERS['clean']} Low slop detected - Writing appears authentic and purposeful"
         elif score < 40:
-            return "⚠️  Moderate slop detected - Some generic patterns present"
+            return f"{MARKERS['moderate']} Moderate slop detected - Some generic patterns present"
         elif score < 60:
-            return "🚨 High slop detected - Many AI-generated patterns found"
+            return f"{MARKERS['high']} High slop detected - Many AI-generated patterns found"
         else:
-            return "💀 Severe slop detected - Document heavily relies on generic AI patterns"
+            return f"{MARKERS['severe']} Severe slop detected - Document heavily relies on generic AI patterns"
     
     def print_report(self, verbose: bool = False):
         """Print a formatted report of findings."""
@@ -197,7 +254,7 @@ class SlopDetector:
         findings = results['findings']
         
         if findings['high_risk']:
-            print(f"🔴 HIGH-RISK PHRASES ({len(findings['high_risk'])} found):")
+            print(f"{MARKERS['high_risk']} HIGH-RISK PHRASES ({len(findings['high_risk'])} found):")
             for f in findings['high_risk'][:5 if not verbose else None]:
                 print(f"  Line {f['line']}: '{f['match']}' in: {f['text'][:60]}...")
             if len(findings['high_risk']) > 5 and not verbose:
@@ -205,7 +262,7 @@ class SlopDetector:
             print()
         
         if findings['buzzwords']:
-            print(f"📢 BUZZWORDS & JARGON ({len(findings['buzzwords'])} found):")
+            print(f"{MARKERS['buzzwords']} BUZZWORDS & JARGON ({len(findings['buzzwords'])} found):")
             if not verbose:
                 unique_buzzwords = set(f['match'] for f in findings['buzzwords'])
                 print(f"  {', '.join(list(unique_buzzwords)[:10])}")
@@ -217,7 +274,7 @@ class SlopDetector:
             print()
         
         if findings['meta_commentary']:
-            print(f"📝 META-COMMENTARY ({len(findings['meta_commentary'])} found):")
+            print(f"{MARKERS['meta']} META-COMMENTARY ({len(findings['meta_commentary'])} found):")
             for f in findings['meta_commentary'][:3 if not verbose else None]:
                 print(f"  Line {f['line']}: {f['text'][:70]}...")
             if len(findings['meta_commentary']) > 3 and not verbose:
@@ -225,13 +282,13 @@ class SlopDetector:
             print()
         
         if findings['structure']:
-            print(f"🏗️  STRUCTURAL ISSUES:")
+            print(f"{MARKERS['structure']} STRUCTURAL ISSUES:")
             for f in findings['structure']:
-                print(f"  • {f['issue']}: {f['description']}")
+                print(f"  {MARKERS['bullet']} {f['issue']}: {f['description']}")
             print()
         
         if findings['hedging']:
-            print(f"🤔 EXCESSIVE HEDGING ({len(findings['hedging'])} found)")
+            print(f"{MARKERS['hedging']} EXCESSIVE HEDGING ({len(findings['hedging'])} found)")
             if not verbose:
                 print(f"  Found in {len(set(f['line'] for f in findings['hedging']))} lines")
             else:
@@ -241,21 +298,24 @@ class SlopDetector:
         
         # Recommendations
         if results['score'] > 20:
-            print("💡 RECOMMENDATIONS:")
+            bullet = MARKERS['bullet']
+            print(f"{MARKERS['tips']} RECOMMENDATIONS:")
             if findings['high_risk']:
-                print("  • Replace high-risk phrases with direct, specific language")
+                print(f"  {bullet} Replace high-risk phrases with direct, specific language")
             if findings['buzzwords']:
-                print("  • Remove buzzwords and use concrete, specific terms")
+                print(f"  {bullet} Remove buzzwords and use concrete, specific terms")
             if findings['meta_commentary']:
-                print("  • Delete meta-commentary; lead with actual content")
+                print(f"  {bullet} Delete meta-commentary; lead with actual content")
             if findings['hedging']:
-                print("  • Reduce hedging; be direct and confident in statements")
+                print(f"  {bullet} Reduce hedging; be direct and confident in statements")
             if findings['structure']:
-                print("  • Restructure document to avoid generic AI patterns")
+                print(f"  {bullet} Restructure document to avoid generic AI patterns")
             print()
 
 
 def main():
+    _soften_encoding_errors()
+
     if len(sys.argv) < 2:
         print("Usage: python detect_slop.py <file> [--verbose]")
         print("Analyzes text files for AI-generated content patterns")

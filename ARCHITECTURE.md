@@ -73,7 +73,7 @@ Each plugin module self-registers via a decorator (`@AGENT_REGISTRY.register("lo
 registrations run before the CLI resolves names from config.
 
 Configuration (`core/config.py::PragmaConfig`) declares which agent/graph-store plugins to use
-plus crawl-tuning settings (`element_budget`, `max_pages`, `headless`, `fresh`). It merges, in
+plus crawl-tuning settings (`max_pages`, `headless`, `fresh`). It merges, in
 increasing precedence: built-in defaults, environment variables, an optional `config/pragma.yaml` file,
 and explicit CLI flags.
 
@@ -137,17 +137,17 @@ requested URL, unchanged regardless of what actually happened).
 
 ## Mechanical Interaction: Two Frontiers
 
-`MechanicalCrawler` (`spiders/orchestration/mechanical_loop.py`) replaces the old per-step decision loop
+`MechanicalCrawler` (`spiders/orchestration/mechanical_loop/loop.py`) replaces the old per-step decision loop
 with two frontiers, composed but never conflated:
 
 - **URL frontier**: a FIFO queue of discovered-but-not-visited pages, fed by every page's extracted
   links. No model decision needed — visited in deterministic discovery order.
-- **Component/interaction frontier**: per page, every *visible*, not-yet-interacted-with component,
-  capped by `element_budget` per visit-pass (the backstop against a pathological reveal-chain, not
-  a normal-case limiter — default generous).
+- **Component/interaction frontier**: per page, every *visible*, not-yet-interacted-with component —
+  no numeric cap; a page's interaction frontier is drained exhaustively, since this project prioritizes
+  a complete graph over a bounded-worst-case runtime.
 
 A click/fill that reveals new DOM on the *same* URL gets the newly-revealed components appended to
-that pass's frontier (still budget-capped). A click/fill that **navigates to a different URL**
+that pass's frontier. A click/fill that **navigates to a different URL**
 stops that page's pass immediately — the session's live page has physically moved, so no further
 frontier item from that pass can be safely acted on — and queues the destination URL onto the URL
 frontier instead. The interrupted page gets re-queued for a follow-up pass rather than marked
