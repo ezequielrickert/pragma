@@ -12,6 +12,12 @@ out_dir: docs
 headless: true
 wait_seconds: 15.0
 
+# Purga lo que este sitio tenga en el grafo antes de arrancar: el crawl
+# empieza de cero. Combinado con crawl_budget de abajo, cada corrida vuelve a
+# purgar y nunca pasa de las primeras 20 paginas - para ir de a tandas hay que
+# ponerlo en false (o borrar esta linea) despues de la primera corrida.
+fresh: true
+
 # How much one run does before stopping and leaving the rest Pending for the
 # next one, which resumes from exactly there. Comment the whole block out
 # (or pass --full) to crawl until the frontier drains.
