@@ -8,6 +8,14 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 import yaml
 
+# Where `load()` looks when no --config is passed, in order. The first entry
+# is what `core/wizard.py` writes, and the two disagreed between cc8273d and
+# now - the wizard wrote pragma.yaml while this module read config/pragma.yaml
+# only, so a wizard-generated config was silently ignored on every run. Both
+# are honored so neither existing layout breaks.
+# Details: docs/dev/core/config.md#default_config_paths
+DEFAULT_CONFIG_PATHS = ("pragma.yaml", "config/pragma.yaml")
+
 
 @dataclass
 class PragmaConfig:
@@ -44,6 +52,12 @@ class PragmaConfig:
     # Total pages before stopping; None = unbounded.
     # Details: docs/dev/core/config.md#max_pages
     max_pages: Optional[int] = None
+    # What one run may do before stopping and leaving the rest Pending for the
+    # next one. All-unset means "until the frontier drains", which is what
+    # every run did before this existed - a long run is this dict empty, not a
+    # separate mode. Keys: pages, nodes, minutes.
+    # Details: docs/dev/core/config.md#crawl_budget
+    crawl_budget: Dict[str, Any] = field(default_factory=dict)
     # Pages per GraphPRDSynthesizer batch-summarize call.
     # Details: docs/dev/core/config.md#prd_synth_batch_size
     prd_synth_batch_size: int = 5
@@ -64,9 +78,14 @@ class PragmaConfig:
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.
     # Details: docs/dev/core/config.md#allow_subdomains
     allow_subdomains: bool = False
-    # Purge this site's previous graph_store state before crawling.
+    # Purge this site's previous graph_store state before crawling. Defaults
+    # off since resuming became possible: the pending pages a cut-short run
+    # leaves behind ARE the crawl's saved progress, and purging on by default
+    # deleted them before the resume could read them, making an interrupted
+    # crawl silently restart from scratch every time. Pass --fresh to purge
+    # on purpose - e.g. when the site changed and old facts are now wrong.
     # Details: docs/dev/core/config.md#fresh
-    fresh: bool = True
+    fresh: bool = False
     # Where per-run debug artifacts go, including each visited URL's
     # *.history.md markdown snapshots; "" disables debug logging entirely.
     # Details: docs/dev/core/config.md#debug_logs_dir
@@ -107,12 +126,21 @@ class PragmaConfig:
             if val:
                 setattr(self, field_name, val)
 
+    def _default_yaml_path(self) -> Optional[Path]:
+        """First existing path in `DEFAULT_CONFIG_PATHS`, or `None`.
+        Details: docs/dev/core/config.md#_default_yaml_path
+        """
+        return next((p for p in (Path(c) for c in DEFAULT_CONFIG_PATHS) if p.exists()), None)
+
     def _apply_yaml(self, yaml_path: Optional[str]) -> None:
-        path = Path(yaml_path) if yaml_path else Path("config/pragma.yaml")
-        if not path.exists():
-            if yaml_path:
+        if yaml_path:
+            path = Path(yaml_path)
+            if not path.exists():
                 raise FileNotFoundError(f"Config file not found: {yaml_path}")
-            return
+        else:
+            path = self._default_yaml_path()
+            if path is None:
+                return
 
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         valid = {f.name for f in fields(self)}
@@ -120,6 +148,17 @@ class PragmaConfig:
             if key in valid and val is not None:
                 setattr(self, key, val)
         print(f"Loaded config from {path}")
+
+        # Named, not just counted: an ignored key is almost always a typo or a
+        # setting that was renamed out from under an existing file, and both
+        # are invisible otherwise. `max_iterations: 40` sat in this repo's own
+        # pragma.yaml bounding nothing at all - the run it was meant to cap
+        # went 12 hours. Details: docs/dev/core/config.md#_apply_yaml-unknown-keys
+        unknown = sorted(key for key in data if key not in valid)
+        if unknown:
+            print(f"Warning: {path} has {len(unknown)} setting(s) this version does not know, ignored:")
+            for key in unknown:
+                print(f"  {key} - see config/pragma.example.yaml for the current names")
 
     def _apply_overrides(self, overrides: Optional[Dict[str, Any]]) -> None:
         for key, val in (overrides or {}).items():

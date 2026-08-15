@@ -12,6 +12,7 @@ from ..graph_sink import GraphStoreInteractionTracker
 from ..interaction_tracker import InMemoryInteractionTracker, InteractionTracker
 from ..page_visitor import PageVisitor
 from ..visit_result import ComponentInteraction, PageVisitResult
+from .budget import BudgetTracker
 from .config import MechanicalCrawlerConfig
 from .frontier import UrlFrontier
 from .worker_pacing import WorkerPacing
@@ -49,6 +50,19 @@ class MechanicalCrawler:
         self._pacing = WorkerPacing(crawler, config)
         self.page_results: List[PageVisitResult] = []
         self._pages_visited = 0
+        # Split deliberately: a requeued visit prints exactly like a fresh one
+        # in crawl4ai's own output, so a crawl churning on the same handful of
+        # pages is indistinguishable from one making progress. Separating them
+        # is the whole diagnostic value of the per-visit line.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#visit-counters
+        self._unique_visits = 0
+        self._requeued_visits = 0
+        self._budget = BudgetTracker(config.budget)
+        # Set once when a budget trips, then read by every other worker to
+        # stop taking new pages. Also the "was this run partial" answer the
+        # document pipeline needs afterwards.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#stopped_reason
+        self.stopped_reason: Optional[str] = None
         self._page_visitor = PageVisitor(
             crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links, config
         )
@@ -60,13 +74,57 @@ class MechanicalCrawler:
         """
         return self._page_visitor.errors
 
+    def _finished_route_shapes(self) -> List[str]:
+        """Route shapes a previous run already sampled.
+
+        Page keys in the graph are already route-shaped (`visit` derives
+        `page_key` that way), so a Finished page's url *is* its shape - no
+        separate stored counter, and nothing to keep in sync.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_finished_route_shapes
+        """
+        if self.sink is None:
+            return []
+        rows = self.sink.graph_store.get_progress_table_rows(self.sink.site)
+        return [row["url"] for row in rows if row.get("status") == "Finished"]
+
+    def _resume_urls(self) -> List[str]:
+        """Pages a previous run left unfinished, so a crawl that stopped early
+        picks up where it stopped instead of re-deriving the whole frontier
+        from `start_url`.
+
+        Reads `GraphStore.get_pending`, which has existed on the interface and
+        in both backends all along with no caller. Needs a sink: without one
+        there is no store holding a previous run's progress.
+
+        A shaped URL carrying a `{token}` placeholder is skipped - it is a
+        canonical storage key, not a navigable address, so there is nothing to
+        fetch. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_resume_urls
+        """
+        if self.sink is None:
+            return []
+        pending = self.sink.graph_store.get_pending(self.sink.site)
+        return [url for url in pending if "{token}" not in url]
+
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
         """Crawl every page reachable from `start_url`, `page_concurrency` at a time.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
         """
         if self._frontier.base_url is None:
             self._frontier.base_url = start_url
+        # Before any enqueue: the route-shape gate runs inside enqueue, so
+        # priming afterwards would let already-sampled shapes back in.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-prime
+        self._frontier.prime_route_shape_visits(self._finished_route_shapes())
         self._frontier.enqueue(start_url)
+        # After start_url, so the entry point is always visited first.
+        # `enqueue` re-applies scope, dedup and the route-shape cap, so a
+        # stale or now-out-of-scope pending URL is filtered here rather than
+        # trusted. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-resume
+        resumed = self._resume_urls()
+        if resumed:
+            print(f"Resuming: {len(resumed)} page(s) left pending by a previous run.")
+            for url in resumed:
+                self._frontier.enqueue(url)
         workers = [asyncio.create_task(self._worker(i)) for i in range(self._pacing.page_concurrency)]
         await self._frontier.join()
         for worker in workers:
@@ -89,6 +147,36 @@ class MechanicalCrawler:
                 print(f"Warning: could not recycle session {browser_session_id!r}: {exc}")
         return 0
 
+    def _budget_exhausted(self) -> bool:
+        """Whether this run is done taking new pages, announcing the reason
+        the first time so it is said once rather than once per worker.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_budget_exhausted
+        """
+        if self.stopped_reason is not None:
+            return True
+        reason = self._budget.exhausted_reason()
+        if reason is None:
+            return False
+        self.stopped_reason = reason
+        print(
+            f"\nStopping this run: {reason}. "
+            f"{self._frontier.queued_count()} page(s) stay pending for the next one."
+        )
+        return True
+
+    def _report_visit(self, worker_id: int, url: str, result: PageVisitResult) -> None:
+        """One line per finished visit, naming the worker so concurrent
+        output stays readable, and splitting unique visits from requeues so a
+        crawl churning on the same pages is visibly different from one making
+        progress. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_report_visit
+        """
+        outcome = "requeued" if result.interrupted_by_navigation else "done"
+        print(
+            f"worker {worker_id} | visit {self._pages_visited} "
+            f"({self._unique_visits} unique, {self._requeued_visits} requeued) "
+            f"| queued: {self._frontier.queued_count()} | {outcome}: {url}"
+        )
+
     async def _worker(self, worker_id: int) -> None:
         """One concurrent visitor: pulls a URL, hands it to `PageVisitor`, requeues.
         Reuses one browser tab (keyed by `worker_id`) across every URL it
@@ -105,6 +193,13 @@ class MechanicalCrawler:
             try:
                 if self.max_pages is not None and self._pages_visited >= self.max_pages:
                     continue  # cap reached - drain without visiting, see doc for soft-bound caveat
+                # Same drain-don't-break discipline as max_pages above: the
+                # queue still has to be consumed and task_done()'d or
+                # crawl_site's join() never returns. Whatever is drained here
+                # stays Pending in the graph, which is what the next run
+                # resumes from. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
+                if self._budget_exhausted():
+                    continue
                 key = clean_url(url)
                 if self.tracker.is_visited(key):
                     continue
@@ -119,12 +214,22 @@ class MechanicalCrawler:
                 visits_since_recycle = await self._recycle_session_if_due(browser_session_id, visits_since_recycle)
                 self.page_results.append(result)
                 self._pages_visited += 1
+                self._budget.record_page()
+                # The page node plus everything discovered on it - an estimate
+                # of graph growth, not a query, so the budget check stays free.
+                # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#budget-nodes
+                self._budget.record_nodes(
+                    1 + result.components_discovered + result.links_discovered
+                )
                 if result.interrupted_by_navigation:
                     # Requeue resolved_url directly - see doc for the redirect bug this avoids.
                     # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-requeue
+                    self._requeued_visits += 1
                     self._frontier.requeue(result.resolved_url)
                 else:
+                    self._unique_visits += 1
                     self.tracker.mark_visited(key)
                     self._frontier.record_route_shape_visit(url)
+                self._report_visit(worker_id, url, result)
             finally:
                 self._frontier.task_done()

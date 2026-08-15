@@ -71,6 +71,13 @@ class UrlFrontier:
         """
         self._queue.put_nowait(url)
 
+    def queued_count(self) -> int:
+        """How many URLs are still waiting - the denominator a progress line
+        needs to distinguish "working through a long list" from "stuck".
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#queued_count
+        """
+        return self._queue.qsize()
+
     async def get(self) -> str:
         return await self._queue.get()
 
@@ -92,3 +99,25 @@ class UrlFrontier:
     def record_route_shape_visit(self, url: str) -> None:
         shape = route_shape(url)
         self._route_shape_visits[shape] = self._route_shape_visits.get(shape, 0) + 1
+
+    def prime_route_shape_visits(self, shapes: List[str]) -> None:
+        """Carry a previous run's sampled route shapes into this one.
+
+        Without this the counter starts at zero every run, so
+        `max_visits_per_route_shape` was per-run rather than per-site: five
+        short runs sampled up to five URLs of a shape where one long run
+        sampled one, and the same site crawled two different ways produced
+        two different graphs. Making short runs equivalent to a long one is
+        the whole point of the resume path, and this is the piece of state
+        that was silently breaking it.
+
+        Counts one per already-finished shape. That is exact at the default
+        `max_visits_per_route_shape: 1`, and an undercount above it - the
+        graph collapses every literal URL of a shape onto one node, so it
+        cannot say whether that node was reached once or three times. Raising
+        the setting therefore still lets a resumed run sample more than a
+        single run would.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#prime_route_shape_visits
+        """
+        for shape in shapes:
+            self._route_shape_visits.setdefault(shape, 1)

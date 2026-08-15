@@ -92,3 +92,58 @@ def test_narrate_family_purposes_one_bad_family_does_not_block_the_next():
 
     assert result[0].purpose == ""
     assert result[1].purpose == "Cancels the current flow."
+
+
+def test_an_unchanged_family_keeps_its_sentence_without_asking_again():
+    """Walking a site in short resumable passes must not re-narrate what
+    earlier passes already did - N passes over a growing graph is what would
+    make incremental crawling cost more than one long run."""
+    from generators.component_family_narrator import family_signature
+
+    family = ComponentFamily("button", "submit button", (), (("/a", "#b1"),))
+    agent = _CountingAgent()
+
+    result = narrate_family_purposes(
+        agent, [family], {("/a", "#b1"): "Enviar"},
+        known_purposes={family_signature(family): "confirms or submits an action"},
+    )
+
+    assert agent.calls == 0
+    assert result[0].purpose == "confirms or submits an action"
+
+
+def test_a_family_that_gained_a_member_is_narrated_again():
+    """The membership changed, so the old sentence describes a group that no
+    longer exists - re-clustering is exactly why the key is content-based."""
+    from generators.component_family_narrator import family_signature
+
+    before = ComponentFamily("button", "submit button", (), (("/a", "#b1"),))
+    after = ComponentFamily("button", "submit button", (), (("/a", "#b1"), ("/b", "#b2")))
+    agent = _CountingAgent()
+
+    result = narrate_family_purposes(
+        agent, [after], {("/a", "#b1"): "Enviar", ("/b", "#b2"): "Confirmar"},
+        known_purposes={family_signature(before): "stale sentence"},
+    )
+
+    assert agent.calls == 1
+    assert result[0].purpose != "stale sentence"
+
+
+def test_member_order_does_not_change_the_key():
+    """Backends do not promise a collection order, so the signature sorts."""
+    from generators.component_family_narrator import family_signature
+
+    one = ComponentFamily("a", "link", (), (("/x", "#1"), ("/y", "#2")))
+    other = ComponentFamily("a", "link", (), (("/y", "#2"), ("/x", "#1")))
+
+    assert family_signature(one) == family_signature(other)
+
+
+class _CountingAgent:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, prompt: str, system_instruction: str = "") -> str:
+        self.calls += 1
+        return "freshly narrated"

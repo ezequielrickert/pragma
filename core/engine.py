@@ -15,13 +15,13 @@ from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.measurement_pass import run_measurement_pass
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from generators.component_family import (
     build_component_families,
     label_for_tag,
     tags_with_multiple_instances,
 )
-from generators.component_family_narrator import narrate_family_purposes
+from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from generators.request_family import build_inferred_requests
@@ -86,8 +86,18 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     """
     components = flat_component_ledger(graph_store, site)
     families = build_component_families(components)
+    print(f"Grouped {len(components)} components into {len(families)} families.")
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
-    families = narrate_family_purposes(agent, families, member_texts)
+    # Read before record_component_families wipes them: a family whose members
+    # did not change keeps its sentence rather than buying it again, which is
+    # what keeps a site crawled in short resumable passes from re-narrating
+    # everything every pass. Details: docs/dev/core/engine.md#known-purposes
+    known_purposes = {
+        family_signature(existing): existing.purpose
+        for existing in graph_store.get_component_families(site)
+        if existing.purpose
+    }
+    families = narrate_family_purposes(agent, families, member_texts, known_purposes)
     graph_store.record_component_families(site, families)
 
     tags = tags_with_multiple_instances(components)
@@ -156,6 +166,7 @@ class Engine:
         out_dir: str = "data/output",
         site: str = "",
         max_pages: Optional[int] = None,
+        crawl_budget: Optional[CrawlBudget] = None,
         headless: bool = True,
         wait_seconds: float = 1.0,
         interaction_wait_seconds: Optional[float] = None,
@@ -180,6 +191,7 @@ class Engine:
         self.out_dir = out_dir
         self.site = site
         self.max_pages = max_pages
+        self.crawl_budget = crawl_budget or CrawlBudget()
         self.headless = headless
         self.wait_seconds = wait_seconds
         self.interaction_wait_seconds = interaction_wait_seconds
@@ -236,6 +248,7 @@ class Engine:
             out_dir=config.out_dir,
             site=site,
             max_pages=config.max_pages,
+            crawl_budget=CrawlBudget(**config.crawl_budget),
             headless=config.headless,
             wait_seconds=config.wait_seconds,
             interaction_wait_seconds=config.interaction_wait_seconds,
@@ -264,7 +277,10 @@ class Engine:
 
     async def _run_async(self, url: str) -> EngineRunResult:
         site = self.site or urlparse(url).netloc
-        sink = GraphStoreSink(self.graph_store, site)
+        # Same base_url/allow_subdomains the frontier gates on, so a link is
+        # judged in-scope identically whether it is queued or recorded.
+        # Details: docs/dev/core/engine.md#sink-scope
+        sink = GraphStoreSink(self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains)
 
         debug_log: Optional[CrawlDebugLog] = None
         if self.debug_logs_dir:
@@ -291,6 +307,7 @@ class Engine:
                     sink=sink,
                     fill_value_fn=fill_value_fn,
                     max_pages=self.max_pages,
+                    budget=self.crawl_budget,
                     max_visits_per_route_shape=self.max_visits_per_route_shape,
                     page_concurrency=self.page_concurrency,
                     base_url=url,
@@ -298,6 +315,11 @@ class Engine:
                 ),
             )
             await mechanical.crawl_site(url)
+            # Read before the crawler goes out of scope: the documents
+            # below have to say whether they describe a whole site or one
+            # budgeted slice of it.
+            # Details: docs/dev/core/engine.md#stopped_reason
+            stopped_reason = mechanical.stopped_reason or ""
 
         if debug_log:
             await debug_log.close()
@@ -306,13 +328,20 @@ class Engine:
 
         # Whole-site passes, after every component the crawl found is
         # already in the graph - must run before synthesis reads it below.
+        # Each phase announces itself: everything from here to the last
+        # written document used to run silent, which made a long run
+        # indistinguishable from a hung one.
+        # Details: research/plan-progreso-en-terminal.md
+        print("\nCrawl finished. Grouping components into families...")
         _apply_component_families(self.graph_store, site, self.agent)
+        print("Inferring API endpoints from captured requests...")
         _apply_request_graph(self.graph_store, site)
 
         if self.measurement_pass:
             # After the crawl and before synthesis: it writes to the graph
             # the accessibility document then reads.
             # Details: docs/dev/core/engine.md#measurement_pass
+            print("Measurement pass: re-visiting each page with images on...")
             result = await run_measurement_pass(self.graph_store, site, headless=self.headless)
             print(f"Measurement pass: audited {len(result.measured)} pages, "
                   f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
@@ -322,11 +351,17 @@ class Engine:
             graph_store=self.graph_store,
             site=site,
             agent=self.agent,
-            settings={"prd_synth_batch_size": self.prd_synth_batch_size, "tree_ascii": self.tree_ascii},
+            settings={
+                "prd_synth_batch_size": self.prd_synth_batch_size,
+                "tree_ascii": self.tree_ascii,
+                "stopped_reason": stopped_reason,
+            },
         )
         naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
         produced = run_document_pipeline(request, naming, self._document_names())
         paths = {document.name: document.path for document in produced}
+
+        print("Writing run manifest and index...")
 
         finished_pages, total_pages = self.graph_store.count_visited(site)
         unexplored_components, total_components = self.graph_store.count_unexplored_components(site)

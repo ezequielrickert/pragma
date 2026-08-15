@@ -107,6 +107,31 @@ def parse_args(argv: list) -> argparse.Namespace:
         "that pauses picking up new pages under memory pressure, so raising this further trades CPU/"
         "RAM for speed rather than risking an out-of-memory crash outright.",
     )
+    parser.add_argument(
+        "--max-pages-per-run",
+        type=int,
+        dest="budget_pages",
+        help="Stop this run after N pages and leave the rest Pending for the next one, which "
+        "picks up where this stopped (default: whatever crawl_budget.pages says in the YAML, "
+        "or no limit). Use it to walk a large site in short, inspectable passes instead of one "
+        "long opaque crawl.",
+    )
+    parser.add_argument(
+        "--max-minutes-per-run",
+        type=float,
+        dest="budget_minutes",
+        help="Stop this run after N minutes. Worth setting even when --max-pages-per-run is what "
+        "you actually want: a page whose DOM keeps producing new components finishes no page at "
+        "all, so a page-only budget never trips and the run goes forever.",
+    )
+    parser.add_argument(
+        "--full",
+        dest="full_run",
+        action="store_true",
+        default=None,
+        help="Ignore every configured budget and crawl until the frontier drains - the overnight "
+        "run. Not a separate mode: it clears the budgets and takes the same code path.",
+    )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     parser.add_argument(
         "--tree-ascii",
@@ -138,10 +163,31 @@ def parse_args(argv: list) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Purge this site's previously recorded graph_store state before crawling "
-        "(default: on; matters for --graph-store neo4j, which persists across runs). "
-        "Use --no-fresh to resume a previous run's progress on a large, stable site instead.",
+        "(default: off; matters for --graph-store neo4j, which persists across runs). "
+        "Leave it off to resume a previous run: the pages it left Pending are the saved "
+        "progress the next run picks up. Pass --fresh when the site itself changed and "
+        "the recorded facts are stale.",
     )
     return parser.parse_args(argv)
+
+
+def _apply_budget_flags(config: PragmaConfig, args: argparse.Namespace) -> None:
+    """Fold the run-budget flags into `config.crawl_budget`.
+
+    Kept out of the generic override dict because these three are not
+    `PragmaConfig` fields in their own right - they edit keys inside one
+    field, and `--full` clears rather than sets. `--full` wins outright: it is
+    the "ignore what the YAML says, run the whole thing" escape hatch, so
+    combining it with a limit is a contradiction resolved in its favor.
+    Details: docs/dev/cli.md#_apply_budget_flags
+    """
+    if args.full_run:
+        config.crawl_budget = {}
+        return
+    if args.budget_pages is not None:
+        config.crawl_budget["pages"] = args.budget_pages
+    if args.budget_minutes is not None:
+        config.crawl_budget["minutes"] = args.budget_minutes
 
 
 def main() -> None:
@@ -165,13 +211,14 @@ def main() -> None:
     overrides = {
         k: v
         for k, v in vars(args).items()
-        if k not in ("url", "url_flag", "config_path")
+        if k not in ("url", "url_flag", "config_path", "budget_pages", "budget_minutes", "full_run")
     }
     if overrides.pop("headed", False):
         overrides["headless"] = False
     overrides["url"] = url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
+    _apply_budget_flags(config, args)
 
     if not config.url:
         if sys.stdin.isatty():

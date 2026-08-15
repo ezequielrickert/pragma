@@ -326,9 +326,13 @@ def test_engine_from_config_clears_site_when_fresh(tmp_path):
     from core.registry import GRAPH_STORE_REGISTRY
 
     GRAPH_STORE_REGISTRY.register("_spy_fresh_test")(_SpyGraphStore)
+    # Explicit, like its fresh=False sibling below: purging stopped being the
+    # default once a cut-short run's Pending pages became resumable progress,
+    # so relying on the default here would test whatever that default happens
+    # to be rather than the behavior this test is named for.
     config = PragmaConfig(
         url="https://stub.example/page", agent="mock",
-        graph_store="_spy_fresh_test", out_dir=str(tmp_path),
+        graph_store="_spy_fresh_test", fresh=True, out_dir=str(tmp_path),
     )
 
     engine = Engine.from_config(config)

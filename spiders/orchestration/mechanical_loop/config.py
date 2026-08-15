@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ...content.fill_values import default_placeholder_fill_value
 from ..graph_sink import GraphStoreSink
+from .budget import CrawlBudget
 
 
 @dataclass
@@ -16,6 +17,11 @@ class MechanicalCrawlerConfig:
 
     fill_value_fn: Callable[[Dict[str, Any], str], Awaitable[str]] = default_placeholder_fill_value
     max_pages: Optional[int] = None
+    # What this run is allowed to do before stopping and leaving the rest
+    # Pending. All-unset (the default) means "until the frontier drains",
+    # which is what every run did before this existed.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#budget
+    budget: Optional[CrawlBudget] = None
     sink: Optional[GraphStoreSink] = None
     max_visits_per_route_shape: int = 1
     # See PragmaConfig.page_concurrency for why this default isn't 1 anymore.

@@ -10,10 +10,25 @@ agent: local          # local | mock
 graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
                       # (see docker-compose.yml) and is the crawl's live, primary source of truth -
                       # written to as the crawl happens, then read back by GraphPRDSynthesizer
-fresh: true           # purge this site's previously recorded graph_store state before crawling
+# How much ONE run does before stopping and leaving the rest Pending for the next
+# run to resume from. Leave the whole block out (or pass --full) to crawl until the
+# frontier drains, which is what every run did before this existed - a long run is
+# this block absent, not a separate mode, so short passes and one long pass take the
+# same code path and cannot drift apart.
+# crawl_budget:
+#   pages: 20          # stop after 20 finished pages - the unit that matches "look at
+#                      # the data, then do 20 more"
+#   nodes: 500         # or after 500 graph nodes, if Neo4j weight is the concern
+#   minutes: 90        # or after 90 minutes. Worth setting even when `pages` is what you
+#                      # mean: a page whose DOM keeps producing new components finishes no
+#                      # page and creates no node, so a page/node budget never trips and
+#                      # the run goes forever. This is the cap that returns your terminal.
+
+fresh: false          # purge this site's previously recorded graph_store state before crawling
                        # (only matters for graph_store: neo4j - memory never persists across runs
-                       # regardless). Set false to resume a previous run's progress on a large,
-                       # stable site instead of starting over - but leave this on for any site whose
+                       # regardless). Off by default because the pages a cut-short run leaves
+                       # Pending ARE its saved progress, and purging deletes them before the next
+                       # run can resume. Set true on purpose for any site whose
                        # URLs are per-session tokens (e.g. a `/o/<random-id>` order flow), where old
                        # runs' "visited" nodes will never be revisited and just add stale history.
                        # See max_visits_per_route_shape below for the matching *within-run* control

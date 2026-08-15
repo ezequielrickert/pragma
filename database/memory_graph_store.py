@@ -103,6 +103,15 @@ class InMemoryGraphStore(GraphStore):
         return page["label"] if page else None
 
     def record_link(self, site: str, from_url: str, to_url: str, label: str) -> None:
+        # Both endpoints become Pending pages, matching Neo4jGraphStore's
+        # record_links (which MERGEs each one via _page_ensure_clause) and
+        # record_edge just below. Without this the two backends disagreed on
+        # what a discovered link means: Neo4j grew a page per link target and
+        # this one grew none, so the in-memory store could not stand in for it
+        # in any test about pending work.
+        # Details: docs/dev/database/memory_graph_store.md#record_link
+        for endpoint in (from_url, to_url):
+            self.upsert_page(site, endpoint)
         self._site(site).links[(from_url, to_url)] = label
 
     def get_link_label(self, site: str, from_url: str, to_url: str) -> Optional[str]:
@@ -123,9 +132,14 @@ class InMemoryGraphStore(GraphStore):
         return [{"url": url, **data} for url, data in rows]
 
     def count_visited(self, site: str) -> Tuple[int, int]:
-        routes = self._site(site).routes
-        finished = sum(1 for d in routes.values() if d["status"] == "Finished")
-        return finished, len(routes)
+        # "External" pages are off-domain link targets the crawl will never
+        # visit; counting them would make coverage unreachable by design.
+        # Details: docs/dev/database/memory_graph_store.md#count_visited
+        crawlable = [
+            data for data in self._site(site).routes.values() if data["status"] != "External"
+        ]
+        finished = sum(1 for data in crawlable if data["status"] == "Finished")
+        return finished, len(crawlable)
 
     def get_loop_signals(self, site: str, url: str) -> List[Dict[str, str]]:
         seen: List[Dict[str, str]] = []

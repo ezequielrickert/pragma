@@ -14,8 +14,16 @@ from generators.component_classifier import (
     group_option_families,
     group_steppers,
 )
-from utils.urls import clean_url
+from utils.urls import clean_url, is_in_scope, route_shape
 from .component_facts import component_facts, option_labels_for
+
+# Status for a link target the frontier will never visit because it points off
+# the crawled domain. Without it those pages sit in `Pending` forever - the
+# frontier refuses them on scope grounds while this sink records them anyway,
+# so `get_pending` returns work that can never be done and `count_visited`
+# can never reach 100% on a site that links outward.
+# Details: docs/dev/spiders/orchestration/graph_sink/sink.md#external_page_status
+EXTERNAL_PAGE_STATUS = "External"
 
 
 class GraphStoreSink:
@@ -23,9 +31,22 @@ class GraphStoreSink:
     Details: docs/dev/spiders/orchestration/graph_sink/sink.md#graphstoresink
     """
 
-    def __init__(self, graph_store: GraphStore, site: str) -> None:
+    def __init__(
+        self,
+        graph_store: GraphStore,
+        site: str,
+        base_url: Optional[str] = None,
+        allow_subdomains: bool = False,
+    ) -> None:
         self.graph_store = graph_store
         self.site = site
+        # The same two values `UrlFrontier` gates on, so a link is judged
+        # in-scope identically whether it is being queued or recorded.
+        # `None` disables the check, preserving the pre-scope behavior for
+        # callers that never pass it (tests, mostly).
+        # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#base_url
+        self.base_url = base_url
+        self.allow_subdomains = allow_subdomains
         # page_url -> {member_path: representative_path}, populated by
         # record_inventory. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path
         self._representative_for: Dict[str, Dict[str, str]] = {}
@@ -137,6 +158,7 @@ class GraphStoreSink:
             await self._write(self.graph_store.record_components, self.site, page_key, component_batch)
 
         link_batch = []
+        off_site: List[str] = []
         for link in links:
             href = link.get("href", "")
             scheme = link.get("scheme", "")
@@ -144,9 +166,25 @@ class GraphStoreSink:
                 continue  # mailto:/tel:/javascript: etc - see mechanical_loop's own identical filter
             if not href:
                 continue
-            link_batch.append({"to_url": clean_url(href), "label": link.get("text", "")})
+            # route_shape, not clean_url: every other page key in the graph
+            # is shaped (visit() derives page_key that way), so recording a
+            # link target unshaped would mint a second node for a screen that
+            # already has a canonical one - exactly what route_shape exists to
+            # prevent. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#link-target-key
+            target = route_shape(href)
+            link_batch.append({"to_url": target, "label": link.get("text", "")})
+            if self.base_url and not is_in_scope(href, self.base_url, self.allow_subdomains):
+                off_site.append(target)
         if link_batch:
             await self._write(self.graph_store.record_links, self.site, page_key, link_batch)
+        # After record_links, never instead of it: the edge to an off-site
+        # page is real data (where this site sends you) and stays recorded.
+        # Only the target's status changes, so it stops posing as work.
+        # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#off-site-targets
+        for url in dict.fromkeys(off_site):
+            await self._write(
+                self.graph_store.upsert_page, self.site, url, status=EXTERNAL_PAGE_STATUS
+            )
 
     def _component_args(self, comp: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """One component's descriptive fields as `record_component(s)` kwargs,

@@ -148,7 +148,10 @@ def narrate_titles(agent: Any, traces: Sequence[Trace]) -> Dict[str, str]:
     Details: docs/dev/generators/gherkin.md#narrate_titles
     """
     titles: Dict[str, str] = {}
-    for trace in traces:
+    if traces:
+        print(f"Titling {len(traces)} scenarios ({len(traces)} model calls)...")
+    for scenario_number, trace in enumerate(traces, 1):
+        print(f"  scenario {scenario_number}/{len(traces)}: {trace.start_page} -> {trace.end_page}")
         steps = "\n".join(_prompt_line(step) for step in trace.steps)
         prompt = (
             f"Starting page: {trace.start_page}\n"

@@ -402,6 +402,7 @@ class Neo4jGraphStore(
             record = session.run(
                 """
                 MATCH (p:Page {site: $site})
+                WHERE p.status <> 'External'
                 RETURN sum(CASE WHEN p.status = 'Finished' THEN 1 ELSE 0 END) AS finished, count(p) AS total
                 """,
                 site=site,
