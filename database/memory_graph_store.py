@@ -46,6 +46,11 @@ class _SiteData:
     containment: Dict[str, Dict[str, List[Dict[str, Any]]]] = field(default_factory=dict)
     # {page_url: [{href, accessible, excerpt, byte_length, hash}, ...]}
     stylesheets: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    # {url: {in_degree, out_degree, click_depth, betweenness, pagerank,
+    # is_articulation_point}} - analysis/graph_projection.py's output.
+    page_metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # {url: {module_id, module_label}} - same source.
+    page_modules: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -448,6 +453,26 @@ class InMemoryGraphStore(GraphStore):
             page_url: [dict(sheet) for sheet in sheets]
             for page_url, sheets in self._site(site).stylesheets.items()
             if sheets
+        }
+
+    def record_page_metrics(self, site: str, metrics: List[Dict[str, Any]]) -> None:
+        site_data = self._site(site)
+        site_data.page_metrics = {m["url"]: dict(m) for m in metrics}
+
+    def get_page_metrics(self, site: str) -> Dict[str, Dict[str, Any]]:
+        return {
+            url: {k: v for k, v in m.items() if k != "url"}
+            for url, m in self._site(site).page_metrics.items()
+        }
+
+    def record_page_modules(self, site: str, modules: List[Dict[str, Any]]) -> None:
+        site_data = self._site(site)
+        site_data.page_modules = {m["url"]: dict(m) for m in modules}
+
+    def get_page_modules(self, site: str) -> Dict[str, Dict[str, Any]]:
+        return {
+            url: {k: v for k, v in m.items() if k != "url"}
+            for url, m in self._site(site).page_modules.items()
         }
 
     def record_component_ancestors(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:

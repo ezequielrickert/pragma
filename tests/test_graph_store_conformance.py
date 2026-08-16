@@ -616,3 +616,53 @@ def test_stylesheets_round_trip_and_replace(store: GraphStore, site: str) -> Non
 def test_stylesheets_absent_for_a_page_never_captured(store: GraphStore, site: str) -> None:
     store.upsert_page(site, "home", status="Finished")
     assert store.get_stylesheets(site) == {}
+
+
+def test_page_metrics_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    metrics = [
+        {"url": "home", "in_degree": 3, "out_degree": 5, "click_depth": 0,
+         "betweenness": 0.42, "pagerank": 0.15, "is_articulation_point": True},
+        {"url": "about", "in_degree": 1, "out_degree": 0, "click_depth": 1,
+         "betweenness": 0.0, "pagerank": 0.05, "is_articulation_point": False},
+    ]
+    store.record_page_metrics(site, metrics)
+
+    result = store.get_page_metrics(site)
+    assert result["home"]["in_degree"] == 3
+    assert result["home"]["is_articulation_point"] is True
+    assert result["about"]["click_depth"] == 1
+
+    # Full rebuild, not an incremental merge - a page's centrality/depth
+    # genuinely shifts as the crawl discovers more of the site.
+    store.record_page_metrics(site, [metrics[0]])
+    assert "about" not in store.get_page_metrics(site)
+
+
+def test_page_metrics_click_depth_null_for_unreachable_page(store: GraphStore, site: str) -> None:
+    store.record_page_metrics(
+        site, [{"url": "orphan", "in_degree": 0, "out_degree": 0, "click_depth": None,
+                "betweenness": 0.0, "pagerank": 0.0, "is_articulation_point": False}],
+    )
+    assert store.get_page_metrics(site)["orphan"]["click_depth"] is None
+
+
+def test_page_modules_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    modules = [
+        {"url": "shop/home", "module_id": 0, "module_label": "Shop"},
+        {"url": "shop/cart", "module_id": 0, "module_label": "Shop"},
+        {"url": "blog/home", "module_id": 1, "module_label": "Blog"},
+    ]
+    store.record_page_modules(site, modules)
+
+    result = store.get_page_modules(site)
+    assert result["shop/home"]["module_id"] == result["shop/cart"]["module_id"] == 0
+    assert result["blog/home"]["module_label"] == "Blog"
+
+    store.record_page_modules(site, [modules[0]])
+    assert "blog/home" not in store.get_page_modules(site)
+
+
+def test_page_metrics_and_modules_absent_before_any_projection_ran(store: GraphStore, site: str) -> None:
+    store.upsert_page(site, "home", status="Finished")
+    assert store.get_page_metrics(site) == {}
+    assert store.get_page_modules(site) == {}

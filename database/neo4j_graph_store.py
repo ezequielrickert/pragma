@@ -312,6 +312,79 @@ class Neo4jGraphStore(
             found = {r["url"]: json.loads(r["stylesheets"]) for r in result}
             return {url: sheets for url, sheets in found.items() if sheets}
 
+    def record_page_metrics(self, site: str, metrics: List[Dict[str, Any]]) -> None:
+        if not metrics:
+            return
+        rows = [
+            {
+                "url": m["url"], "in_degree": m.get("in_degree", 0), "out_degree": m.get("out_degree", 0),
+                "click_depth": m.get("click_depth"), "betweenness": m.get("betweenness", 0.0),
+                "pagerank": m.get("pagerank", 0.0),
+                "is_articulation_point": bool(m.get("is_articulation_point", False)),
+            }
+            for m in metrics
+        ]
+        with self._session() as session:
+            session.run(
+                f"""
+                WITH $rows AS rows
+                UNWIND rows AS row
+                {_page_ensure_clause_from_row("p", "url")}
+                SET p.in_degree = row.in_degree, p.out_degree = row.out_degree,
+                    p.click_depth = row.click_depth, p.betweenness = row.betweenness,
+                    p.pagerank = row.pagerank, p.is_articulation_point = row.is_articulation_point
+                """,
+                site=site, rows=rows,
+            )
+
+    def get_page_metrics(self, site: str) -> Dict[str, Dict[str, Any]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.in_degree IS NOT NULL
+                RETURN p.url AS url, p.in_degree AS in_degree, p.out_degree AS out_degree,
+                       p.click_depth AS click_depth, p.betweenness AS betweenness,
+                       p.pagerank AS pagerank, p.is_articulation_point AS is_articulation_point
+                """,
+                site=site,
+            )
+            return {
+                r["url"]: {
+                    "in_degree": r["in_degree"], "out_degree": r["out_degree"],
+                    "click_depth": r["click_depth"], "betweenness": r["betweenness"],
+                    "pagerank": r["pagerank"], "is_articulation_point": r["is_articulation_point"],
+                }
+                for r in result
+            }
+
+    def record_page_modules(self, site: str, modules: List[Dict[str, Any]]) -> None:
+        if not modules:
+            return
+        rows = [{"url": m["url"], "module_id": m["module_id"], "module_label": m.get("module_label", "")} for m in modules]
+        with self._session() as session:
+            session.run(
+                f"""
+                WITH $rows AS rows
+                UNWIND rows AS row
+                {_page_ensure_clause_from_row("p", "url")}
+                SET p.module_id = row.module_id, p.module_label = row.module_label
+                """,
+                site=site, rows=rows,
+            )
+
+    def get_page_modules(self, site: str) -> Dict[str, Dict[str, Any]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.module_id IS NOT NULL
+                RETURN p.url AS url, p.module_id AS module_id, p.module_label AS module_label
+                """,
+                site=site,
+            )
+            return {r["url"]: {"module_id": r["module_id"], "module_label": r["module_label"]} for r in result}
+
     def is_visited(self, site: str, url: str) -> bool:
         with self._session() as session:
             record = session.run(

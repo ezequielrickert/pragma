@@ -185,6 +185,31 @@ CREATE TABLE IF NOT EXISTS stylesheets (
     hash TEXT NOT NULL DEFAULT ''
 );
 
+-- Derived graph facts (Storage Phase 7) - analysis/graph_projection.py's
+-- output, computed from the edges table and written back so a generator
+-- reads "6 modules, named, with depths" as ordinary rows instead of
+-- recomputing networkx analysis itself.
+CREATE TABLE IF NOT EXISTS page_metrics (
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    in_degree INTEGER NOT NULL DEFAULT 0,
+    out_degree INTEGER NOT NULL DEFAULT 0,
+    -- NULL when the projection's root can't reach this page at all.
+    click_depth INTEGER,
+    betweenness DOUBLE NOT NULL DEFAULT 0,
+    pagerank DOUBLE NOT NULL DEFAULT 0,
+    is_articulation_point BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (site, url)
+);
+
+CREATE TABLE IF NOT EXISTS page_modules (
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    module_id INTEGER NOT NULL,
+    module_label TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (site, url)
+);
+
 CREATE TABLE IF NOT EXISTS links (
     site TEXT NOT NULL,
     from_url TEXT NOT NULL,

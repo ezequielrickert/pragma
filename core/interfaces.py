@@ -19,6 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
+from ._analysis_interface import _AnalysisInterface
 from ._component_family_interface import _ComponentFamilyInterface
 from ._component_store_interface import _ComponentStoreInterface
 from ._containment_interface import _ContainmentInterface
@@ -51,7 +52,7 @@ class Agent(ABC):
 
 class GraphStore(
     _ComponentStoreInterface, _ComponentFamilyInterface, _RequestFamilyInterface,
-    _TextContentInterface, _ContainmentInterface, _PageExtrasInterface, ABC,
+    _TextContentInterface, _ContainmentInterface, _PageExtrasInterface, _AnalysisInterface, ABC,
 ):
     """Interface for the crawl graph's persistence/query backend, scoped per site.
     Details: docs/dev/core/interfaces.md#graphstore

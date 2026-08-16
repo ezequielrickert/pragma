@@ -25,7 +25,9 @@ from generators.component_family_narrator import family_signature, narrate_famil
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from generators.request_family import build_inferred_requests
+from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
+from utils.urls import route_shape
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
 from .interfaces import Agent, GraphStore
@@ -131,6 +133,35 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
     components = flat_component_ledger(graph_store, site)
     page_requests = graph_store.get_page_network_ledger(site)
     graph_store.record_inferred_requests(site, build_inferred_requests(components, page_requests))
+
+
+def _apply_graph_projection(graph_store: GraphStore, site: str, root: str) -> None:
+    """Post-hoc, whole-site pass: materialize the navigation graph into
+    `networkx` and write back per-page metrics and module assignments -
+    Storage Phase 7. Independent of the two passes above (reads only
+    `get_edges`, not the component ledger), so it can run in any order
+    relative to them.
+
+    Args:
+        graph_store: same `GraphStore` the crawl wrote to.
+        site: which site's just-crawled data to process.
+        root: the crawl's own start URL, `route_shape`d to match every
+            other page key in the graph - `project_graph`'s `click_depth`
+            is BFS distance from here.
+
+    Returns:
+        None. `project_graph` (`analysis/graph_projection.py`) computes
+        in/out degree, click depth, betweenness, PageRank, articulation
+        points, and Louvain module assignment; results are written via
+        `record_page_metrics`/`record_page_modules` - full rebuilds, same
+        contract as `record_component_families`.
+    Details: docs/dev/core/engine.md#_apply_graph_projection
+    """
+    result = project_graph(graph_store.get_edges(site), root=root)
+    graph_store.record_page_metrics(site, [m.as_dict() for m in result.metrics])
+    graph_store.record_page_modules(site, [m.as_dict() for m in result.modules])
+    if result.cycles:
+        print(f"Graph projection: {len(result.cycles)} navigation cycle(s) found.")
 
 
 @dataclass
@@ -346,6 +377,8 @@ class Engine:
         _apply_component_families(self.graph_store, site, self.agent)
         print("Inferring API endpoints from captured requests...")
         _apply_request_graph(self.graph_store, site)
+        print("Projecting the navigation graph into modules and metrics...")
+        _apply_graph_projection(self.graph_store, site, route_shape(url))
 
         if self.measurement_pass:
             # After the crawl and before synthesis: it writes to the graph
