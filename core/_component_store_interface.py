@@ -2,8 +2,9 @@
 `interfaces.py` once that file crossed the file-size SPLIT threshold
 (626 lines) growing by roughly one new capability per storage-migration
 phase. Mirrors the split every concrete backend already uses
-(`_Neo4jComponentMixin`, `_DuckDBComponentMixin`) - the interface itself
-had never had the same treatment.
+(`_DuckDBComponentMixin`, and the retired Neo4j backend's
+`_Neo4jComponentMixin` before it) - the interface itself had never had
+the same treatment.
 
 `_ComponentStoreInterface` is combined into the public `GraphStore` class
 in `interfaces.py` via multiple inheritance; it is never instantiated on

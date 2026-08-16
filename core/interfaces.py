@@ -6,9 +6,10 @@ Interface`, `_ComponentFamilyInterface`, `_RequestFamilyInterface`,
 each its own file) via multiple inheritance - split out once this file
 crossed the file-size SPLIT threshold (626 lines), growing by roughly one
 new capability per storage-migration phase. Mirrors the split every
-concrete backend already uses (`Neo4jGraphStore`'s/`DuckDBGraphStore`'s
-own component/family/text-content/page-extras mixins) - the interface
-itself had never had the same treatment before now. This file keeps only
+concrete backend already uses (`DuckDBGraphStore`'s own component/family/
+text-content/page-extras mixins, and the retired Neo4j backend's before
+it) - the interface itself had never had the same treatment before now.
+This file keeps only
 `Agent` and the core Page/Site/navigation-edge methods that don't belong
 to any of those split-out concerns.
 

@@ -1,10 +1,5 @@
 """Unit tests for component_family.py's pure clustering logic."""
-from generators.component_family import (
-    ComponentFamily,
-    build_component_families,
-    label_for_tag,
-    tags_with_multiple_instances,
-)
+from generators.component_family import ComponentFamily, build_component_families
 
 
 def _comp(page_url, path, tag, component_type, css_class):
@@ -94,30 +89,6 @@ def test_three_way_family_reports_every_member():
     families = build_component_families(components)
     assert len(families) == 1
     assert len(families[0].member_paths) == 3
-
-
-def test_label_for_tag_maps_anchor_to_link():
-    assert label_for_tag("a") == "Link"
-
-
-def test_label_for_tag_capitalizes_plain_tags():
-    assert label_for_tag("button") == "Button"
-    assert label_for_tag("select") == "Select"
-
-
-def test_label_for_tag_falls_back_to_component_for_unsafe_names():
-    # A custom element's hyphen isn't valid in an unescaped Cypher label.
-    assert label_for_tag("my-widget") == "Component"
-    assert label_for_tag("") == "Component"
-
-
-def test_tags_with_multiple_instances_requires_at_least_two():
-    components = [
-        _comp("p1", "a1", "button", "button", ""),
-        _comp("p1", "a2", "button", "button", ""),
-        _comp("p1", "a3", "input", "text field (text)", ""),
-    ]
-    assert tags_with_multiple_instances(components) == {"button"}
 
 
 def test_component_family_dataclass_is_hashable_and_comparable():

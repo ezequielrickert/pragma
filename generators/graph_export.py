@@ -62,7 +62,7 @@ class GraphExportDocument(DocumentGenerator):
 
     name = "export"
     title = "Graph Export"
-    purpose = "The whole crawl graph as structured JSON, for tooling that would otherwise re-query Neo4j."
+    purpose = "The whole crawl graph as structured JSON, for tooling that would otherwise re-query the store."
     extension = "json"
 
     def generate(self, request: DocumentRequest) -> str:

@@ -1,19 +1,18 @@
 """Backend-agnostic `GraphStore` conformance suite.
 
 Every test here runs once per entry in `graph_store_backends.BACKENDS`, so
-`memory` and `neo4j` (and any future backend registered there, e.g.
-`duckdb`) are all held to the identical contract - a change to one backend
-that silently drops a guarantee the other honors now fails here instead of
-surfacing as a downstream generator bug only one backend ever hits.
+`memory` and `duckdb` (and any future backend registered there) are all
+held to the identical contract - a change to one backend that silently
+drops a guarantee the other honors now fails here instead of surfacing as
+a downstream generator bug only one backend ever hits.
 
-This replaces the ~40 near-identical assertions that used to be duplicated
-across `test_graph_store.py` (in-memory) and
-`test_neo4j_graph_store_integration.py` (Neo4j), with no mechanism keeping
-the two in sync. Only `GraphStore`'s own public methods are called here -
-no raw Cypher, no backend-internal state - so a genuinely backend-specific
-guarantee (Neo4j Browser captions, dynamic tag labels, the `:Inferred`
-marker label) stays out of this file and lives in the backend's own test
-file instead.
+This replaces the ~40 near-identical assertions that used to be
+duplicated across `test_graph_store.py` (in-memory) and a dedicated
+per-backend integration file, with no mechanism keeping the two in sync.
+Only `GraphStore`'s own public methods are called here - no backend
+internals - so a genuinely backend-specific guarantee (a real relational
+constraint, an engine-specific storage detail) stays out of this file and
+lives in the backend's own test file instead, if it has one.
 """
 from __future__ import annotations
 
@@ -45,9 +44,9 @@ def store(request) -> Iterator[GraphStore]:
 def site(store: GraphStore) -> Iterator[str]:
     """A fresh site namespace per test - not just per backend - so tests
     can never see each other's writes, including on a long-lived shared
-    Neo4j instance (tier 1) reused across the whole suite. Cleaned up after
-    via the store's own `clear_site`, exercising that method on every
-    backend as a side effect of every single test.
+    on-disk database reused across the whole suite. Cleaned up after via
+    the store's own `clear_site`, exercising that method on every backend
+    as a side effect of every single test.
     """
     name = f"pragma-conformance-test.local.{next(_site_counter)}"
     yield name
@@ -332,10 +331,11 @@ def test_clear_site_removes_components_too(store: GraphStore, site: str) -> None
 def test_component_families_round_trip_and_replace_on_rerun(store: GraphStore, site: str) -> None:
     assert store.get_component_families(site) == []
 
-    # A family's member_paths must resolve to real Components - both Neo4j
-    # and DuckDB require the reference to exist (an unresolvable entry is
-    # silently dropped rather than raising, see record_component_families'
-    # own docstring); only InMemoryGraphStore is more lenient. Real callers
+    # A family's member_paths must resolve to real Components - a real
+    # relational backend (DuckDB) requires the reference to exist (an
+    # unresolvable entry is silently dropped rather than raising, see
+    # record_component_families' own docstring); only InMemoryGraphStore
+    # is more lenient. Real callers
     # (Engine._apply_component_families) always derive member_paths from an
     # already-recorded component, so the contract this suite tests is the
     # one every production call site actually satisfies.
@@ -365,18 +365,6 @@ def test_component_families_scoped_per_site(store: GraphStore, site: str) -> Non
 
     assert store.get_component_families(site) == [family]
     assert store.get_component_families(other) == []
-
-
-def test_apply_tag_labels_never_raises_and_leaves_component_readable(store: GraphStore, site: str) -> None:
-    """Neo4j gives every tagged Component a real secondary label; a backend
-    with no equivalent (in-memory, and any future non-graph backend) treats
-    this as a no-op. Both are valid - the only contract is "doesn't raise,
-    doesn't lose the component".
-    """
-    store.record_component(site, "home", "button#a", tag="button")
-    store.apply_tag_labels(site, {"button": "Button"})
-
-    assert store.get_component_states(site, "home")["button#a"]["tag"] == "button"
 
 
 def test_record_component_type_and_options_survive_a_plain_rediscovery(store: GraphStore, site: str) -> None:

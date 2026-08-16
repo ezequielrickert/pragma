@@ -119,10 +119,9 @@ class ComponentFamily:
 
     Fields:
         tag: the raw HTML tag every member shares, e.g. `"button"`,
-            `"input"`, `"a"`. See `component_family.label_for_tag` for
-            how this becomes a Neo4j node label (`"button"` -> `Button`,
-            `"a"` -> `Link`, etc.) - a related but separate mechanism
-            from family grouping itself.
+            `"input"`, `"a"` - part of the bucketing key
+            `build_component_families` clusters within, alongside
+            `component_type` below.
         component_type: the human-readable role label every member
             shares, e.g. `"button"`, `"submit button"`, `"checkbox"`,
             `"combobox (searchable dropdown)"` - the same value

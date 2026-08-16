@@ -13,7 +13,7 @@ Details: docs/dev/core/_component_family_interface.md#module
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import List
 
 from .data_contracts import ComponentFamily
 
@@ -24,39 +24,11 @@ class _ComponentFamilyInterface(ABC):
     # Inferred component families - a post-hoc, whole-site pass (not part
     # of the live per-page crawl write path); groups structurally/visually
     # similar Components into reusable patterns.
+    #
+    # This section used to also carry `apply_tag_labels`, a Neo4j-Browser-
+    # specific visual affordance (per-tag node coloring) with no equivalent
+    # once nothing renders the graph visually - removed with that backend.
     # Details: docs/dev/core/interfaces.md#component-families
-
-    def apply_tag_labels(self, site: str, tag_labels: Dict[str, str]) -> None:
-        """Give every Component a label matching its own HTML tag (e.g.
-        `:Button`, `:Input`, `:Link`) wherever `tag_labels` names one for
-        it - a Neo4j-Browser-specific visual affordance (node color
-        follows label) with no equivalent in a backend with no browser to
-        color.
-
-        Args:
-            site: which site's components to label - same scoping every
-                other `GraphStore` method uses.
-            tag_labels: `{raw_tag: label_name}`, e.g. `{"button":
-                "Button", "input": "Input", "a": "Link"}`. Fully computed
-                by the caller (`tags_with_multiple_instances` +
-                `label_for_tag`, both in `component_family.py`) - this
-                method does no thresholding (deciding which tags are
-                "common enough") or naming (deciding what a tag's label
-                should be) of its own, so both decisions live in exactly
-                one place rather than being duplicated between a
-                `GraphStore` backend and the module that calls it. Only
-                the tags present as keys get a label added; any Component
-                whose tag isn't in this dict is left with just its base
-                `:Component` label.
-
-        Returns:
-            None - a write-only side effect (adds Neo4j labels). Not
-            abstract: the default implementation here is a no-op, and
-            only `Neo4jGraphStore` overrides it with a real
-            implementation - there's no equivalent concept for a backend
-            with no browser to color (e.g. `InMemoryGraphStore`).
-        Details: docs/dev/core/interfaces.md#apply_tag_labels
-        """
 
     @abstractmethod
     def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:

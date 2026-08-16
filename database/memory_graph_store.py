@@ -1,4 +1,5 @@
-"""In-memory GraphStore: the default backend, and the reference for the Neo4j one.
+"""In-memory GraphStore: the default backend, and the executable reference
+every other backend's conformance suite is checked against.
 Details: docs/dev/database/memory_graph_store.md#module
 """
 from __future__ import annotations
@@ -23,7 +24,8 @@ class _SiteData:
     # again bumps observation_count in place rather than adding a second
     # entry. Dict, not list, so get_edges can return in first-seen order
     # (dict preserves insertion order) while still deduplicating by
-    # identity, the same contract Neo4jGraphStore.record_edge's MERGE gives.
+    # identity, the same contract DuckDBGraphStore.record_edge's ON CONFLICT
+    # (and the retired Neo4j backend's MERGE before it) gives.
     edges: Dict[Tuple[str, str, str, str], Dict[str, Any]] = field(default_factory=dict)
     links: Dict[Tuple[str, str], str] = field(default_factory=dict)
     # {page_url: {path: {tag, text, role, input_type, visible, layer, x, y, width,
@@ -118,12 +120,13 @@ class InMemoryGraphStore(GraphStore):
         return page["label"] if page else None
 
     def record_link(self, site: str, from_url: str, to_url: str, label: str) -> None:
-        # Both endpoints become Pending pages, matching Neo4jGraphStore's
-        # record_links (which MERGEs each one via _page_ensure_clause) and
-        # record_edge just below. Without this the two backends disagreed on
-        # what a discovered link means: Neo4j grew a page per link target and
-        # this one grew none, so the in-memory store could not stand in for it
-        # in any test about pending work.
+        # Both endpoints become Pending pages, matching DuckDBGraphStore's
+        # record_links (which upserts each one via _ensure_page) and
+        # record_edge just below - the same contract the retired Neo4j
+        # backend's MERGE-based record_links gave. Without this the backends
+        # disagreed on what a discovered link means: the graph backend grew
+        # a page per link target and this one grew none, so the in-memory
+        # store could not stand in for it in any test about pending work.
         # Details: docs/dev/database/memory_graph_store.md#record_link
         for endpoint in (from_url, to_url):
             self.upsert_page(site, endpoint)
@@ -250,10 +253,10 @@ class InMemoryGraphStore(GraphStore):
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
         record["interacted"] = True
-        # `source_path` is always present, even blank - the Neo4j backend now
-        # reads interactions off :INTERACTED relationships, where every
-        # property exists on every edge, and the two backends must hand back
-        # the same shape. Every reader already treats "" as absent.
+        # `source_path` is always present, even blank - the retired Neo4j
+        # backend read interactions off :INTERACTED relationships, where
+        # every property exists on every edge, and every backend must hand
+        # back the same shape. Every reader already treats "" as absent.
         # Details: docs/dev/database/memory_graph_store.md#record_component_interaction
         record["interactions"].append(
             {
@@ -293,7 +296,8 @@ class InMemoryGraphStore(GraphStore):
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
-        # Stored JSON-encoded, matching Neo4j/DuckDB - `options` is a genuine
+        # Stored JSON-encoded, matching DuckDB (and the retired Neo4j
+        # backend before it) - `options` is a genuine
         # union type (see GraphStore.record_component_options' docstring),
         # and describe_options (every reader) already expects a JSON string
         # back, on every backend, so the read-side contract is unchanged.
@@ -385,9 +389,9 @@ class InMemoryGraphStore(GraphStore):
     def record_component_families(self, site: str, families: List[ComponentFamily]) -> None:
         """Overwrite `site`'s whole family list with `families` - a plain
         assignment, since there's no incident-relationship bookkeeping to
-        clean up the way `Neo4jGraphStore`'s DETACH DELETE-then-recreate
-        needs. `families=[]` clears everything for `site`, same full-
-        rebuild contract as the Neo4j backend
+        clean up the way the retired Neo4j backend's DETACH DELETE-then-
+        recreate needed. `families=[]` clears everything for `site`, same
+        full-rebuild contract as that backend used
         (docs/dev/core/interfaces.md#record_component_families).
         """
         self._site(site).component_families = list(families)
@@ -395,8 +399,8 @@ class InMemoryGraphStore(GraphStore):
     def get_component_families(self, site: str) -> List[ComponentFamily]:
         """Every `ComponentFamily` last written for `site` via
         `record_component_families`, in that same call's order (this
-        backend never reorders them - unlike `Neo4jGraphStore.
-        get_component_families`, whose `member_paths` are re-sorted on
+        backend never reorders them - unlike the retired Neo4j backend's
+        `get_component_families`, whose `member_paths` were re-sorted on
         every read; here they're already sorted, since
         `component_family.build_component_families` sorts before
         returning). `[]` if `record_component_families` was never called,

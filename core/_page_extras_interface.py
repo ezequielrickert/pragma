@@ -92,8 +92,8 @@ class _PageExtrasInterface(ABC):
         stacking with them.
 
         Not abstract - a backend with no measurement pass wired to it can
-        ignore this, the same way `apply_tag_labels` is a no-op outside
-        Neo4j. Both shipped backends do implement it.
+        ignore this, same reasoning as `record_stylesheets` below. Both
+        shipped backends do implement it.
         Details: docs/dev/core/interfaces.md#record_accessibility_violations
         """
 

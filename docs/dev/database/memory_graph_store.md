@@ -2,10 +2,10 @@
 
 ## module
 
-Reproduces the exact dict-based tracking Pragma used before Neo4j
-support was added (one flat routes/edges pair per site instead of one
-shared pair), so runs and tests without a live Neo4j instance behave
-identically to before.
+Reproduces the exact dict-based tracking Pragma used before any live
+graph-database support was added (one flat routes/edges pair per site
+instead of one shared pair), so runs and tests without a live DuckDB (or,
+formerly, Neo4j) instance behave identically to before.
 
 ## _FACTS_FIELDS
 
@@ -13,8 +13,9 @@ identically to before.
 keys, in declaration order - added 2026-08-11 so `_new_component_record`,
 `get_component_states`, and `get_component_ledger` all project the same
 fifteen field names off one list rather than three independently
-hand-typed copies, mirroring the Neo4j backend's own `_FACTS_FIELDS`
-(`docs/dev/database/neo4j_graph_store.md#_FACTS_FIELDS--_COMPONENT_DESCRIPTIVE_SET--_COMPONENT_FACTS_RETURN`).
+hand-typed copies, mirroring `DuckDBGraphStore`'s own `FACTS_FIELDS`
+(`database/_duckdb_schema.py`) - a role the retired Neo4j backend's own
+`_FACTS_FIELDS` played before it.
 
 ## _new_component_record
 
@@ -24,8 +25,9 @@ A fresh default record for a path first touched via
 default, since `interactions` is a mutable list every record needs its
 own instance of, not one aliased across every auto-created path. Blanks
 every `ComponentFacts` field too (`**asdict(ComponentFacts())`), same
-"blank, not absent" ghost-node discipline as the Neo4j backend's
-`_component_blank_stub`.
+"blank, not absent" ghost-node discipline as `DuckDBGraphStore`'s
+`_ensure_component_stub` (and the retired Neo4j backend's
+`_component_blank_stub` before it).
 
 ## record_component
 
@@ -39,17 +41,14 @@ those are never `record_component`'s to overwrite.
 ## record_component_interaction
 
 `source_path` (2026-08-11) follows the same conditional-inclusion rule
-as the Neo4j backend (docs/dev/database/neo4j_graph_store.md#record_component_interaction)
-- present in the appended interaction dict only when non-empty, so both
-backends' `interactions` entries stay identically shaped for the same
+as `DuckDBGraphStore` (and, before it, the retired Neo4j backend) -
+present in the appended interaction dict only when non-empty, so every
+backend's `interactions` entries stay identically shaped for the same
 call.
 
-## component_families / apply_tag_labels
+## component_families
 
 `record_component_families`/`get_component_families` store/return
 exactly the list they're given/hold - a full replace on every write,
-same "no incremental merge" contract as `Neo4jGraphStore`'s version
+same "no incremental merge" contract `DuckDBGraphStore`'s version uses
 (docs/dev/core/interfaces.md#record_component_families--get_component_families).
-`apply_tag_labels` is a harmless no-op here - there's no Neo4j Browser
-to color for an in-memory backend, and nothing else in this backend's
-data model would use a per-tag label if it existed.

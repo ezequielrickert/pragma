@@ -1,12 +1,11 @@
 """Regression tests for Phase 3 of the crawl4ai migration: live GraphStore
 writes via MechanicalCrawler + GraphStoreSink (spiders/orchestration/graph_sink.py).
 
-Uses InMemoryGraphStore (same GraphStore interface Neo4jGraphStore implements)
-so these run without a live Neo4j instance - matches the existing test suite's
-convention (see tests/test_graph_store.py) of testing the GraphStore contract
-against the in-memory backend and leaving live-Neo4j checks to
-tests/test_neo4j_graph_store_integration.py, which self-skips when no
-instance is reachable.
+Uses InMemoryGraphStore (same GraphStore interface every backend implements)
+so these run with no setup at all - matches the existing test suite's
+convention (see tests/test_graph_store.py) of testing the GraphStore
+contract against the in-memory backend, with the full cross-backend
+contract itself covered by tests/test_graph_store_conformance.py.
 """
 import asyncio
 import http.server

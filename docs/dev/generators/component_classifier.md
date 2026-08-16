@@ -94,10 +94,10 @@ lone `role="option"` with no siblings isn't "a list" worth
 consolidating; it gets `record_component`'s ordinary per-element path.
 
 Written by `GraphStoreSink.record_inventory` to collapse what used to be
-one Neo4j `Component` node per discovered option into a single
-representative node per list (see graph_sink/sink.md#_record_choice_group) -
-a dropdown with 5 choices no longer produces 5 near-identical nodes
-differing only by which choice they are.
+one `Component` row per discovered option into a single representative
+row per list (see graph_sink/sink.md#_record_choice_group) - a dropdown
+with 5 choices no longer produces 5 near-identical rows differing only
+by which choice they are.
 
 ## describe_options
 

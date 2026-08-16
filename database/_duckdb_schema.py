@@ -1,6 +1,6 @@
 """Schema DDL and shared field lists for `DuckDBGraphStore` and its mixins.
 
-Mirrors `_neo4j_cypher_helpers.py`'s role: one place every split file
+Plays the role the retired Neo4j backend's `_neo4j_cypher_helpers.py` used to: one place every split file
 (`duckdb_graph_store.py`, `duckdb_component_store.py`,
 `duckdb_component_family_store.py`, `duckdb_request_family_store.py`,
 `duckdb_text_content_store.py`) imports from, so none of them need to
@@ -23,13 +23,14 @@ from typing import Tuple
 
 from core.interfaces import ComponentFacts
 
-# Same role as _neo4j_cypher_helpers._FACTS_FIELDS: the single place the
+# Same role the retired Neo4j backend's _neo4j_cypher_helpers._FACTS_FIELDS
+# played: the single place the
 # DDL, the INSERT column lists, and the Python-side result dicts all derive
 # their ComponentFacts field order from, so the three can't drift apart.
 FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys())
 
-# Every ComponentFacts column defaults exactly as blank as
-# `_neo4j_cypher_helpers._COMPONENT_BLANK_STUB` makes it - FALSE for a
+# Every ComponentFacts column defaults exactly as blank as the retired
+# Neo4j backend's `_neo4j_cypher_helpers._COMPONENT_BLANK_STUB` made it - FALSE for a
 # bool-typed fact, '' for a string-typed one - so a bare
 # `INSERT INTO components (site, page_url, path) VALUES (...)` (the
 # auto-create path record_component_interaction/_options/_network use for
@@ -43,8 +44,8 @@ _FACTS_COLUMNS = ", ".join(
 )
 
 # Descriptive fields a component rediscovery always refreshes identically on
-# both a first sighting and a later one - same set as Neo4j's
-# _COMPONENT_DESCRIPTIVE_SET, and for the same reason: the ledger fields
+# both a first sighting and a later one - same set the retired Neo4j
+# backend's _COMPONENT_DESCRIPTIVE_SET used, and for the same reason: the ledger fields
 # (options/interacted/interaction_count/network_requests) are bootstrapped
 # only by the INSERT's own VALUES defaults, never touched again by the
 # ON CONFLICT DO UPDATE clause built from this list.

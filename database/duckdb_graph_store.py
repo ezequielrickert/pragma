@@ -1,7 +1,7 @@
 """DuckDB-backed GraphStore implementation - Phase 3 of the storage
-migration plan. Parity with `Neo4jGraphStore`'s contract (same method
-set, same semantics), running on an embedded, single-file DuckDB database
-instead of a Neo4j server.
+migration plan. Parity with the retired Neo4j backend's contract (same
+method set, same semantics), running on an embedded, single-file DuckDB
+database instead of a Neo4j server.
 
 Details: docs/dev/database/duckdb_graph_store.md#module
 """
@@ -33,11 +33,12 @@ class DuckDBGraphStore(
     _DuckDBTextContentMixin, _DuckDBPageExtrasMixin, _DuckDBContainmentMixin, _DuckDBAnalysisMixin, GraphStore,
 ):
     """GraphStore backed by an embedded DuckDB database, scoped per site via
-    a `site` column on every table (same discipline as `Neo4jGraphStore`'s
-    `site` property on every node/relationship). Component/ComponentFamily/
-    RequestFamily/TextContent/PageExtras CRUD live in the mixins above, same
-    split as the Neo4j backend and for the same file-size reason - this
-    class owns connection/schema setup plus Page/Site/navigation-edge CRUD.
+    a `site` column on every table (same discipline as the retired Neo4j
+    backend's `site` property on every node/relationship). Component/
+    ComponentFamily/RequestFamily/TextContent/PageExtras CRUD live in the
+    mixins above, same split as that Neo4j backend used and for the same
+    file-size reason - this class owns connection/schema setup plus
+    Page/Site/navigation-edge CRUD.
 
     All access - reads included - goes through `self._writer.call(...)`,
     which runs on one dedicated thread. See `_duckdb_writer.py` for why.
@@ -68,7 +69,7 @@ class DuckDBGraphStore(
 
     def _ensure_page(self, conn, site: str, url: str) -> None:
         """Create a bare Pending page if `url` doesn't exist yet - the same
-        role `_page_ensure_clause` plays in the Neo4j backend, called by
+        role `_page_ensure_clause` played in the retired Neo4j backend, called by
         every method that references a page it doesn't own the full
         upsert contract for (links, edges, components, text content).
         """

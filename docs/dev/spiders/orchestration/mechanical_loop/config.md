@@ -4,9 +4,9 @@
 
 Every tuning knob `MechanicalCrawler` accepts beyond its two core
 collaborators (`crawler`, `tracker`) - bundled into one object (mirroring
-`Neo4jConfig` in `database/neo4j_graph_store.py`, and
-`Crawl4AICrawlerConfig` in `spiders/browser/crawl4ai_crawler/config.py`)
-instead of a long constructor argument list.
+`Crawl4AICrawlerConfig` in `spiders/browser/crawl4ai_crawler/config.py`,
+and the same per-provider `Config` dataclass pattern every agent/
+graph-store module uses) instead of a long constructor argument list.
 
 ## MechanicalCrawlerConfig
 

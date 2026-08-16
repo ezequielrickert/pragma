@@ -3,9 +3,9 @@
 ## module
 
 Phase 3 of the crawl4ai migration: live `GraphStore` wiring for
-`MechanicalCrawler` - Neo4j (or `InMemoryGraphStore`) becomes the crawl's
-source of truth, written to as the crawl happens rather than batched by an
-in-process orchestrator afterward.
+`MechanicalCrawler` - `DuckDBGraphStore` (or `InMemoryGraphStore`) becomes
+the crawl's source of truth, written to as the crawl happens rather than
+batched by an in-process orchestrator afterward.
 
 The detail-rich writer `MechanicalCrawler` calls directly at each point
 in the crawl (page arrival, full component/link inventory, each
@@ -34,10 +34,10 @@ actual interaction *result* (did the URL change), which only exists once
 ## _write
 
 Runs one blocking `GraphStore` write off the event loop via
-`asyncio.to_thread` - `GraphStore` backends (e.g. `Neo4jGraphStore`) are
-synchronous, each call its own network round-trip, so calling `fn`
-directly here would stall every other crawl worker sharing this event
-loop for the duration.
+`asyncio.to_thread` - `GraphStore` backends are synchronous
+(`DuckDBGraphStore` in particular blocks on its single writer thread), so
+calling `fn` directly here would stall every other crawl worker sharing
+this event loop for the duration.
 
 ## record_page_arrival
 

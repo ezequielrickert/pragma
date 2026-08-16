@@ -1,4 +1,4 @@
-POC: Mechanical crawl4ai crawler + Neo4j graph + AI-synthesized PRD generator (Python)
+POC: Mechanical crawl4ai crawler + embedded DuckDB storage + AI-synthesized PRD generator (Python)
 
 Setup:
 - pip install -r requirements.txt
@@ -19,7 +19,7 @@ Everything else - which agent/model, which graph store, output folder, headless 
 budget - comes from what you configured. Any of it can still be overridden per run with flags,
 without touching your saved config:
 - `--agent <name>` / `--provider <name>` (`local`, `mock`)
-- `--graph-store <name>` (`memory`, `neo4j`)
+- `--graph-store <name>` (`memory`, `duckdb`)
 - `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
   `--config <path/to/other.yaml>`
 
@@ -27,9 +27,10 @@ Precedence for every setting: explicit CLI flag > `config/pragma.yaml` > environ
 > built-in default.
 
 Debugging a run: there are no more file-based logs (`research_logs/`/`progress_logs/`/
-`graph_logs/`) - the crawl's graph store *is* the live record. With `graph_store: neo4j`, open a
-Neo4j browser and query `site`-scoped `Page`/`Component` nodes and their edges directly; with the
-default `graph_store: memory`, inspect it in-process (nothing persists past one run).
+`graph_logs/`) - the crawl's graph store *is* the live record. With `graph_store: duckdb`, open the
+database file directly with the `duckdb` CLI (or any DuckDB client) and query `site`-scoped tables
+(`pages`, `components`, `edges`, ...) with plain SQL; with the default `graph_store: memory`,
+inspect it in-process (nothing persists past one run).
 
 No iteration/prompt-size tuning is needed anymore - there's no per-step LLM decision consuming a
 token budget. `--element-budget` (default 200) is the only crawl-size knob: the per-page cap on

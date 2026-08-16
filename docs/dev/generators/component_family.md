@@ -14,14 +14,19 @@ Pure, no I/O, same placement discipline as `component_classifier.py` -
 the impure read-from-`GraphStore`/write-back-to-`GraphStore` orchestration
 lives in `engine.py`, not here.
 
-### Two outputs, from the same input data
+### One output: is this the same reusable pattern as that other one?
 
-| | `tags_with_multiple_instances` + `label_for_tag` | `build_component_families` |
-|---|---|---|
-| Question it answers | "What *kind* of element is this?" | "Is this the *same reusable pattern* as that other one?" |
-| Grouping key | raw HTML `tag` alone | `(tag, component_type)`, then CSS-class similarity |
-| Where it ends up | a Neo4j **label** added directly onto the existing `Component` node (`:Component:Button`) | a brand-new **`:ComponentFamily` node**, pointing at existing `Component` nodes via `HAS_VARIANT` |
-| Threshold | tag appears on 2+ components | cluster has 2+ members after similarity clustering |
+`build_component_families` groups by `(tag, component_type)`, then by CSS-class
+similarity, into a brand-new `ComponentFamily` record pointing at the existing
+`Component` rows via their `member_paths`. A cluster needs 2+ members after
+similarity clustering to become a family - a component with no siblings isn't
+a reusable pattern, it's just a component.
+
+A coarser, purely tag-based grouping (`tags_with_multiple_instances`/
+`label_for_tag`) used to live here too, feeding `GraphStore.apply_tag_labels`
+so Neo4j Browser could color nodes by tag - removed along with that backend,
+since it was purely a Browser-coloring affordance with no equivalent once
+nothing renders the graph visually.
 
 ### Worked example (real data, empanad.app)
 
@@ -36,8 +41,6 @@ Two real components discovered on the same site:
  "css_class": "border-2 border-primary disabled:opacity-40 h-8 w-8 rounded-full ..."}
 ```
 
-- **Tag labeling**: both have `tag="button"`, and there are 2 of them -> both
-  Neo4j nodes get `SET c:Button` added, becoming `:Component:Button`.
 - **Family clustering**: both share `(tag="button", component_type="button")`
   *and* their `css_class` sets are identical (similarity 1.0, well above the
   0.5 threshold) -> one `ComponentFamily(tag="button", component_type=
@@ -80,10 +83,7 @@ weighting scheme would otherwise be trying to approximate.
 ## _min_family_size
 
 A family needs at least 2 members - a component with no siblings isn't
-a reusable pattern, it's just a component. The same bar
-`tags_with_multiple_instances` uses for "is this tag common enough to
-deserve its own label" - both are the same "at least one sibling"
-reasoning, applied to two different questions.
+a reusable pattern, it's just a component.
 
 ## _class_tokens / _similarity
 
@@ -111,24 +111,6 @@ element kinds regardless of class overlap, which is what makes plain
 returned `ComponentFamily` (`core/interfaces.py`) is the
 intersection of every member's own classes - a human-readable summary
 of what the family visually has in common. `member_paths` is sorted
-before being returned, so a round-trip through either `GraphStore`
-backend (`Neo4jGraphStore.get_component_families` has its own matching
+before being returned, so a round-trip through the `GraphStore`
+backend (`DuckDBGraphStore.get_component_families` has its own matching
 `ORDER BY`) compares equal regardless of clustering/iteration order.
-
-## _tag_label_overrides / label_for_tag
-
-Human-readable, Cypher-label-safe name for a raw HTML tag - most tags
-just capitalize (`button` -> `Button`); `<a>` reads as `Link` since the
-bare letter `A` isn't a usable node label in practice. Falls back to
-`"Component"` for anything that isn't a plain identifier (e.g. a custom
-element like `<my-widget>`, whose hyphen isn't valid in an unescaped
-Cypher label) - `Neo4jGraphStore.apply_tag_labels` bakes this string
-directly into a Cypher query (labels can't be bound parameters), so
-this function is the one place that guarantees every value it can
-produce is safe to interpolate.
-
-## tags_with_multiple_instances
-
-Tags worth their own label - appearing on `_MIN_FAMILY_SIZE`+
-components for the site. A tag seen only once has no "type" to speak of
-yet, so it stays generic (`:Component`, no dynamic label added).

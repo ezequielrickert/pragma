@@ -82,12 +82,12 @@ possibly-stale copy of the same fact.
 
 `spiders.graph_sink._component_facts` (see
 `docs/dev/spiders/orchestration/graph_sink/component_facts.md#component_facts`) is the one place a
-raw JS-discovered component dict gets mapped onto this dataclass; both
-`GraphStore` backends' `_FACTS_FIELDS` constant (see
-`docs/dev/database/neo4j_graph_store.md#record_component`) derive their
-Cypher/dict field lists from `ComponentFacts.__dataclass_fields__` rather
-than hand-listing the fifteen names a second time, so the three places
-(dataclass, Cypher, in-memory dict) can't drift apart from each other.
+raw JS-discovered component dict gets mapped onto this dataclass; the
+`GraphStore` backend's `FACTS_FIELDS` constant (`database/_duckdb_schema.py`,
+mirroring the retired Neo4j backend's own `_FACTS_FIELDS` before it)
+derives its SQL/dict field list from `ComponentFacts.__dataclass_fields__`
+rather than hand-listing the fifteen names a second time, so the schema,
+dataclass, and in-memory dict can't drift apart from each other.
 
 ## GraphStore
 
@@ -154,8 +154,8 @@ being navigated from.
 Delete every page/edge/link/component tracked for `site`, leaving other
 sites untouched.
 
-For a backend that persists across runs (Neo4j), this is what actually
-resets state between crawls - `Engine.from_config` calls it by default
+For a backend that persists across runs (`DuckDBGraphStore`), this is
+what actually resets state between crawls - `Engine.from_config` calls it by default
 (`PragmaConfig.fresh`) before wiring the crawl. Without it, a site whose
 URLs are per-session tokens (e.g. a `/o/<random-id>` order flow) silently
 accumulates a "visited" node for every past run's session, forever - none
@@ -326,17 +326,11 @@ are a post-hoc, whole-site pass over already-discovered components (see
 crawl write path - `Engine._apply_component_families` calls all three
 once, after a crawl finishes.
 
-## apply_tag_labels
-
-Not abstract - the base-class default is a no-op. Only
-`Neo4jGraphStore` overrides it: a Neo4j-Browser-specific visual
-affordance (node color follows label) with no equivalent in a backend
-with no browser to color. `tag_labels` is fully computed by the caller
-(`component_family.py`'s `tags_with_multiple_instances` +
-`label_for_tag`) - this method does no thresholding or naming of its
-own, matching this project's "GraphStore does dumb persistence, callers
-compute derived facts" discipline (the same split `record_component`
-vs. `GraphStoreSink`/`component_classifier.py` already establishes).
+`apply_tag_labels` (and the `component_family.py` helpers that fed it,
+`tags_with_multiple_instances`/`label_for_tag`) used to live here too: a
+Neo4j-Browser-specific visual affordance (node color follows label) with
+no equivalent once nothing renders the graph visually. Removed along
+with that backend.
 
 ## record_component_families / get_component_families
 

@@ -4,14 +4,15 @@ The contract every backend must satisfy (upsert/record/get semantics) lives
 in `test_graph_store_conformance.py`, run once per registered backend. What
 stays here is specific to how `Engine.from_config` wires a chosen backend
 in, which only needs one (any) backend to exercise - `InMemoryGraphStore`
-because it needs no live server.
+because it needs no setup at all.
 """
 from database.memory_graph_store import InMemoryGraphStore
 
 
 class _SpyGraphStore(InMemoryGraphStore):
-    """Records `clear_site` calls without needing a live Neo4j instance -
-    exercises `Engine.from_config`'s `PragmaConfig.fresh` wiring directly."""
+    """Records `clear_site` calls without needing a real embedded/server
+    backend - exercises `Engine.from_config`'s `PragmaConfig.fresh` wiring
+    directly."""
 
     def __init__(self) -> None:
         super().__init__()

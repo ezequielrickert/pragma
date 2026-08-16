@@ -2,7 +2,7 @@
 mapping from one JS-discovered component dict (discover_components.js's
 per-element shape) onto ComponentFacts, exercised directly so a
 field-name typo on either side of that boundary fails fast instead of
-silently writing "" to Neo4j/memory.
+silently writing "" to storage.
 """
 from core.interfaces import ComponentFacts
 from spiders.orchestration.graph_sink.component_facts import component_facts

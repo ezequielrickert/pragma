@@ -1,15 +1,14 @@
-"""Inferred-API-endpoint CRUD for `DuckDBGraphStore` - mirrors
-`neo4j_request_family_store.py`'s role. `_DuckDBRequestFamilyMixin` is
-combined into the public `DuckDBGraphStore` class via multiple
-inheritance; every method here relies on `self._call(...)` existing on
-whatever it ends up mixed into.
+"""Inferred-API-endpoint CRUD for `DuckDBGraphStore`.
+`_DuckDBRequestFamilyMixin` is combined into the public `DuckDBGraphStore`
+class via multiple inheritance; every method here relies on
+`self._call(...)` existing on whatever it ends up mixed into.
 
-Unlike component families, `RequestFamily`/method-grouping is dropped here:
-`InferredRequest` carries its own `method` field and nothing in `GraphStore`
-ever reads a request's family membership back - Neo4j's `:RequestFamily`
-node exists only for its own Browser-coloring convenience (same category as
-`apply_tag_labels`), which has no equivalent in an embedded store. The
-`inferred_requests` table is the complete, faithful record either way.
+No `RequestFamily`/method-grouping table here: `InferredRequest` already
+carries its own `method` field, and nothing in `GraphStore` ever reads a
+request's family membership back - a family node existed in the retired
+Neo4j backend only for its own Browser-coloring convenience, which has no
+equivalent in an embedded store. The `inferred_requests` table is the
+complete, faithful record on its own.
 
 Details: docs/dev/database/_duckdb_request_family_store.md#module
 """

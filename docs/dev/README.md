@@ -75,7 +75,6 @@ aimed at onboarding rather than a specific line of code.
 | `core/bootstrap.py` | [bootstrap.md](core/bootstrap.md) |
 | `core/prompts.py` | [prompts.md](core/prompts.md) |
 | `cli.py` | [cli.md](cli.md) |
-| `database/neo4j_graph_store.py` | [neo4j_graph_store.md](database/neo4j_graph_store.md) |
 | `database/memory_graph_store.py` | [memory_graph_store.md](database/memory_graph_store.md) |
 | `generators/component_classifier.py` | [component_classifier.md](generators/component_classifier.md) |
 | `generators/component_tree.py` | [component_tree.md](generators/component_tree.md) |

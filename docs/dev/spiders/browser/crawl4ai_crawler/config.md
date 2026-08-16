@@ -3,8 +3,10 @@
 ## module
 
 Every tuning knob `Crawl4AICrawler` accepts, bundled into one object
-(mirroring `Neo4jConfig` in `database/neo4j_graph_store.py`) instead of a
-long constructor argument list. Pure data - no logic of its own, which is
+(mirroring the per-provider `Config` dataclass pattern every agent/
+graph-store module uses, e.g. `DuckDBGraphStore`'s own connection
+settings) instead of a long constructor argument list. Pure data - no
+logic of its own, which is
 exactly why it's its own file: a change here is never a change to how a
 hook fires or how a page gets navigated.
 

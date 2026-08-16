@@ -1,13 +1,7 @@
-"""Inferred component-family CRUD for `DuckDBGraphStore` - mirrors
-`neo4j_component_family_store.py`'s role. `_DuckDBComponentFamilyMixin` is
-combined into the public `DuckDBGraphStore` class via multiple
-inheritance; every method here relies on `self._call(...)` existing on
-whatever it ends up mixed into.
-
-`apply_tag_labels` is deliberately not overridden here - `GraphStore`'s own
-default is a no-op (`core/interfaces.py`), the same "no browser to color"
-reasoning `InMemoryGraphStore` relies on applies to an embedded columnar
-store too.
+"""Inferred component-family CRUD for `DuckDBGraphStore`.
+`_DuckDBComponentFamilyMixin` is combined into the public
+`DuckDBGraphStore` class via multiple inheritance; every method here
+relies on `self._call(...)` existing on whatever it ends up mixed into.
 
 Details: docs/dev/database/_duckdb_component_family_store.md#module
 """
@@ -45,8 +39,8 @@ class _DuckDBComponentFamilyMixin:
                     },
                 ).fetchone()[0]
                 # A member_paths entry that doesn't resolve to a real
-                # Component is silently skipped - same as Neo4j's MATCH
-                # producing no row for that UNWIND entry - rather than
+                # Component is silently skipped - same as the retired Neo4j
+                # backend's MATCH producing no row for that UNWIND entry - rather than
                 # raising, matching GraphStore.record_component_families'
                 # own documented contract.
                 for page_url, path in family.member_paths:
@@ -78,7 +72,7 @@ class _DuckDBComponentFamilyMixin:
                     {"family_id": family_id},
                 ).fetchall()
                 # A family with zero resolved members is excluded, matching
-                # Neo4j's MATCH-requires-the-edge-to-exist behavior.
+                # the retired Neo4j backend's MATCH-requires-the-edge-to-exist behavior.
                 if not members:
                     continue
                 result.append(

@@ -1,5 +1,5 @@
-"""Component CRUD for `DuckDBGraphStore` - split out to mirror
-`neo4j_component_store.py`'s role and stay under this project's file-size
+"""Component CRUD for `DuckDBGraphStore` - split out to mirror the role the
+retired Neo4j backend's `neo4j_component_store.py` played, and to stay under this project's file-size
 threshold. `_DuckDBComponentMixin` is combined into the public
 `DuckDBGraphStore` class via multiple inheritance; every method here
 relies on `self._call(...)` existing on whatever it ends up mixed into.
@@ -66,7 +66,7 @@ class _DuckDBComponentMixin:
         """Batched `record_component`: one `executemany` for a whole
         discovery pass's components instead of one round-trip each -
         collapses the 100-300+ individual writes a component-heavy real
-        page produced, same motivation as Neo4j's UNWIND version.
+        page produced, same motivation as the retired Neo4j backend's UNWIND version.
         """
         if not components:
             return
@@ -110,8 +110,8 @@ class _DuckDBComponentMixin:
     ) -> None:
         # An interaction that navigated points at where it landed; one that
         # didn't points back at its own page - same "every interaction is a
-        # traversable fact, never a dangling reference" rule Neo4j's
-        # :INTERACTED edges follow.
+        # traversable fact, never a dangling reference" rule the retired
+        # Neo4j backend's :INTERACTED edges followed.
         target_url = resulting_url or page_url
         navigated = bool(resulting_url) and resulting_url != page_url
         created_at = datetime.now(timezone.utc).isoformat()
@@ -272,8 +272,8 @@ def _ensure_component_stub(conn, site: str, page_url: str, path: str) -> None:
     exist yet - shared by every write method that isn't `record_component`/
     `record_components` itself (which own the full descriptive INSERT).
     The table's own column defaults (`_duckdb_schema.py`) supply every
-    blank value, the same role `_COMPONENT_BLANK_STUB` plays in the Neo4j
-    backend, so there's no separate stub fragment to keep in sync here.
+    blank value, the same role `_COMPONENT_BLANK_STUB` played in the retired
+    Neo4j backend, so there's no separate stub fragment to keep in sync here.
     """
     conn.execute(
         "INSERT INTO components (site, page_url, path) VALUES ($site, $page_url, $path) "

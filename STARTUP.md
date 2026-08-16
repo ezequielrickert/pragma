@@ -1,8 +1,8 @@
 # Startup
 
 ```bash
-docker compose up -d neo4j       
-# graph store (skip if graph_store: memory in config/pragma.yaml)
+# No server to start - graph_store: duckdb (or memory) is embedded, nothing
+# to run before the crawl itself.
 #eze: 
 python3 cli.py https://example.com
 #juli:

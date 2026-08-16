@@ -71,10 +71,11 @@ class GraphStoreSink:
 
     async def _write(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
         """Run one blocking `GraphStore` write off the event loop.
-        `GraphStore` backends (e.g. `Neo4jGraphStore`) are synchronous - each
-        call is its own network round-trip - so calling `fn` directly here
-        would stall every other crawl worker sharing this event loop for the
-        duration. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
+        `GraphStore` backends are synchronous - `DuckDBGraphStore` in
+        particular blocks on its single writer thread - so calling `fn`
+        directly here would stall every other crawl worker sharing this
+        event loop for the duration.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
         """
         await asyncio.to_thread(fn, *args, **kwargs)
 

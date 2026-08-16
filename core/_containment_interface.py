@@ -25,8 +25,9 @@ class _ContainmentInterface(ABC):
     components into modules instead of only ever seeing a flat component
     list with no hierarchy at all. Not abstract - a backend with no
     structural-analysis use for this can ignore it, same reasoning as
-    `record_accessibility_violations`. Both shipped graph backends (Neo4j,
-    DuckDB) and the in-memory reference do implement it.
+    `record_accessibility_violations`. Every graph backend this project
+    has shipped (DuckDB, and the retired Neo4j one before it) and the
+    in-memory reference do/did implement it.
     Details: docs/dev/core/_containment_interface.md#_containmentinterface
     """
 

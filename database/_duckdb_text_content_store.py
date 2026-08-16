@@ -1,5 +1,5 @@
-"""Static-text-content CRUD for `DuckDBGraphStore` - mirrors
-`neo4j_text_content_store.py`'s role. `_DuckDBTextContentMixin` is combined
+"""Static-text-content CRUD for `DuckDBGraphStore` - mirrors the role the
+retired Neo4j backend's `neo4j_text_content_store.py` played. `_DuckDBTextContentMixin` is combined
 into the public `DuckDBGraphStore` class via multiple inheritance; every
 method here relies on `self._call(...)` existing on whatever it ends up
 mixed into.
