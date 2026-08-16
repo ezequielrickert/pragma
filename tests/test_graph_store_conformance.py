@@ -94,6 +94,43 @@ def test_site_isolation(store: GraphStore, site: str) -> None:
     store.clear_site(other)
 
 
+def test_record_edge_is_idempotent_and_counts_observations(store: GraphStore, site: str) -> None:
+    """A page re-crawled, or a control clicked twice, must not duplicate the
+    edge - that used to inflate every dependency/coupling count read off
+    get_edges by however many times the site had been re-crawled."""
+    store.record_edge(site, "home", "about", 'link "About"', "GOTO about", run_id="run-1")
+    store.record_edge(site, "home", "about", 'link "About"', "GOTO about", run_id="run-2")
+
+    edges = store.get_edges(site)
+    assert len(edges) == 1
+    assert edges[0]["observation_count"] == 2
+    assert edges[0]["first_seen_run"] == "run-1"
+    assert edges[0]["last_seen_run"] == "run-2"
+
+
+def test_record_edge_without_run_id_still_counts_observations(store: GraphStore, site: str) -> None:
+    """Every pre-existing call site (tests, mostly) never passes run_id -
+    the count still has to work with no provenance recorded."""
+    store.record_edge(site, "home", "about", "link", "GOTO about")
+    store.record_edge(site, "home", "about", "link", "GOTO about")
+
+    edges = store.get_edges(site)
+    assert len(edges) == 1
+    assert edges[0]["observation_count"] == 2
+    assert edges[0]["first_seen_run"] == ""
+
+
+def test_record_edge_distinguishes_different_components_and_actions(store: GraphStore, site: str) -> None:
+    """Two different controls that both land on the same page are two
+    distinct edges, not one merged observation."""
+    store.record_edge(site, "home", "about", "link", "GOTO about")
+    store.record_edge(site, "home", "about", "footer link", "GOTO about")
+
+    edges = store.get_edges(site)
+    assert len(edges) == 2
+    assert {e["observation_count"] for e in edges} == {1}
+
+
 def test_link_label_is_scoped_to_the_specific_from_to_pair(store: GraphStore, site: str) -> None:
     store.record_link(site, "home", "about", "About Us")
     store.record_link(site, "other-page", "about", "Learn more")

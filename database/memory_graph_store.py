@@ -19,7 +19,12 @@ _FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys(
 @dataclass
 class _SiteData:
     routes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    edges: List[Dict[str, str]] = field(default_factory=list)
+    # Keyed by (from_url, to_url, component, action) - a transition observed
+    # again bumps observation_count in place rather than adding a second
+    # entry. Dict, not list, so get_edges can return in first-seen order
+    # (dict preserves insertion order) while still deduplicating by
+    # identity, the same contract Neo4jGraphStore.record_edge's MERGE gives.
+    edges: Dict[Tuple[str, str, str, str], Dict[str, Any]] = field(default_factory=dict)
     links: Dict[Tuple[str, str], str] = field(default_factory=dict)
     # {page_url: {path: {tag, text, role, input_type, visible, layer, x, y, width,
     # height, component_type, options, interacted, interactions, network_requests}}}
@@ -117,15 +122,26 @@ class InMemoryGraphStore(GraphStore):
     def get_link_label(self, site: str, from_url: str, to_url: str) -> Optional[str]:
         return self._site(site).links.get((from_url, to_url))
 
-    def record_edge(self, site: str, from_url: str, to_url: str, component: str, action: str) -> None:
+    def record_edge(
+        self, site: str, from_url: str, to_url: str, component: str, action: str, run_id: str = "",
+    ) -> None:
         for endpoint in (from_url, to_url):
             self.upsert_page(site, endpoint)
-        self._site(site).edges.append(
-            {"from": from_url, "component": component, "action": action, "to": to_url}
-        )
+        edges = self._site(site).edges
+        key = (from_url, to_url, component, action)
+        existing = edges.get(key)
+        if existing is None:
+            edges[key] = {
+                "from": from_url, "component": component, "action": action, "to": to_url,
+                "observation_count": 1, "first_seen_run": run_id, "last_seen_run": run_id,
+            }
+        else:
+            existing["observation_count"] += 1
+            if run_id:
+                existing["last_seen_run"] = run_id
 
-    def get_edges(self, site: str) -> List[Dict[str, str]]:
-        return list(self._site(site).edges)
+    def get_edges(self, site: str) -> List[Dict[str, Any]]:
+        return [dict(edge) for edge in self._site(site).edges.values()]
 
     def get_progress_table_rows(self, site: str) -> List[Dict[str, Any]]:
         rows = sorted(self._site(site).routes.items(), key=lambda x: (x[1]["status"] != "Finished", x[0]))
@@ -144,7 +160,7 @@ class InMemoryGraphStore(GraphStore):
     def get_loop_signals(self, site: str, url: str) -> List[Dict[str, str]]:
         seen: List[Dict[str, str]] = []
         seen_pairs = set()
-        for edge in self._site(site).edges:
+        for edge in self._site(site).edges.values():
             if edge["to"] != url:
                 continue
             pair = (edge["component"], edge["from"])

@@ -355,33 +355,46 @@ class Neo4jGraphStore(
             ).single()
             return record["label"] if record else None
 
-    def record_edge(self, site: str, from_url: str, to_url: str, component: str, action: str) -> None:
+    def record_edge(
+        self, site: str, from_url: str, to_url: str, component: str, action: str, run_id: str = "",
+    ) -> None:
         created_at = datetime.now(timezone.utc).isoformat()
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("a", "from_url")}
                 {_page_ensure_clause("b", "to_url")}
-                CREATE (a)-[:NAVIGATED_TO {{
-                    component: $component, action: $action, site: $site, created_at: $created_at
-                }}]->(b)
+                MERGE (a)-[r:NAVIGATED_TO {{component: $component, action: $action, site: $site}}]->(b)
+                ON CREATE SET
+                    r.created_at = $created_at, r.observation_count = 1,
+                    r.first_seen_run = $run_id, r.last_seen_run = $run_id
+                ON MATCH SET
+                    r.observation_count = r.observation_count + 1,
+                    r.last_seen_run = CASE WHEN $run_id <> '' THEN $run_id ELSE r.last_seen_run END
                 """,
                 site=site, from_url=from_url, to_url=to_url,
-                component=component, action=action, created_at=created_at,
+                component=component, action=action, created_at=created_at, run_id=run_id,
             )
 
-    def get_edges(self, site: str) -> List[Dict[str, str]]:
+    def get_edges(self, site: str) -> List[Dict[str, Any]]:
         with self._session() as session:
             result = session.run(
                 """
                 MATCH (a:Page {site: $site})-[r:NAVIGATED_TO {site: $site}]->(b:Page {site: $site})
-                RETURN a.url AS from, r.component AS component, r.action AS action, b.url AS to
+                RETURN a.url AS from, r.component AS component, r.action AS action, b.url AS to,
+                    coalesce(r.observation_count, 1) AS observation_count,
+                    coalesce(r.first_seen_run, '') AS first_seen_run,
+                    coalesce(r.last_seen_run, '') AS last_seen_run
                 ORDER BY r.created_at
                 """,
                 site=site,
             )
             return [
-                {"from": r["from"], "component": r["component"], "action": r["action"], "to": r["to"]}
+                {
+                    "from": r["from"], "component": r["component"], "action": r["action"], "to": r["to"],
+                    "observation_count": r["observation_count"],
+                    "first_seen_run": r["first_seen_run"], "last_seen_run": r["last_seen_run"],
+                }
                 for r in result
             ]
 

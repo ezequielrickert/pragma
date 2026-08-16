@@ -151,10 +151,15 @@ def build_flow_graph(edges: Sequence[Dict[str, str]], components: Sequence[Dict[
             label a transition with and the requests to annotate it.
 
     Returns:
-        A `FlowGraph`. `edges` is written with `CREATE`, so a page visited
-        twice yields the same edge twice - transitions are deduplicated by
-        `(from, to, trigger, action)` here rather than in the store, where
-        the repetition is real history worth keeping.
+        A `FlowGraph`. `GraphStore.record_edge` already deduplicates by
+        `(from, to, component, action)` and counts repeats as
+        `observation_count` rather than storing them again - the grouping
+        here is coarser still, by `(from, to, trigger, action)`, since two
+        different components can render the same human-readable `trigger`
+        label (e.g. two links with identical visible text on one page
+        leading to the same destination) and are worth collapsing into one
+        transition in the diagram even though the store keeps them as two
+        distinct edges.
     Details: docs/dev/generators/user_flows.md#build_flow_graph
     """
     by_key = {(c.get("page_url"), c.get("path")): c for c in components}

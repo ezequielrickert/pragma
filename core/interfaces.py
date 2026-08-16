@@ -112,13 +112,40 @@ class GraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def record_edge(self, site: str, from_url: str, to_url: str, component: str, action: str) -> None:
-        """Record a successful navigation from `from_url` to `to_url` for `site`."""
+    def record_edge(
+        self, site: str, from_url: str, to_url: str, component: str, action: str, run_id: str = "",
+    ) -> None:
+        """Record a successful navigation from `from_url` to `to_url` for `site`.
+
+        Idempotent per `(site, from_url, to_url, component, action)`: a
+        transition observed again (the same page re-crawled, or the same
+        control clicked twice) bumps that edge's `observation_count` rather
+        than adding a second edge - a duplicated edge previously inflated
+        every dependency/coupling count read off `get_edges` by however many
+        times a site had been re-crawled, with no way to tell "seen once"
+        from "seen ten times" apart from counting raw rows.
+
+        Args:
+            run_id: which crawl run this observation belongs to, if the
+                caller tracks one. `""` (the default) records the
+                observation without provenance - every existing call site
+                keeps working unchanged. Backends that support it stamp
+                `first_seen_run` once (on the edge's first observation) and
+                `last_seen_run` on every observation after, so "did this
+                transition disappear/appear between two runs" is answerable
+                without a full graph diff.
+        """
         raise NotImplementedError
 
     @abstractmethod
-    def get_edges(self, site: str) -> List[Dict[str, str]]:
-        """All recorded edges for `site`, each {"from", "component", "action", "to"}, in insertion order."""
+    def get_edges(self, site: str) -> List[Dict[str, Any]]:
+        """All recorded edges for `site`, each
+        `{"from", "component", "action", "to", "observation_count",
+        "first_seen_run", "last_seen_run"}`, in insertion order (first-seen
+        order, for an edge observed more than once).
+        `observation_count` is `1` and both run fields are `""` for an edge
+        recorded through a call site that never passed `run_id`.
+        """
         raise NotImplementedError
 
     @abstractmethod

@@ -37,6 +37,7 @@ class GraphStoreSink:
         site: str,
         base_url: Optional[str] = None,
         allow_subdomains: bool = False,
+        run_id: str = "",
     ) -> None:
         self.graph_store = graph_store
         self.site = site
@@ -47,6 +48,10 @@ class GraphStoreSink:
         # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#base_url
         self.base_url = base_url
         self.allow_subdomains = allow_subdomains
+        # Identifies this crawl to record_navigation_edge's run_id - "" for
+        # any caller that doesn't track one (tests, mostly), which every
+        # GraphStore backend accepts as "no provenance recorded".
+        self.run_id = run_id
         # page_url -> {member_path: representative_path}, populated by
         # record_inventory. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path
         self._representative_for: Dict[str, Dict[str, str]] = {}
@@ -316,7 +321,10 @@ class GraphStoreSink:
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
         """Only called when an interaction's resulting URL differs from the page it ran on."""
-        await self._write(self.graph_store.record_edge, self.site, from_key, to_key, component=path, action=action)
+        await self._write(
+            self.graph_store.record_edge, self.site, from_key, to_key,
+            component=path, action=action, run_id=self.run_id,
+        )
 
     async def record_page_finished(self, page_key: str, component_count: int) -> None:
         """Called once a page's pass completes without being cut short by navigation.

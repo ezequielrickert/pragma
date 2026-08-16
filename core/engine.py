@@ -277,10 +277,20 @@ class Engine:
 
     async def _run_async(self, url: str) -> EngineRunResult:
         site = self.site or urlparse(url).netloc
+        # One id for this whole crawl, stamped onto every edge it writes
+        # (GraphStoreSink.record_navigation_edge) so a later run can tell
+        # "this transition first appeared in run X, last seen in run Y"
+        # apart from one that's been stable since the first crawl. Distinct
+        # from `run_timestamp` below (generated after the crawl, for
+        # document/manifest filenames) - this one has to exist before the
+        # crawl starts, since writes need it as they happen.
+        run_id = _timestamp()
         # Same base_url/allow_subdomains the frontier gates on, so a link is
         # judged in-scope identically whether it is queued or recorded.
         # Details: docs/dev/core/engine.md#sink-scope
-        sink = GraphStoreSink(self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains)
+        sink = GraphStoreSink(
+            self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains, run_id=run_id,
+        )
 
         debug_log: Optional[CrawlDebugLog] = None
         if self.debug_logs_dir:

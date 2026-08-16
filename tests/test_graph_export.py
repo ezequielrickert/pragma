@@ -41,9 +41,15 @@ def test_build_graph_export_includes_edges_and_ledgers():
 
     export = build_graph_export(store, SITE)
 
-    assert export["edges"] == [
-        {"from": "example.com", "component": "a.about", "action": "click", "to": "example.com/about"}
-    ]
+    # record_edge's own contract (tests/test_graph_store_conformance.py)
+    # covers the full edge shape - this just confirms the export passes
+    # get_edges through untouched.
+    edges = export["edges"]
+    assert len(edges) == 1
+    assert edges[0]["from"] == "example.com"
+    assert edges[0]["component"] == "a.about"
+    assert edges[0]["action"] == "click"
+    assert edges[0]["to"] == "example.com/about"
     assert export["component_ledger"]["example.com"]["a.about"]["text"] == "About"
     assert export["text_content_ledger"]["example.com"][0]["text"] == "Welcome"
 
