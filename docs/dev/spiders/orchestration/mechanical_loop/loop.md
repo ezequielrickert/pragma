@@ -221,3 +221,46 @@ returning to this in-progress page).
 This requeue is safe with respect to session cleanup - see
 `docs/dev/spiders/orchestration/page_visitor/visitor.md#why-visit-never-closes-its-own-session`
 for why a resumed visit never needs the old, already-closed session back.
+
+## visit-counters
+
+`_unique_visits`/`_requeued_visits`/`_gave_up_visits` are split deliberately:
+a requeued visit prints exactly like a fresh one in crawl4ai's own output,
+so a crawl churning on the same handful of pages is otherwise
+indistinguishable from one making progress - separating them is the whole
+diagnostic value of `_report_visit`'s per-visit line. `_gave_up_visits`
+counts visits `_worker-give-up` below concluded on, distinct from an
+ordinary requeue that's still going to be retried.
+
+## budget-nodes
+
+`CrawlBudget.nodes` estimates graph growth (`budget.md#crawlbudget`), not
+"pages finished" - unlike `CrawlBudget.pages` (`_worker-budget` below),
+it's recorded for every visit regardless of interruption, since
+`record_inventory`/`record_page_arrival` already wrote that data to the
+store before any interruption could happen. An interrupted pass still
+grew the store by exactly that much; only the page itself hasn't
+concluded.
+
+## _worker-budget
+
+`CrawlBudget.pages` counts pages *finished* this run - its own docstring.
+Only recorded in the branch that already does the rest of "this page
+really concluded" bookkeeping (`mark_visited`, `record_route_shape_visit`),
+never for a requeued/interrupted pass. Confirmed live: recording it
+unconditionally let a site whose anti-bot protection intermittently
+blocks requests burn its whole page budget re-requeuing the same handful
+of pages - the run reported "budget reached" after barely any real
+completions, while hundreds of already-discovered URLs never got a
+single attempt.
+
+## _worker-give-up
+
+Once `UrlFrontier.requeue` (`frontier.md#requeue`) refuses to requeue a
+page past `max_requeue_attempts`
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#max_requeue_attempts`),
+`_worker` marks it concluded the same two ways an ordinary finish does -
+`tracker.mark_visited(key)` (so this process never reconsiders it, same
+key `is_visited`/`enqueue` check) and `sink.record_page_failed(result.url)`
+(so a resumed run doesn't either) - rather than looping `requeue()`
+forever on a page that keeps tripping the same block.

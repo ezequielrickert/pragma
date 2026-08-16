@@ -24,6 +24,17 @@ class MechanicalCrawlerConfig:
     budget: Optional[CrawlBudget] = None
     sink: Optional[GraphStoreSink] = None
     max_visits_per_route_shape: int = 1
+    # How many times requeue() will put the same clean_url key back on the
+    # frontier after an interrupted pass before giving up on it for good.
+    # requeue() deliberately bypasses enqueue()'s dedup guard (it has to -
+    # the page it's resuming is already in that set), which also means it
+    # has no cap of its own: a page that reliably trips an anti-bot block,
+    # or a popular redirect destination many different interrupted passes
+    # all land on and each independently requeue, would otherwise cycle
+    # forever - the crawl's own "requeued" count climbing far faster than
+    # "unique" and the queue growing without bound.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#max_requeue_attempts
+    max_requeue_attempts: int = 3
     # See PragmaConfig.page_concurrency for why this default isn't 1 anymore.
     page_concurrency: int = 4
     state_transition_overlap_threshold: float = 0.5

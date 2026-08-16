@@ -19,6 +19,7 @@ from spiders.orchestration.mechanical_loop import (
     MechanicalCrawler,
     MechanicalCrawlerConfig,
 )
+from utils.urls import route_shape
 
 SITE = "shop.example"
 START = "http://shop.example/p0"
@@ -54,6 +55,42 @@ class _FlakyFirstPageCrawler:
         # check_for_silent_navigation this wasn't a silent navigation, so
         # the 3-strike circuit breaker (not the silent-nav path) is what
         # ends up setting interrupted_by_navigation.
+        return PageState(url=url, components=[], links=[])
+
+    async def close_session(self, session_id: str) -> None:
+        return None
+
+
+class _AlwaysBlockedCrawler:
+    """Every visit of this url gets a fresh set of components - distinct
+    `path` *and* `text` (Frontier.eligible excludes by content identity,
+    tag/role/name/form/text, once a failed click marks it - a same-text
+    "retry" component would stay excluded forever after the first failure,
+    same as a real re-rendered DOM would) - and every click fails.
+    Simulates a page that reliably trips the circuit breaker on every
+    single attempt and never finishes on its own.
+    """
+
+    def __init__(self) -> None:
+        self.discover_calls: List[str] = []
+        self._visit_index = 0
+
+    async def discover_page(self, url: str, session_id: str = "") -> PageState:
+        self.discover_calls.append(url)
+        self._visit_index += 1
+        components = [
+            {
+                "path": f"#btn{self._visit_index}-{i}", "tag": "button",
+                "text": f"btn{self._visit_index}-{i}", "visible": True,
+            }
+            for i in range(3)
+        ]
+        return PageState(url=url, components=components, links=[])
+
+    async def click(self, url: str, session_id: str, path: str) -> PageState:
+        raise RuntimeError("blocked by anti-bot protection")
+
+    async def resync(self, url: str, session_id: str = "") -> PageState:
         return PageState(url=url, components=[], links=[])
 
     async def close_session(self, session_id: str) -> None:
@@ -189,6 +226,40 @@ def test_a_requeued_interrupted_visit_does_not_spend_the_page_budget():
     # The budget tripped right after p1 finished, before p0's requeued
     # attempt (already sitting in the queue) got a second try.
     assert crawler.discover_calls.count(START) == 1
+
+
+def test_a_page_that_never_stops_failing_is_given_up_on_not_retried_forever():
+    """UrlFrontier.requeue caps retries at max_requeue_attempts - past that,
+    the page is marked Failed instead of cycling through the queue forever.
+    Without a cap, a reliably-blocked page (or a popular redirect
+    destination many different interrupted passes all land on) requeues
+    itself without bound - the crawl's own "requeued" count climbing far
+    past "unique" and the queue growing without limit.
+    """
+    store = InMemoryGraphStore()
+    store.connect()
+    crawler = _AlwaysBlockedCrawler()
+    mech = MechanicalCrawler(
+        crawler,
+        config=MechanicalCrawlerConfig(
+            sink=GraphStoreSink(store, SITE, base_url=START),
+            base_url=START,
+            page_concurrency=1,
+            max_requeue_attempts=2,
+        ),
+    )
+    asyncio.run(mech.crawl_site(START))
+
+    # 1 initial attempt + 2 allowed retries = 3 total discover_page calls,
+    # then the crawl gives up instead of continuing forever.
+    assert len(crawler.discover_calls) == 3
+    assert mech._unique_visits == 0
+    assert mech._requeued_visits == 3
+    assert mech._gave_up_visits == 1
+    # Marked concluded, not left Pending for a resumed run to retry forever -
+    # is_visited/upsert_page are keyed by route_shape, not the literal url.
+    assert store.is_visited(SITE, route_shape(START))
+    assert not store.get_pending(SITE)
 
 
 @pytest.mark.parametrize("budget", [CrawlBudget(pages=3), CrawlBudget(nodes=4)])

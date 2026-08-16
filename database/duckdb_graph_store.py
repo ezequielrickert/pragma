@@ -147,7 +147,10 @@ class DuckDBGraphStore(
                 "SELECT status FROM pages WHERE site = $site AND url = $url",
                 {"site": site, "url": url},
             ).fetchone()
-            return bool(row) and row[0] == "Finished"
+            # "Failed" counts too - a page UrlFrontier gave up on has
+            # concluded just as surely as one that finished; see
+            # GraphStoreSink.record_page_failed / FAILED_PAGE_STATUS.
+            return bool(row) and row[0] in ("Finished", "Failed")
 
         return self._call(op)
 

@@ -109,7 +109,8 @@ class InMemoryGraphStore(GraphStore):
         }
 
     def is_visited(self, site: str, url: str) -> bool:
-        return self._site(site).routes.get(url, {}).get("status") == "Finished"
+        # "Failed" counts too - see DuckDBGraphStore.is_visited's comment.
+        return self._site(site).routes.get(url, {}).get("status") in ("Finished", "Failed")
 
     def get_pending(self, site: str, limit: Optional[int] = None) -> List[str]:
         pending = sorted(u for u, d in self._site(site).routes.items() if d["status"] == "Pending")

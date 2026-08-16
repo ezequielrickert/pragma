@@ -23,6 +23,7 @@ class UrlFrontier:
         self.base_url = config.base_url
         self.allow_subdomains = config.allow_subdomains
         self.max_visits_per_route_shape = config.max_visits_per_route_shape
+        self.max_requeue_attempts = config.max_requeue_attempts
         # Queue, not deque - workers await new items; .join() detects "done".
         # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#_queue
         self._queue: "asyncio.Queue[str]" = asyncio.Queue()
@@ -31,6 +32,11 @@ class UrlFrontier:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#in_flight
         self._in_flight: Set[str] = set()
         self._route_shape_visits: Dict[str, int] = {}  # route_shape() key -> completed-visit count
+        # clean_url key -> how many times requeue() has been called for it,
+        # regardless of which interrupted pass called it (a redirect
+        # destination many different pages land on shares one counter).
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#_requeue_attempts
+        self._requeue_attempts: Dict[str, int] = {}
 
     def enqueue(self, url: str) -> None:
         """Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#enqueue"""
@@ -64,12 +70,22 @@ class UrlFrontier:
             if href:
                 self.enqueue(href)
 
-    def requeue(self, url: str) -> None:
+    def requeue(self, url: str) -> bool:
         """Put `url` straight onto the queue, bypassing `enqueue`'s scope/
         dedup/route-shape gates - for `_worker`'s redirect-requeue case only.
-        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue
+
+        Returns whether it was actually requeued. Past
+        `max_requeue_attempts` for this clean_url key, returns False instead
+        - the caller is expected to give up on it for good rather than call
+        this again. Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue
         """
+        key = clean_url(url)
+        attempts = self._requeue_attempts.get(key, 0) + 1
+        self._requeue_attempts[key] = attempts
+        if attempts > self.max_requeue_attempts:
+            return False
         self._queue.put_nowait(url)
+        return True
 
     def queued_count(self) -> int:
         """How many URLs are still waiting - the denominator a progress line

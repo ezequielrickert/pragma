@@ -179,3 +179,23 @@ short by a navigation (see
 - an interrupted pass leaves the page genuinely incomplete, so it must
 stay `Pending` for its guaranteed follow-up pass, not be marked
 `Finished` prematurely.
+
+## failed_page_status
+
+`FAILED_PAGE_STATUS = "Failed"` - a page `UrlFrontier.requeue`
+(`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue`)
+gave up on after `max_requeue_attempts` interrupted passes: reliably
+anti-bot-blocked, or a redirect destination too many independent passes
+kept landing on and requeuing. Distinct from `Pending` (`get_pending()`
+excludes it, so a resumed run doesn't retry it forever) and from
+`Finished` (coverage/measurement passes correctly treat it as never
+actually analyzed, not silently done). `GraphStore.is_visited` treats it
+the same as `Finished` - both mean "concluded, don't queue or visit
+again" - see `DuckDBGraphStore.is_visited`'s own comment.
+
+## record_page_failed
+
+Called once by `_worker` (`docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-give-up`)
+when `UrlFrontier.requeue` refuses to requeue a page again - the
+concluding write for a page that gave up, the same role
+`record_page_finished` plays for one that actually finished.

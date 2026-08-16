@@ -38,6 +38,15 @@ def _capture_stylesheet_text(text: str) -> Dict[str, Any]:
 # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#external_page_status
 EXTERNAL_PAGE_STATUS = "External"
 
+# Status for a page whose interrupted pass exhausted UrlFrontier's
+# max_requeue_attempts (a reliably anti-bot-blocked page, or a redirect
+# destination too many independent passes kept landing on and requeuing).
+# Distinct from "Pending" (get_pending() excludes it, so a resumed run
+# doesn't retry it forever) and from "Finished" (coverage/measurement
+# passes correctly treat it as never actually analyzed).
+# Details: docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status
+FAILED_PAGE_STATUS = "Failed"
+
 
 class GraphStoreSink:
     """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they happen.
@@ -381,3 +390,9 @@ class GraphStoreSink:
         await self._write(
             self.graph_store.upsert_page, self.site, page_key, status="Finished", components=component_count
         )
+
+    async def record_page_failed(self, page_key: str) -> None:
+        """Called once `UrlFrontier.requeue` gives up on a page for good -
+        see `FAILED_PAGE_STATUS`. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_failed
+        """
+        await self._write(self.graph_store.upsert_page, self.site, page_key, status=FAILED_PAGE_STATUS)

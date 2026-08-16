@@ -100,7 +100,8 @@ class GraphStore(
 
     @abstractmethod
     def is_visited(self, site: str, url: str) -> bool:
-        """Whether this page is a Finished node in the graph for `site`."""
+        """Whether this page has concluded (Finished or Failed) and should
+        not be queued or visited again."""
         raise NotImplementedError
 
     @abstractmethod
