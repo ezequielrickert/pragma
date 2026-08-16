@@ -33,7 +33,10 @@ def test_xhr_and_fetch_requests_are_kept_with_joined_status():
     assert ping == {
         "method": "GET", "url": "/api/ping", "resource_type": "fetch",
         "status": 200, "failed": False, "failure_text": None,
-        "body_shape": "", "response_shape": "", "latency_ms": None,
+        "body_shape": "", "response_shape": "",
+        "request_body_excerpt": "", "request_body_length": 0, "request_body_hash": "",
+        "response_body_excerpt": "", "response_body_length": 0, "response_body_hash": "",
+        "latency_ms": None,
         "status_text": "", "media_type": "", "auth_scheme": "",
     }
     legacy = next(r for r in result if r["url"] == "/api/legacy")
@@ -64,16 +67,41 @@ def test_request_failed_is_surfaced():
     assert result[0]["status"] is None
 
 
-def test_response_body_text_is_never_present_in_output():
-    """Deliberate: response body text can be arbitrarily large and may
-    contain secrets/PII - must never reach the filtered output."""
+def test_response_body_is_captured_but_redacted_where_a_credential_pattern_matches():
+    """Storage Phase 6: response bodies are captured now (they weren't
+    before - openapi.py and a future AI pass need real payload content,
+    not just structural shapes), but redact_body() still strips anything
+    that looks like a credential wherever it sits in the text."""
     events = [
         {"event_type": "request", "url": "/api/ping", "method": "GET", "resource_type": "fetch"},
-        {"event_type": "response", "url": "/api/ping", "status": 200, "body": {"text": "super secret payload"}},
+        {
+            "event_type": "response", "url": "/api/ping", "status": 200,
+            "body": {"text": "contact real@person.com for the invite code"},
+        },
     ]
     result = filter_meaningful_requests(events)
     assert "body" not in result[0]
-    assert "secret" not in str(result[0])
+    assert "real@person.com" not in result[0]["response_body_excerpt"]
+    assert "[REDACTED]" in result[0]["response_body_excerpt"]
+    # Ordinary, non-sensitive body content is exactly what this phase exists
+    # to preserve - it must survive redaction untouched.
+    assert "invite code" in result[0]["response_body_excerpt"]
+
+
+def test_response_body_excerpt_capped_and_original_length_preserved():
+    """A response body is truncated for storage, but byte_length still
+    reports the real size so "this response was huge" isn't lost."""
+    from spiders.content.network_filter import _PAYLOAD_EXCERPT_BYTES
+
+    huge_body = "x" * (_PAYLOAD_EXCERPT_BYTES * 3)
+    events = [
+        {"event_type": "request", "url": "/api/big", "method": "GET", "resource_type": "fetch"},
+        {"event_type": "response", "url": "/api/big", "status": 200, "body": {"text": huge_body}},
+    ]
+    result = filter_meaningful_requests(events)[0]
+    assert len(result["response_body_excerpt"]) <= _PAYLOAD_EXCERPT_BYTES
+    assert result["response_body_length"] == len(huge_body)
+    assert result["response_body_hash"] != ""
 
 
 def test_json_shape_replaces_every_value_with_its_type_name():
@@ -122,8 +150,12 @@ def test_body_shape_and_response_shape_computed_from_post_data_and_response_body
     assert len(result) == 1
     assert json.loads(result[0]["body_shape"]) == {"order_id": "string"}
     assert json.loads(result[0]["response_shape"]) == {"id": "string", "created": "boolean"}
-    assert "abc-123" not in str(result[0])
-    assert "def-456" not in str(result[0])
+    # Storage Phase 6: shapes stay structure-only (the compact form for
+    # prompts, unchanged above), but the excerpt fields now carry the real
+    # content too - "abc-123"/"def-456" are ordinary ids, not credentials,
+    # so redact_body() has no reason to touch them.
+    assert "abc-123" in result[0]["request_body_excerpt"]
+    assert "def-456" in result[0]["response_body_excerpt"]
 
 
 def test_non_json_response_body_produces_empty_shape_not_an_error():

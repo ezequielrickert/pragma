@@ -4,7 +4,17 @@ Details: docs/dev/spiders/content/network_filter.md#module
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from .payload_capture import truncate_and_hash
+from .redaction import redact_body
+
+# Cap on the redacted body text stored per request - a page's own HTML can
+# run 350-550KB (measured on austral.edu.ar); an API response has no
+# comparable upper bound of its own. byte_length below still records the
+# real, pre-truncation size, so "this response was huge" survives even
+# when the excerpt doesn't.
+_PAYLOAD_EXCERPT_BYTES = 8192
 
 # Asynchronous API traffic - the obvious case.
 # Details: docs/dev/spiders/content/network_filter.md#_meaningful_resource_types
@@ -148,6 +158,28 @@ def _shape_of_json_text(text: Optional[str]) -> str:
     return json.dumps(_json_shape(parsed))
 
 
+def _capture_payload(text: Optional[str]) -> Tuple[str, int, str]:
+    """Redact, then truncate-and-hash, one request/response body for storage.
+
+    Args:
+        text: raw body text, or `None`/`""`.
+
+    Returns:
+        `(excerpt, byte_length, sha256_hex)` via `truncate_and_hash` - but
+        note `byte_length` here is the *original* text's size, not the
+        redacted text's: redaction can shrink or grow a body (a token
+        replaced by the literal `[REDACTED]`), and "how big was the real
+        response" is the more useful fact to keep. The hash and excerpt
+        are computed from the redacted text, since that's what's actually
+        stored - a real secret must never survive into either.
+    """
+    if not text:
+        return "", 0, ""
+    redacted = redact_body(text)
+    excerpt, _redacted_length, digest = truncate_and_hash(redacted, _PAYLOAD_EXCERPT_BYTES)
+    return excerpt, len(text.encode("utf-8")), digest
+
+
 def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Reduce one `arun()` call's `result.network_requests` to the meaningful subset.
     Details: docs/dev/spiders/content/network_filter.md#filter_meaningful_requests
@@ -198,6 +230,8 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
             continue
         url = event.get("url")
         failed = url in failures_by_url
+        request_excerpt, request_length, request_hash = _capture_payload(post_data_by_url.get(url))
+        response_excerpt, response_length, response_hash = _capture_payload(response_body_by_url.get(url))
         results.append(
             {
                 "method": event.get("method", ""),
@@ -208,6 +242,17 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
                 "failure_text": failures_by_url.get(url) if failed else None,
                 "body_shape": _shape_of_json_text(post_data_by_url.get(url)),
                 "response_shape": _shape_of_json_text(response_body_by_url.get(url)),
+                # Full (redacted, size-capped) bodies, alongside the shapes
+                # above - shapes stay the compact form for prompts
+                # (openapi.py already reads them), these are the actual
+                # payload data the storage-plan review found was never
+                # captured at all.
+                "request_body_excerpt": request_excerpt,
+                "request_body_length": request_length,
+                "request_body_hash": request_hash,
+                "response_body_excerpt": response_excerpt,
+                "response_body_length": response_length,
+                "response_body_hash": response_hash,
                 "latency_ms": _latency_ms(sent_at_by_url.get(url), received_at_by_url.get(url)),
                 "status_text": status_text_by_url.get(url, ""),
                 "media_type": media_type_by_url.get(url, ""),

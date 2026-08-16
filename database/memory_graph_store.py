@@ -44,6 +44,8 @@ class _SiteData:
     # {page_url: {path: [ancestor, ...]}} - structural containers a
     # component sits inside, from discover_components.js's `ancestors`.
     containment: Dict[str, Dict[str, List[Dict[str, Any]]]] = field(default_factory=dict)
+    # {page_url: [{href, accessible, excerpt, byte_length, hash}, ...]}
+    stylesheets: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -436,6 +438,16 @@ class InMemoryGraphStore(GraphStore):
         return {
             page_url: [dict(entry) for entry in entries]
             for page_url, entries in self._site(site).text_content.items()
+        }
+
+    def record_stylesheets(self, site: str, page_url: str, stylesheets: List[Dict[str, Any]]) -> None:
+        self._site(site).stylesheets[page_url] = list(stylesheets)
+
+    def get_stylesheets(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        return {
+            page_url: [dict(sheet) for sheet in sheets]
+            for page_url, sheets in self._site(site).stylesheets.items()
+            if sheets
         }
 
     def record_component_ancestors(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:

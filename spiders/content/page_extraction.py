@@ -20,6 +20,7 @@ EXTRACT_LINKS_JS = _load_js("extract_links.js")
 EXTRACT_DESCRIPTION_JS = _load_js("extract_description.js")
 EXTRACT_METADATA_JS = _load_js("extract_metadata.js")
 EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
+EXTRACT_STYLESHEETS_JS = _load_js("extract_stylesheets.js")
 
 # Vendored third-party engine, unmodified: axe-core 4.10.2, Deque Systems,
 # MPL-2.0. Read once at import like every other asset here, but injected
@@ -117,6 +118,27 @@ async def run_accessibility_audit(page) -> List[Dict[str, Any]]:
         return []
 
 
+async def extract_stylesheets(page) -> List[Dict[str, Any]]:
+    """Same-origin CSS text, one entry per `document.styleSheets` sheet.
+
+    Args:
+        page: a live Playwright page, already settled.
+
+    Returns:
+        `[{"href", "accessible", "text"}]` - `accessible` is `False` for a
+        cross-origin sheet whose `cssRules` threw (a CDN-hosted framework
+        or font CSS file), matching `extract_pseudo_styles`' own
+        same-origin limitation. `[]` on outright extraction failure - CSS
+        capture is an enhancement, not worth failing a page visit over.
+    Details: docs/dev/spiders/content/page_extraction.md#extract_stylesheets
+    """
+    try:
+        return list(await page.evaluate(EXTRACT_STYLESHEETS_JS))
+    except Exception as exc:
+        print(f"Warning: stylesheet extraction failed: {exc}")
+        return []
+
+
 async def run_extraction(page) -> Dict[str, Any]:
     """Run every read-only extraction pass against `page`, including iframes.
     Details: docs/dev/spiders/content/page_extraction.md#run_extraction
@@ -157,6 +179,8 @@ async def run_extraction(page) -> Dict[str, Any]:
         except Exception as exc:
             print(f"Warning: text content extraction failed in frame {frame.url!r}: {exc}")
 
+    stylesheets = await extract_stylesheets(page)
+
     return {
         "components": components,
         "links": links,
@@ -164,4 +188,5 @@ async def run_extraction(page) -> Dict[str, Any]:
         "metadata": metadata,
         "title": title,
         "text_content": text_content,
+        "stylesheets": stylesheets,
     }

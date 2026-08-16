@@ -34,4 +34,5 @@ def build_page_state(result: Any, requested_url: str, data: Dict[str, Any]) -> P
         accessibility_violations=data.get("accessibility_violations", []),
         pseudo_styles=data.get("pseudo_styles", []),
         tab_order=data.get("tab_order", []),
+        stylesheets=data.get("stylesheets", []),
     )

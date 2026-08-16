@@ -14,8 +14,21 @@ from generators.component_classifier import (
     group_option_families,
     group_steppers,
 )
-from utils.urls import clean_url, is_in_scope, route_shape
+from spiders.content.payload_capture import truncate_and_hash
+from utils.urls import is_in_scope, route_shape
 from .component_facts import component_facts, option_labels_for
+
+# Cap on the CSS text stored per stylesheet - larger than a network
+# payload's cap (spiders/content/network_filter.py's 8KB): CSS is a
+# legitimate, sometimes-large public asset a design-token pass wants as
+# much of as practical, not a bounded API response.
+_STYLESHEET_EXCERPT_BYTES = 65536
+
+
+def _capture_stylesheet_text(text: str) -> Dict[str, Any]:
+    excerpt, byte_length, digest = truncate_and_hash(text, _STYLESHEET_EXCERPT_BYTES)
+    return {"excerpt": excerpt, "byte_length": byte_length, "hash": digest}
+
 
 # Status for a link target the frontier will never visit because it points off
 # the crawled domain. Without it those pages sit in `Pending` forever - the
@@ -90,6 +103,25 @@ class GraphStoreSink:
         if not requests:
             return
         await self._write(self.graph_store.record_page_network, self.site, page_key, requests)
+
+    async def record_stylesheets(self, page_key: str, stylesheets: List[Dict[str, Any]]) -> None:
+        """Same-origin CSS text captured on this page visit. No redaction -
+        unlike a network body, a stylesheet is public presentational code
+        the browser already fetched and applied; it carries no credentials
+        by construction. Truncated + hashed the same way a network payload
+        is, for the same content-addressed-storage reason.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_stylesheets
+        """
+        entries = [
+            {
+                "href": sheet.get("href", ""),
+                "accessible": bool(sheet.get("accessible", True)),
+                **_capture_stylesheet_text(sheet.get("text", "")),
+            }
+            for sheet in stylesheets
+        ]
+        if entries:
+            await self._write(self.graph_store.record_stylesheets, self.site, page_key, entries)
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).

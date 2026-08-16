@@ -298,9 +298,35 @@ class DuckDBGraphStore(
                 "pages", "links", "edges", "components", "interactions", "text_content",
                 "component_families", "inferred_requests",
                 "page_metadata", "accessibility_violations", "page_pseudo_styles", "page_tab_order",
-                "containment",
+                "containment", "stylesheets",
             ):
                 conn.execute(f"DELETE FROM {table} WHERE site = $site", {"site": site})
             conn.execute("DELETE FROM sites WHERE name = $site", {"site": site})
+            # payloads is deliberately NOT cleared here - it's content-
+            # addressed and has no `site` column at all, so a row could be
+            # shared with another site's identical CSS. clear_site's
+            # stylesheets DELETE above may just have made some payload rows
+            # unreferenced; prune_unreferenced_payloads() is the explicit,
+            # separate cleanup for that, not run automatically here.
 
         self._call(op)
+
+    def prune_unreferenced_payloads(self) -> int:
+        """Delete every `payloads` row no `stylesheets` entry references
+        any more - the retention mechanism `clear_site` deliberately
+        doesn't run itself (see its own comment). Not part of the
+        `GraphStore` interface: this is a DuckDB-specific maintenance
+        operation, the same "explicit, not automatic" shape as
+        `prune_old_runs`/`debug_logs_keep_last` for debug logs - call it
+        after a `clear_site`, or periodically, not on every write.
+
+        Returns:
+            How many `payloads` rows were deleted.
+        """
+        def op(conn) -> int:
+            result = conn.execute(
+                "DELETE FROM payloads WHERE hash NOT IN (SELECT hash FROM stylesheets WHERE hash <> '')"
+            )
+            return result.fetchone()[0]
+
+        return self._call(op)

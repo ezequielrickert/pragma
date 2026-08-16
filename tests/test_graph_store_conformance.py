@@ -590,3 +590,29 @@ def test_component_ancestors_round_trip_and_replace(store: GraphStore, site: str
 def test_component_ancestors_absent_for_a_never_recorded_component(store: GraphStore, site: str) -> None:
     store.record_component(site, "home", "button#solo", tag="button")
     assert store.get_containment_ledger(site) == {}
+
+
+def test_stylesheets_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    sheets = [
+        {"href": "https://cdn.example/vendor.css", "accessible": False, "excerpt": "", "byte_length": 0, "hash": ""},
+        {"href": "", "accessible": True, "excerpt": "button { color: red; }", "byte_length": 23, "hash": "abc123"},
+    ]
+    store.record_stylesheets(site, "home", sheets)
+
+    result = store.get_stylesheets(site)["home"]
+    assert len(result) == 2
+    inline = next(s for s in result if s["hash"] == "abc123")
+    assert inline["excerpt"] == "button { color: red; }"
+    assert inline["byte_length"] == 23
+    cross_origin = next(s for s in result if s["href"] == "https://cdn.example/vendor.css")
+    assert cross_origin["accessible"] is False
+
+    # Replace, not append - a page revisited later refreshes its
+    # stylesheet capture rather than accumulating duplicates.
+    store.record_stylesheets(site, "home", [])
+    assert store.get_stylesheets(site) == {}
+
+
+def test_stylesheets_absent_for_a_page_never_captured(store: GraphStore, site: str) -> None:
+    store.upsert_page(site, "home", status="Finished")
+    assert store.get_stylesheets(site) == {}

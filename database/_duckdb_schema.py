@@ -163,6 +163,28 @@ CREATE TABLE IF NOT EXISTS containment (
     parent_class TEXT NOT NULL DEFAULT ''
 );
 
+-- Content-addressed payload store (Storage Phase 6) - a site returning the
+-- same CSS bundle (or, once network bodies get this treatment too, the
+-- same JSON response) to many pages stores it once. `hash` is the sha256
+-- of `content` (already truncated/redacted by the caller - this table has
+-- no opinion on either), `byte_length` the pre-truncation original size.
+CREATE TABLE IF NOT EXISTS payloads (
+    hash TEXT PRIMARY KEY,
+    byte_length BIGINT NOT NULL,
+    content TEXT NOT NULL
+);
+
+-- One row per stylesheet captured on a page visit - references payloads
+-- by hash rather than embedding CSS text inline, so ten pages sharing one
+-- vendor bundle cost one payloads row, not ten.
+CREATE TABLE IF NOT EXISTS stylesheets (
+    site TEXT NOT NULL,
+    page_url TEXT NOT NULL,
+    href TEXT NOT NULL DEFAULT '',
+    accessible BOOLEAN NOT NULL DEFAULT TRUE,
+    hash TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS links (
     site TEXT NOT NULL,
     from_url TEXT NOT NULL,

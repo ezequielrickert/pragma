@@ -289,6 +289,29 @@ class Neo4jGraphStore(
                 for r in result
             }
 
+    def record_stylesheets(self, site: str, page_url: str, stylesheets: List[Dict[str, Any]]) -> None:
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                SET p.stylesheets = $entry
+                """,
+                site=site, page_url=page_url, entry=json.dumps(stylesheets),
+            )
+
+    def get_stylesheets(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (p:Page {site: $site})
+                WHERE p.stylesheets IS NOT NULL
+                RETURN p.url AS url, p.stylesheets AS stylesheets
+                """,
+                site=site,
+            )
+            found = {r["url"]: json.loads(r["stylesheets"]) for r in result}
+            return {url: sheets for url, sheets in found.items() if sheets}
+
     def is_visited(self, site: str, url: str) -> bool:
         with self._session() as session:
             record = session.run(

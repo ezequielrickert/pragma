@@ -42,6 +42,11 @@ class PageState:
     # Details: docs/dev/core/interfaces.md#pagestatemeasurements
     pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
     tab_order: List[Dict[str, Any]] = field(default_factory=list)
+    # Same-origin CSS text, one entry per stylesheet - captured on every
+    # ordinary navigation (not measurement-pass-only, unlike the two above),
+    # since it needs no special viewport/image config to read.
+    # Details: docs/dev/core/interfaces.md#pagestatestylesheets
+    stylesheets: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
