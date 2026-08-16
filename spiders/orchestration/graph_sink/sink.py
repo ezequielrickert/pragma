@@ -81,9 +81,7 @@ class GraphStoreSink:
         """
         if not metadata:
             return
-        await self._write(
-            self.graph_store.record_page_metadata, self.site, page_key, json.dumps(metadata)
-        )
+        await self._write(self.graph_store.record_page_metadata, self.site, page_key, metadata)
 
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
@@ -91,9 +89,7 @@ class GraphStoreSink:
         """
         if not requests:
             return
-        await self._write(
-            self.graph_store.record_page_network, self.site, page_key, json.dumps(requests)
-        )
+        await self._write(self.graph_store.record_page_network, self.site, page_key, requests)
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
@@ -143,11 +139,10 @@ class GraphStoreSink:
         for stepper in group_steppers(components):
             increment_path = stepper.get("increment_path")
             if increment_path:
-                stepper_json = json.dumps(stepper)
                 await self._write(
                     self.graph_store.record_component_options,
-                    self.site, page_key, increment_path, stepper_json,
-                    option_labels=option_labels_for(stepper_json),
+                    self.site, page_key, increment_path, stepper,
+                    option_labels=option_labels_for(json.dumps(stepper)),
                 )
 
         for name, members in choice_sets.items():
@@ -238,18 +233,16 @@ class GraphStoreSink:
         if not representative_path:
             return None
         args = self._component_args(representative)
-        option_summary = json.dumps(
-            {
-                "group": group_name,
-                "options": [
-                    {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
-                    for m in members
-                ],
-            }
-        )
+        option_summary = {
+            "group": group_name,
+            "options": [
+                {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
+                for m in members
+            ],
+        }
         await self._write(
             self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary,
-            option_labels=option_labels_for(option_summary),
+            option_labels=option_labels_for(json.dumps(option_summary)),
         )
         page_map = self._representative_for.setdefault(page_key, {})
         for member in members:
@@ -306,17 +299,17 @@ class GraphStoreSink:
         write_path, source_path = self._resolve_write_path(page_key, path)
         payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
         await self._write(
-            self.graph_store.record_component_network, self.site, page_key, write_path, json.dumps(payload)
+            self.graph_store.record_component_network, self.site, page_key, write_path, payload
         )
 
     async def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_revealed_options
         """
-        payload = json.dumps({"trigger": trigger_path, "revealed_options": revealed})
+        payload = {"trigger": trigger_path, "revealed_options": revealed}
         await self._write(
             self.graph_store.record_component_options, self.site, page_key, trigger_path, payload,
-            option_labels=option_labels_for(payload),
+            option_labels=option_labels_for(json.dumps(payload)),
         )
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:

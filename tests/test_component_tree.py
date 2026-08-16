@@ -1,8 +1,6 @@
 """Unit tests for generators/component_tree.py - built directly against
 InMemoryGraphStore, no live crawl needed (build_component_tree/render_ascii_tree
 only touch GraphStore's read surface)."""
-import json
-
 from generators.component_tree import (
     SiteTree,
     TreeLeaf,
@@ -42,7 +40,7 @@ def test_stepper_variant_renders():
     store.record_component(SITE, "example.com", "button#plus", tag="button", text="+")
     store.record_component_options(
         SITE, "example.com", "button#plus",
-        json.dumps({"container": "div", "increment_path": "button#plus", "decrement_path": "button#minus", "current_value": "3"}),
+        {"container": "div", "increment_path": "button#plus", "decrement_path": "button#minus", "current_value": "3"},
     )
     tree = build_component_tree(store, SITE)
     leaf = next(l for l in tree.pages[0].leaves if l.path == "button#plus")
@@ -55,7 +53,7 @@ def test_choice_group_variant_renders():
     store.record_component(SITE, "example.com", "input#s", tag="input")
     store.record_component_options(
         SITE, "example.com", "input#s",
-        json.dumps({"group": "size", "options": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}]}),
+        {"group": "size", "options": [{"text": "Small", "selected": True}, {"text": "Large", "selected": False}]},
     )
     tree = build_component_tree(store, SITE)
     leaf = next(l for l in tree.pages[0].leaves if l.path == "input#s")
@@ -68,7 +66,7 @@ def test_revealed_options_variant_renders():
     store.record_component(SITE, "example.com", "button#trigger", tag="button")
     store.record_component_options(
         SITE, "example.com", "button#trigger",
-        json.dumps({"trigger": "button#trigger", "revealed_options": [{"text": "A", "selected": False}, {"text": "B", "selected": False}]}),
+        {"trigger": "button#trigger", "revealed_options": [{"text": "A", "selected": False}, {"text": "B", "selected": False}]},
     )
     tree = build_component_tree(store, SITE)
     leaf = next(l for l in tree.pages[0].leaves if l.path == "button#trigger")
@@ -85,13 +83,13 @@ def test_option_redirect_renders_under_the_consolidated_choice_group_leaf():
     store.record_component(SITE, "example.com", "div#opt-small", tag="div", text="Small")
     store.record_component_options(
         SITE, "example.com", "div#opt-small",
-        json.dumps({
+        {
             "group": "div#sizeList",
             "options": [
                 {"path": "div#opt-small", "text": "Small", "selected": False},
                 {"path": "div#opt-large", "text": "Large", "selected": False},
             ],
-        }),
+        },
     )
     store.record_component_interaction(
         SITE, "example.com", "div#opt-small", action="click",
@@ -154,7 +152,7 @@ def test_network_requests_render_as_lines():
     store.upsert_page(SITE, "example.com", status="Finished")
     store.record_component_network(
         SITE, "example.com", "button#ping",
-        json.dumps([{"method": "GET", "url": "/api/ping", "resource_type": "fetch", "status": 200, "failed": False, "failure_text": None}]),
+        [{"method": "GET", "url": "/api/ping", "resource_type": "fetch", "status": 200, "failed": False, "failure_text": None}],
     )
     tree = build_component_tree(store, SITE)
     leaf = next(l for l in tree.pages[0].leaves if l.path == "button#ping")

@@ -212,18 +212,22 @@ class GraphStore(ABC):
 
     @abstractmethod
     def record_component_options(
-        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+        self, site: str, page_url: str, path: str, options: Dict[str, Any], option_labels: Optional[List[str]] = None
     ) -> None:
-        """Overwrite a Component's JSON-encoded `options` field; auto-creates the node.
+        """Overwrite a Component's `options` field; auto-creates the node.
 
         Args:
             site: which site this component belongs to.
             page_url: the component's own page key.
             path: the component's own CSS selector path.
-            options: raw JSON-encoded blob in one of the shapes
+            options: a plain dict in one of the shapes
                 `component_classifier.describe_options` knows how to
                 parse (stepper / choice_group / revealed_options) -
-                stored as-is, for callers (`choice_text_by_path`,
+                a genuine union type (each kind's keys differ), so it
+                stays an opaque dict rather than a typed dataclass;
+                stored as-is (JSON-encoded internally by whichever
+                backend needs a string column/property - never a
+                caller-facing concern), for callers (`choice_text_by_path`,
                 `describe_options` itself) that need the full structure
                 (per-choice `path`, which member redirected where, etc.).
             option_labels: the same data, already reduced to plain
@@ -266,23 +270,24 @@ class GraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
-        """Append one JSON-encoded batch of meaningful network requests to a Component.
+    def record_component_network(self, site: str, page_url: str, path: str, requests: List[Dict[str, Any]]) -> None:
+        """Append one batch of meaningful network requests to a Component.
+        Each dict is `network_filter.filter_meaningful_requests`-shaped -
+        stored as-is; JSON encoding, where a backend's storage needs it, is
+        that backend's own internal concern, never the caller's.
         Details: docs/dev/core/interfaces.md#record_component_network
         """
         raise NotImplementedError
 
     @abstractmethod
-    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
-        """Append one JSON-encoded batch of requests the page's own *load*
-        fired, as opposed to `record_component_network`'s per-interaction
-        batches.
+    def record_page_network(self, site: str, page_url: str, requests: List[Dict[str, Any]]) -> None:
+        """Append one batch of requests the page's own *load* fired, as
+        opposed to `record_component_network`'s per-interaction batches.
 
         Args:
             site: which site this page belongs to.
             page_url: the page whose load produced these requests.
-            requests_json: a JSON-encoded list of
-                `network_filter.filter_meaningful_requests`-shaped dicts.
+            requests: a list of `network_filter.filter_meaningful_requests`-shaped dicts.
 
         Returns:
             None - a write-only side effect.
@@ -299,8 +304,14 @@ class GraphStore(ABC):
         """
         raise NotImplementedError
 
-    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
+    def record_accessibility_violations(self, site: str, page_url: str, violations: List[Dict[str, Any]]) -> None:
         """Replace one page's recorded axe-core violations.
+
+        `violations` is `axe_run.js`'s own return shape - one dict per
+        violated rule, each carrying `rule_id`/`impact`/`help`/`help_url`/
+        `criteria`/`total_nodes` and a `nodes` list of `{path, axe_target,
+        summary}`. JSON encoding, where a backend's storage needs it, is
+        that backend's own internal concern, never the caller's.
 
         Replace, not append: the measurement pass re-audits a page from
         scratch, so a second run's results supersede the first rather than
@@ -312,7 +323,7 @@ class GraphStore(ABC):
         Details: docs/dev/core/interfaces.md#record_accessibility_violations
         """
 
-    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
+    def record_page_metadata(self, site: str, page_url: str, metadata: Dict[str, str]) -> None:
         """Store a page's `<meta>` tags.
 
         Extracted by `run_extraction` on every navigation since long before
@@ -328,9 +339,14 @@ class GraphStore(ABC):
         """
         return {}
 
-    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
+    def record_page_measurements(self, site: str, page_url: str, measurements: Dict[str, Any]) -> None:
         """Replace one page's measurement-pass findings beyond axe: the
         declared `:hover`/`:focus` styles and the tab order.
+
+        `measurements` is `{"pseudo_styles": [...], "tab_order": [...]}` -
+        `extract_pseudo_styles.js`'s `[{path, states: {hover?: {...},
+        focus?: {...}}}]` and `probe_focus.js`'s per-Tab-press `{path, tag,
+        text, focus_visible, dom_index, tabindex, offscreen}` respectively.
 
         Not abstract, same reasoning as `record_accessibility_violations`.
         Details: docs/dev/core/interfaces.md#record_page_measurements

@@ -148,8 +148,13 @@ class _DuckDBComponentMixin:
         self._call(op)
 
     def record_component_options(
-        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+        self, site: str, page_url: str, path: str, options: Dict[str, Any], option_labels: Optional[List[str]] = None
     ) -> None:
+        # `options` is a genuine union type (see GraphStore's own
+        # docstring) - JSON-encoding it into this TEXT column is this
+        # backend's storage detail; describe_options (every reader)
+        # already expects that string back, unchanged.
+        options_json = json.dumps(options)
         labels_json = json.dumps(option_labels or [])
 
         def op(conn) -> None:
@@ -158,12 +163,12 @@ class _DuckDBComponentMixin:
             conn.execute(
                 "UPDATE components SET options = $options, option_labels = $labels "
                 "WHERE site = $site AND page_url = $page_url AND path = $path",
-                {"site": site, "page_url": page_url, "path": path, "options": options, "labels": labels_json},
+                {"site": site, "page_url": page_url, "path": path, "options": options_json, "labels": labels_json},
             )
 
         self._call(op)
 
-    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
+    def record_component_network(self, site: str, page_url: str, path: str, requests: List[Dict[str, Any]]) -> None:
         def op(conn) -> None:
             self._ensure_page(conn, site, page_url)
             _ensure_component_stub(conn, site, page_url, path)
@@ -172,7 +177,7 @@ class _DuckDBComponentMixin:
                 {"site": site, "page_url": page_url, "path": path},
             ).fetchone()
             batch = json.loads(existing[0]) if existing and existing[0] else []
-            batch.extend(json.loads(requests_json))
+            batch.extend(requests)
             conn.execute(
                 "UPDATE components SET network_requests = $entry "
                 "WHERE site = $site AND page_url = $page_url AND path = $path",

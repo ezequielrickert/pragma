@@ -51,7 +51,7 @@ def test_flat_component_ledger_keeps_the_interaction_record():
     the flattening must not drop anything the ledger recorded."""
     store = _store()
     store.record_component(SITE, PAGE, "div > button", tag="button", text="Buy")
-    store.record_component_network(SITE, PAGE, "div > button", '[{"method": "POST", "url": "https://api/x"}]')
+    store.record_component_network(SITE, PAGE, "div > button", [{"method": "POST", "url": "https://api/x"}])
 
     row = flat_component_ledger(store, SITE)[0]
 

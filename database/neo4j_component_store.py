@@ -148,8 +148,12 @@ class _Neo4jComponentMixin:
             )
 
     def record_component_options(
-        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+        self, site: str, page_url: str, path: str, options: Dict[str, Any], option_labels: Optional[List[str]] = None
     ) -> None:
+        # `options` is a genuine union type (see GraphStore's own
+        # docstring) - JSON-encoding it into c.options is this backend's
+        # storage detail; every reader (describe_options) already expects
+        # that string back, unchanged.
         with self._session() as session:
             session.run(
                 f"""
@@ -159,11 +163,11 @@ class _Neo4jComponentMixin:
                 SET c.options = $options, c.option_labels = $option_labels
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
-                site=site, page_url=page_url, path=path, options=options,
+                site=site, page_url=page_url, path=path, options=json.dumps(options),
                 option_labels=option_labels or [],
             )
 
-    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
+    def record_component_network(self, site: str, page_url: str, path: str, requests: List[Dict[str, Any]]) -> None:
         with self._session() as session:
             session.run(
                 f"""
@@ -173,7 +177,7 @@ class _Neo4jComponentMixin:
                 SET c.network_requests = c.network_requests + $entry
                 MERGE (p)-[:HAS_COMPONENT]->(c)
                 """,
-                site=site, page_url=page_url, path=path, entry=requests_json,
+                site=site, page_url=page_url, path=path, entry=json.dumps(requests),
             )
 
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:

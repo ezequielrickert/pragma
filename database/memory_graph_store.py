@@ -254,42 +254,46 @@ class InMemoryGraphStore(GraphStore):
             }
         )
 
-    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
-        self._site(site).accessibility[page_url] = json.loads(violations_json)
+    def record_accessibility_violations(self, site: str, page_url: str, violations: List[Dict[str, Any]]) -> None:
+        self._site(site).accessibility[page_url] = list(violations)
 
     def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
         return {url: list(v) for url, v in self._site(site).accessibility.items() if v}
 
-    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
-        self._site(site).metadata[page_url] = json.loads(metadata_json)
+    def record_page_metadata(self, site: str, page_url: str, metadata: Dict[str, str]) -> None:
+        self._site(site).metadata[page_url] = dict(metadata)
 
     def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
         return {url: dict(m) for url, m in self._site(site).metadata.items() if m}
 
-    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
-        self._site(site).measurements[page_url] = json.loads(measurements_json)
+    def record_page_measurements(self, site: str, page_url: str, measurements: Dict[str, Any]) -> None:
+        self._site(site).measurements[page_url] = dict(measurements)
 
     def get_page_measurements(self, site: str) -> Dict[str, Dict[str, Any]]:
         return {url: dict(m) for url, m in self._site(site).measurements.items() if m}
 
-    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
-        self._site(site).page_network.setdefault(page_url, []).extend(json.loads(requests_json))
+    def record_page_network(self, site: str, page_url: str, requests: List[Dict[str, Any]]) -> None:
+        self._site(site).page_network.setdefault(page_url, []).extend(requests)
 
     def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
         return {url: list(requests) for url, requests in self._site(site).page_network.items() if requests}
 
     def record_component_options(
-        self, site: str, page_url: str, path: str, options: str, option_labels: Optional[List[str]] = None
+        self, site: str, page_url: str, path: str, options: Dict[str, Any], option_labels: Optional[List[str]] = None
     ) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
-        record["options"] = options
+        # Stored JSON-encoded, matching Neo4j/DuckDB - `options` is a genuine
+        # union type (see GraphStore.record_component_options' docstring),
+        # and describe_options (every reader) already expects a JSON string
+        # back, on every backend, so the read-side contract is unchanged.
+        record["options"] = json.dumps(options)
         record["option_labels"] = list(option_labels or [])
 
-    def record_component_network(self, site: str, page_url: str, path: str, requests_json: str) -> None:
+    def record_component_network(self, site: str, page_url: str, path: str, requests: List[Dict[str, Any]]) -> None:
         page_components = self._site(site).components.setdefault(page_url, {})
         record = page_components.setdefault(path, self._new_component_record())
-        record.setdefault("network_requests", []).extend(json.loads(requests_json))
+        record.setdefault("network_requests", []).extend(requests)
 
     def get_component_states(self, site: str, page_url: str) -> Dict[str, Dict[str, Any]]:
         return {

@@ -18,7 +18,6 @@ Details: docs/dev/spiders/orchestration/measurement_pass.md#module
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -106,12 +105,10 @@ async def run_measurement_pass(graph_store: GraphStore, site: str, headless: boo
             if state is None:
                 print(f"Measurement pass: could not re-visit {page_url}: navigation failed")
                 continue
-            graph_store.record_accessibility_violations(
-                site, page_url, json.dumps(state.accessibility_violations)
-            )
+            graph_store.record_accessibility_violations(site, page_url, state.accessibility_violations)
             graph_store.record_page_measurements(
                 site, page_url,
-                json.dumps({"pseudo_styles": state.pseudo_styles, "tab_order": state.tab_order}),
+                {"pseudo_styles": state.pseudo_styles, "tab_order": state.tab_order},
             )
             measured.append(page_url)
     return MeasurementResult(measured=tuple(measured), skipped_shaped_routes=tuple(shaped))

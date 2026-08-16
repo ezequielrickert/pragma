@@ -7,7 +7,6 @@ Details: docs/dev/database/duckdb_graph_store.md#module
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,6 +14,7 @@ from core.interfaces import GraphStore
 from core.registry import GRAPH_STORE_REGISTRY
 from ._duckdb_component_family_store import _DuckDBComponentFamilyMixin
 from ._duckdb_component_store import _DuckDBComponentMixin
+from ._duckdb_page_extras_store import _DuckDBPageExtrasMixin
 from ._duckdb_request_family_store import _DuckDBRequestFamilyMixin
 from ._duckdb_schema import DDL
 from ._duckdb_text_content_store import _DuckDBTextContentMixin
@@ -28,14 +28,14 @@ def _now_iso() -> str:
 @GRAPH_STORE_REGISTRY.register("duckdb")
 class DuckDBGraphStore(
     _DuckDBComponentMixin, _DuckDBComponentFamilyMixin, _DuckDBRequestFamilyMixin,
-    _DuckDBTextContentMixin, GraphStore,
+    _DuckDBTextContentMixin, _DuckDBPageExtrasMixin, GraphStore,
 ):
     """GraphStore backed by an embedded DuckDB database, scoped per site via
     a `site` column on every table (same discipline as `Neo4jGraphStore`'s
     `site` property on every node/relationship). Component/ComponentFamily/
-    RequestFamily/TextContent CRUD live in the mixins above, same split as
-    the Neo4j backend and for the same file-size reason - this class owns
-    connection/schema setup plus Page/Site/navigation-edge CRUD.
+    RequestFamily/TextContent/PageExtras CRUD live in the mixins above, same
+    split as the Neo4j backend and for the same file-size reason - this
+    class owns connection/schema setup plus Page/Site/navigation-edge CRUD.
 
     All access - reads included - goes through `self._writer.call(...)`,
     which runs on one dedicated thread. See `_duckdb_writer.py` for why.
@@ -135,98 +135,6 @@ class DuckDBGraphStore(
                 {"site": site},
             ).fetchall()
             return {url: value for url, value in rows}
-
-        return self._call(op)
-
-    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
-        def op(conn) -> None:
-            self._ensure_page(conn, site, page_url)
-            conn.execute(
-                "UPDATE pages SET accessibility_violations = $entry WHERE site = $site AND url = $url",
-                {"site": site, "url": page_url, "entry": violations_json},
-            )
-
-        self._call(op)
-
-    def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
-        def op(conn):
-            rows = conn.execute(
-                "SELECT url, accessibility_violations FROM pages "
-                "WHERE site = $site AND accessibility_violations IS NOT NULL",
-                {"site": site},
-            ).fetchall()
-            found = {url: json.loads(v) for url, v in rows}
-            return {url: v for url, v in found.items() if v}
-
-        return self._call(op)
-
-    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
-        def op(conn) -> None:
-            self._ensure_page(conn, site, page_url)
-            conn.execute(
-                "UPDATE pages SET metadata = $entry WHERE site = $site AND url = $url",
-                {"site": site, "url": page_url, "entry": metadata_json},
-            )
-
-        self._call(op)
-
-    def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
-        def op(conn):
-            rows = conn.execute(
-                "SELECT url, metadata FROM pages WHERE site = $site AND metadata IS NOT NULL",
-                {"site": site},
-            ).fetchall()
-            found = {url: json.loads(v) for url, v in rows}
-            return {url: v for url, v in found.items() if v}
-
-        return self._call(op)
-
-    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
-        def op(conn) -> None:
-            self._ensure_page(conn, site, page_url)
-            conn.execute(
-                "UPDATE pages SET measurements = $entry WHERE site = $site AND url = $url",
-                {"site": site, "url": page_url, "entry": measurements_json},
-            )
-
-        self._call(op)
-
-    def get_page_measurements(self, site: str) -> Dict[str, Any]:
-        def op(conn):
-            rows = conn.execute(
-                "SELECT url, measurements FROM pages WHERE site = $site AND measurements IS NOT NULL",
-                {"site": site},
-            ).fetchall()
-            found = {url: json.loads(v) for url, v in rows}
-            return {url: v for url, v in found.items() if v}
-
-        return self._call(op)
-
-    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
-        def op(conn) -> None:
-            self._ensure_page(conn, site, page_url)
-            existing = conn.execute(
-                "SELECT network_requests FROM pages WHERE site = $site AND url = $url",
-                {"site": site, "url": page_url},
-            ).fetchone()
-            batch = json.loads(existing[0]) if existing and existing[0] else []
-            batch.extend(json.loads(requests_json))
-            conn.execute(
-                "UPDATE pages SET network_requests = $entry WHERE site = $site AND url = $url",
-                {"site": site, "url": page_url, "entry": json.dumps(batch)},
-            )
-
-        self._call(op)
-
-    def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
-        def op(conn):
-            rows = conn.execute(
-                "SELECT url, network_requests FROM pages "
-                "WHERE site = $site AND network_requests IS NOT NULL",
-                {"site": site},
-            ).fetchall()
-            ledger = {url: json.loads(v) for url, v in rows}
-            return {url: reqs for url, reqs in ledger.items() if reqs}
 
         return self._call(op)
 
@@ -380,9 +288,15 @@ class DuckDBGraphStore(
                 "(SELECT request_id FROM inferred_requests WHERE site = $site)",
                 {"site": site},
             )
+            conn.execute(
+                "DELETE FROM accessibility_violation_nodes WHERE violation_id IN "
+                "(SELECT violation_id FROM accessibility_violations WHERE site = $site)",
+                {"site": site},
+            )
             for table in (
                 "pages", "links", "edges", "components", "interactions", "text_content",
                 "component_families", "inferred_requests",
+                "page_metadata", "accessibility_violations", "page_pseudo_styles", "page_tab_order",
             ):
                 conn.execute(f"DELETE FROM {table} WHERE site = $site", {"site": site})
             conn.execute("DELETE FROM sites WHERE name = $site", {"site": site})

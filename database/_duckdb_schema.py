@@ -73,11 +73,75 @@ CREATE TABLE IF NOT EXISTS pages (
     title TEXT NOT NULL DEFAULT '',
     caption TEXT NOT NULL DEFAULT '',
     visited_at TEXT NOT NULL DEFAULT '-',
-    accessibility_violations TEXT,
-    metadata TEXT,
-    measurements TEXT,
+    -- network_requests stays a JSON-TEXT blob here, unlike metadata/
+    -- accessibility/measurements below: Phase 6 (full payload capture)
+    -- is where network data gets its real relational treatment
+    -- (requests/payloads, content-addressed) - building a partial
+    -- version now would be thrown away the moment that phase lands.
     network_requests TEXT,
     PRIMARY KEY (site, url)
+);
+
+-- One row per <meta> tag, replacing pages.metadata's old JSON-blob column -
+-- real columns for data that was always flat key/value pairs.
+CREATE TABLE IF NOT EXISTS page_metadata (
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    meta_name TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (site, url, meta_name)
+);
+
+-- Replaces pages.accessibility_violations - one row per violated rule
+-- (axe_run.js's own shape: rule_id/impact/help/help_url/criteria/
+-- total_nodes), with the per-element detail broken out into its own
+-- child table below instead of nested inside a JSON blob.
+CREATE SEQUENCE IF NOT EXISTS violation_id_seq START 1;
+CREATE TABLE IF NOT EXISTS accessibility_violations (
+    violation_id BIGINT PRIMARY KEY DEFAULT nextval('violation_id_seq'),
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    rule_id TEXT NOT NULL DEFAULT '',
+    impact TEXT NOT NULL DEFAULT '',
+    help TEXT NOT NULL DEFAULT '',
+    help_url TEXT NOT NULL DEFAULT '',
+    -- Small, fixed-shape list of wcag tag strings (e.g. "wcag2a") - JSON
+    -- text rather than its own child table; the per-element nodes below
+    -- are the part worth real rows, not this.
+    criteria TEXT NOT NULL DEFAULT '[]',
+    total_nodes INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS accessibility_violation_nodes (
+    violation_id BIGINT NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    axe_target TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT ''
+);
+
+-- Replaces pages.measurements - extract_pseudo_styles.js's per-element
+-- "path, states by hover/focus, each a property/value map" shape,
+-- flattened to one row per (path, state, property).
+CREATE TABLE IF NOT EXISTS page_pseudo_styles (
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    path TEXT NOT NULL,
+    state TEXT NOT NULL,
+    property TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+-- probe_focus.js's per-Tab-press snapshot, one row per press in order.
+CREATE TABLE IF NOT EXISTS page_tab_order (
+    site TEXT NOT NULL,
+    url TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    tag TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    focus_visible BOOLEAN NOT NULL DEFAULT FALSE,
+    dom_index INTEGER,
+    tabindex TEXT NOT NULL DEFAULT '',
+    offscreen BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS links (

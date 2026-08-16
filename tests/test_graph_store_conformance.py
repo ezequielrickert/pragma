@@ -193,11 +193,15 @@ def test_record_component_persists_position(store: GraphStore, site: str) -> Non
 
 
 def test_record_component_options_persists_clean_labels(store: GraphStore, site: str) -> None:
-    raw_json = json.dumps({"group": "flavor", "options": [{"text": "Mi Gusto", "selected": True}]})
-    store.record_component_options(site, "home", "combo#1", raw_json, option_labels=["Mi Gusto (selected)"])
+    options = {"group": "flavor", "options": [{"text": "Mi Gusto", "selected": True}]}
+    store.record_component_options(site, "home", "combo#1", options, option_labels=["Mi Gusto (selected)"])
 
     state = store.get_component_states(site, "home")["combo#1"]
-    assert state["options"] == raw_json
+    # record_component_options takes a plain dict now - a backend is free
+    # to store it however it likes internally (JSON-TEXT today, on every
+    # backend), so the contract this asserts is "read back the same
+    # structure", not "read back the same literal string".
+    assert json.loads(state["options"]) == options
     assert state["option_labels"] == ["Mi Gusto (selected)"]
 
     ledger_entry = store.get_component_ledger(site)["home"]["combo#1"]
@@ -205,7 +209,7 @@ def test_record_component_options_persists_clean_labels(store: GraphStore, site:
 
 
 def test_record_component_options_defaults_labels_to_empty(store: GraphStore, site: str) -> None:
-    store.record_component_options(site, "home", "combo#1", json.dumps({"kind": "unknown"}))
+    store.record_component_options(site, "home", "combo#1", {"kind": "unknown"})
 
     state = store.get_component_states(site, "home")["combo#1"]
     assert state["option_labels"] == []
@@ -380,10 +384,10 @@ def test_record_component_type_and_options_survive_a_plain_rediscovery(store: Gr
         site, "home", "div#trigger", tag="div", text="Third Dozen",
         component_type="custom control (component-library element, no native tag/role)",
     )
-    options = json.dumps({
+    options = {
         "kind": "combobox_trigger",
         "choices": [{"text": "My Flavor", "selected": True}, {"text": "Plain", "selected": False}],
-    })
+    }
     store.record_component_options(site, "home", "div#trigger", options)
 
     states = store.get_component_states(site, "home")
@@ -476,7 +480,7 @@ def test_clear_site_removes_families_and_inferred_requests_too(store: GraphStore
 
 
 def test_page_metadata_round_trips(store: GraphStore, site: str) -> None:
-    store.record_page_metadata(site, "home", json.dumps({"description": "A shop", "og:type": "website"}))
+    store.record_page_metadata(site, "home", {"description": "A shop", "og:type": "website"})
 
     assert store.get_page_metadata(site) == {"home": {"description": "A shop", "og:type": "website"}}
 
@@ -484,7 +488,7 @@ def test_page_metadata_round_trips(store: GraphStore, site: str) -> None:
 def test_page_network_ledger_round_trips_and_omits_silent_pages(store: GraphStore, site: str) -> None:
     store.record_page_network(
         site, "orders",
-        json.dumps([{"method": "GET", "url": "https://api/x/orders", "status": 200, "latency_ms": 42}]),
+        [{"method": "GET", "url": "https://api/x/orders", "status": 200, "latency_ms": 42}],
     )
     store.upsert_page(site, "static", status="Finished")
 
@@ -494,6 +498,58 @@ def test_page_network_ledger_round_trips_and_omits_silent_pages(store: GraphStor
         "orders": [{"method": "GET", "url": "https://api/x/orders", "status": 200, "latency_ms": 42}]
     }
     assert "static" not in ledger
+
+
+def test_accessibility_violations_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    """Replace, not append (GraphStore's own contract): the measurement
+    pass re-audits a page from scratch each run."""
+    violations = [
+        {
+            "rule_id": "color-contrast", "impact": "serious", "help": "Elements must meet contrast ratio",
+            "help_url": "https://dequeuniversity.com/rules/axe/color-contrast", "criteria": ["wcag2aa", "wcag143"],
+            "total_nodes": 2,
+            "nodes": [
+                {"path": "div > button", "axe_target": "div > button", "summary": "Fix contrast"},
+                {"path": "div > a", "axe_target": "div > a", "summary": "Fix contrast"},
+            ],
+        }
+    ]
+    store.record_accessibility_violations(site, "home", violations)
+
+    assert store.get_accessibility_violations(site) == {"home": violations}
+
+    # A second audit (even an empty one) replaces the first - never stacks.
+    store.record_accessibility_violations(site, "home", [])
+    assert store.get_accessibility_violations(site) == {}
+
+
+def test_page_measurements_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    measurements = {
+        "pseudo_styles": [
+            {"path": "button#go", "states": {"hover": {"color": "#fff", "background-color": "#000"}, "focus": {"outline": "2px solid blue"}}},
+        ],
+        "tab_order": [
+            {"path": "a#skip", "tag": "a", "text": "Skip to content", "focus_visible": True,
+             "dom_index": 0, "tabindex": "0", "offscreen": False},
+            {"path": "button#go", "tag": "button", "text": "Go", "focus_visible": False,
+             "dom_index": 1, "tabindex": "", "offscreen": False},
+        ],
+    }
+    store.record_page_measurements(site, "home", measurements)
+
+    read_back = store.get_page_measurements(site)["home"]
+    assert read_back["pseudo_styles"] == measurements["pseudo_styles"]
+    assert read_back["tab_order"] == measurements["tab_order"]
+
+    # Replace, not append - same discipline as accessibility violations.
+    # Whether a page with nothing found still has an entry (an empty-list
+    # noise row) or is absent entirely is a backend storage-shape detail
+    # nothing downstream distinguishes - only that the FIRST recording's
+    # data is gone, not merged with the second, is the actual contract.
+    store.record_page_measurements(site, "home", {"pseudo_styles": [], "tab_order": []})
+    after_replace = store.get_page_measurements(site).get("home", {})
+    assert (after_replace.get("pseudo_styles") or []) == []
+    assert (after_replace.get("tab_order") or []) == []
 
 
 def test_the_ledger_returns_the_layer_a_filter_depends_on(store: GraphStore, site: str) -> None:

@@ -188,14 +188,17 @@ class Neo4jGraphStore(
             )
             return {r["url"]: r["value"] for r in result}
 
-    def record_accessibility_violations(self, site: str, page_url: str, violations_json: str) -> None:
+    def record_accessibility_violations(self, site: str, page_url: str, violations: List[Dict[str, Any]]) -> None:
+        # A Neo4j property can't hold an arbitrary nested list-of-dicts
+        # directly - JSON-encoding here is this backend's own internal
+        # storage detail, not something the caller needs to know about.
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 SET p.accessibility_violations = $entry
                 """,
-                site=site, page_url=page_url, entry=violations_json,
+                site=site, page_url=page_url, entry=json.dumps(violations),
             )
 
     def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -211,14 +214,14 @@ class Neo4jGraphStore(
             found = {r["url"]: json.loads(r["violations"]) for r in result}
             return {url: violations for url, violations in found.items() if violations}
 
-    def record_page_metadata(self, site: str, page_url: str, metadata_json: str) -> None:
+    def record_page_metadata(self, site: str, page_url: str, metadata: Dict[str, str]) -> None:
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 SET p.metadata = $entry
                 """,
-                site=site, page_url=page_url, entry=metadata_json,
+                site=site, page_url=page_url, entry=json.dumps(metadata),
             )
 
     def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
@@ -234,14 +237,14 @@ class Neo4jGraphStore(
             found = {r["url"]: json.loads(r["metadata"]) for r in result}
             return {url: meta for url, meta in found.items() if meta}
 
-    def record_page_measurements(self, site: str, page_url: str, measurements_json: str) -> None:
+    def record_page_measurements(self, site: str, page_url: str, measurements: Dict[str, Any]) -> None:
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 SET p.measurements = $entry
                 """,
-                site=site, page_url=page_url, entry=measurements_json,
+                site=site, page_url=page_url, entry=json.dumps(measurements),
             )
 
     def get_page_measurements(self, site: str) -> Dict[str, Any]:
@@ -257,14 +260,18 @@ class Neo4jGraphStore(
             found = {r["url"]: json.loads(r["measurements"]) for r in result}
             return {url: value for url, value in found.items() if value}
 
-    def record_page_network(self, site: str, page_url: str, requests_json: str) -> None:
+    def record_page_network(self, site: str, page_url: str, requests: List[Dict[str, Any]]) -> None:
+        # Property values must be primitive/arrays-of-primitive, never a
+        # nested structure - one JSON-string batch per call is how this
+        # backend fits a list-of-dicts into that constraint, same pattern
+        # `_Neo4jComponentMixin.record_component_network` uses.
         with self._session() as session:
             session.run(
                 f"""
                 {_page_ensure_clause("p", "page_url")}
                 SET p.network_requests = coalesce(p.network_requests, []) + $entry
                 """,
-                site=site, page_url=page_url, entry=requests_json,
+                site=site, page_url=page_url, entry=json.dumps(requests),
             )
 
     def get_page_network_ledger(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
