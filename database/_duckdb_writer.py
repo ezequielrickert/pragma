@@ -15,10 +15,11 @@ Details: docs/dev/database/_duckdb_writer.md#module
 """
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from concurrent.futures import Future
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import duckdb
 
@@ -35,16 +36,35 @@ class DuckDBWriter:
     """
 
     def __init__(self, path: str) -> None:
+        # DuckDB creates the database file itself but not missing parent
+        # directories (a fresh clone's gitignored data/ won't exist yet) -
+        # ":memory:" has no directory component, so os.path.dirname gives
+        # "" and there's nothing to create.
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
         self._queue: "queue.Queue" = queue.Queue()
         self._ready = threading.Event()
+        self._connect_error: Optional[BaseException] = None
         self._thread = threading.Thread(
             target=self._run, args=(path,), daemon=True, name="duckdb-writer",
         )
         self._thread.start()
         self._ready.wait()
+        if self._connect_error is not None:
+            # Without this, a connect-time failure leaves the background
+            # thread dead and _ready never set for any other reason,
+            # hanging this wait() forever instead of surfacing the error.
+            raise self._connect_error
 
     def _run(self, path: str) -> None:
-        conn = duckdb.connect(path)
+        try:
+            conn = duckdb.connect(path)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the constructor's thread
+            self._connect_error = exc
+            self._ready.set()
+            return
         self._ready.set()
         while True:
             item = self._queue.get()
