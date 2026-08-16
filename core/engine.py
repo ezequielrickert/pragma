@@ -28,6 +28,7 @@ from generators.request_family import build_inferred_requests
 from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape
+from .caching_graph_store import CachingGraphStore
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
 from .interfaces import Agent, GraphStore
@@ -373,25 +374,40 @@ class Engine:
         # written document used to run silent, which made a long run
         # indistinguishable from a hung one.
         # Details: research/plan-progreso-en-terminal.md
+        #
+        # graph_store (not self.graph_store) from here on: the crawl has
+        # finished writing, so every whole-site read from here to the end
+        # of the pipeline is safe to memoize per (method, site) -
+        # get_component_ledger alone was called ~8 times per run before
+        # this, once per generator that needed it. See
+        # CachingGraphStore's own module docstring for why this is safe
+        # specifically *here* (after the crawl, not during it) and not a
+        # general-purpose cache. self.graph_store itself is untouched, so
+        # self.graph_store.close() below still closes the real connection.
+        graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
-        _apply_component_families(self.graph_store, site, self.agent)
+        _apply_component_families(graph_store, site, self.agent)
         print("Inferring API endpoints from captured requests...")
-        _apply_request_graph(self.graph_store, site)
+        _apply_request_graph(graph_store, site)
         print("Projecting the navigation graph into modules and metrics...")
-        _apply_graph_projection(self.graph_store, site, route_shape(url))
+        _apply_graph_projection(graph_store, site, route_shape(url))
 
         if self.measurement_pass:
             # After the crawl and before synthesis: it writes to the graph
-            # the accessibility document then reads.
+            # the accessibility document then reads. Safe to run through
+            # the same cache - it writes accessibility_violations/
+            # page_measurements, neither read by the three passes above,
+            # and nothing downstream reads either until after this call
+            # returns, so no read here can observe a stale value.
             # Details: docs/dev/core/engine.md#measurement_pass
             print("Measurement pass: re-visiting each page with images on...")
-            result = await run_measurement_pass(self.graph_store, site, headless=self.headless)
+            result = await run_measurement_pass(graph_store, site, headless=self.headless)
             print(f"Measurement pass: audited {len(result.measured)} pages, "
                   f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
 
         run_timestamp = _timestamp()
         request = DocumentRequest(
-            graph_store=self.graph_store,
+            graph_store=graph_store,
             site=site,
             agent=self.agent,
             settings={

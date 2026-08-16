@@ -16,8 +16,11 @@ from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from generators.graph_prd_synthesizer import (
     CATALOG_SYSTEM_INSTRUCTION,
+    COMBINE_SYSTEM_INSTRUCTION,
     REDUCE_SYSTEM_INSTRUCTION,
     SYNTHESIS_SYSTEM_INSTRUCTION,
+    _MAX_FACTS_PER_PAGE,
+    _MAX_SECTIONS_PER_REDUCE,
     GraphPRDSynthesizer,
     _build_page_facts,
     _render_fact_line,
@@ -45,6 +48,8 @@ class RecordingAgent(Agent):
             return f"Narrated {len(self.calls)} component(s)."
         if system_instruction == SYNTHESIS_SYSTEM_INSTRUCTION:
             return f"Section summary #{len(self.calls)}."
+        if system_instruction == COMBINE_SYSTEM_INSTRUCTION:
+            return f"Combined chunk #{len(self.calls)}."
         return "# Digital Blueprint\n\nSynthesized report."
 
 
@@ -204,7 +209,7 @@ def test_choice_group_fact_includes_choices_and_no_leads_elsewhere_by_default():
             "network_requests": [],
         },
     }
-    facts = _build_page_facts(page_components)
+    facts, _truncated = _build_page_facts(page_components)
     assert len(facts) == 1
     fact = facts[0]
     assert fact["type"] == "choice group (dropdown/menu/radio/checkbox)"
@@ -236,10 +241,93 @@ def test_choice_group_fact_surfaces_an_option_that_navigates_differently():
             "network_requests": [],
         },
     }
-    facts = _build_page_facts(page_components)
+    facts, _truncated = _build_page_facts(page_components)
     fact = facts[0]
     assert fact["leads_elsewhere"] == ["Large -> example.com/large-details"]
 
     line = _render_fact_line(1, fact)
     assert "leads_elsewhere=" in line
     assert "Large -> example.com/large-details" in line
+
+
+def _component(text: str) -> dict:
+    return {
+        "text": text, "tag": "button", "interacted": False, "component_type": "button",
+        "options": "", "interactions": [], "network_requests": [],
+    }
+
+
+def test_build_page_facts_caps_at_the_limit_and_reports_truncation():
+    """The map stage's own unbounded surface, per wiki/local-and-small-
+    model-constraints.md's checklist: a real page can carry 100-300+ raw
+    components with no other bound on how many reach the narration prompt."""
+    page_components = {f"button#{i}": _component(f"Button {i}") for i in range(_MAX_FACTS_PER_PAGE + 20)}
+
+    facts, truncated = _build_page_facts(page_components)
+
+    assert len(facts) == _MAX_FACTS_PER_PAGE
+    assert truncated is True
+
+
+def test_build_page_facts_under_the_limit_is_not_truncated():
+    page_components = {"button#a": _component("A")}
+
+    facts, truncated = _build_page_facts(page_components)
+
+    assert len(facts) == 1
+    assert truncated is False
+
+
+def test_narrate_page_catalog_notes_truncation_in_the_prompt():
+    store = InMemoryGraphStore()
+    store.connect()
+    for i in range(_MAX_FACTS_PER_PAGE + 5):
+        store.record_component(SITE, "example.com/big-page", f"button#{i}", tag="button", text=f"Button {i}")
+
+    agent = RecordingAgent()
+    synthesizer = GraphPRDSynthesizer(agent, store)
+    synthesizer._narrate_page_catalog(SITE)
+
+    catalog_prompt = next(p for p, si in agent.calls if si == CATALOG_SYSTEM_INSTRUCTION)
+    assert f"capped at {_MAX_FACTS_PER_PAGE}" in catalog_prompt
+
+
+def test_reduce_combines_in_chunks_when_sections_exceed_the_cap():
+    """The reduce stage's own unbounded surface: a 200-page site at the
+    default batch_size=5 produces 40 sections, which the un-chunked
+    version joined unconditionally into one prompt - exactly the second
+    recursive instance of the bug this whole map-reduce split exists to
+    prevent."""
+    store = InMemoryGraphStore()
+    store.connect()
+    agent = RecordingAgent()
+    synthesizer = GraphPRDSynthesizer(agent, store)
+
+    sections = [f"Section {i} summary." for i in range(_MAX_SECTIONS_PER_REDUCE * 2 + 1)]
+    synthesizer._reduce(SITE, sections)
+
+    system_instructions = [si for _, si in agent.calls]
+    assert COMBINE_SYSTEM_INSTRUCTION in system_instructions
+    # Exactly one *final* reduce call, however many sections started - the
+    # whole point of chunking first.
+    assert system_instructions.count(REDUCE_SYSTEM_INSTRUCTION) == 1
+
+    # No call - combine or final reduce - ever saw more than the cap's
+    # worth of section summaries at once.
+    for prompt, si in agent.calls:
+        if si in (COMBINE_SYSTEM_INSTRUCTION, REDUCE_SYSTEM_INSTRUCTION):
+            assert prompt.count("Section ") <= _MAX_SECTIONS_PER_REDUCE * 2  # header text + separators, generous bound
+
+
+def test_reduce_under_the_cap_skips_chunking_entirely():
+    store = InMemoryGraphStore()
+    store.connect()
+    agent = RecordingAgent()
+    synthesizer = GraphPRDSynthesizer(agent, store)
+
+    sections = [f"Section {i} summary." for i in range(3)]
+    synthesizer._reduce(SITE, sections)
+
+    system_instructions = [si for _, si in agent.calls]
+    assert COMBINE_SYSTEM_INSTRUCTION not in system_instructions
+    assert system_instructions == [REDUCE_SYSTEM_INSTRUCTION]
