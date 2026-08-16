@@ -562,3 +562,31 @@ def test_the_ledger_returns_the_layer_a_filter_depends_on(store: GraphStore, sit
     record = store.get_component_ledger(site)["home"]["div#x"]
     assert record["layer"] == "pointer"
     assert record["role"] == "button"
+
+
+def test_component_ancestors_round_trip_and_replace(store: GraphStore, site: str) -> None:
+    """The structural containment discover_components.js's `ancestors`
+    field carries - what unblocks grouping components into modules instead
+    of only ever reading a flat component list."""
+    store.record_component(site, "home", "button#go", tag="button", text="Go")
+    ancestors = [
+        {"path": "body > main > section#shop > article", "tag": "article", "role": "", "landmark": "", "id": "", "class": "", "depth": 1},
+        {"path": "body > main > section#shop", "tag": "section", "role": "", "landmark": "", "id": "shop", "class": "", "depth": 2},
+        {"path": "body > main", "tag": "main", "role": "", "landmark": "main", "id": "", "class": "", "depth": 3},
+    ]
+    store.record_component_ancestors(site, "home", [{"path": "button#go", "ancestors": ancestors}])
+
+    ledger = store.get_containment_ledger(site)
+    assert ledger["home"]["button#go"] == ancestors
+
+    # Replace, not append - a rediscovery on a later pass refreshes
+    # containment the same way record_component refreshes descriptive
+    # fields, not stacked with the previous pass's.
+    fewer_ancestors = ancestors[:1]
+    store.record_component_ancestors(site, "home", [{"path": "button#go", "ancestors": fewer_ancestors}])
+    assert store.get_containment_ledger(site)["home"]["button#go"] == fewer_ancestors
+
+
+def test_component_ancestors_absent_for_a_never_recorded_component(store: GraphStore, site: str) -> None:
+    store.record_component(site, "home", "button#solo", tag="button")
+    assert store.get_containment_ledger(site) == {}

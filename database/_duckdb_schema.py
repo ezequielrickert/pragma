@@ -144,6 +144,25 @@ CREATE TABLE IF NOT EXISTS page_tab_order (
     offscreen BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+-- Structural containment (Storage Phase 5) - which real layout/landmark
+-- containers a component sits inside, from discover_components.js's
+-- `structuralAncestorsOf`. One row per (component, structural ancestor)
+-- pair, nearest ancestor at depth 1 - not every DOM ancestor, only the
+-- curated structural/landmark ones. This is what unblocks grouping
+-- components into modules instead of only ever reading a flat list.
+CREATE TABLE IF NOT EXISTS containment (
+    site TEXT NOT NULL,
+    page_url TEXT NOT NULL,
+    child_path TEXT NOT NULL,
+    parent_path TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    parent_tag TEXT NOT NULL DEFAULT '',
+    parent_role TEXT NOT NULL DEFAULT '',
+    parent_landmark TEXT NOT NULL DEFAULT '',
+    parent_id TEXT NOT NULL DEFAULT '',
+    parent_class TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS links (
     site TEXT NOT NULL,
     from_url TEXT NOT NULL,

@@ -14,6 +14,7 @@ from core.interfaces import GraphStore
 from core.registry import GRAPH_STORE_REGISTRY
 from ._duckdb_component_family_store import _DuckDBComponentFamilyMixin
 from ._duckdb_component_store import _DuckDBComponentMixin
+from ._duckdb_containment_store import _DuckDBContainmentMixin
 from ._duckdb_page_extras_store import _DuckDBPageExtrasMixin
 from ._duckdb_request_family_store import _DuckDBRequestFamilyMixin
 from ._duckdb_schema import DDL
@@ -28,7 +29,7 @@ def _now_iso() -> str:
 @GRAPH_STORE_REGISTRY.register("duckdb")
 class DuckDBGraphStore(
     _DuckDBComponentMixin, _DuckDBComponentFamilyMixin, _DuckDBRequestFamilyMixin,
-    _DuckDBTextContentMixin, _DuckDBPageExtrasMixin, GraphStore,
+    _DuckDBTextContentMixin, _DuckDBPageExtrasMixin, _DuckDBContainmentMixin, GraphStore,
 ):
     """GraphStore backed by an embedded DuckDB database, scoped per site via
     a `site` column on every table (same discipline as `Neo4jGraphStore`'s
@@ -297,6 +298,7 @@ class DuckDBGraphStore(
                 "pages", "links", "edges", "components", "interactions", "text_content",
                 "component_families", "inferred_requests",
                 "page_metadata", "accessibility_violations", "page_pseudo_styles", "page_tab_order",
+                "containment",
             ):
                 conn.execute(f"DELETE FROM {table} WHERE site = $site", {"site": site})
             conn.execute("DELETE FROM sites WHERE name = $site", {"site": site})

@@ -41,6 +41,9 @@ class _SiteData:
     metadata: Dict[str, Dict[str, str]] = field(default_factory=dict)
     component_families: List[ComponentFamily] = field(default_factory=list)
     inferred_requests: List[InferredRequest] = field(default_factory=list)
+    # {page_url: {path: [ancestor, ...]}} - structural containers a
+    # component sits inside, from discover_components.js's `ancestors`.
+    containment: Dict[str, Dict[str, List[Dict[str, Any]]]] = field(default_factory=dict)
 
 
 @GRAPH_STORE_REGISTRY.register("memory")
@@ -433,4 +436,15 @@ class InMemoryGraphStore(GraphStore):
         return {
             page_url: [dict(entry) for entry in entries]
             for page_url, entries in self._site(site).text_content.items()
+        }
+
+    def record_component_ancestors(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:
+        page_containment = self._site(site).containment.setdefault(page_url, {})
+        for entry in entries:
+            page_containment[entry["path"]] = list(entry.get("ancestors") or [])
+
+    def get_containment_ledger(self, site: str) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+        return {
+            page_url: {path: list(ancestors) for path, ancestors in page_containment.items()}
+            for page_url, page_containment in self._site(site).containment.items()
         }

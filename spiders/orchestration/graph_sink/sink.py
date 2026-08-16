@@ -157,6 +157,28 @@ class GraphStoreSink:
         if component_batch:
             await self._write(self.graph_store.record_components, self.site, page_key, component_batch)
 
+        # Structural containment, keyed to exactly the paths that got a
+        # Component row above: every ungrouped component's own ancestors,
+        # plus each choice-group/stepper-family's representative (the only
+        # member of the group with a row of its own - see _record_choice_group).
+        # A member consolidated into a group never gets its own row, so its
+        # ancestors would be orphaned data with nothing to join against.
+        ancestor_entries = [
+            {"path": comp["path"], "ancestors": comp["ancestors"]}
+            for comp in components
+            if comp.get("path") and comp.get("ancestors") and comp["path"] not in grouped_paths
+        ]
+        for members in (*choice_sets.values(), *option_families.values()):
+            representative = members[0]
+            if representative.get("path") and representative.get("ancestors"):
+                ancestor_entries.append(
+                    {"path": representative["path"], "ancestors": representative["ancestors"]}
+                )
+        if ancestor_entries:
+            await self._write(
+                self.graph_store.record_component_ancestors, self.site, page_key, ancestor_entries
+            )
+
         link_batch = []
         off_site: List[str] = []
         for link in links:

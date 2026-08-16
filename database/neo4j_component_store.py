@@ -282,3 +282,45 @@ class _Neo4jComponentMixin:
                     **{name: r[name] for name in _FACTS_FIELDS},
                 }
             return ledger
+
+    def record_component_ancestors(self, site: str, page_url: str, entries: List[Dict[str, Any]]) -> None:
+        """Stored as a JSON-encoded property (`c.ancestors`), not a real
+        `CONTAINS` relationship to a separate container node: the
+        structural ancestors here (nav/section/aside/...) are almost never
+        themselves discovered as `:Component` nodes (discovery only
+        matches interactive elements), so there is no existing node to
+        point an edge at without inventing a second node type this backend
+        doesn't otherwise model. DuckDB gets the real relational table
+        (`containment`, see `_duckdb_containment_store.py`) instead.
+        """
+        if not entries:
+            return
+        rows = [{"path": e["path"], "ancestors": json.dumps(e.get("ancestors") or [])} for e in entries]
+        with self._session() as session:
+            session.run(
+                f"""
+                {_page_ensure_clause("p", "page_url")}
+                WITH p
+                UNWIND $rows AS row
+                MERGE (c:Component {{site: $site, page_url: $page_url, path: row.path}})
+                {_COMPONENT_BLANK_STUB}
+                SET c.ancestors = row.ancestors
+                MERGE (p)-[:HAS_COMPONENT]->(c)
+                """,
+                site=site, page_url=page_url, rows=rows,
+            )
+
+    def get_containment_ledger(self, site: str) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (c:Component {site: $site})
+                WHERE c.ancestors IS NOT NULL AND c.ancestors <> '[]'
+                RETURN c.page_url AS page_url, c.path AS path, c.ancestors AS ancestors
+                """,
+                site=site,
+            )
+            ledger: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+            for r in result:
+                ledger.setdefault(r["page_url"], {})[r["path"]] = json.loads(r["ancestors"])
+            return ledger
