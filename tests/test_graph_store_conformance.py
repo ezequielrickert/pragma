@@ -328,11 +328,20 @@ def test_clear_site_removes_components_too(store: GraphStore, site: str) -> None
 def test_component_families_round_trip_and_replace_on_rerun(store: GraphStore, site: str) -> None:
     assert store.get_component_families(site) == []
 
+    # A family's member_paths must resolve to real Components - both Neo4j
+    # and DuckDB require the reference to exist (an unresolvable entry is
+    # silently dropped rather than raising, see record_component_families'
+    # own docstring); only InMemoryGraphStore is more lenient. Real callers
+    # (Engine._apply_component_families) always derive member_paths from an
+    # already-recorded component, so the contract this suite tests is the
+    # one every production call site actually satisfies.
+    store.record_component(site, "x", "btn1")
+    store.record_component(site, "y", "btn2")
     families = [
         ComponentFamily(
             tag="button", component_type="submit button",
             common_classes=("btn", "btn-primary"),
-            member_paths=((f"{site}/x", "btn1"), (f"{site}/y", "btn2")),
+            member_paths=(("x", "btn1"), ("y", "btn2")),
         )
     ]
     store.record_component_families(site, families)
@@ -346,7 +355,8 @@ def test_component_families_round_trip_and_replace_on_rerun(store: GraphStore, s
 
 def test_component_families_scoped_per_site(store: GraphStore, site: str) -> None:
     other = f"{site}.other"
-    family = ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=((f"{site}/x", "b1"),))
+    store.record_component(site, "x", "b1")
+    family = ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=(("x", "b1"),))
     store.record_component_families(site, [family])
 
     assert store.get_component_families(site) == [family]
@@ -400,7 +410,7 @@ def test_component_family_purpose_round_trips(store: GraphStore, site: str) -> N
     families = [
         ComponentFamily(
             tag="button", component_type="button", common_classes=("btn",),
-            member_paths=((f"{site}/home", "btn1"), (f"{site}/home", "btn2")),
+            member_paths=(("home", "btn1"), ("home", "btn2")),
             purpose="Confirms or submits an action.",
         )
     ]
@@ -412,11 +422,14 @@ def test_component_family_purpose_round_trips(store: GraphStore, site: str) -> N
 def test_inferred_requests_round_trip_and_replace_on_rerun(store: GraphStore, site: str) -> None:
     assert store.get_inferred_requests(site) == []
 
+    # Same "triggered_by must resolve to a real Component" contract as
+    # component families - see that test's own comment.
+    store.record_component(site, "x", "btn1")
     requests = [
         InferredRequest(
             method="POST", endpoint="x.co/rest/v1/orders", query_params=("select",),
             body_shape='{"order_id": "string"}', response_shape='{"id": "string"}',
-            triggered_by=((f"{site}/x", "btn1"),),
+            triggered_by=(("x", "btn1"),),
         )
     ]
     store.record_inferred_requests(site, requests)
@@ -446,13 +459,13 @@ def test_clear_site_removes_families_and_inferred_requests_too(store: GraphStore
     store.record_component(site, "home", "btn1", tag="button")
     store.record_component_families(
         site,
-        [ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=((f"{site}/home", "btn1"),))],
+        [ComponentFamily(tag="button", component_type="button", common_classes=(), member_paths=(("home", "btn1"),))],
     )
     store.record_inferred_requests(
         site,
         [InferredRequest(
             method="GET", endpoint="x.co/rest/v1/orders", query_params=(),
-            body_shape="", response_shape="", triggered_by=((f"{site}/home", "btn1"),),
+            body_shape="", response_shape="", triggered_by=(("home", "btn1"),),
         )],
     )
 

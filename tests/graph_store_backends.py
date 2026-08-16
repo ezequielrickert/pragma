@@ -23,6 +23,17 @@ def _memory_backend() -> Optional[GraphStore]:
     return InMemoryGraphStore()
 
 
+def _duckdb_backend() -> Optional[GraphStore]:
+    try:
+        from database.duckdb_graph_store import DuckDBGraphStore
+    except ImportError:
+        return None  # duckdb not installed - an optional dependency, same as neo4j's driver
+
+    store = DuckDBGraphStore()
+    store.connect()
+    return store
+
+
 def _existing_neo4j_reachable() -> bool:
     """Tier 1 - the fast path, no container startup at all."""
     try:
@@ -129,4 +140,5 @@ def _neo4j_backend() -> Optional[GraphStore]:
 BACKENDS: Dict[str, Callable[[], Optional[GraphStore]]] = {
     "memory": _memory_backend,
     "neo4j": _neo4j_backend,
+    "duckdb": _duckdb_backend,
 }

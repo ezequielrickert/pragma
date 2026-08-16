@@ -74,6 +74,14 @@ GRAPH_STORE_FIELDS: Dict[str, List[Dict[str, Any]]] = {
             "env": "NEO4J_PASSWORD",
         },
     ],
+    "duckdb": [
+        {
+            "name": "path",
+            "label": "DuckDB database file path (blank = in-memory, no persistence)",
+            "default": "data/pragma.duckdb",
+            "secret": False,
+        },
+    ],
     "memory": [],
 }
 

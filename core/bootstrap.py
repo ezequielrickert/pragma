@@ -22,3 +22,8 @@ try:
     from database import neo4j_graph_store  # noqa: F401  (registers "neo4j")
 except ImportError as exc:
     print(f"Optional graph store providers unavailable: {exc}")
+
+try:
+    from database import duckdb_graph_store  # noqa: F401  (registers "duckdb")
+except ImportError as exc:
+    print(f"Optional graph store providers unavailable: {exc}")
