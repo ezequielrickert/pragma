@@ -214,9 +214,11 @@ class MechanicalCrawler:
                 visits_since_recycle = await self._recycle_session_if_due(browser_session_id, visits_since_recycle)
                 self.page_results.append(result)
                 self._pages_visited += 1
-                self._budget.record_page()
                 # The page node plus everything discovered on it - an estimate
                 # of graph growth, not a query, so the budget check stays free.
+                # Counted regardless of interruption: record_inventory/
+                # record_page_arrival already wrote this data to the store
+                # before any interruption could happen.
                 # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#budget-nodes
                 self._budget.record_nodes(
                     1 + result.components_discovered + result.links_discovered
@@ -227,6 +229,16 @@ class MechanicalCrawler:
                     self._requeued_visits += 1
                     self._frontier.requeue(result.resolved_url)
                 else:
+                    # CrawlBudget.pages counts "pages finished this run" (its
+                    # own docstring) - only here, never for a requeued/
+                    # interrupted pass, which hasn't finished and will be
+                    # reattempted. Counting those too let a site whose
+                    # anti-bot protection intermittently blocks requests burn
+                    # its whole page budget re-requeuing the same handful of
+                    # pages, reporting "budget reached" while hundreds of
+                    # newly discovered URLs never got a turn.
+                    # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
+                    self._budget.record_page()
                     self._unique_visits += 1
                     self.tracker.mark_visited(key)
                     self._frontier.record_route_shape_visit(url)

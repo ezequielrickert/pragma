@@ -24,6 +24,42 @@ SITE = "shop.example"
 START = "http://shop.example/p0"
 
 
+class _FlakyFirstPageCrawler:
+    """p0's own interactive components always fail once (an anti-bot block,
+    a stale session, ...) - the retried visit then has nothing left to
+    interact with (each failed path is marked interacted, never retried
+    forever) and finishes normally. p0 links to p1, which has no components
+    of its own and finishes on its first visit.
+    """
+
+    def __init__(self) -> None:
+        self.discover_calls: List[str] = []
+
+    async def discover_page(self, url: str, session_id: str = "") -> PageState:
+        self.discover_calls.append(url)
+        if url == START:
+            components = [
+                {"path": f"#btn{i}", "tag": "button", "text": f"btn{i}", "visible": True}
+                for i in range(3)
+            ]
+            links = [{"href": "http://shop.example/p1", "text": "next", "scheme": "http"}]
+            return PageState(url=url, components=components, links=links)
+        return PageState(url=url, components=[], links=[])
+
+    async def click(self, url: str, session_id: str, path: str) -> PageState:
+        raise RuntimeError("blocked by anti-bot protection")
+
+    async def resync(self, url: str, session_id: str = "") -> PageState:
+        # Same url as what's being checked against - tells
+        # check_for_silent_navigation this wasn't a silent navigation, so
+        # the 3-strike circuit breaker (not the silent-nav path) is what
+        # ends up setting interrupted_by_navigation.
+        return PageState(url=url, components=[], links=[])
+
+    async def close_session(self, session_id: str) -> None:
+        return None
+
+
 class _LinkChainCrawler:
     """Every page links to the next, so the frontier never runs dry on its
     own - anything that stops the crawl here is the budget."""
@@ -118,6 +154,41 @@ def test_nothing_is_exhausted_while_there_is_room():
     tracker.record_nodes(3)
 
     assert tracker.exhausted_reason() is None
+
+
+def test_a_requeued_interrupted_visit_does_not_spend_the_page_budget():
+    """CrawlBudget.pages counts pages FINISHED this run (its own docstring) -
+    an interrupted pass that gets requeued has not finished and must not
+    spend it. p0's own first attempt gets interrupted and requeued; p1 (which
+    p0 linked to before its own requeue) is what actually finishes and
+    rightly spends the one page-budget slot. Before this was fixed, p0's
+    interrupted attempt would have tripped a pages=1 budget immediately,
+    and p1 - real, available, already-discovered work - would never have
+    been attempted at all.
+    """
+    store = InMemoryGraphStore()
+    store.connect()
+    crawler = _FlakyFirstPageCrawler()
+    mech = MechanicalCrawler(
+        crawler,
+        config=MechanicalCrawlerConfig(
+            sink=GraphStoreSink(store, SITE, base_url=START),
+            base_url=START,
+            budget=CrawlBudget(pages=1),
+            page_concurrency=1,
+        ),
+    )
+    asyncio.run(mech.crawl_site(START))
+
+    # p0's interrupted attempt spent nothing; p1 is what spent the one slot.
+    assert crawler.discover_calls == [START, "http://shop.example/p1"]
+    assert mech._unique_visits == 1
+    assert mech._requeued_visits == 1
+    assert mech.stopped_reason is not None
+    assert "page budget" in mech.stopped_reason
+    # The budget tripped right after p1 finished, before p0's requeued
+    # attempt (already sitting in the queue) got a second try.
+    assert crawler.discover_calls.count(START) == 1
 
 
 @pytest.mark.parametrize("budget", [CrawlBudget(pages=3), CrawlBudget(nodes=4)])
