@@ -1,17 +1,8 @@
 """Unit tests for generators/component_tree.py - built directly against
 LadybugGraphStore in-memory mode, no live crawl needed (build_component_tree/
 render_ascii_tree only touch the store's read surface).
-
-Option/Request-derived rendering (stepper/choice-group/revealed-options
-variants, option redirects, network-request lines) is untestable here for
-now: `record_component_options`/`record_component_network` are
-`database/ladybug/deferred.py` no-op placeholders until storage-migration
-plan steps 7-8 land. `describe_options("")` (what an absent `options`
-field reads back as) returns `None`, so the affected code paths degrade
-to "no variants" rather than crashing - covered by
-tests/test_ladybug_observation.py's own coverage of the deferred stubs,
-not re-tested here.
 """
+from core.interfaces import VisitStep
 from generators.component_tree import (
     SiteTree,
     TreeLeaf,
@@ -86,6 +77,73 @@ def test_redirect_target_falls_back_to_edges_when_component_interaction_missing_
     tree = build_component_tree(store, SITE)
     leaf = next(l for l in tree.pages[0].leaves if l.path == "a#about")
     assert leaf.redirect_target == '"About Us" (example.com/about)'
+
+
+def test_choice_group_variants_and_option_redirects_render_from_real_options():
+    """The fact a per-option Component node used to carry on its own now
+    lives on the group's single node - see _build_option_redirects."""
+    store = _store()
+    store.upsert_page("example.com", status="Finished", title="Home")
+    store.upsert_page("example.com/checkout", status="Finished", title="Checkout")
+    store.record_component("example.com", "div#ship", tag="div")
+    store.record_component_options(
+        "example.com", "div#ship",
+        {"group": "ship_method", "options": [
+            {"path": "input#pickup", "text": "Pickup", "selected": False},
+            {"path": "input#delivery", "text": "Home delivery", "selected": True},
+        ]},
+    )
+    store.record_component_interaction(
+        "example.com", "div#ship", action="click", resulting_url="example.com/checkout",
+        source_path="input#delivery",
+    )
+
+    tree = build_component_tree(store, SITE)
+    leaf = next(l for l in tree.pages[0].leaves if l.path == "div#ship")
+
+    assert leaf.variants == ["Pickup", "Home delivery (selected)"]
+    assert leaf.option_redirects == ['"Home delivery" -> "Checkout" (example.com/checkout)']
+
+
+def test_stepper_variant_reports_its_current_value():
+    store = _store()
+    store.upsert_page("example.com", status="Finished")
+    store.record_component("example.com", "div#qty", tag="div")
+    store.record_component_options(
+        "example.com", "div#qty",
+        {"increment_path": "button#plus", "decrement_path": "button#minus",
+         "value_path": "span#qty-value", "current_value": "3"},
+    )
+
+    tree = build_component_tree(store, SITE)
+    leaf = next(l for l in tree.pages[0].leaves if l.path == "div#qty")
+
+    assert leaf.variants == ["stepper (current value: 3)"]
+
+
+def test_network_request_line_reports_method_path_and_outcome():
+    store = _store()
+    store.upsert_page("example.com", status="Finished")
+    store.record_component("example.com", "button#pay", tag="button")
+    step = VisitStep(visit_id="v1").take()
+    store.record_component_interaction("example.com", "button#pay", "click", step=step)
+    store.record_component_network(
+        "example.com", "button#pay",
+        [{
+            "method": "POST", "host": "example.com", "path": "/api/pay", "query_params": [],
+            "resource_type": "fetch", "status": 422, "status_text": "", "failed": False,
+            "failure_text": None, "body_shape": "", "response_shape": "",
+            "request_body_excerpt": "", "request_body_length": 0, "request_body_hash": "",
+            "response_body_excerpt": "", "response_body_length": 0, "response_body_hash": "",
+            "latency_ms": None, "media_type": "", "auth_scheme": "",
+            "visit_id": "v1", "step_seq": 1, "is_first_party": True,
+        }],
+    )
+
+    tree = build_component_tree(store, SITE)
+    leaf = next(l for l in tree.pages[0].leaves if l.path == "button#pay")
+
+    assert leaf.requests == ["POST /api/pay -> 422"]
 
 
 def test_text_content_appears_as_distinct_leaf_kind():

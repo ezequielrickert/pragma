@@ -6,13 +6,10 @@ matches the existing test suite's convention (see tests/test_graph_store.py).
 The store's own contract is covered by tests/test_ladybug_observation.py/
 test_ladybug_read_path.py.
 
-Option-derived assertions (revealed-dropdown/stepper option membership)
-are absent here - `record_component_options` is still a
-`database/ladybug/deferred.py` no-op placeholder until storage-migration
-plan step 8 lands. What each test below still covers (the component/link
-inventory, the consolidation itself) keeps working; only the assertions
-reading the (currently unwritten) `options` field are gone.
-Fetch-request attribution (step 7) is real and covered below.
+Option/Request write paths (storage-migration plan steps 7-8) are both
+real now. Fetch-request attribution is covered end-to-end below; Option
+membership is covered end-to-end by tests/test_component_tree.py and at
+the storage layer by tests/test_ladybug_options.py, not duplicated here.
 """
 import asyncio
 import http.server
@@ -22,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from generators.component_classifier import describe_options_from_rows
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from spiders.orchestration.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
@@ -213,9 +211,10 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     mode (a blank auto-created stub instead of real fields) is still guarded
     against: it must be that one real node, not a blank one.
 
-    The `options` field itself (what choices the consolidated node offers)
-    is not checked here - Option/HAS_OPTION doesn't exist until storage-
-    migration plan step 8; `record_component_options` is a no-op."""
+    The `options` field itself (what choices the consolidated node
+    offers) is checked too: the representative's own `Option` rows must
+    list all three revealed choices, not just the one whose text
+    happened to survive consolidation onto the Component node."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger()[page_key]
@@ -225,6 +224,11 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     entry = option_entries["Small"]
     assert entry["tag"] == "div", "the representative must carry real fields, not a ghost-node blank"
     assert entry["component_type"], "the representative must have a real component_type"
+
+    parsed = describe_options_from_rows(*entry["options"])
+    assert parsed is not None, "the consolidated node must carry the choices it represents"
+    choice_texts = {c["text"] for c in parsed["choices"]}
+    assert choice_texts == {"Small", "Medium", "Large"}
 
     # A link that only exists inside the revealed popover must also get
     # queued - regression for the _enqueue_links gap in the same branch.
@@ -237,14 +241,17 @@ def test_stepper_detected_in_a_revealed_snapshot_not_just_the_initial_one(fixtur
     group_steppers already runs inside record_inventory over whatever
     component list it's given, so a stepper that only appears after a reveal
     (reveal.html's quantity control) must get inventoried once
-    record_inventory is called again for that reveal's snapshot - its
-    `options` field is not checked here, see the module docstring."""
+    record_inventory is called again for that reveal's snapshot."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger()[page_key]
 
     minus_entry = next((c for path, c in ledger.items() if "qtyMinus" in path), None)
     assert minus_entry is not None, "the revealed stepper's decrement button must be inventoried"
+
+    parsed_options = [describe_options_from_rows(*c["options"]) for c in ledger.values()]
+    stepper_kinds = [p["kind"] for p in parsed_options if p]
+    assert "stepper" in stepper_kinds, "the revealed stepper's own control must be recorded as a stepper"
     assert minus_entry["tag"] == "button", "must have real descriptive fields, not a ghost-node blank"
 
     plus_entry = next((c for path, c in ledger.items() if "qtyPlus" in path), None)

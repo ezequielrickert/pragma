@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Tuple
 from core.documents import DocumentGenerator, DocumentRequest
 from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
-from .component_classifier import choice_text_by_path, describe_options
+from .component_classifier import choice_text_by_path, describe_options_from_rows
 
 CATALOG_SYSTEM_INSTRUCTION = (
     "You are documenting the interactive components found on one page of a web application, from "
@@ -109,7 +109,7 @@ def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> Tuple[List[
             truncated = True
             break
         record = page_components[path]
-        parsed = describe_options(record.get("options") or "")
+        parsed = describe_options_from_rows(*record.get("options", ([], "")))
 
         if parsed and parsed["kind"] == "stepper":
             container = parsed.get("container") or path

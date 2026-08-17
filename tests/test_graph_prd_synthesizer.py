@@ -3,7 +3,6 @@ GraphPRDSynthesizer (generators/graph_prd_synthesizer.py).
 """
 import asyncio
 import http.server
-import json
 import threading
 from pathlib import Path
 from typing import List, Optional
@@ -198,13 +197,13 @@ def test_choice_group_fact_includes_choices_and_no_leads_elsewhere_by_default():
         "div#opt-small": {
             "text": "Small", "tag": "div", "interacted": True,
             "component_type": "list/menu option",
-            "options": json.dumps({
-                "group": "sizeList",
-                "options": [
+            "options": (
+                [
                     {"path": "div#opt-small", "text": "Small", "selected": False},
                     {"path": "div#opt-large", "text": "Large", "selected": False},
                 ],
-            }),
+                "sizeList",
+            ),
             "interactions": [{"action": "click", "value": "", "resulting_url": ""}],
             "network_requests": [],
         },
@@ -225,13 +224,13 @@ def test_choice_group_fact_surfaces_an_option_that_navigates_differently():
         "div#opt-small": {
             "text": "Small", "tag": "div", "interacted": True,
             "component_type": "list/menu option",
-            "options": json.dumps({
-                "group": "sizeList",
-                "options": [
+            "options": (
+                [
                     {"path": "div#opt-small", "text": "Small", "selected": False},
                     {"path": "div#opt-large", "text": "Large", "selected": False},
                 ],
-            }),
+                "sizeList",
+            ),
             "interactions": [
                 {
                     "action": "click", "value": "", "resulting_url": "example.com/large-details",
@@ -253,7 +252,7 @@ def test_choice_group_fact_surfaces_an_option_that_navigates_differently():
 def _component(text: str) -> dict:
     return {
         "text": text, "tag": "button", "interacted": False, "component_type": "button",
-        "options": "", "interactions": [], "network_requests": [],
+        "options": ([], ""), "interactions": [], "network_requests": [],
     }
 
 

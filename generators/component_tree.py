@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.documents import DocumentGenerator, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
-from .component_classifier import choice_text_by_path, describe_options, format_option_choices
+from .component_classifier import choice_text_by_path, describe_options_from_rows, format_option_choices
 
 
 @dataclass
@@ -104,7 +104,7 @@ def build_component_tree(graph_store: Any, site: str) -> SiteTree:
 
         for path in sorted(ledger.get(url, {}).keys()):
             record = ledger[url][path]
-            parsed = describe_options(record.get("options") or "")
+            parsed = describe_options_from_rows(*record.get("options", ([], "")))
 
             placeholder_value = None
             redirect_target_url = None

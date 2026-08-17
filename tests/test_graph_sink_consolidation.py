@@ -6,11 +6,12 @@ same pattern as tests/test_graph_sink_tracker_cache.py.
 
 Consolidation itself is pure sink-side Python logic
 (group_option_families/group_choice_sets/_resolve_write_path), independent
-of whether an `Option` node ever gets written - so every test here still
-covers the real thing, minus the one that read the consolidated node's
-`options` field back (removed: `record_component_options` is a
-`database/ladybug/deferred.py` no-op until storage-migration plan step 8)
-and the one that read `network_requests` back (removed: step 7).
+of whether an `Option` node ever gets written - so every test here covers
+that logic directly. The consolidated node's own `options`/`network_requests`
+fields are real now (storage-migration plan steps 7-8) and covered
+end-to-end elsewhere (tests/test_ladybug_options.py,
+tests/test_ladybug_network.py, tests/test_component_tree.py), not
+duplicated here.
 
 GraphStoreSink's write methods are async (see graph_sink.py's `_write` -
 every write is offloaded via asyncio.to_thread so it doesn't block the crawl's

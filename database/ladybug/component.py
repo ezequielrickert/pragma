@@ -255,13 +255,15 @@ class _LadybugComponentMixin:
     def get_component_ledger(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component record for the whole site, `{page_url:
         {path: record}}`, each record carrying its own ordered
-        `interactions` list and the `network_requests` its interactions
-        triggered.
-
-        Does not yet carry `options` - step 8 adds the `Option` nodes
-        that comes from. Every consumer of this ledger already reads it
-        defensively (`.get(...)`/`or []`), so its absence degrades to
-        "nothing known yet," not a crash.
+        `interactions` list, the `network_requests` its interactions
+        triggered, and its `options` as `(rows, group_name)` - raw
+        `Option` data, not the normalized `{"kind", ...}` shape
+        `generators/component_classifier.py::describe_options_from_rows`
+        builds from it. That reconstruction stays in `generators/`
+        deliberately: this package must not depend on it (`ComponentFamily`'s
+        own docstring states the layering this mirrors), so a caller that
+        wants the normalized shape calls
+        `describe_options_from_rows(*record["options"])` itself.
         Details: docs/dev/database/ladybug/component.md#get_component_ledger
         """
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
@@ -280,6 +282,7 @@ class _LadybugComponentMixin:
                 record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:]))
                 record["interactions"] = []
                 record["network_requests"] = []
+                record["options"] = ([], "")
                 ledger.setdefault(page_url, {})[path] = record
 
             interaction_rows = conn.execute(
@@ -328,6 +331,21 @@ class _LadybugComponentMixin:
                         "visit_id": visit_id, "step_seq": step_seq,
                     }
                 )
+
+            option_rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[hop:HAS_OPTION]->(o:Option)
+                RETURN p.url, c.path, o.group_name, o.path, o.text, o.selected, hop.seq
+                ORDER BY hop.seq
+                """
+            )
+            for page_url, path, group_name, opt_path, opt_text, opt_selected, _seq in option_rows:
+                page_components = ledger.get(page_url)
+                if page_components is None or path not in page_components:
+                    continue
+                rows, _ = page_components[path]["options"]
+                rows.append({"path": opt_path, "text": opt_text, "selected": opt_selected})
+                page_components[path]["options"] = (rows, group_name)
             return ledger
 
         return self._call(op)

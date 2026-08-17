@@ -31,8 +31,9 @@ from .analysis import _LadybugAnalysisMixin
 from .clock import now
 from .component import _LadybugComponentMixin
 from .component_family import _LadybugComponentFamilyMixin
-from .deferred import _LadybugDeferredMixin
+from .containment import _LadybugContainmentMixin
 from .network import _LadybugNetworkMixin
+from .options import _LadybugOptionsMixin
 from .page import _LadybugPageMixin
 from .schema import DDL
 from .text_content import _LadybugTextContentMixin
@@ -62,7 +63,7 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
 class LadybugGraphStore(
     _LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin,
     _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugNetworkMixin,
-    _LadybugDeferredMixin,
+    _LadybugOptionsMixin, _LadybugContainmentMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -71,16 +72,17 @@ class LadybugGraphStore(
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction. The seven mixins supply the observation/inferred-tier
-    read+write path - `page.py` (Page/link/edge, and the shared
-    `_ensure_page` helper the others call through `self`),
-    `component.py` (Component/Interaction), `text_content.py`
-    (TextContent), `component_family.py` (ComponentFamily),
-    `analysis.py` (derived graph metrics), `network.py` (Request/
-    Endpoint/Payload - the API contract), `deferred.py` (Option/
-    Container no-op placeholders - see its own module docstring) - same
+    construction. The eight mixins supply the full read+write path -
+    `page.py` (Page/link/edge, and the shared `_ensure_page` helper the
+    others call through `self`), `component.py` (Component/Interaction),
+    `text_content.py` (TextContent), `component_family.py`
+    (ComponentFamily), `analysis.py` (derived graph metrics),
+    `network.py` (Request/Endpoint/Payload - the API contract),
+    `options.py` (Option), `containment.py` (Container) - same
     split-by-concern shape the retired DuckDB backend used, for the same
-    file-size reason.
+    file-size reason. `database/ladybug/deferred.py` (the temporary
+    no-op stand-ins for the last two of these) is gone - steps 7 and 8
+    were its whole reason to exist.
     """
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:
