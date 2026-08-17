@@ -98,3 +98,24 @@ class _LadybugTextContentMixin:
             )
 
         self._call(op)
+
+    def get_text_content_ledger(self) -> Dict[str, List[Dict[str, Any]]]:
+        """`{page_url: [{"path", "tag", "text", "visible", "x", "y",
+        "width", "height"}, ...]}` for the whole site.
+        Details: docs/dev/database/ladybug/text_content.md#get_text_content_ledger
+        """
+        def op(conn) -> Dict[str, List[Dict[str, Any]]]:
+            rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_TEXT]->(t:TextContent)
+                RETURN p.url, t.path, t.tag, t.text, t.visible, t.x, t.y, t.width, t.height
+                """
+            )
+            ledger: Dict[str, List[Dict[str, Any]]] = {}
+            for page_url, path, tag, text, visible, x, y, width, height in rows:
+                ledger.setdefault(page_url, []).append(
+                    {"path": path, "tag": tag, "text": text, "visible": visible, "x": x, "y": y, "width": width, "height": height}
+                )
+            return ledger
+
+        return self._call(op)

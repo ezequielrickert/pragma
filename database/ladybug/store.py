@@ -32,8 +32,10 @@ import shutil
 from typing import Optional
 
 from utils.urls import slugify
+from .analysis import _LadybugAnalysisMixin
 from .clock import now
 from .component import _LadybugComponentMixin
+from .component_family import _LadybugComponentFamilyMixin
 from .page import _LadybugPageMixin
 from .schema import DDL
 from .text_content import _LadybugTextContentMixin
@@ -55,7 +57,10 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
     return os.path.join(directory, f"{slugify(site)}.lbdb")
 
 
-class LadybugGraphStore(_LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin):
+class LadybugGraphStore(
+    _LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin,
+    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin,
+):
     """Owns one Ladybug database, scoped to exactly one site.
 
     All access goes through `self._writer.call(...)`, which runs on one
@@ -63,12 +68,13 @@ class LadybugGraphStore(_LadybugPageMixin, _LadybugComponentMixin, _LadybugTextC
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction. The three mixins supply the observation-tier write
-    path - `page.py` (Page/link/edge, and the shared `_ensure_page`
-    helper the other two call through `self`), `component.py`
-    (Component/Interaction), `text_content.py` (TextContent) - same
-    split-by-concern shape the retired DuckDB backend used, for the same
-    file-size reason.
+    construction. The five mixins supply the observation/inferred-tier
+    read+write path - `page.py` (Page/link/edge, and the shared
+    `_ensure_page` helper the others call through `self`),
+    `component.py` (Component/Interaction), `text_content.py`
+    (TextContent), `component_family.py` (ComponentFamily),
+    `analysis.py` (derived graph metrics) - same split-by-concern shape
+    the retired DuckDB backend used, for the same file-size reason.
     """
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:

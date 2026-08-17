@@ -16,7 +16,7 @@ Details: docs/dev/database/ladybug/component.md#module
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.interfaces import ComponentFacts, VisitStep
 from ._cypher import set_clause
@@ -201,5 +201,72 @@ class _LadybugComponentMixin:
                 result[path] = {"interacted": interacted, "interaction_count": interaction_count}
                 result[path].update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[3:]))
             return result
+
+        return self._call(op)
+
+    def count_unexplored_components(self, semantic_only: bool = True) -> Tuple[int, int]:
+        """`(unexplored_count, total_count)` of components tracked across
+        the whole site.
+        Details: docs/dev/database/ladybug/component.md#count_unexplored_components
+        """
+        clause = "WHERE c.layer <> 'pointer'" if semantic_only else ""
+
+        def op(conn) -> Tuple[int, int]:
+            row = list(conn.execute(
+                f"MATCH (c:Component) {clause} "
+                "RETURN sum(CASE WHEN c.interacted THEN 0 ELSE 1 END), count(*)"
+            ))[0]
+            # int(), not the bare Decimal sum() returns - see page.py's
+            # count_visited for why this matters.
+            return (int(row[0] or 0), row[1])
+
+        return self._call(op)
+
+    def get_component_ledger(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Full per-component record for the whole site, `{page_url:
+        {path: record}}`, each record carrying its own ordered
+        `interactions` list.
+
+        Does not yet carry `options`/`network_requests` - steps 7-8 add
+        the `Option`/`Request` nodes those come from. Every consumer of
+        this ledger already reads both defensively (`.get(...)`/`or []`),
+        so their absence degrades to "nothing known yet," not a crash.
+        Details: docs/dev/database/ladybug/component.md#get_component_ledger
+        """
+        fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
+
+        def op(conn) -> Dict[str, Dict[str, Dict[str, Any]]]:
+            component_rows = conn.execute(
+                f"""
+                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)
+                RETURN p.url, c.path, c.interacted, c.interaction_count, {fields}
+                """
+            )
+            ledger: Dict[str, Dict[str, Dict[str, Any]]] = {}
+            for row in component_rows:
+                page_url, path, interacted, interaction_count = row[0], row[1], row[2], row[3]
+                record: Dict[str, Any] = {"interacted": interacted, "interaction_count": interaction_count}
+                record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:]))
+                record["interactions"] = []
+                ledger.setdefault(page_url, {})[path] = record
+
+            interaction_rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)-[:RESULTED_IN]->(target:Page)
+                RETURN p.url, c.path, i.action, i.value, target.url, i.source_path, i.visit_id, i.step_seq
+                ORDER BY i.id
+                """
+            )
+            for page_url, path, action, value, resulting_url, source_path, visit_id, step_seq in interaction_rows:
+                page_components = ledger.get(page_url)
+                if page_components is None or path not in page_components:
+                    continue
+                page_components[path]["interactions"].append(
+                    {
+                        "action": action, "value": value, "resulting_url": resulting_url,
+                        "source_path": source_path, "visit_id": visit_id, "step_seq": step_seq,
+                    }
+                )
+            return ledger
 
         return self._call(op)

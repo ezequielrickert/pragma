@@ -20,7 +20,7 @@ Details: docs/dev/database/ladybug/page.md#module
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from .clock import now
 
@@ -166,5 +166,99 @@ class _LadybugPageMixin:
         def op(conn) -> bool:
             rows = list(conn.execute("MATCH (p:Page {url: $url}) RETURN p.status", {"url": url}))
             return bool(rows) and rows[0][0] in ("Finished", "Failed")
+
+        return self._call(op)
+
+    def get_pending(self, limit: Optional[int] = None) -> List[str]:
+        """Up to `limit` Pending page urls, sorted ascending. Unbounded if
+        limit is None.
+        Details: docs/dev/database/ladybug/page.md#get_pending
+        """
+        def op(conn) -> List[str]:
+            query = "MATCH (p:Page) WHERE p.status = 'Pending' RETURN p.url ORDER BY p.url"
+            if limit is not None:
+                query += f" LIMIT {int(limit)}"
+            return [row[0] for row in conn.execute(query)]
+
+        return self._call(op)
+
+    def get_progress_table_rows(self) -> List[Dict[str, Any]]:
+        """Every page as `{"url", "status", "components"}`, sorted -
+        unfinished pages first, then by url. `label` is gone from this
+        shape along with the column itself - see `upsert_page`'s own
+        docstring for why.
+        Details: docs/dev/database/ladybug/page.md#get_progress_table_rows
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                "MATCH (p:Page) RETURN p.url, p.status, p.component_count "
+                "ORDER BY p.status <> 'Finished' DESC, p.url"
+            )
+            return [{"url": r[0], "status": r[1], "components": r[2]} for r in rows]
+
+        return self._call(op)
+
+    def get_page_descriptions(self) -> Dict[str, str]:
+        """`{url: description}` for every page with one recorded.
+        Details: docs/dev/database/ladybug/page.md#get_page_descriptions
+        """
+        return self._nonempty_page_field("description")
+
+    def get_page_titles(self) -> Dict[str, str]:
+        """`{url: title}` for every page with one recorded.
+        Details: docs/dev/database/ladybug/page.md#get_page_titles
+        """
+        return self._nonempty_page_field("title")
+
+    def _nonempty_page_field(self, field: str) -> Dict[str, str]:
+        def op(conn) -> Dict[str, str]:
+            rows = conn.execute(f"MATCH (p:Page) WHERE p.{field} <> '' RETURN p.url, p.{field}")
+            return {row[0]: row[1] for row in rows}
+
+        return self._call(op)
+
+    def count_visited(self) -> Tuple[int, int]:
+        """`(finished_count, total_count)` of tracked pages, excluding
+        `External` ones - a page this crawl only ever discovered a link
+        to, never counted as something it owed a visit.
+        Details: docs/dev/database/ladybug/page.md#count_visited
+        """
+        def op(conn) -> Tuple[int, int]:
+            row = list(conn.execute(
+                "MATCH (p:Page) WHERE p.status <> 'External' "
+                "RETURN sum(CASE WHEN p.status = 'Finished' THEN 1 ELSE 0 END), count(*)"
+            ))[0]
+            # sum(CASE WHEN ...) comes back as decimal.Decimal, not int -
+            # confirmed against the real engine, unlike count(*) which is
+            # already a plain int. Left unconverted, this silently broke
+            # utils.io.record_run_manifest's json.dumps the first time it
+            # ran for real ("Object of type Decimal is not JSON
+            # serializable") rather than at write time here.
+            return (int(row[0] or 0), row[1])
+
+        return self._call(op)
+
+    def get_edges(self) -> List[Dict[str, Any]]:
+        """Every recorded `NAVIGATES_TO` edge, each `{"from", "component",
+        "action", "to", "observation_count", "first_seen_run",
+        "last_seen_run"}`, in first-seen order.
+        Details: docs/dev/database/ladybug/page.md#get_edges
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                """
+                MATCH (from:Page)-[e:NAVIGATES_TO]->(to:Page)
+                RETURN from.url, e.component, e.action, to.url,
+                       e.observation_count, e.first_seen_run, e.last_seen_run
+                ORDER BY e.created_at
+                """
+            )
+            return [
+                {
+                    "from": r[0], "component": r[1], "action": r[2], "to": r[3],
+                    "observation_count": r[4], "first_seen_run": r[5], "last_seen_run": r[6],
+                }
+                for r in rows
+            ]
 
         return self._call(op)
