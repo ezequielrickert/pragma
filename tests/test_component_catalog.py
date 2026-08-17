@@ -160,10 +160,10 @@ def test_the_json_document_is_parseable_and_carries_the_same_entries():
     from generators.component_catalog import ComponentCatalogData
 
     class _Store:
-        def get_component_families(self, site):
+        def get_component_families(self):
             return [_family(["a"], purpose="confirms an action")]
 
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {PAGE: {"a": _member("a")}}
 
     class _Request:
@@ -180,10 +180,10 @@ def test_the_markdown_document_says_which_states_it_cannot_show():
     from generators.component_catalog import ComponentCatalogDocument
 
     class _Store:
-        def get_component_families(self, site):
+        def get_component_families(self):
             return [_family(["a"])]
 
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {PAGE: {"a": _member("a")}}
 
     class _Request:

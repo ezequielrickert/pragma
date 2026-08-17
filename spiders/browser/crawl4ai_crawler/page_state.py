@@ -31,5 +31,4 @@ def build_page_state(result: Any, requested_url: str, data: Dict[str, Any]) -> P
         description=data.get("description", ""),
         text_content=data.get("text_content", []),
         network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
-        stylesheets=data.get("stylesheets", []),
     )

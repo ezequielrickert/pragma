@@ -1,6 +1,6 @@
 """Unit tests for the document pipeline (generators/pipeline.py,
-coverage.py, master_document.py) - built against InMemoryGraphStore and a
-stub agent, no crawl or browser needed."""
+coverage.py, master_document.py) - built against LadybugGraphStore in-memory
+mode and a stub agent, no crawl or browser needed."""
 from pathlib import Path
 
 import pytest
@@ -10,7 +10,7 @@ from core.documents import DocumentGenerator, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
 from generators.coverage import build_coverage, render_coverage_banner
 from generators.pipeline import DocumentNaming, run_document_pipeline
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 
 SITE = "pipeline-test-site"
 TIMESTAMP = "20260812T120000Z"
@@ -29,11 +29,11 @@ def _naming(tmp_path):
 
 
 def _request(tmp_path_store=None):
-    store = tmp_path_store or InMemoryGraphStore()
+    store = tmp_path_store or LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "example.com/", status="Finished", components=1, title="Home")
-    store.upsert_page(SITE, "example.com/cart", status="Pending", components=0)
-    store.record_component(SITE, "example.com/", "div > button", tag="button", text="Buy")
+    store.upsert_page("example.com/", status="Finished", components=1, title="Home")
+    store.upsert_page("example.com/cart", status="Pending", components=0)
+    store.record_component("example.com/", "div > button", tag="button", text="Buy")
     return DocumentRequest(graph_store=store, site=SITE, agent=StubAgent())
 
 
@@ -44,7 +44,7 @@ def test_naming_builds_the_path_from_the_registry_name():
 
 
 def test_build_coverage_counts_finished_pages_only():
-    coverage = build_coverage(_request().graph_store, SITE)
+    coverage = build_coverage(_request().graph_store)
 
     assert coverage.pages_finished == 1
     assert coverage.pages_total == 2
@@ -54,10 +54,10 @@ def test_build_coverage_counts_finished_pages_only():
 
 def test_build_coverage_reports_zero_percent_for_an_empty_site():
     """A site with nothing recorded is a real outcome, not a ZeroDivisionError."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore("never-crawled.example")
     store.connect()
 
-    coverage = build_coverage(store, "never-crawled.example")
+    coverage = build_coverage(store)
 
     assert coverage.pages_percent == 0
     assert coverage.components_percent == 0
@@ -66,7 +66,7 @@ def test_build_coverage_reports_zero_percent_for_an_empty_site():
 def test_coverage_banner_states_the_public_surface_scope():
     """The scope caveat is the whole point of the banner - a document that
     silently omits everything behind a login is worse than one that says so."""
-    banner = render_coverage_banner(build_coverage(_request().graph_store, SITE))
+    banner = render_coverage_banner(build_coverage(_request().graph_store))
 
     assert "does not sign in" in banner
     assert "1/2 pages" in banner

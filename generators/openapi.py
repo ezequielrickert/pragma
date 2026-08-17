@@ -319,6 +319,6 @@ class OpenAPIDocument(DocumentGenerator):
     extension = "yaml"
 
     def generate(self, request: DocumentRequest) -> str:
-        requests = request.graph_store.get_inferred_requests(request.site)
+        requests = request.graph_store.get_inferred_requests()
         document = build_openapi_document(requests, request.site)
         return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)

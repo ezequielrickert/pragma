@@ -8,20 +8,19 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from core.documents import DocumentGenerator, DocumentRequest
-from core.interfaces import GraphStore
 from core.registry import DOCUMENT_REGISTRY
 
 
-def build_graph_export(graph_store: GraphStore, site: str) -> Dict[str, Any]:
-    """Pure, deterministic read of every relevant `GraphStore` query into one dict.
+def build_graph_export(graph_store: Any, site: str) -> Dict[str, Any]:
+    """Pure, deterministic read of every relevant graph-store query into one dict.
     Details: docs/dev/generators/graph_export.md#build_graph_export
     """
-    rows = graph_store.get_progress_table_rows(site)
-    titles = graph_store.get_page_titles(site)
-    descriptions = graph_store.get_page_descriptions(site)
-    edges = graph_store.get_edges(site)
-    component_ledger = graph_store.get_component_ledger(site)
-    text_content_ledger = graph_store.get_text_content_ledger(site)
+    rows = graph_store.get_progress_table_rows()
+    titles = graph_store.get_page_titles()
+    descriptions = graph_store.get_page_descriptions()
+    edges = graph_store.get_edges()
+    component_ledger = graph_store.get_component_ledger()
+    text_content_ledger = graph_store.get_text_content_ledger()
 
     pages = []
     for row in rows:
@@ -31,7 +30,6 @@ def build_graph_export(graph_store: GraphStore, site: str) -> Dict[str, Any]:
                 "url": url,
                 "status": row.get("status"),
                 "components": row.get("components"),
-                "label": row.get("label"),
                 "title": titles.get(url, ""),
                 "description": descriptions.get(url, ""),
             }
@@ -47,7 +45,7 @@ def build_graph_export(graph_store: GraphStore, site: str) -> Dict[str, Any]:
     }
 
 
-def generate_graph_export_document(graph_store: GraphStore, site: str) -> str:
+def generate_graph_export_document(graph_store: Any, site: str) -> str:
     """Top-level entry point `Engine` calls: build_graph_export, pretty JSON.
     Details: docs/dev/generators/graph_export.md#generate_graph_export_document
     """

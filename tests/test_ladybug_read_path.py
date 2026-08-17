@@ -125,10 +125,60 @@ def test_get_component_ledger_nests_by_page_then_path_with_interactions(store) -
     record = ledger["https://x/a"]["button#go"]
     assert record["text"] == "Go"
     assert record["interacted"] is True
+    # "x/b", not the literal "https://x/b" passed in - resulting_url is
+    # route_shape'd before it names a page (record_component_interaction's
+    # own docstring explains why this one write path enforces it itself).
     assert record["interactions"] == [
-        {"action": "click", "value": "", "resulting_url": "https://x/b",
+        {"action": "click", "value": "", "resulting_url": "x/b",
          "source_path": "", "visit_id": "v1", "step_seq": 1}
     ]
+
+
+def test_get_component_ledger_repeated_interactions_keep_their_order(store) -> None:
+    """Ordering has no manual counter behind it anymore - SERIAL's own
+    insertion order under the single writer is what `ORDER BY i.id`
+    relies on, replacing the retired DuckDB backend's `RETURNING
+    interaction_count`-based `seq`."""
+    store.record_component("https://x/a", "input#q")
+    for value in ("first", "second", "third"):
+        store.record_component_interaction("https://x/a", "input#q", "fill", value=value)
+
+    interactions = store.get_component_ledger()["https://x/a"]["input#q"]["interactions"]
+
+    assert [i["value"] for i in interactions] == ["first", "second", "third"]
+
+
+def test_get_component_ledger_step_seq_orders_across_components_in_one_visit(store) -> None:
+    store.record_component("https://x/a", "input#q")
+    store.record_component("https://x/a", "button#go")
+    step = VisitStep(visit_id="visit-abc")
+    store.record_component_interaction("https://x/a", "input#q", "fill", value="x", step=step.take())
+    store.record_component_interaction("https://x/a", "button#go", "click", step=step.take())
+
+    ledger = store.get_component_ledger()["https://x/a"]
+
+    assert ledger["input#q"]["interactions"][0]["visit_id"] == "visit-abc"
+    assert ledger["input#q"]["interactions"][0]["step_seq"] == 1
+    assert ledger["button#go"]["interactions"][0]["step_seq"] == 2
+
+
+def test_get_component_ledger_unstamped_interaction_reads_back_as_unordered_not_missing(store) -> None:
+    store.record_component("https://x/a", "button#go")
+    store.record_component_interaction("https://x/a", "button#go", "click")
+
+    interaction = store.get_component_ledger()["https://x/a"]["button#go"]["interactions"][0]
+
+    assert interaction["visit_id"] == ""
+    assert interaction["step_seq"] == 0
+
+
+def test_get_component_ledger_reports_the_layer_a_downstream_filter_depends_on(store) -> None:
+    store.record_component("https://x/a", "div#x", role="button", input_type="", layer="pointer")
+
+    record = store.get_component_ledger()["https://x/a"]["div#x"]
+
+    assert record["layer"] == "pointer"
+    assert record["role"] == "button"
 
 
 def test_get_text_content_ledger_groups_by_page(store) -> None:

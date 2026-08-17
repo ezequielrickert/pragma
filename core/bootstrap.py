@@ -14,9 +14,4 @@ from generators import graph_prd_synthesizer  # noqa: F401  (registers "prd")
 from generators import openapi  # noqa: F401  (registers "openapi")
 from generators import usability  # noqa: F401  (registers "usability")
 from generators import user_flows  # noqa: F401  (registers "flows")
-from database import memory_graph_store  # noqa: F401  (registers "memory")
-
-try:
-    from database import duckdb_graph_store  # noqa: F401  (registers "duckdb")
-except ImportError as exc:
-    print(f"Optional graph store providers unavailable: {exc}")
+from database.ladybug import store as ladybug_store  # noqa: F401  (registers "ladybug", "memory")

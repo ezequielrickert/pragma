@@ -7,28 +7,15 @@ import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.interfaces import GraphStore, VisitStep
+from core.interfaces import VisitStep
 from generators.component_classifier import (
     classify_component_type,
     group_choice_sets,
     group_option_families,
     group_steppers,
 )
-from spiders.content.payload_capture import truncate_and_hash
 from utils.urls import is_in_scope, route_shape
 from .component_facts import component_facts, option_labels_for
-
-# Cap on the CSS text stored per stylesheet - larger than a network
-# payload's cap (spiders/content/network_filter.py's 8KB): CSS is a
-# legitimate, sometimes-large public asset a design-token pass wants as
-# much of as practical, not a bounded API response.
-_STYLESHEET_EXCERPT_BYTES = 65536
-
-
-def _capture_stylesheet_text(text: str) -> Dict[str, Any]:
-    excerpt, byte_length, digest = truncate_and_hash(text, _STYLESHEET_EXCERPT_BYTES)
-    return {"excerpt": excerpt, "byte_length": byte_length, "hash": digest}
-
 
 # Status for a link target the frontier will never visit because it points off
 # the crawled domain. Without it those pages sit in `Pending` forever - the
@@ -55,14 +42,12 @@ class GraphStoreSink:
 
     def __init__(
         self,
-        graph_store: GraphStore,
-        site: str,
+        graph_store: Any,
         base_url: Optional[str] = None,
         allow_subdomains: bool = False,
         run_id: str = "",
     ) -> None:
         self.graph_store = graph_store
-        self.site = site
         # The same two values `UrlFrontier` gates on, so a link is judged
         # in-scope identically whether it is being queued or recorded.
         # `None` disables the check, preserving the pre-scope behavior for
@@ -80,10 +65,10 @@ class GraphStoreSink:
 
     async def _write(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
         """Run one blocking `GraphStore` write off the event loop.
-        `GraphStore` backends are synchronous - `DuckDBGraphStore` in
-        particular blocks on its single writer thread - so calling `fn`
-        directly here would stall every other crawl worker sharing this
-        event loop for the duration.
+        `LadybugGraphStore` is synchronous - it blocks on its own single
+        writer thread (see `database/ladybug/writer.py`) - so calling
+        `fn` directly here would stall every other crawl worker sharing
+        this event loop for the duration.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
         """
         await asyncio.to_thread(fn, *args, **kwargs)
@@ -93,7 +78,7 @@ class GraphStoreSink:
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_arrival
         """
         await self._write(
-            self.graph_store.upsert_page, self.site, page_key,
+            self.graph_store.upsert_page, page_key,
             status="Pending", description=description, title=title,
         )
 
@@ -104,7 +89,7 @@ class GraphStoreSink:
         """
         if not metadata:
             return
-        await self._write(self.graph_store.record_page_metadata, self.site, page_key, metadata)
+        await self._write(self.graph_store.record_page_metadata, page_key, metadata)
 
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
@@ -112,26 +97,7 @@ class GraphStoreSink:
         """
         if not requests:
             return
-        await self._write(self.graph_store.record_page_network, self.site, page_key, requests)
-
-    async def record_stylesheets(self, page_key: str, stylesheets: List[Dict[str, Any]]) -> None:
-        """Same-origin CSS text captured on this page visit. No redaction -
-        unlike a network body, a stylesheet is public presentational code
-        the browser already fetched and applied; it carries no credentials
-        by construction. Truncated + hashed the same way a network payload
-        is, for the same content-addressed-storage reason.
-        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_stylesheets
-        """
-        entries = [
-            {
-                "href": sheet.get("href", ""),
-                "accessible": bool(sheet.get("accessible", True)),
-                **_capture_stylesheet_text(sheet.get("text", "")),
-            }
-            for sheet in stylesheets
-        ]
-        if entries:
-            await self._write(self.graph_store.record_stylesheets, self.site, page_key, entries)
+        await self._write(self.graph_store.record_page_network, page_key, requests)
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
@@ -154,7 +120,7 @@ class GraphStoreSink:
                 "height": rect.get("height"),
             })
         if entries:
-            await self._write(self.graph_store.record_text_contents, self.site, page_key, entries)
+            await self._write(self.graph_store.record_text_contents, page_key, entries)
 
     async def record_inventory(
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
@@ -183,7 +149,7 @@ class GraphStoreSink:
             if increment_path:
                 await self._write(
                     self.graph_store.record_component_options,
-                    self.site, page_key, increment_path, stepper,
+                    page_key, increment_path, stepper,
                     option_labels=option_labels_for(json.dumps(stepper)),
                 )
 
@@ -197,7 +163,7 @@ class GraphStoreSink:
                 component_batch.append(args)
 
         if component_batch:
-            await self._write(self.graph_store.record_components, self.site, page_key, component_batch)
+            await self._write(self.graph_store.record_components, page_key, component_batch)
 
         # Structural containment, keyed to exactly the paths that got a
         # Component row above: every ungrouped component's own ancestors,
@@ -217,9 +183,7 @@ class GraphStoreSink:
                     {"path": representative["path"], "ancestors": representative["ancestors"]}
                 )
         if ancestor_entries:
-            await self._write(
-                self.graph_store.record_component_ancestors, self.site, page_key, ancestor_entries
-            )
+            await self._write(self.graph_store.record_component_ancestors, page_key, ancestor_entries)
 
         link_batch = []
         off_site: List[str] = []
@@ -240,15 +204,13 @@ class GraphStoreSink:
             if self.base_url and not is_in_scope(href, self.base_url, self.allow_subdomains):
                 off_site.append(target)
         if link_batch:
-            await self._write(self.graph_store.record_links, self.site, page_key, link_batch)
+            await self._write(self.graph_store.record_links, page_key, link_batch)
         # After record_links, never instead of it: the edge to an off-site
         # page is real data (where this site sends you) and stays recorded.
         # Only the target's status changes, so it stops posing as work.
         # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#off-site-targets
         for url in dict.fromkeys(off_site):
-            await self._write(
-                self.graph_store.upsert_page, self.site, url, status=EXTERNAL_PAGE_STATUS
-            )
+            await self._write(self.graph_store.upsert_page, url, status=EXTERNAL_PAGE_STATUS)
 
     def _component_args(self, comp: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """One component's descriptive fields as `record_component(s)` kwargs,
@@ -305,7 +267,7 @@ class GraphStoreSink:
             ],
         }
         await self._write(
-            self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary,
+            self.graph_store.record_component_options, page_key, representative_path, option_summary,
             option_labels=option_labels_for(json.dumps(option_summary)),
         )
         page_map = self._representative_for.setdefault(page_key, {})
@@ -338,7 +300,7 @@ class GraphStoreSink:
         """
         write_path, source_path = self._resolve_write_path(page_key, path)
         await self._write(
-            self.graph_store.record_component_interaction, self.site, page_key, write_path,
+            self.graph_store.record_component_interaction, page_key, write_path,
             action=action, value=value, resulting_url=resulting_url, source_path=source_path,
             step=step,
         )
@@ -362,9 +324,7 @@ class GraphStoreSink:
             ]
         write_path, source_path = self._resolve_write_path(page_key, path)
         payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
-        await self._write(
-            self.graph_store.record_component_network, self.site, page_key, write_path, payload
-        )
+        await self._write(self.graph_store.record_component_network, page_key, write_path, payload)
 
     async def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.
@@ -372,14 +332,14 @@ class GraphStoreSink:
         """
         payload = {"trigger": trigger_path, "revealed_options": revealed}
         await self._write(
-            self.graph_store.record_component_options, self.site, page_key, trigger_path, payload,
+            self.graph_store.record_component_options, page_key, trigger_path, payload,
             option_labels=option_labels_for(json.dumps(payload)),
         )
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
         """Only called when an interaction's resulting URL differs from the page it ran on."""
         await self._write(
-            self.graph_store.record_edge, self.site, from_key, to_key,
+            self.graph_store.record_edge, from_key, to_key,
             component=path, action=action, run_id=self.run_id,
         )
 
@@ -387,12 +347,10 @@ class GraphStoreSink:
         """Called once a page's pass completes without being cut short by navigation.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_finished
         """
-        await self._write(
-            self.graph_store.upsert_page, self.site, page_key, status="Finished", components=component_count
-        )
+        await self._write(self.graph_store.upsert_page, page_key, status="Finished", components=component_count)
 
     async def record_page_failed(self, page_key: str) -> None:
         """Called once `UrlFrontier.requeue` gives up on a page for good -
         see `FAILED_PAGE_STATUS`. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_failed
         """
-        await self._write(self.graph_store.upsert_page, self.site, page_key, status=FAILED_PAGE_STATUS)
+        await self._write(self.graph_store.upsert_page, page_key, status=FAILED_PAGE_STATUS)

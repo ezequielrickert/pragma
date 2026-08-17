@@ -11,7 +11,7 @@ from typing import List
 import pytest
 
 from core.interfaces import PageState
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import (
     BudgetTracker,
@@ -118,13 +118,13 @@ class _LinkChainCrawler:
 
 
 def _crawl(budget: CrawlBudget) -> _LinkChainCrawler:
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     crawler = _LinkChainCrawler()
     mech = MechanicalCrawler(
         crawler,
         config=MechanicalCrawlerConfig(
-            sink=GraphStoreSink(store, SITE, base_url=START),
+            sink=GraphStoreSink(store, base_url=START),
             base_url=START,
             budget=budget,
             page_concurrency=1,
@@ -203,13 +203,13 @@ def test_a_requeued_interrupted_visit_does_not_spend_the_page_budget():
     and p1 - real, available, already-discovered work - would never have
     been attempted at all.
     """
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     crawler = _FlakyFirstPageCrawler()
     mech = MechanicalCrawler(
         crawler,
         config=MechanicalCrawlerConfig(
-            sink=GraphStoreSink(store, SITE, base_url=START),
+            sink=GraphStoreSink(store, base_url=START),
             base_url=START,
             budget=CrawlBudget(pages=1),
             page_concurrency=1,
@@ -236,13 +236,13 @@ def test_a_page_that_never_stops_failing_is_given_up_on_not_retried_forever():
     itself without bound - the crawl's own "requeued" count climbing far
     past "unique" and the queue growing without limit.
     """
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     crawler = _AlwaysBlockedCrawler()
     mech = MechanicalCrawler(
         crawler,
         config=MechanicalCrawlerConfig(
-            sink=GraphStoreSink(store, SITE, base_url=START),
+            sink=GraphStoreSink(store, base_url=START),
             base_url=START,
             page_concurrency=1,
             max_requeue_attempts=2,
@@ -258,20 +258,20 @@ def test_a_page_that_never_stops_failing_is_given_up_on_not_retried_forever():
     assert mech._gave_up_visits == 1
     # Marked concluded, not left Pending for a resumed run to retry forever -
     # is_visited/upsert_page are keyed by route_shape, not the literal url.
-    assert store.is_visited(SITE, route_shape(START))
-    assert not store.get_pending(SITE)
+    assert store.is_visited(route_shape(START))
+    assert not store.get_pending()
 
 
 @pytest.mark.parametrize("budget", [CrawlBudget(pages=3), CrawlBudget(nodes=4)])
 def test_a_cut_run_leaves_the_rest_pending(budget):
     """What is left behind is what the next run resumes from - the queue is
     drained without visiting so crawl_site's join() still returns."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     mech = MechanicalCrawler(
         _LinkChainCrawler(),
         config=MechanicalCrawlerConfig(
-            sink=GraphStoreSink(store, SITE, base_url=START),
+            sink=GraphStoreSink(store, base_url=START),
             base_url=START,
             budget=budget,
             page_concurrency=1,
@@ -280,4 +280,4 @@ def test_a_cut_run_leaves_the_rest_pending(budget):
     asyncio.run(mech.crawl_site(START))
 
     assert mech.stopped_reason is not None
-    assert store.get_pending(SITE), "a cut run must leave resumable work behind"
+    assert store.get_pending(), "a cut run must leave resumable work behind"

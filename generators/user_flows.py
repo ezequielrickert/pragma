@@ -258,8 +258,8 @@ class UserFlowsDocument(DocumentGenerator):
 
     def generate(self, request: DocumentRequest) -> str:
         flow = build_flow_graph(
-            request.graph_store.get_edges(request.site),
-            flat_component_ledger(request.graph_store, request.site),
+            request.graph_store.get_edges(),
+            flat_component_ledger(request.graph_store),
         )
         lines = [f"# User Flows: {request.site}", ""]
         if not flow.transitions:

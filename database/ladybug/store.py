@@ -1,16 +1,10 @@
-"""`LadybugGraphStore`: connection lifecycle for the crawl graph's
-persistence backend, one Ladybug database per site.
-
-Storage-migration plan phase 3 (see the plan under
-`docs/dev/database/ladybug/store.md#storage-migration-plan` for the full
-rationale) - this module owns only what step 3 of that plan scopes to it:
-opening/closing/resetting the database and writing the one-row `Site`
-header. The ~15 write methods `GraphStoreSink` calls and the read/query
-surface land in `network.py`/`semantic.py`/`queries.py` as later steps
-fill them in; `LadybugGraphStore` does not yet implement the `GraphStore`
-ABC (`core/interfaces.py`) and is not yet registered with
-`GRAPH_STORE_REGISTRY` - both happen once the write/read path exists,
-so an incomplete implementation is never reachable from `pragma.yaml`.
+"""`LadybugGraphStore`: connection lifecycle plus the observation/inferred-
+tier read+write path for the crawl graph's persistence backend, one
+Ladybug database per site. Registered with `GRAPH_STORE_REGISTRY` twice
+at the bottom of this module - `"ladybug"` (on disk) and `"memory"`
+(in-memory) - so `pragma.yaml`, `cli.py --graph-store` and
+`core/wizard.py` keep working with the same two names the retired DuckDB/
+in-memory backends answered to.
 
 **One database per site, not one shared file.** `site` was previously the
 first argument of all 41 `GraphStore` methods and a column on all 21
@@ -29,17 +23,24 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Optional
+from typing import Any, Optional
 
+from core.registry import GRAPH_STORE_REGISTRY
 from utils.urls import slugify
 from .analysis import _LadybugAnalysisMixin
 from .clock import now
 from .component import _LadybugComponentMixin
 from .component_family import _LadybugComponentFamilyMixin
+from .deferred import _LadybugDeferredMixin
 from .page import _LadybugPageMixin
 from .schema import DDL
 from .text_content import _LadybugTextContentMixin
 from .writer import LadybugWriter
+
+# Where an on-disk site's database lives when config doesn't say
+# otherwise - config/pragma.example.yaml documents overriding this via
+# graph_stores.ladybug.directory.
+_DEFAULT_DIRECTORY = "data/sites"
 
 
 def _resolve_path(directory: Optional[str], site: str) -> str:
@@ -59,7 +60,7 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
 
 class LadybugGraphStore(
     _LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin,
-    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin,
+    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugDeferredMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -68,13 +69,15 @@ class LadybugGraphStore(
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction. The five mixins supply the observation/inferred-tier
+    construction. The six mixins supply the observation/inferred-tier
     read+write path - `page.py` (Page/link/edge, and the shared
     `_ensure_page` helper the others call through `self`),
     `component.py` (Component/Interaction), `text_content.py`
     (TextContent), `component_family.py` (ComponentFamily),
-    `analysis.py` (derived graph metrics) - same split-by-concern shape
-    the retired DuckDB backend used, for the same file-size reason.
+    `analysis.py` (derived graph metrics), `deferred.py` (Option/
+    Container/Request/Endpoint no-op placeholders - see its own module
+    docstring) - same split-by-concern shape the retired DuckDB backend
+    used, for the same file-size reason.
     """
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:
@@ -147,3 +150,21 @@ class LadybugGraphStore(
         if self._writer is None:
             self.connect()
         return self._writer.call(fn)
+
+
+@GRAPH_STORE_REGISTRY.register("ladybug")
+def _build_disk_store(site: str, directory: str = _DEFAULT_DIRECTORY, **_ignored: Any) -> LadybugGraphStore:
+    """`graph_store: ladybug` factory - persists to `<directory>/<slug>.lbdb`.
+    Details: docs/dev/database/ladybug/store.md#_build_disk_store
+    """
+    return LadybugGraphStore(site, directory=directory)
+
+
+@GRAPH_STORE_REGISTRY.register("memory")
+def _build_memory_store(site: str, **_ignored: Any) -> LadybugGraphStore:
+    """`graph_store: memory` factory - always in-memory, regardless of any
+    `directory` a config happens to carry for this name: "memory" means
+    "ephemeral," not "on disk with a default path."
+    Details: docs/dev/database/ladybug/store.md#_build_memory_store
+    """
+    return LadybugGraphStore(site, directory=None)

@@ -28,7 +28,7 @@ from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerCon
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 from utils.urls import route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
@@ -331,9 +331,9 @@ def test_same_route_shape_pages_collapse_to_one_canonical_graph_node():
     fake = _FakeSessionTokenPageCrawler()
     assert route_shape(fake.url1) == route_shape(fake.url2)  # same shape, different literal URL
 
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore("fixture")
     store.connect()
-    sink = GraphStoreSink(store, "fixture")
+    sink = GraphStoreSink(store)
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, max_pages=5, max_visits_per_route_shape=2))
     results = asyncio.run(mech.crawl_site(fake.url1))
 
@@ -342,7 +342,7 @@ def test_same_route_shape_pages_collapse_to_one_canonical_graph_node():
     assert {r.url for r in results} == {route_shape(fake.url1)}
 
     # ...but GraphStore only ever recorded one canonical node for them.
-    rows = store.get_progress_table_rows("fixture")
+    rows = store.get_progress_table_rows()
     assert len(rows) == 1
     assert rows[0]["url"] == route_shape(fake.url1)
 
@@ -597,9 +597,9 @@ class _FakeSpaStateTransitionCrawler:
 
 def test_full_screen_replace_becomes_a_new_state_node_not_a_merged_reveal():
     fake = _FakeSpaStateTransitionCrawler()
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore("fixture")
     store.connect()
-    sink = GraphStoreSink(store, "fixture")
+    sink = GraphStoreSink(store)
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, max_pages=1))
     results = asyncio.run(mech.crawl_site(fake.url))
 
@@ -615,19 +615,21 @@ def test_full_screen_replace_becomes_a_new_state_node_not_a_merged_reveal():
 
     # GraphStore ends up with TWO page nodes, not one blob - the landing
     # screen and the order-flow screen it transitioned into.
-    keys = {row["url"] for row in store.get_progress_table_rows("fixture")}
+    keys = {row["url"] for row in store.get_progress_table_rows()}
     assert route_shape(fake.url) in keys
     assert new_key in keys
 
     # The new node's components carry real descriptive facts (not the
     # blank-field ghost-node shape graph-based-crawl-tracking.md's fix
     # guards against elsewhere).
-    new_components = store.get_component_states("fixture", new_key)
+    new_components = store.get_component_states(new_key)
     assert new_components[fake.confirm_path]["text"] == "Confirm Order"
 
     # An edge connects the two nodes, attributed to the trigger.
-    loop_signals = store.get_loop_signals("fixture", new_key)
-    assert any(s["component"] == fake.start_path for s in loop_signals)
+    # get_loop_signals had no production caller and wasn't ported (see
+    # storage-migration plan); get_edges carries the same fact.
+    edges_into_new_key = [e for e in store.get_edges() if e["to"] == new_key]
+    assert any(e["component"] == fake.start_path for e in edges_into_new_key)
 
     # The new screen's own components get interacted with too, under the
     # new node's namespace - the pass didn't just detect the transition and

@@ -178,10 +178,10 @@ def test_the_document_reports_error_branches_and_dead_ends():
     from generators.user_flows import UserFlowsDocument
 
     class _Store:
-        def get_edges(self, site):
+        def get_edges(self):
             return [_edge()]
 
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {"/shop": {"div > button": _component(requests=[_request(status=422)])}}
 
     text = UserFlowsDocument().generate(
@@ -198,10 +198,10 @@ def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
     from generators.user_flows import UserFlowsDocument
 
     class _Store:
-        def get_edges(self, site):
+        def get_edges(self):
             return []
 
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {}
 
     text = UserFlowsDocument().generate(

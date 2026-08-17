@@ -23,6 +23,20 @@ from typing import Any, Callable, Optional
 
 import ladybug as lb
 
+# Ladybug's own docstring for `buffer_pool_size` names this: left at its
+# default (0), a `Database` reserves ~8TB of virtual address space via
+# mmap, "to get around... the default 8TB mmap address space limit some
+# environment [sic]... will be removed once we implement a better
+# solution later." One instance is harmless; macOS caps a process at
+# ~128TB of user address space, and this project opens one
+# `LadybugGraphStore` per site plus one per test fixture - the full test
+# suite alone constructs 47+ in one process. Past ~16 uncapped instances
+# the next `lb.Database()` fails with "Mmap for size 8796093022208
+# failed" even though every individual test passes in isolation. 4GiB is
+# far past this project's real ceiling (the DuckDB backend it replaces
+# topped out at 42MB for a full site crawl).
+_MAX_DB_SIZE_BYTES = 4 * 1024**3
+
 
 class LadybugWriter:
     """Owns one `ladybug.Connection` on one dedicated thread.
@@ -58,7 +72,7 @@ class LadybugWriter:
 
     def _run(self, path: str) -> None:
         try:
-            database = lb.Database(path)
+            database = lb.Database(path, max_db_size=_MAX_DB_SIZE_BYTES)
             conn = lb.Connection(database)
         except BaseException as exc:  # noqa: BLE001 - re-raised in the constructor's thread
             self._connect_error = exc
@@ -99,3 +113,21 @@ class LadybugWriter:
             return
         self._queue.put(None)
         self._thread.join(timeout=10)
+
+    def __del__(self) -> None:
+        """Best-effort safety net, not the primary shutdown path - every
+        real call site (`LadybugGraphStore.close()`, `Engine._run_async`)
+        still closes explicitly and should keep doing so. Exists because
+        this writer holds a real OS thread and an open embedded-database
+        connection, unlike the pure-Python `InMemoryGraphStore` it
+        replaces - a caller that forgets to close (confirmed live: most of
+        this project's own test suite did, before this existed) leaks a
+        thread that runs forever rather than one that quietly goes away
+        with the object, and enough of those accumulating in one process
+        exhausts a real resource ceiling.
+        Details: docs/dev/database/ladybug/writer.md#__del__
+        """
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001 - __del__ must never raise
+            pass

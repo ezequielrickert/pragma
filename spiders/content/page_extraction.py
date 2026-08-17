@@ -4,7 +4,7 @@ Details: docs/dev/spiders/content/page_extraction.md#module
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 _JS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "js")
 
@@ -20,27 +20,6 @@ EXTRACT_LINKS_JS = _load_js("extract_links.js")
 EXTRACT_DESCRIPTION_JS = _load_js("extract_description.js")
 EXTRACT_METADATA_JS = _load_js("extract_metadata.js")
 EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
-EXTRACT_STYLESHEETS_JS = _load_js("extract_stylesheets.js")
-
-
-async def extract_stylesheets(page) -> List[Dict[str, Any]]:
-    """Same-origin CSS text, one entry per `document.styleSheets` sheet.
-
-    Args:
-        page: a live Playwright page, already settled.
-
-    Returns:
-        `[{"href", "accessible", "text"}]` - `accessible` is `False` for a
-        cross-origin sheet whose `cssRules` threw (a CDN-hosted framework
-        or font CSS file). `[]` on outright extraction failure - CSS
-        capture is an enhancement, not worth failing a page visit over.
-    Details: docs/dev/spiders/content/page_extraction.md#extract_stylesheets
-    """
-    try:
-        return list(await page.evaluate(EXTRACT_STYLESHEETS_JS))
-    except Exception as exc:
-        print(f"Warning: stylesheet extraction failed: {exc}")
-        return []
 
 
 async def run_extraction(page) -> Dict[str, Any]:
@@ -83,8 +62,6 @@ async def run_extraction(page) -> Dict[str, Any]:
         except Exception as exc:
             print(f"Warning: text content extraction failed in frame {frame.url!r}: {exc}")
 
-    stylesheets = await extract_stylesheets(page)
-
     return {
         "components": components,
         "links": links,
@@ -92,5 +69,4 @@ async def run_extraction(page) -> Dict[str, Any]:
         "metadata": metadata,
         "title": title,
         "text_content": text_content,
-        "stylesheets": stylesheets,
     }

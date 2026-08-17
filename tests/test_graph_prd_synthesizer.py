@@ -26,7 +26,7 @@ from generators.graph_prd_synthesizer import (
     _render_fact_line,
     build_mermaid_graph,
 )
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 SITE = "synth-test-site"
@@ -78,12 +78,12 @@ def test_build_mermaid_graph_renders_edges():
 def test_synthesize_reads_from_graph_store_with_no_live_crawl():
     """The whole point of Phase 5: synthesis works against a graph populated
     at some earlier, unrelated time - it needs nothing but the store."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "example.com", status="Finished", components=2, description="A test site.")
-    store.record_component(SITE, "example.com", "body > button#a", tag="button", text="Click me", component_type="button")
-    store.record_component_interaction(SITE, "example.com", "body > button#a", action="click", resulting_url="example.com")
-    store.record_edge(SITE, "example.com", "example.com/about", component="About link", action="click")
+    store.upsert_page("example.com", status="Finished", components=2, description="A test site.")
+    store.record_component("example.com", "body > button#a", tag="button", text="Click me", component_type="button")
+    store.record_component_interaction("example.com", "body > button#a", action="click", resulting_url="example.com")
+    store.record_edge("example.com", "example.com/about", component="About link", action="click")
 
     agent = RecordingAgent()
     synthesizer = GraphPRDSynthesizer(agent, store)
@@ -113,10 +113,10 @@ def test_synthesize_uses_its_own_dedicated_system_instructions_not_shared():
 
 
 def test_narration_failure_on_one_page_does_not_abort_synthesis():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "example.com", status="Finished", components=1)
-    store.record_component(SITE, "example.com", "body > button#a", tag="button", text="Click me", component_type="button")
+    store.upsert_page("example.com", status="Finished", components=1)
+    store.record_component("example.com", "body > button#a", tag="button", text="Click me", component_type="button")
 
     class FailingCatalogAgent(Agent):
         def generate(self, prompt, system_instruction=None):
@@ -136,12 +136,12 @@ def test_synthesize_batches_pages_when_over_batch_size():
     one small reduce call over the condensed summaries - never one call that sees
     every page's raw facts at once.
     """
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     n_pages = 7
     for i in range(n_pages):
         url = f"example.com/page{i}"
-        store.upsert_page(SITE, url, status="Finished", components=0, description=f"Page {i} description.")
+        store.upsert_page(url, status="Finished", components=0, description=f"Page {i} description.")
 
     agent = RecordingAgent()
     synthesizer = GraphPRDSynthesizer(agent, store, batch_size=3)
@@ -171,10 +171,10 @@ def test_end_to_end_crawl_then_synthesize(fixture_server):
     """Full pipeline: MechanicalCrawler + GraphStoreSink populate a real
     graph from a real crawl4ai-driven crawl, then GraphPRDSynthesizer reads
     it back with no live crawl session involved at all."""
-    store = InMemoryGraphStore()
-    store.connect()
     site = "e2e-" + fixture_server.rsplit(":", 1)[1]
-    sink = GraphStoreSink(store, site)
+    store = LadybugGraphStore(site)
+    store.connect()
+    sink = GraphStoreSink(store)
 
     async def crawl():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
@@ -279,14 +279,14 @@ def test_build_page_facts_under_the_limit_is_not_truncated():
 
 
 def test_narrate_page_catalog_notes_truncation_in_the_prompt():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     for i in range(_MAX_FACTS_PER_PAGE + 5):
-        store.record_component(SITE, "example.com/big-page", f"button#{i}", tag="button", text=f"Button {i}")
+        store.record_component("example.com/big-page", f"button#{i}", tag="button", text=f"Button {i}")
 
     agent = RecordingAgent()
     synthesizer = GraphPRDSynthesizer(agent, store)
-    synthesizer._narrate_page_catalog(SITE)
+    synthesizer._narrate_page_catalog()
 
     catalog_prompt = next(p for p, si in agent.calls if si == CATALOG_SYSTEM_INSTRUCTION)
     assert f"capped at {_MAX_FACTS_PER_PAGE}" in catalog_prompt
@@ -298,7 +298,7 @@ def test_reduce_combines_in_chunks_when_sections_exceed_the_cap():
     version joined unconditionally into one prompt - exactly the second
     recursive instance of the bug this whole map-reduce split exists to
     prevent."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     agent = RecordingAgent()
     synthesizer = GraphPRDSynthesizer(agent, store)
@@ -320,7 +320,7 @@ def test_reduce_combines_in_chunks_when_sections_exceed_the_cap():
 
 
 def test_reduce_under_the_cap_skips_chunking_entirely():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     agent = RecordingAgent()
     synthesizer = GraphPRDSynthesizer(agent, store)

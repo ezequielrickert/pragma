@@ -259,8 +259,8 @@ class ComponentCatalogDocument(DocumentGenerator):
 
     def generate(self, request: DocumentRequest) -> str:
         entries = build_catalog(
-            request.graph_store.get_component_families(request.site),
-            flat_component_ledger(request.graph_store, request.site),
+            request.graph_store.get_component_families(),
+            flat_component_ledger(request.graph_store),
         )
         lines = [f"# Component Catalogue: {request.site}", ""]
         if not entries:
@@ -289,8 +289,8 @@ class ComponentCatalogData(DocumentGenerator):
 
     def generate(self, request: DocumentRequest) -> str:
         entries = build_catalog(
-            request.graph_store.get_component_families(request.site),
-            flat_component_ledger(request.graph_store, request.site),
+            request.graph_store.get_component_families(),
+            flat_component_ledger(request.graph_store),
         )
         payload = {"site": request.site, "components": [asdict(entry) for entry in entries]}
         return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"

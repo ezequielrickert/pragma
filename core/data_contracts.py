@@ -33,11 +33,6 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
-    # Same-origin CSS text, one entry per stylesheet - captured on every
-    # ordinary navigation, since it needs no special viewport/image config
-    # to read.
-    # Details: docs/dev/core/interfaces.md#pagestatestylesheets
-    stylesheets: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

@@ -7,10 +7,11 @@
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
 agent: local          # local | mock
-graph_store: memory  # memory | duckdb - "memory" needs nothing running and persists nothing across
-                      # runs; "duckdb" is an embedded, single-file database (no server to start) and
-                      # is the crawl's live, primary source of truth - written to as the crawl
-                      # happens, then read back by GraphPRDSynthesizer
+graph_store: memory  # memory | ladybug - "memory" needs nothing running and persists nothing across
+                      # runs; "ladybug" is an embedded graph database, one file per site under
+                      # graph_stores.ladybug.directory (no server to start), and is the crawl's
+                      # live, primary source of truth - written to as the crawl happens, then read
+                      # back by GraphPRDSynthesizer
 # How much ONE run does before stopping and leaving the rest Pending for the next
 # run to resume from. Leave the whole block out (or pass --full) to crawl until the
 # frontier drains, which is what every run did before this existed - a long run is
@@ -26,7 +27,7 @@ graph_store: memory  # memory | duckdb - "memory" needs nothing running and pers
 #                      # the run goes forever. This is the cap that returns your terminal.
 
 fresh: false          # purge this site's previously recorded graph_store state before crawling
-                       # (only matters for graph_store: duckdb - memory never persists across runs
+                       # (only matters for graph_store: ladybug - memory never persists across runs
                        # regardless). Off by default because the pages a cut-short run leaves
                        # Pending ARE its saved progress, and purging deletes them before the next
                        # run can resume. Set true on purpose for any site whose
@@ -137,8 +138,8 @@ agents:
                          # only set this once you know your model's real budget
 
 # Optional: non-secret, per-graph-store settings, same shape as `agents:`
-# above. Only used when `graph_store: duckdb` - no credentials to keep in
-# .env, since it's an embedded file, not a server.
+# above. Only used when `graph_store: ladybug` - no credentials to keep in
+# .env, since each site is an embedded file, not a server.
 graph_stores:
-  duckdb:
-    path: data/pragma.duckdb  # blank/omitted = in-memory, no persistence across runs
+  ladybug:
+    directory: data/sites  # one <slug>.lbdb file per site under this directory

@@ -1,24 +1,24 @@
 """Unit tests for generators/graph_export.py - built directly against
-InMemoryGraphStore, no live crawl needed, same convention
+LadybugGraphStore in-memory mode, no live crawl needed, same convention
 tests/test_component_tree.py already established (build_graph_export only
-touches GraphStore's read surface)."""
+touches the store's read surface)."""
 import json
 
 from generators.graph_export import build_graph_export, generate_graph_export_document
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 
 SITE = "export-test-site"
 
 
 def _store():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
     return store
 
 
 def test_build_graph_export_includes_page_fields():
     store = _store()
-    store.upsert_page(SITE, "example.com", status="Finished", components=2, title="Home", description="A page")
+    store.upsert_page("example.com", status="Finished", components=2, title="Home", description="A page")
 
     export = build_graph_export(store, SITE)
 
@@ -33,17 +33,17 @@ def test_build_graph_export_includes_page_fields():
 
 def test_build_graph_export_includes_edges_and_ledgers():
     store = _store()
-    store.upsert_page(SITE, "example.com", status="Finished")
-    store.upsert_page(SITE, "example.com/about", status="Finished")
-    store.record_edge(SITE, "example.com", "example.com/about", component="a.about", action="click")
-    store.record_component(SITE, "example.com", "a.about", tag="a", text="About")
-    store.record_text_content(SITE, "example.com", "p.intro", tag="p", text="Welcome")
+    store.upsert_page("example.com", status="Finished")
+    store.upsert_page("example.com/about", status="Finished")
+    store.record_edge("example.com", "example.com/about", component="a.about", action="click")
+    store.record_component("example.com", "a.about", tag="a", text="About")
+    store.record_text_content("example.com", "p.intro", tag="p", text="Welcome")
 
     export = build_graph_export(store, SITE)
 
-    # record_edge's own contract (tests/test_graph_store_conformance.py)
-    # covers the full edge shape - this just confirms the export passes
-    # get_edges through untouched.
+    # record_edge's own contract (tests/test_ladybug_observation.py) covers
+    # the full edge shape - this just confirms the export passes get_edges
+    # through untouched.
     edges = export["edges"]
     assert len(edges) == 1
     assert edges[0]["from"] == "example.com"
@@ -56,7 +56,7 @@ def test_build_graph_export_includes_edges_and_ledgers():
 
 def test_generate_graph_export_document_is_valid_deterministic_json():
     store = _store()
-    store.upsert_page(SITE, "example.com", status="Finished")
+    store.upsert_page("example.com", status="Finished")
 
     doc1 = generate_graph_export_document(store, SITE)
     parsed = json.loads(doc1)

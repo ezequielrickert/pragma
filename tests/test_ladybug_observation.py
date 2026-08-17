@@ -118,6 +118,22 @@ def test_record_component_rediscovery_updates_descriptive_fields_only(store) -> 
     assert row == [["Go (rediscovered)", True, 3]]
 
 
+def test_record_component_persists_position(store) -> None:
+    store.record_component("https://x/y", "div#box", x=12.5, y=34.0, width=100.0, height=50.0)
+
+    row = _rows(store, "MATCH (c:Component {id: $id}) RETURN c.x, c.y, c.width, c.height",
+                id="https://x/y|div#box")
+    assert row == [[12.5, 34.0, 100.0, 50.0]]
+
+
+def test_record_component_defaults_facts_to_blank_when_none_given(store) -> None:
+    store.record_component("https://x/y", "div#box")
+
+    row = _rows(store, "MATCH (c:Component {id: $id}) RETURN c.css_class, c.required",
+                id="https://x/y|div#box")
+    assert row == [["", False]]
+
+
 def test_record_components_batch_with_mixed_and_all_none_geometry(store) -> None:
     """Pins the same STRUCT_EXTRACT/DOUBLE bug as the TextContent case,
     for the field a real page is far more likely to trip it on."""
@@ -153,7 +169,11 @@ def test_record_component_interaction_creates_the_full_chain(store) -> None:
         """,
         id="https://x/y|button#go",
     )
-    assert row == [[True, 1, "click", "v1", 1, "https://x/cart"]]
+    # "x/cart", not the literal "https://x/cart" passed in - resulting_url
+    # is route_shape'd before it names a page, same as every other page
+    # identity that reaches storage (see record_component_interaction's
+    # own docstring for why this one write path has to enforce it itself).
+    assert row == [[True, 1, "click", "v1", 1, "x/cart"]]
 
 
 def test_record_component_interaction_with_no_navigation_points_back_at_own_page(store) -> None:

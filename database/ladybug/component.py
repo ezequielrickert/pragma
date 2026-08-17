@@ -19,6 +19,7 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.interfaces import ComponentFacts, VisitStep
+from utils.urls import route_shape
 from ._cypher import set_clause
 from .schema import DESCRIPTIVE_COMPONENT_FIELDS
 
@@ -142,12 +143,27 @@ class _LadybugComponentMixin:
         didn't navigate points back at its own page, never a dangling
         reference - same rule the retired DuckDB backend's
         `target_url = resulting_url or page_url` followed.
+
+        `resulting_url` is `route_shape`d before it names a page here,
+        even though every other caller in this codebase already shapes
+        its own page keys before calling anything in this package -
+        `PageVisitor.visit` is the one exception, passing `clean_url`'d
+        (literal) values into this specific parameter on purpose
+        (`ComponentInteraction.resulting_url` tracks literal identity for
+        its own physical-navigation-detection reasons). Left unshaped, a
+        route whose literal address changes every visit (a session-token
+        page revisiting itself) reads as "navigated to a brand new page"
+        indefinitely - confirmed live: a `Page` node with the same shape
+        as an already-canonical one, keyed by its own un-shaped literal
+        self. Every other page identity that reaches storage is already
+        canonical; this is the one write path that has to enforce it
+        itself rather than trust the caller.
         Details: docs/dev/database/ladybug/component.md#record_component_interaction
         """
-        target_url = resulting_url or page_url
+        target_url = route_shape(resulting_url) if resulting_url else page_url
         component_id = f"{page_url}|{path}"
         params = {
-            "component_id": component_id, "path": path, "target_url": target_url,
+            "page_url": page_url, "component_id": component_id, "path": path, "target_url": target_url,
             "action": action, "value": value, "source_path": source_path,
             "visit_id": step.visit_id if step else "", "step_seq": step.seq if step else 0,
         }
@@ -160,10 +176,24 @@ class _LadybugComponentMixin:
             # stub path only guards against interacting with a component
             # discovery itself somehow missed), and there is no reason to
             # split an otherwise-atomic write into two round trips.
+            #
+            # MERGE (page)-[:HAS_COMPONENT]->(c), not just MERGE (c): a
+            # component's own Page node owns the edge get_component_ledger
+            # joins through, and record_component/record_components is
+            # what normally creates it. Real crawls always discover a
+            # component before interacting with it, so this only matters
+            # for a stub - but the same completeness guarantee
+            # `_ensure_component_stub` gave the retired DuckDB backend
+            # (any write path produces a queryable component) has to hold
+            # here too, confirmed the hard way: without this, a component
+            # that only ever appears via this method is invisible to
+            # get_component_ledger's page-to-component join entirely.
             conn.execute(
                 """
+                MATCH (page:Page {url: $page_url})
                 MERGE (c:Component {id: $component_id})
                 ON CREATE SET c.path = $path
+                MERGE (page)-[:HAS_COMPONENT]->(c)
                 WITH c
                 MATCH (target:Page {url: $target_url})
                 CREATE (i:Interaction {
@@ -257,13 +287,22 @@ class _LadybugComponentMixin:
                 ORDER BY i.id
                 """
             )
-            for page_url, path, action, value, resulting_url, source_path, visit_id, step_seq in interaction_rows:
+            for page_url, path, action, value, target_url, source_path, visit_id, step_seq in interaction_rows:
                 page_components = ledger.get(page_url)
                 if page_components is None or path not in page_components:
                     continue
                 page_components[path]["interactions"].append(
                     {
-                        "action": action, "value": value, "resulting_url": resulting_url,
+                        "action": action, "value": value,
+                        # "" when target_url == page_url, not the literal
+                        # target - RESULTED_IN always points somewhere
+                        # (record_component_interaction defaults a non-
+                        # navigating interaction's target to its own page),
+                        # so the empty-string-means-no-navigation contract
+                        # every reader depends on (TraceStep.navigated,
+                        # component_tree.py's redirect_target fallback) has
+                        # to be reconstructed here, not read off verbatim.
+                        "resulting_url": target_url if target_url != page_url else "",
                         "source_path": source_path, "visit_id": visit_id, "step_seq": step_seq,
                     }
                 )

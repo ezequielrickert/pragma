@@ -13,10 +13,9 @@ Details: docs/dev/generators/coverage.md#module
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import Any, List
 
 from core.documents import DocumentGenerator, DocumentRequest
-from core.interfaces import GraphStore
 from core.registry import DOCUMENT_REGISTRY
 
 # Stated on every document, not just this one. The crawl has no login
@@ -58,21 +57,21 @@ def _percent(part: int, whole: int) -> int:
     return round(100 * part / whole) if whole else 0
 
 
-def build_coverage(graph_store: GraphStore, site: str) -> CrawlCoverage:
-    """Read `site`'s reach from the store. Pure read, no LLM, no writes.
+def build_coverage(graph_store: Any) -> CrawlCoverage:
+    """Read the site's reach from the store. Pure read, no LLM, no writes.
     Details: docs/dev/generators/coverage.md#build_coverage
     """
-    pages_finished, pages_total = graph_store.count_visited(site)
-    components_unexplored, components_total = graph_store.count_unexplored_components(site)
+    pages_finished, pages_total = graph_store.count_visited()
+    components_unexplored, components_total = graph_store.count_unexplored_components()
     unfinished = [
-        row["url"] for row in graph_store.get_progress_table_rows(site) if row.get("status") != "Finished"
+        row["url"] for row in graph_store.get_progress_table_rows() if row.get("status") != "Finished"
     ]
     return CrawlCoverage(
         pages_finished=pages_finished,
         pages_total=pages_total,
         components_explored=components_total - components_unexplored,
         components_total=components_total,
-        endpoints_discovered=len(graph_store.get_inferred_requests(site)),
+        endpoints_discovered=len(graph_store.get_inferred_requests()),
         unfinished_urls=sorted(unfinished),
     )
 
@@ -115,7 +114,7 @@ class CoverageDocument(DocumentGenerator):
     purpose = "How much of the application this run actually reached - the ceiling on every other document."
 
     def generate(self, request: DocumentRequest) -> str:
-        coverage = build_coverage(request.graph_store, request.site)
+        coverage = build_coverage(request.graph_store)
         lines = [
             f"# Crawl Coverage: {request.site}",
             "",

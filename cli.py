@@ -163,7 +163,7 @@ def parse_args(argv: list) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Purge this site's previously recorded graph_store state before crawling "
-        "(default: off; matters for --graph-store duckdb, which persists across runs). "
+        "(default: off; matters for --graph-store ladybug, which persists across runs). "
         "Leave it off to resume a previous run: the pages it left Pending are the saved "
         "progress the next run picks up. Pass --fresh when the site itself changed and "
         "the recorded facts are stale.",

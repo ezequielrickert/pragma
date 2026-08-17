@@ -1,4 +1,4 @@
-"""The one place that turns `GraphStore.get_component_ledger`'s nested
+"""The one place that turns `get_component_ledger`'s nested
 `{page_url: {path: record}}` shape into the flat `[{page_url, path, ...}]`
 list every whole-site pass wants.
 
@@ -15,15 +15,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from core.interfaces import GraphStore
 
-
-def flat_component_ledger(graph_store: GraphStore, site: str) -> List[Dict[str, Any]]:
-    """Every component `site`'s crawl discovered, as one flat list.
+def flat_component_ledger(graph_store: Any) -> List[Dict[str, Any]]:
+    """Every component the site's crawl discovered, as one flat list.
 
     Args:
-        graph_store: the store the crawl wrote to. Read-only here.
-        site: which site's ledger to read.
+        graph_store: the store the crawl wrote to. Read-only here,
+            already scoped to exactly one site by construction.
 
     Returns:
         One dict per discovered component, each carrying its own
@@ -38,7 +36,7 @@ def flat_component_ledger(graph_store: GraphStore, site: str) -> List[Dict[str, 
         `build_component_families` and `build_inferred_requests`
         already do.
     """
-    ledger = graph_store.get_component_ledger(site)
+    ledger = graph_store.get_component_ledger()
     return [
         {"page_url": page_url, "path": path, **record}
         for page_url, page_components in ledger.items()

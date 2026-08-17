@@ -56,11 +56,11 @@ PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
 # Per-graph-store prompts, same shape as PROVIDER_FIELDS - persisted to
 # pragma.yaml's `graph_stores:` block (non-secret) / .env (secret).
 GRAPH_STORE_FIELDS: Dict[str, List[Dict[str, Any]]] = {
-    "duckdb": [
+    "ladybug": [
         {
-            "name": "path",
-            "label": "DuckDB database file path (blank = in-memory, no persistence)",
-            "default": "data/pragma.duckdb",
+            "name": "directory",
+            "label": "Directory for per-site LadybugDB files (one <slug>.lbdb per site)",
+            "default": "data/sites",
             "secret": False,
         },
     ],

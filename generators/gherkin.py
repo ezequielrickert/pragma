@@ -167,7 +167,7 @@ def narrate_titles(agent: Any, traces: Sequence[Trace]) -> Dict[str, str]:
 
 
 def _observable_traces(request: DocumentRequest) -> List[Trace]:
-    components = flat_component_ledger(request.graph_store, request.site)
+    components = flat_component_ledger(request.graph_store)
     return [trace for trace in build_traces(components) if _is_observable(trace)]
 
 

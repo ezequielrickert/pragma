@@ -1,4 +1,4 @@
-"""Post-hoc PRD synthesis from `GraphStore`: map, batch-summarize, reduce.
+"""Post-hoc PRD synthesis from the crawl graph: map, batch-summarize, reduce.
 Details: docs/dev/generators/graph_prd_synthesizer.md#module
 """
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from core.documents import DocumentGenerator, DocumentRequest
-from core.interfaces import Agent, GraphStore
+from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
 from .component_classifier import choice_text_by_path, describe_options
 
@@ -188,14 +188,14 @@ class GraphPRDSynthesizer:
     Details: docs/dev/generators/graph_prd_synthesizer.md#graphprdsynthesizer
     """
 
-    def __init__(self, agent: Agent, graph_store: GraphStore, batch_size: int = 5) -> None:
+    def __init__(self, agent: Agent, graph_store: Any, batch_size: int = 5) -> None:
         self.agent = agent
         self.graph_store = graph_store
         # Pages per batch-summarize call; deliberately small - see doc.
         # Details: docs/dev/generators/graph_prd_synthesizer.md#batch_size
         self.batch_size = batch_size
 
-    def _narrate_page_catalog(self, site: str) -> Dict[str, str]:
+    def _narrate_page_catalog(self) -> Dict[str, str]:
         """One `agent.generate()` call per page; a failure degrades to raw facts.
 
         Prints a `page i/n` line per call - see
@@ -203,7 +203,7 @@ class GraphPRDSynthesizer:
         `narrate_family_purposes` are the two that needed a counter.
         Details: docs/dev/generators/graph_prd_synthesizer.md#_narrate_page_catalog
         """
-        ledger = self.graph_store.get_component_ledger(site)
+        ledger = self.graph_store.get_component_ledger()
         narrations: Dict[str, str] = {}
         # Pages whose facts come back empty are skipped without a call, so
         # like the family narrator the denominator counts calls, not pages.
@@ -328,10 +328,10 @@ class GraphPRDSynthesizer:
         """Produce the final PRD markdown for `site` - the only method callers need.
         Details: docs/dev/generators/graph_prd_synthesizer.md#synthesize
         """
-        rows = self.graph_store.get_progress_table_rows(site)
-        edges = self.graph_store.get_edges(site)
-        descriptions = self.graph_store.get_page_descriptions(site)
-        catalog = self._narrate_page_catalog(site)
+        rows = self.graph_store.get_progress_table_rows()
+        edges = self.graph_store.get_edges()
+        descriptions = self.graph_store.get_page_descriptions()
+        catalog = self._narrate_page_catalog()
 
         page_lines = self._build_page_lines(rows, descriptions, catalog)
         section_summaries = self._summarize_batches(site, page_lines)

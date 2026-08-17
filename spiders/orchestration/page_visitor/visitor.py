@@ -128,7 +128,6 @@ class PageVisitor:
             # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#record_page_network
             await self.sink.record_page_network(page_key, state.network_requests)
             await self.sink.record_page_metadata(page_key, state.metadata)
-            await self.sink.record_stylesheets(page_key, state.stylesheets)
 
         self._enqueue_links(state.links)
 

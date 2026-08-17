@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
@@ -26,7 +26,7 @@ from utils.urls import route_shape, slugify
 from .caching_graph_store import CachingGraphStore
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
-from .interfaces import Agent, GraphStore
+from .interfaces import Agent
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
@@ -35,7 +35,7 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) -> None:
+def _apply_component_families(graph_store: Any, agent: Agent) -> None:
     """Post-hoc, whole-site pass: infer reusable component families, give
     each a one-sentence LLM-narrated purpose, then write it back. Runs
     once, after the crawl finishes - family clustering needs to see
@@ -43,17 +43,18 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     stream `MechanicalCrawler` produces during the crawl.
 
     Args:
-        graph_store: the same `GraphStore` the just-finished crawl wrote
-            to - read back from here (`get_component_ledger`), then
-            written back to (`record_component_families`).
-        site: which site's just-crawled data to process.
+        graph_store: the same store the just-finished crawl wrote to -
+            read back from here (`get_component_ledger`), then written
+            back to (`record_component_families`). Site-scoped by
+            construction (one store per site), so no `site` argument
+            here or on any of the calls below.
         agent: the same LLM backend used for PRD narration - passed
             through to `narrate_family_purposes` for the one-sentence
             "what is this pattern used for" description each family gets.
 
     Returns:
         None. Three steps, always in this order:
-        1. Read every discovered component for `site` via
+        1. Read every discovered component via
            `ledger.flat_component_ledger` - see that function for why the
            ledger's per-page nesting has to be flattened for a whole-site
            pass like this one.
@@ -66,11 +67,11 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
            all - see that function's own docstring for its graceful-
            degradation behavior on a single family's failure - and the
            narrated families are written via `record_component_families`
-           (a full rebuild of `site`'s family structure every call, per
+           (a full rebuild of the site's family structure every call, per
            that method's own contract).
     Details: docs/dev/core/engine.md#_apply_component_families
     """
-    components = flat_component_ledger(graph_store, site)
+    components = flat_component_ledger(graph_store)
     families = build_component_families(components)
     print(f"Grouped {len(components)} components into {len(families)} families.")
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
@@ -80,14 +81,14 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     # everything every pass. Details: docs/dev/core/engine.md#known-purposes
     known_purposes = {
         family_signature(existing): existing.purpose
-        for existing in graph_store.get_component_families(site)
+        for existing in graph_store.get_component_families()
         if existing.purpose
     }
     families = narrate_family_purposes(agent, families, member_texts, known_purposes)
-    graph_store.record_component_families(site, families)
+    graph_store.record_component_families(families)
 
 
-def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
+def _apply_request_graph(graph_store: Any) -> None:
     """Post-hoc, whole-site pass: infer distinct API endpoints (and which
     Components trigger each one) from network requests already captured
     on Component nodes, then write them back. Independent of - and reads
@@ -99,24 +100,29 @@ def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
     hot path, run once per whole crawl.
 
     Args:
-        graph_store: same `GraphStore` the crawl wrote to.
-        site: which site's just-crawled data to process.
+        graph_store: same store the crawl wrote to.
 
     Returns:
         None. Reads every discovered component's `network_requests` via
         `ledger.flat_component_ledger`, clusters them via
         `request_family.build_inferred_requests` (see that function's own
         docstring), and writes the result via `record_inferred_requests`
-        - a full rebuild of `site`'s inferred-request structure every
+        - a full rebuild of the site's inferred-request structure every
         call, same contract as `record_component_families`.
+
+        `get_page_network_ledger`/`record_inferred_requests` are both
+        still `database/ladybug/deferred.py` no-op placeholders (storage-
+        migration plan step 7 hasn't landed) - this pass runs unmodified
+        and produces zero inferred requests until it does, rather than
+        needing to be specially skipped.
     Details: docs/dev/core/engine.md#_apply_request_graph
     """
-    components = flat_component_ledger(graph_store, site)
-    page_requests = graph_store.get_page_network_ledger(site)
-    graph_store.record_inferred_requests(site, build_inferred_requests(components, page_requests))
+    components = flat_component_ledger(graph_store)
+    page_requests = graph_store.get_page_network_ledger()
+    graph_store.record_inferred_requests(build_inferred_requests(components, page_requests))
 
 
-def _apply_graph_projection(graph_store: GraphStore, site: str, root: str) -> None:
+def _apply_graph_projection(graph_store: Any, root: str) -> None:
     """Post-hoc, whole-site pass: materialize the navigation graph into
     `networkx` and write back per-page metrics and module assignments -
     Storage Phase 7. Independent of the two passes above (reads only
@@ -124,8 +130,7 @@ def _apply_graph_projection(graph_store: GraphStore, site: str, root: str) -> No
     relative to them.
 
     Args:
-        graph_store: same `GraphStore` the crawl wrote to.
-        site: which site's just-crawled data to process.
+        graph_store: same store the crawl wrote to.
         root: the crawl's own start URL, `route_shape`d to match every
             other page key in the graph - `project_graph`'s `click_depth`
             is BFS distance from here.
@@ -138,9 +143,9 @@ def _apply_graph_projection(graph_store: GraphStore, site: str, root: str) -> No
         contract as `record_component_families`.
     Details: docs/dev/core/engine.md#_apply_graph_projection
     """
-    result = project_graph(graph_store.get_edges(site), root=root)
-    graph_store.record_page_metrics(site, [m.as_dict() for m in result.metrics])
-    graph_store.record_page_modules(site, [m.as_dict() for m in result.modules])
+    result = project_graph(graph_store.get_edges(), root=root)
+    graph_store.record_page_metrics([m.as_dict() for m in result.metrics])
+    graph_store.record_page_modules([m.as_dict() for m in result.modules])
     if result.cycles:
         print(f"Graph projection: {len(result.cycles)} navigation cycle(s) found.")
 
@@ -174,7 +179,7 @@ class Engine:
     def __init__(
         self,
         agent: Agent,
-        graph_store: GraphStore,
+        graph_store: Any,
         out_dir: str = "data/output",
         site: str = "",
         max_pages: Optional[int] = None,
@@ -239,18 +244,22 @@ class Engine:
             print(f"Failed to initialize {config.agent} agent: {exc}; falling back to mock")
             agent = AGENT_REGISTRY.create("mock")
 
+        # Computed before the store: LadybugGraphStore is site-scoped at
+        # construction (one database per site), unlike every backend this
+        # replaces, which took `site` per method call instead and could be
+        # built with no site known yet.
+        site = urlparse(config.url).netloc if config.url else ""
         store_options = config.graph_stores.get(config.graph_store, {})
         try:
-            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, **store_options)
+            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, site=site, **store_options)
             graph_store.connect()
         except Exception as exc:
             print(f"Failed to initialize {config.graph_store} graph store: {exc}; falling back to memory")
-            graph_store = GRAPH_STORE_REGISTRY.create("memory")
+            graph_store = GRAPH_STORE_REGISTRY.create("memory", site=site)
             graph_store.connect()
 
-        site = urlparse(config.url).netloc if config.url else ""
         if config.fresh and site:
-            graph_store.clear_site(site)  # no-op for InMemoryGraphStore - see PragmaConfig.fresh
+            graph_store.reset()  # see PragmaConfig.fresh
 
         return cls(
             agent,
@@ -298,7 +307,7 @@ class Engine:
         # judged in-scope identically whether it is queued or recorded.
         # Details: docs/dev/core/engine.md#sink-scope
         sink = GraphStoreSink(
-            self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains, run_id=run_id,
+            self.graph_store, base_url=url, allow_subdomains=self.allow_subdomains, run_id=run_id,
         )
 
         debug_log: Optional[CrawlDebugLog] = None
@@ -354,7 +363,7 @@ class Engine:
         #
         # graph_store (not self.graph_store) from here on: the crawl has
         # finished writing, so every whole-site read from here to the end
-        # of the pipeline is safe to memoize per (method, site) -
+        # of the pipeline is safe to memoize per method -
         # get_component_ledger alone was called ~8 times per run before
         # this, once per generator that needed it. See
         # CachingGraphStore's own module docstring for why this is safe
@@ -363,11 +372,11 @@ class Engine:
         # self.graph_store.close() below still closes the real connection.
         graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
-        _apply_component_families(graph_store, site, self.agent)
+        _apply_component_families(graph_store, self.agent)
         print("Inferring API endpoints from captured requests...")
-        _apply_request_graph(graph_store, site)
+        _apply_request_graph(graph_store)
         print("Projecting the navigation graph into modules and metrics...")
-        _apply_graph_projection(graph_store, site, route_shape(url))
+        _apply_graph_projection(graph_store, route_shape(url))
 
         run_timestamp = _timestamp()
         request = DocumentRequest(
@@ -386,8 +395,8 @@ class Engine:
 
         print("Writing run manifest and index...")
 
-        finished_pages, total_pages = self.graph_store.count_visited(site)
-        unexplored_components, total_components = self.graph_store.count_unexplored_components(site)
+        finished_pages, total_pages = self.graph_store.count_visited()
+        unexplored_components, total_components = self.graph_store.count_unexplored_components()
         manifest_path = record_run_manifest(
             self.out_dir,
             site,

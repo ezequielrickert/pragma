@@ -40,7 +40,7 @@ class MechanicalCrawler:
         if tracker is not None:
             self.tracker = tracker
         elif config.sink is not None:
-            self.tracker = GraphStoreInteractionTracker(config.sink.graph_store, config.sink.site)
+            self.tracker = GraphStoreInteractionTracker(config.sink.graph_store)
         else:
             self.tracker = InMemoryInteractionTracker()
 
@@ -88,7 +88,7 @@ class MechanicalCrawler:
         """
         if self.sink is None:
             return []
-        rows = self.sink.graph_store.get_progress_table_rows(self.sink.site)
+        rows = self.sink.graph_store.get_progress_table_rows()
         return [row["url"] for row in rows if row.get("status") == "Finished"]
 
     def _resume_urls(self) -> List[str]:
@@ -106,7 +106,7 @@ class MechanicalCrawler:
         """
         if self.sink is None:
             return []
-        pending = self.sink.graph_store.get_pending(self.sink.site)
+        pending = self.sink.graph_store.get_pending()
         return [url for url in pending if "{token}" not in url]
 
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:

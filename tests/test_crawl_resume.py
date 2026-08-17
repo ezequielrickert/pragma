@@ -13,7 +13,7 @@ import asyncio
 from typing import List
 
 from core.interfaces import PageState
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
@@ -35,18 +35,18 @@ class _RecordingCrawler:
         return None
 
 
-def _crawl(store: InMemoryGraphStore) -> _RecordingCrawler:
+def _crawl(store: LadybugGraphStore) -> _RecordingCrawler:
     crawler = _RecordingCrawler()
-    sink = GraphStoreSink(store, SITE, base_url=START)
+    sink = GraphStoreSink(store, base_url=START)
     mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, base_url=START))
     asyncio.run(mech.crawl_site(START))
     return crawler
 
 
 def test_a_pending_page_from_a_previous_run_is_picked_up():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/cart", status="Pending")
+    store.upsert_page("shop.example/cart", status="Pending")
 
     crawler = _crawl(store)
 
@@ -54,9 +54,9 @@ def test_a_pending_page_from_a_previous_run_is_picked_up():
 
 
 def test_a_finished_page_is_not_revisited():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/done", status="Finished")
+    store.upsert_page("shop.example/done", status="Finished")
 
     crawler = _crawl(store)
 
@@ -66,9 +66,9 @@ def test_a_finished_page_is_not_revisited():
 def test_an_external_page_is_never_resumed():
     """status=External marks an off-domain target the frontier refuses; it
     must not come back as resumable work."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "instagram.com/shop", status="External")
+    store.upsert_page("instagram.com/shop", status="External")
 
     crawler = _crawl(store)
 
@@ -78,9 +78,9 @@ def test_an_external_page_is_never_resumed():
 def test_a_shaped_token_url_is_not_fetched():
     """route_shape collapses opaque segments to a literal `{token}`, which is
     a storage key and not an address - there is nothing to navigate to."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/o/{token}", status="Pending")
+    store.upsert_page("shop.example/o/{token}", status="Pending")
 
     crawler = _crawl(store)
 
@@ -88,9 +88,9 @@ def test_a_shaped_token_url_is_not_fetched():
 
 
 def test_the_entry_point_is_still_visited_first():
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/cart", status="Pending")
+    store.upsert_page("shop.example/cart", status="Pending")
 
     crawler = _crawl(store)
 
@@ -112,10 +112,10 @@ def test_a_sampled_route_shape_is_not_sampled_again_next_run():
     lived only in memory, so each resume started it at zero and a site
     crawled in five short runs sampled up to five URLs of a shape where one
     long run sampled one. Same site, two different graphs."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/o/{token}", status="Finished")
-    store.upsert_page(SITE, "shop.example/o/aB1cD2eF3gH4iJ5kL6mN", status="Pending")
+    store.upsert_page("shop.example/o/{token}", status="Finished")
+    store.upsert_page("shop.example/o/aB1cD2eF3gH4iJ5kL6mN", status="Pending")
 
     crawler = _crawl(store)
 
@@ -124,9 +124,9 @@ def test_a_sampled_route_shape_is_not_sampled_again_next_run():
 
 def test_an_unfinished_shape_is_still_open():
     """Priming must not lock out a shape nothing has completed yet."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    store.upsert_page(SITE, "shop.example/cart", status="Pending")
+    store.upsert_page("shop.example/cart", status="Pending")
 
     crawler = _crawl(store)
 
