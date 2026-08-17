@@ -94,6 +94,26 @@ hundred real pages, because every interrupted pass added its own copy
 with nothing capping how many times any one destination could cycle back
 through.
 
+## is_known
+
+Whether `url`'s clean_url key is already in `_queued` (queued or already
+dequeued - `_queued` is a dedup guard, never pruned), currently
+`in_flight`, or `tracker.is_visited` - i.e. whether this crawl already has
+a place for it, without regard for *how* it got there.
+
+Read by
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+before deciding whether a mid-pass navigation is worth pausing the whole
+page for: a link to a destination already covered by one of these three
+doesn't need a separate pass of its own, so
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
+can hop the browser back and keep going instead.
+
+Deliberately checks `tracker.is_visited` too, not just `_queued` - a page
+finished in a *previous* run (resumed via `MechanicalCrawler._resume_urls`)
+is never re-added to `_queued` this run (only still-Pending URLs are), but
+is exactly as "already accounted for" as one this run queued itself.
+
 ## _requeue_attempts
 
 clean_url key -> how many times `requeue` has been called for it. Keyed

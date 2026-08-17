@@ -87,6 +87,22 @@ class UrlFrontier:
         self._queue.put_nowait(url)
         return True
 
+    def is_known(self, url: str) -> bool:
+        """Whether `url` already has a place in this crawl - queued (even if
+        not yet dequeued), currently in flight, or already visited.
+
+        The eager pre-check `PageVisitor` runs before treating a mid-pass
+        click's navigation as an interruption worth pausing the whole page
+        for: a link to a destination this same crawl already knows about
+        (the common case for a site-wide nav menu, where nearly every page
+        links to nearly every other page) doesn't need a fresh, separate
+        pass - `return_to_origin` can just hop the browser back and keep
+        draining this page's own frontier.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known
+        """
+        key = clean_url(url)
+        return key in self._queued or key in self._in_flight or self.tracker.is_visited(key)
+
     def queued_count(self) -> int:
         """How many URLs are still waiting - the denominator a progress line
         needs to distinguish "working through a long list" from "stuck".

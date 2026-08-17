@@ -76,6 +76,9 @@ What raising `page_concurrency` changes, precisely:
 `crawler`/`config` directly - `MechanicalCrawler` is the composition root,
 same pattern `PageVisitor.__init__` uses for its own collaborators (see
 `docs/dev/spiders/orchestration/page_visitor/visitor.md#__init__-collaborators`).
+`PageVisitor` is constructed last, once `self._frontier` exists, so it can
+be handed `self._frontier.is_known` bound through as its own
+`is_known_url` dependency.
 
 ## tracker-default
 

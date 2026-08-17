@@ -96,11 +96,16 @@ def test_same_page_reveal_chain_gets_interacted_within_available_passes(fixture_
     assert any("leafBtn" in p for p in clicked_paths), "second-level reveal must also chain"
 
 
-def test_click_triggered_navigation_is_queued_not_followed_inline(fixture_server):
-    """A click that navigates to a different URL (the JS-nav button) must be
-    recorded with the correct resulting_url, and must stop that pass rather
-    than being followed inline - and the destination page must appear as its
-    own, separately-visited page result."""
+def test_click_to_a_known_destination_resumes_the_pass_instead_of_interrupting_it(fixture_server):
+    """index.html links to page-b.html both via a plain <a href> (queued at
+    the very top of visit(), before any interaction) and via the jsNav
+    button's onclick navigation - by the time jsNav is clicked, page-b.html
+    is already a known destination (queued). A known destination doesn't
+    need a separate later pass: the click is still recorded with the
+    correct resulting_url, but the browser hops back to index.html and
+    keeps draining the rest of its own frontier in the same pass, instead
+    of stopping and requeuing the whole page for one link that doesn't
+    warrant it."""
     mech, results = _crawl(f"{fixture_server}/index.html", max_pages=15)
     interactions = _all_interactions_for(results, "index.html")
     js_nav = next(i for i in interactions if "jsNav" in i.path)
@@ -108,9 +113,36 @@ def test_click_triggered_navigation_is_queued_not_followed_inline(fixture_server
     assert not js_nav.error
     assert js_nav.resulting_url.endswith("page-b.html")
     assert any(r.url.endswith("page-b.html") for r in results)
-    # The pass containing the jsNav click must have stopped there, not kept
-    # going against a page that had already navigated away.
-    interrupted_passes = [r for r in results if r.url.endswith("index.html") and r.interrupted_by_navigation]
+
+    # One pass, not interrupted - a known destination's link is recorded
+    # and skipped, not a reason to pause the whole page.
+    index_results = [r for r in results if r.url.endswith("index.html")]
+    assert len(index_results) == 1
+    assert not index_results[0].interrupted_by_navigation
+
+    # And the pass actually kept going past the known-destination link -
+    # later frontier items (the same-page reveal chain) still got
+    # interacted with once the browser returned to index.html.
+    clicked_paths = {i.path for i in interactions if i.action == "click" and not i.error}
+    assert any("leafBtn" in p for p in clicked_paths)
+
+
+def test_click_to_a_genuinely_unknown_destination_still_interrupts_the_pass(fixture_server):
+    """A click that navigates somewhere this crawl has no other route to
+    discovering (no plain <a href> anywhere points at it) must still stop
+    the pass and requeue the origin for a separate later visit - eager
+    resume-in-place is only safe for a destination the crawl already knows
+    about, not for genuinely new content it hasn't seen yet."""
+    mech, results = _crawl(f"{fixture_server}/only_js_nav.html", max_pages=15)
+    interactions = _all_interactions_for(results, "only_js_nav.html")
+    js_nav = next(i for i in interactions if "jsNavOnly" in i.path)
+    assert not js_nav.error
+    assert js_nav.resulting_url.endswith("unknown_target.html")
+    assert any(r.url.endswith("unknown_target.html") for r in results)
+
+    interrupted_passes = [
+        r for r in results if r.url.endswith("only_js_nav.html") and r.interrupted_by_navigation
+    ]
     assert interrupted_passes
 
 
@@ -672,6 +704,71 @@ def test_interrupted_navigation_requeues_resolved_url_not_original_request():
     # The follow-up pass instead re-requested the already-resolved
     # destination directly.
     assert "http://fixture/o/hash1" in fake.requested_urls
+
+
+class _FakeReturnToOriginFailsCrawler:
+    """A click to a known destination (already queued via a plain <a href>)
+    triggers the eager resume-in-place path - but the navigation back to
+    the origin page itself fails (e.g. the target throttling right as the
+    session hops back). Must fall back to the ordinary interrupted path
+    rather than keep interacting against a page the live session never
+    actually returned to.
+    """
+
+    def __init__(self) -> None:
+        self.origin_url = "http://fixture/origin"
+        self.known_url = "http://fixture/known"
+        self.nav_path = "body > button#nav"
+        self.other_path = "body > button#other"
+        self.discover_calls = 0
+        self.other_clicked = False
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls += 1
+        if url == self.origin_url:
+            if self.discover_calls == 2:
+                # The one return-to-origin attempt this fixture exercises.
+                raise RuntimeError("target unreachable")
+            return PageState(
+                url=self.origin_url,
+                components=[_component(self.nav_path, "Nav"), _component(self.other_path, "Other")],
+                links=[{"href": self.known_url, "scheme": "http"}],
+            )
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        if selector == self.nav_path:
+            return PageState(url=self.known_url, components=[])
+        if selector == self.other_path:
+            self.other_clicked = True
+            return PageState(
+                url=self.origin_url,
+                components=[_component(self.nav_path, "Nav"), _component(self.other_path, "Other")],
+            )
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_known_destination_return_navigation_failure_falls_back_to_interrupted_path():
+    fake = _FakeReturnToOriginFailsCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
+    results = asyncio.run(mech.crawl_site(fake.origin_url))
+
+    origin_results = [r for r in results if r.url.endswith("fixture/origin")]
+    assert any(r.interrupted_by_navigation for r in origin_results)
+
+    # The failed return attempt didn't strand the crawl - a fresh follow-up
+    # pass reached the other component the first pass never got to.
+    assert fake.other_clicked is True
+    # origin (initial) + origin (failed return attempt) + known_url's own
+    # visit + origin (the resumed pass) - discover_calls counts every
+    # discover_page() call regardless of which url it's for.
+    assert fake.discover_calls == 4
 
 
 class _FakeExternalLinkCrawler:

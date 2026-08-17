@@ -28,12 +28,14 @@ class InteractionOutcomes:
         enqueue_links: Callable[[List[Dict[str, str]]], None],
         sink: Optional["GraphStoreSink"],
         frontier_state: Frontier,
+        is_known_url: Callable[[str], bool],
     ) -> None:
         self.tracker = tracker
         self._enqueue = enqueue_url
         self._enqueue_links = enqueue_links
         self.sink = sink
         self.frontier_state = frontier_state
+        self._is_known = is_known_url
 
     async def transition_to_new_state(
         self,
@@ -78,12 +80,21 @@ class InteractionOutcomes:
         path: str,
         interaction: "ComponentInteraction",
         result: "PageVisitResult",
-    ) -> None:
+    ) -> bool:
         """Response to an interaction whose literal result URL differs from the page.
+
+        Always records the edge and excludes the component from future
+        frontier builds on this page - a proven one-way door either way.
+        Only *enqueues* the destination and marks the pass interrupted when
+        it isn't already known to this crawl (queued, in flight, or
+        visited); a known destination needs no separate pass, so `visit`
+        can hop the browser back via `return_to_origin` and keep draining
+        this page's own frontier instead of pausing it.
+
+        Returns whether the pass must actually stop (`True`) - `visit`
+        breaks on `True`, and resumes in place on `False`.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation
         """
-        self._enqueue(new_state.url)
-        result.interrupted_by_navigation = True
         # Remember this component's content identity as a proven one-way door.
         # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-identity
         self.frontier_state.mark_navigation_trigger(page_key, component)
@@ -91,6 +102,11 @@ class InteractionOutcomes:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-self-loop
             await self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
+        if self._is_known(new_state.url):
+            return False
+        self._enqueue(new_state.url)
+        result.interrupted_by_navigation = True
+        return True
 
     async def handle_same_page_reveal(
         self,

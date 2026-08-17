@@ -44,6 +44,13 @@ navigation-trigger/interacted-identity state for one page_key, so there's
 exactly one `Frontier` instance per `PageVisitor`, not one per
 collaborator.
 
+`is_known_url` (`MechanicalCrawler.__init__` passes `UrlFrontier.is_known`
+bound through - see
+`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known`)
+only goes to `InteractionOutcomes`, not `NavigationRecovery` - it's a
+decision `handle_physical_navigation` makes, not something the recovery
+methods themselves need to know.
+
 ## _fill_value_cache
 
 `(page_key, component_identity())` -> the value already generated for
@@ -287,13 +294,33 @@ session may not be stuck the same way.
 Real *physical* navigation - the live browser session moved to a
 different literal URL, even if it canonicalizes to the same route_shape
 (e.g. a "start a new order" flow landing on a fresh `/o/<hash>` every
-time - the selectors this pass was built for are still gone, so this
-must still stop the pass, regardless of what the storage layer considers
-"the same page" - see `visit`'s own doc above). Delegates to
+time - the selectors this pass was built for are still gone either way).
+Delegates to
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`,
-then stops this page's pass right here: the session's page has physically
-left `page_literal`, so no further frontier item from this pass can be
-safely acted on.
+which decides whether the destination is already known to this crawl.
+
+An **unknown** destination (`must_stop` is `True`) still stops the pass
+right here, same as before this distinction existed: the session's page
+has physically left `page_literal`, so no further frontier item from this
+pass can be safely acted on, and the whole page gets requeued for a
+separate later pass.
+
+A **known** destination doesn't need a separate pass - only the browser,
+which really did navigate away, needs to come back.
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
+does that (a real re-navigation, not a no-op resync) and reconciles the
+remaining frontier against whatever DOM state it finds; on success the
+loop `continue`s with the fresh `known_components`/`page_literal` instead
+of breaking. If the return navigation itself fails, there's no live page
+left to act on, so this falls back to the unknown-destination outcome:
+`result.interrupted_by_navigation = True`, then `break`.
+
+Confirmed live on austral.edu.ar: without this distinction, a site-wide
+nav menu (nearly every page links to nearly every other page) meant
+nearly every page's first few interactions were known-destination clicks
+that each interrupted the pass anyway - most pages exhausted
+`max_requeue_attempts` purely on nav-menu links, marked Failed before
+reaching any of their own content.
 
 ## visit-state-transition-branch
 

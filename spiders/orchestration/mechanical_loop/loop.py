@@ -68,7 +68,8 @@ class MechanicalCrawler:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#stopped_reason
         self.stopped_reason: Optional[str] = None
         self._page_visitor = PageVisitor(
-            crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links, config
+            crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links,
+            config, self._frontier.is_known
         )
 
     @property
