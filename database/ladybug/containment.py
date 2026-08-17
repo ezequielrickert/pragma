@@ -42,7 +42,11 @@ class _LadybugContainmentMixin:
         engine, a `MATCH` that matches nothing drops the *entire* pattern
         silently, not just that one clause - a batch running before the
         component row exists would otherwise lose every containment edge
-        with no error at all.
+        with no error at all. The stub also sets `path` on creation
+        (`ON CREATE SET`), not just `id` - the same ghost-node mistake
+        `options.py`'s own stub avoids; a component that only ever gets
+        this stub (containment ran first, nothing ever gave it its
+        descriptive fields) would otherwise report an empty `path`.
         Details: docs/dev/database/ladybug/containment.md#record_component_ancestors
         """
         containers: Dict[str, Dict[str, Any]] = {}
@@ -74,7 +78,7 @@ class _LadybugContainmentMixin:
             for nearer, further in zip(chain_ids, chain_ids[1:]):
                 container_edges.append({"from_id": further, "to_id": nearer})
             component_edges.append(
-                {"container_id": chain_ids[0], "component_id": component_id(page_url, comp_path)}
+                {"container_id": chain_ids[0], "component_id": component_id(page_url, comp_path), "path": comp_path}
             )
 
         if not containers:
@@ -105,6 +109,7 @@ class _LadybugContainmentMixin:
                     UNWIND $edges AS e
                     MATCH (parent:Container {id: e.container_id})
                     MERGE (child:Component {id: e.component_id})
+                    ON CREATE SET child.path = e.path
                     MERGE (parent)-[:CONTAINS]->(child)
                     """,
                     {"edges": component_edges},
