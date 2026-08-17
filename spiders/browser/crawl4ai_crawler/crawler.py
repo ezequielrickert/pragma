@@ -205,6 +205,34 @@ class Crawl4AICrawler:
         js_code = f"{_ACTION_MARK} = {{success: true}};"
         return await self._interact(url, session_id, js_code)
 
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        """Step the session's browser history back one entry and return the
+        resulting PageState - unlike `discover_page`, never issues a fresh
+        navigation of its own: `history.back()` lets the browser reuse
+        whatever it already has for that entry (bfcache, or at minimum the
+        ordinary HTTP cache), the same way a person clicking a browser's own
+        Back button would, rather than re-requesting the target server for a
+        page this session was just rendering a moment ago.
+
+        Goes through `_interact`, not `discover_page` - no separate
+        `TargetLoadThrottle` navigation is recorded for it, consistent with
+        every other in-session action (`click`/`fill`/`resync`); a `go_back`
+        that does end up costing a real request is still far cheaper than a
+        full navigation; deliberately not routed through the throttle at all.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#go_back
+        """
+        js_code = f"""
+        (() => {{
+            try {{
+                history.back();
+                {_ACTION_MARK} = {{success: true}};
+            }} catch (e) {{
+                {_ACTION_MARK} = {{success: false, error: String(e)}};
+            }}
+        }})();
+        """
+        return await self._interact(url, session_id, js_code)
+
     async def click(self, url: str, session_id: str, selector: str) -> PageState:
         """Click `selector` within the session and return the new `PageState`.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#click

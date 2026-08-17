@@ -308,12 +308,15 @@ separate later pass.
 A **known** destination doesn't need a separate pass - only the browser,
 which really did navigate away, needs to come back.
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
-does that (a real re-navigation, not a no-op resync) and reconciles the
-remaining frontier against whatever DOM state it finds; on success the
-loop `continue`s with the fresh `known_components`/`page_literal` instead
-of breaking. If the return navigation itself fails, there's no live page
-left to act on, so this falls back to the unknown-destination outcome:
-`result.interrupted_by_navigation = True`, then `break`.
+does that via browser history (`Crawl4AICrawler.go_back` - not a fresh
+`discover_page` navigation, and not a no-op resync either) and reconciles
+the remaining frontier against whatever DOM state it finds; passed the
+current `page_literal` so it can check the browser actually landed back
+where expected. On success the loop `continue`s with the fresh
+`known_components`/`page_literal` instead of breaking. If the return
+fails - `go_back` itself raises, or lands somewhere unexpected - there's
+no live page left to act on, so this falls back to the unknown-destination
+outcome: `result.interrupted_by_navigation = True`, then `break`.
 
 Confirmed live on austral.edu.ar: without this distinction, a site-wide
 nav menu (nearly every page links to nearly every other page) meant

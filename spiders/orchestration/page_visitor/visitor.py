@@ -258,7 +258,7 @@ class PageVisitor:
                 if must_stop:
                     break
                 fresh_state = await self._recovery.return_to_origin(
-                    url, session_id, page_key, frontier, idx, result, seen_paths_this_pass
+                    url, session_id, page_key, page_literal, frontier, idx, result, seen_paths_this_pass
                 )
                 if fresh_state is None:
                     # Couldn't get back to page_key - no live page left to

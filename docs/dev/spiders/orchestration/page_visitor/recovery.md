@@ -56,19 +56,39 @@ determined the click's destination is already known to this crawl, so the
 pass doesn't need to stop for it - only the browser, which really did
 navigate away, needs to come back.
 
-Re-navigates (a real `discover_page`, not a no-op resync - the session is
-actually on the wrong page) and reconciles via `_reconcile_frontier`, same
-as `recover_stale_frontier`. Returns the fresh `PageState` itself (not
-just its components) - unlike `recover_stale_frontier`, the caller also
-needs the new `page_literal` in case the return navigation resolved
-differently than expected.
+Steps back via `Crawl4AICrawler.go_back` (browser history, not a no-op
+resync - the session is actually on the wrong page - and deliberately not
+a fresh `discover_page` either, see that method's own docstring for why:
+a full navigation would re-request the target server for a page this
+session just rendered a moment ago) and reconciles via
+`_reconcile_frontier`, same as `recover_stale_frontier`. Returns the fresh
+`PageState` itself (not just its components) - unlike
+`recover_stale_frontier`, the caller also needs the new `page_literal` to
+replace its own.
 
-Returns `None` if the return navigation itself fails - `visit`'s caller
-then has no live page left to keep interacting with and falls back to the
-ordinary interrupted path (`result.interrupted_by_navigation = True`,
-stop, requeue the origin for a later pass) rather than continue against
-nothing. Covered by
-`tests/test_mechanical_loop.py::test_known_destination_return_navigation_failure_falls_back_to_interrupted_path`.
+Takes `page_literal` (the caller's expected destination) as an explicit
+parameter and checks the result against it: `go_back` can return
+successfully - no exception - without the session actually being back on
+the expected page (an empty history stack, or a client-side router
+swallowing the `popstate` event), and continuing to interact under
+`page_key` against the *wrong* live page would silently misattribute
+whatever happens next. Confirmed live on austral.edu.ar
+(FETCH time for a repeated request to the same URL climbing from 2.77s to
+4.21s in one observed run - the target's own rate limiting, not a crawl4ai
+timeout) that a full re-navigation was measurably provoking exactly the
+load-sensitivity `TargetLoadThrottle` exists to react to, which is what
+motivated replacing the `discover_page` call this method used before with
+`go_back`.
+
+Returns `None` on either failure mode (the call itself raising, or landing
+somewhere unexpected) - `visit`'s caller then has no live page left to
+keep interacting with and falls back to the ordinary interrupted path
+(`result.interrupted_by_navigation = True`, stop, requeue the origin for a
+later pass, which reaches it via a real `discover_page` instead) rather
+than continue against nothing. Covered by
+`tests/test_mechanical_loop.py::test_known_destination_return_navigation_failure_falls_back_to_interrupted_path`
+and, for the common success path,
+`tests/test_mechanical_loop.py::test_known_destination_resume_uses_go_back_not_a_fresh_navigation`.
 
 ## check_for_silent_navigation
 

@@ -191,6 +191,45 @@ unrelated DOM remount (e.g. a component-library subtree reassigning its
 ids) - `discover_page()` isn't usable here since it performs a full
 navigation, discarding same-page state a same-URL resync must preserve.
 
+## go_back
+
+Step the `session_id` session's browser history back one entry -
+`history.back()` as the `js_code`, going through the same
+`_interact()`/`on_execution_ended()` path as `click`/`fill`/`resync`, not
+`discover_page()`.
+
+Exists for the mechanical loop's known-destination resume (see
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`):
+once a click has physically navigated to a destination the crawl already
+knows about, the caller needs to get back to the page it left - but
+`discover_page()` performs a *fresh* navigation, a brand-new request
+against the target server for a page this same session was just
+rendering a moment ago. `history.back()` instead lets the browser reuse
+whatever it already has for that history entry (bfcache, or at minimum
+the ordinary HTTP cache) the same way a person clicking their browser's
+own Back button would.
+
+Confirmed live on austral.edu.ar: before this existed, a known-destination
+resume's `discover_page()` re-fetch of the origin was a second navigation
+to the same URL within seconds of the first, and `TargetLoadThrottle`
+(`docs/dev/spiders/browser/target_load_throttle.md#module`) - built for
+exactly this site's own history of degrading under repeated load -
+recorded the second fetch taking visibly longer than the first (2.77s ->
+4.21s in one observed run) as the target itself pushing back.
+
+Not routed through `TargetLoadThrottle` at all - consistent with every
+other `_interact()`-based method (`click`/`fill`/`resync`), none of which
+record a navigation either. A `go_back` that does end up costing the
+target a real request is still far cheaper than a full `discover_page`
+navigation would have been, so under-counting it here is the accepted
+tradeoff, not an oversight.
+
+Returns whatever `PageState` the browser lands on - the caller
+(`NavigationRecovery.return_to_origin`) is responsible for checking that's
+actually the page it expected back, since `history.back()` can return
+without error even when nothing meaningful happened (an empty history
+stack, or a client-side router swallowing the `popstate` event).
+
 ## click
 
 Click `selector` within the `session_id` session and return the new
