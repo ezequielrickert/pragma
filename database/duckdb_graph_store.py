@@ -294,16 +294,10 @@ class DuckDBGraphStore(
                 "(SELECT request_id FROM inferred_requests WHERE site = $site)",
                 {"site": site},
             )
-            conn.execute(
-                "DELETE FROM accessibility_violation_nodes WHERE violation_id IN "
-                "(SELECT violation_id FROM accessibility_violations WHERE site = $site)",
-                {"site": site},
-            )
             for table in (
                 "pages", "links", "edges", "components", "interactions", "text_content",
                 "component_families", "inferred_requests",
-                "page_metadata", "accessibility_violations", "page_pseudo_styles", "page_tab_order",
-                "containment", "stylesheets", "page_metrics", "page_modules",
+                "page_metadata", "containment", "stylesheets", "page_metrics", "page_modules",
             ):
                 conn.execute(f"DELETE FROM {table} WHERE site = $site", {"site": site})
             conn.execute("DELETE FROM sites WHERE name = $site", {"site": site})

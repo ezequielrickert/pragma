@@ -9,12 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...content.page_extraction import (
-    extract_pseudo_styles,
-    run_accessibility_audit,
-    run_extraction,
-    walk_tab_order,
-)
+from ...content.page_extraction import run_extraction
 from ..dom_settle import _is_navigation_context_error, _wait_for_new_content
 from .config import Crawl4AICrawlerConfig
 
@@ -41,7 +36,6 @@ class HookHandlers:
             else config.interaction_wait_seconds
         )
         self.debug_log = config.debug_log
-        self.audit_accessibility = config.audit_accessibility
         self.block_images = config.block_images
         self.interaction_timeout_seconds = config.interaction_timeout_seconds
         # session_id -> extraction dict, populated by whichever hook last ran.
@@ -134,13 +128,6 @@ class HookHandlers:
         session_id = config.session_id or "default"
         data = await run_extraction(page)
         data = await self._retry_empty_extraction(page, data)
-        if self.audit_accessibility:
-            data["accessibility_violations"] = await run_accessibility_audit(page)
-            data["pseudo_styles"] = await extract_pseudo_styles(page)
-            # Last, because it moves focus around the page - anything read
-            # after it would see a page in a state the crawl put it in.
-            # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#audit_accessibility
-            data["tab_order"] = await walk_tab_order(page)
         self._stash[session_id] = data
         if self.debug_log:
             self.debug_log.log_hook(

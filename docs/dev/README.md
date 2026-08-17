@@ -61,7 +61,6 @@ aimed at onboarding rather than a specific line of code.
 | `spiders/orchestration/mechanical_loop/frontier.py` | [frontier.md](spiders/orchestration/mechanical_loop/frontier.md) |
 | `spiders/orchestration/mechanical_loop/worker_pacing.py` | [worker_pacing.md](spiders/orchestration/mechanical_loop/worker_pacing.md) |
 | `spiders/orchestration/mechanical_loop/loop.py` | [loop.md](spiders/orchestration/mechanical_loop/loop.md) |
-| `spiders/orchestration/measurement_pass.py` | [measurement_pass.md](spiders/orchestration/measurement_pass.md) |
 | `spiders/orchestration/page_visitor/frontier.py` | [frontier.md](spiders/orchestration/page_visitor/frontier.md) |
 | `spiders/orchestration/page_visitor/recovery.py` | [recovery.md](spiders/orchestration/page_visitor/recovery.md) |
 | `spiders/orchestration/page_visitor/outcomes.py` | [outcomes.md](spiders/orchestration/page_visitor/outcomes.md) |

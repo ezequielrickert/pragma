@@ -47,7 +47,8 @@ class _AnalysisInterface(ABC):
             discovers more of the site.
 
         Not abstract - a backend with no use for derived graph metrics can
-        ignore this, same reasoning as `record_accessibility_violations`.
+        ignore this, same reasoning as `_page_extras_interface.py`'s
+        `record_page_metadata`.
         Details: docs/dev/core/interfaces.md#record_page_metrics
         """
 

@@ -36,8 +36,6 @@ _CACHED_READS = (
     "get_text_content_ledger",
     "get_component_families",
     "get_inferred_requests",
-    "get_page_measurements",
-    "get_accessibility_violations",
     "get_page_metadata",
     "get_page_network_ledger",
     "get_stylesheets",

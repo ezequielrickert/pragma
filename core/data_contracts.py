@@ -33,18 +33,9 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
-    # axe-core WCAG violations; only ever populated by the measurement pass,
-    # empty on every ordinary crawl navigation.
-    # Details: docs/dev/core/interfaces.md#pagestateaccessibility_violations
-    accessibility_violations: List[Dict[str, Any]] = field(default_factory=list)
-    # Declared :hover/:focus styles per control, and where Tab actually
-    # goes. Same story: measurement pass only.
-    # Details: docs/dev/core/interfaces.md#pagestatemeasurements
-    pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
-    tab_order: List[Dict[str, Any]] = field(default_factory=list)
     # Same-origin CSS text, one entry per stylesheet - captured on every
-    # ordinary navigation (not measurement-pass-only, unlike the two above),
-    # since it needs no special viewport/image config to read.
+    # ordinary navigation, since it needs no special viewport/image config
+    # to read.
     # Details: docs/dev/core/interfaces.md#pagestatestylesheets
     stylesheets: List[Dict[str, Any]] = field(default_factory=list)
 

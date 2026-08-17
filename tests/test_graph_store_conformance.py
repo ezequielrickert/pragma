@@ -488,62 +488,10 @@ def test_page_network_ledger_round_trips_and_omits_silent_pages(store: GraphStor
     assert "static" not in ledger
 
 
-def test_accessibility_violations_round_trip_and_replace(store: GraphStore, site: str) -> None:
-    """Replace, not append (GraphStore's own contract): the measurement
-    pass re-audits a page from scratch each run."""
-    violations = [
-        {
-            "rule_id": "color-contrast", "impact": "serious", "help": "Elements must meet contrast ratio",
-            "help_url": "https://dequeuniversity.com/rules/axe/color-contrast", "criteria": ["wcag2aa", "wcag143"],
-            "total_nodes": 2,
-            "nodes": [
-                {"path": "div > button", "axe_target": "div > button", "summary": "Fix contrast"},
-                {"path": "div > a", "axe_target": "div > a", "summary": "Fix contrast"},
-            ],
-        }
-    ]
-    store.record_accessibility_violations(site, "home", violations)
-
-    assert store.get_accessibility_violations(site) == {"home": violations}
-
-    # A second audit (even an empty one) replaces the first - never stacks.
-    store.record_accessibility_violations(site, "home", [])
-    assert store.get_accessibility_violations(site) == {}
-
-
-def test_page_measurements_round_trip_and_replace(store: GraphStore, site: str) -> None:
-    measurements = {
-        "pseudo_styles": [
-            {"path": "button#go", "states": {"hover": {"color": "#fff", "background-color": "#000"}, "focus": {"outline": "2px solid blue"}}},
-        ],
-        "tab_order": [
-            {"path": "a#skip", "tag": "a", "text": "Skip to content", "focus_visible": True,
-             "dom_index": 0, "tabindex": "0", "offscreen": False},
-            {"path": "button#go", "tag": "button", "text": "Go", "focus_visible": False,
-             "dom_index": 1, "tabindex": "", "offscreen": False},
-        ],
-    }
-    store.record_page_measurements(site, "home", measurements)
-
-    read_back = store.get_page_measurements(site)["home"]
-    assert read_back["pseudo_styles"] == measurements["pseudo_styles"]
-    assert read_back["tab_order"] == measurements["tab_order"]
-
-    # Replace, not append - same discipline as accessibility violations.
-    # Whether a page with nothing found still has an entry (an empty-list
-    # noise row) or is absent entirely is a backend storage-shape detail
-    # nothing downstream distinguishes - only that the FIRST recording's
-    # data is gone, not merged with the second, is the actual contract.
-    store.record_page_measurements(site, "home", {"pseudo_styles": [], "tab_order": []})
-    after_replace = store.get_page_measurements(site).get("home", {})
-    assert (after_replace.get("pseudo_styles") or []) == []
-    assert (after_replace.get("tab_order") or []) == []
-
-
 def test_the_ledger_returns_the_layer_a_filter_depends_on(store: GraphStore, site: str) -> None:
-    """`accessibility.undersized_targets` excludes the cursor:pointer
-    discovery net by reading `layer` back from the ledger - if a backend
-    records it but doesn't return it, that filter silently never fires.
+    """A downstream filter distinguishing the cursor:pointer discovery net
+    from a real semantic control reads `layer` back from the ledger - if a
+    backend records it but doesn't return it, that distinction is lost.
     """
     store.record_component(site, "home", "div#x", tag="div", role="button", input_type="", layer="pointer")
 

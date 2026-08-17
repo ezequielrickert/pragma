@@ -1,6 +1,5 @@
 """Page-level "extras" half of the `GraphStore` contract - network loads,
-stylesheets, and measurement-pass data (accessibility violations,
-`:hover`/`:focus` styles, tab order). Split out of `interfaces.py` for the
+stylesheets, and `<meta>` tag capture. Split out of `interfaces.py` for the
 same file-size reason as `_component_store_interface.py`; mirrors
 `_DuckDBPageExtrasMixin`'s split on the concrete side.
 
@@ -66,7 +65,7 @@ class _PageExtrasInterface(ABC):
             stacked with the previous visit's.
 
         Not abstract - a backend with no use for stylesheet capture can
-        ignore this, same reasoning as `record_accessibility_violations`.
+        ignore this, same reasoning as `record_page_metadata` below.
         Details: docs/dev/core/interfaces.md#record_stylesheets
         """
 
@@ -77,25 +76,6 @@ class _PageExtrasInterface(ABC):
         Details: docs/dev/core/interfaces.md#get_stylesheets
         """
         return {}
-
-    def record_accessibility_violations(self, site: str, page_url: str, violations: List[Dict[str, Any]]) -> None:
-        """Replace one page's recorded axe-core violations.
-
-        `violations` is `axe_run.js`'s own return shape - one dict per
-        violated rule, each carrying `rule_id`/`impact`/`help`/`help_url`/
-        `criteria`/`total_nodes` and a `nodes` list of `{path, axe_target,
-        summary}`. JSON encoding, where a backend's storage needs it, is
-        that backend's own internal concern, never the caller's.
-
-        Replace, not append: the measurement pass re-audits a page from
-        scratch, so a second run's results supersede the first rather than
-        stacking with them.
-
-        Not abstract - a backend with no measurement pass wired to it can
-        ignore this, same reasoning as `record_stylesheets` below. Both
-        shipped backends do implement it.
-        Details: docs/dev/core/interfaces.md#record_accessibility_violations
-        """
 
     def record_page_metadata(self, site: str, page_url: str, metadata: Dict[str, str]) -> None:
         """Store a page's `<meta>` tags.
@@ -110,31 +90,5 @@ class _PageExtrasInterface(ABC):
     def get_page_metadata(self, site: str) -> Dict[str, Dict[str, str]]:
         """`{page_url: {meta_name: content}}` for pages that declared any.
         Details: docs/dev/core/interfaces.md#get_page_metadata
-        """
-        return {}
-
-    def record_page_measurements(self, site: str, page_url: str, measurements: Dict[str, Any]) -> None:
-        """Replace one page's measurement-pass findings beyond axe: the
-        declared `:hover`/`:focus` styles and the tab order.
-
-        `measurements` is `{"pseudo_styles": [...], "tab_order": [...]}` -
-        `extract_pseudo_styles.js`'s `[{path, states: {hover?: {...},
-        focus?: {...}}}]` and `probe_focus.js`'s per-Tab-press `{path, tag,
-        text, focus_visible, dom_index, tabindex, offscreen}` respectively.
-
-        Not abstract, same reasoning as `record_accessibility_violations`.
-        Details: docs/dev/core/interfaces.md#record_page_measurements
-        """
-
-    def get_page_measurements(self, site: str) -> Dict[str, Dict[str, Any]]:
-        """`{page_url: {"pseudo_styles": [...], "tab_order": [...]}}`.
-        Details: docs/dev/core/interfaces.md#get_page_measurements
-        """
-        return {}
-
-    def get_accessibility_violations(self, site: str) -> Dict[str, List[Dict[str, Any]]]:
-        """`{page_url: [violation, ...]}` for every audited page. `{}` when
-        no measurement pass has run.
-        Details: docs/dev/core/interfaces.md#get_accessibility_violations
         """
         return {}

@@ -5,8 +5,9 @@ the public `GraphStore` class in `interfaces.py` via multiple inheritance;
 it is never instantiated on its own.
 
 Has no `@abstractmethod`s of its own today (both methods below are
-optional, same reasoning as `record_accessibility_violations`), but still
-subclasses `ABC` for consistency with every sibling interface file here -
+optional, same reasoning as `_page_extras_interface.py`'s
+`record_page_metadata`), but still subclasses `ABC` for consistency with
+every sibling interface file here -
 see `_component_store_interface.py`'s module docstring for why that
 matters the moment this file ever does gain one.
 
@@ -25,7 +26,7 @@ class _ContainmentInterface(ABC):
     components into modules instead of only ever seeing a flat component
     list with no hierarchy at all. Not abstract - a backend with no
     structural-analysis use for this can ignore it, same reasoning as
-    `record_accessibility_violations`. Every graph backend this project
+    `_page_extras_interface.py`'s `record_page_metadata`. Every graph backend this project
     has shipped (DuckDB, and the retired Neo4j one before it) and the
     in-memory reference do/did implement it.
     Details: docs/dev/core/_containment_interface.md#_containmentinterface

@@ -14,7 +14,6 @@ from spiders.browser.debug_log import CrawlDebugLog, prune_old_runs
 from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.measurement_pass import run_measurement_pass
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from generators.component_family import build_component_families
 from generators.component_family_narrator import family_signature, narrate_family_purposes
@@ -202,7 +201,6 @@ class Engine:
         prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
         documents: Optional[List[str]] = None,
-        measurement_pass: bool = False,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -235,7 +233,6 @@ class Engine:
         # None keeps PragmaConfig's own default rather than duplicating the
         # list here - see docs/dev/core/config.md#documents.
         self.documents = documents if documents is not None else list(PragmaConfig().documents)
-        self.measurement_pass = measurement_pass
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -284,7 +281,6 @@ class Engine:
             prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
             documents=config.documents,
-            measurement_pass=config.measurement_pass,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -377,19 +373,6 @@ class Engine:
         _apply_request_graph(graph_store, site)
         print("Projecting the navigation graph into modules and metrics...")
         _apply_graph_projection(graph_store, site, route_shape(url))
-
-        if self.measurement_pass:
-            # After the crawl and before synthesis: it writes to the graph
-            # the accessibility document then reads. Safe to run through
-            # the same cache - it writes accessibility_violations/
-            # page_measurements, neither read by the three passes above,
-            # and nothing downstream reads either until after this call
-            # returns, so no read here can observe a stale value.
-            # Details: docs/dev/core/engine.md#measurement_pass
-            print("Measurement pass: re-visiting each page with images on...")
-            result = await run_measurement_pass(graph_store, site, headless=self.headless)
-            print(f"Measurement pass: audited {len(result.measured)} pages, "
-                  f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
 
         run_timestamp = _timestamp()
         request = DocumentRequest(

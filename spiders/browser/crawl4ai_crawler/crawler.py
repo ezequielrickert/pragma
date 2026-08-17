@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import List, Optional, Tuple
+from typing import Optional
 
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, MemoryAdaptiveDispatcher
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from crawl4ai.async_configs import CacheMode
 
 from core.interfaces import PageState
@@ -141,71 +141,6 @@ class Crawl4AICrawler:
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)
         return page_state
-
-    async def discover_pages_many(self, urls: List[str]) -> List[Tuple[str, Optional[PageState]]]:
-        """Navigate to every url in `urls` concurrently via crawl4ai's own
-        `arun_many()`/`MemoryAdaptiveDispatcher`, instead of this crawler's
-        own per-navigation throttle loop.
-
-        Built for `measurement_pass.py`'s shape - many independent,
-        already-known URLs, no interaction, no session reuse across calls -
-        which is exactly what `arun_many()` is designed for (`discover_page`/
-        `_interact`'s single-URL, session-reusing shape is not: crawl4ai has
-        no hook to run more `arun()` calls against a URL's session before
-        moving to the next one, so that loop stays on `TargetLoadThrottle`).
-        Each url gets its own `session_id` (itself) so `before_retrieve_html`
-        stashes into a distinct key per page instead of colliding on
-        "default" - same reasoning as `discover_page`'s own default.
-
-        Returns one `(url, PageState)` per successful page, and `(url, None)`
-        for a page that failed to load - the batch's own contract, not
-        `discover_page`'s raise-on-failure one: a single bad page costs a
-        result, not the whole pass.
-        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_pages_many
-        """
-        if self._crawler is None:
-            raise RuntimeError(
-                "Crawl4AICrawler must be used as an async context manager"
-            )
-        if not urls:
-            return []
-        configs = [
-            CrawlerRunConfig(
-                session_id=url,
-                # A config with no url_matcher matches every URL - without
-                # this, arun_many()'s dispatcher binds every concurrent task
-                # to configs[0] (confirmed live: two distinct URLs both
-                # resolved to the first config's session_id, silently
-                # colliding in the hooks' stash and losing one page's
-                # extraction entirely). `target=url` captures this
-                # iteration's url by value, not the loop variable by reference.
-                # Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_pages_many-url_matcher
-                url_matcher=lambda candidate, target=url: candidate == target,
-                cache_mode=CacheMode.BYPASS,
-                wait_for="css:body",
-                capture_network_requests=True,
-                page_timeout=int(self.page_timeout_seconds * 1000),
-                prefetch=self.prefetch,
-            )
-            for url in urls
-        ]
-        results = await self._crawler.arun_many(
-            urls=urls, config=configs, dispatcher=MemoryAdaptiveDispatcher()
-        )
-        # Keyed by url, not positionally - result.url is always the
-        # requested url regardless of arun_many()'s own internal ordering.
-        results_by_url = {result.url: result for result in results}
-
-        pages: List[Tuple[str, Optional[PageState]]] = []
-        for url in urls:
-            result = results_by_url.get(url)
-            if result is None or not result.success:
-                pages.append((url, None))
-                continue
-            data = self._hooks.pop(url)
-            pages.append((url, build_page_state(result, url, data)))
-            self._save_markdown(url, result)
-        return pages
 
     def _save_markdown(self, session_id: str, result) -> None:
         """Save crawl4ai's markdown conversion of the page, if debug logging is on.

@@ -5,11 +5,9 @@ from __future__ import annotations
 
 from agents import local_agent  # noqa: F401  (registers "local")
 from agents import mock_agent  # noqa: F401  (registers "mock")
-from generators import accessibility  # noqa: F401  (registers "accessibility")
 from generators import component_catalog  # noqa: F401  (registers "catalog", "catalog-data")
 from generators import component_tree  # noqa: F401  (registers "tree")
 from generators import coverage  # noqa: F401  (registers "coverage")
-from generators import design_tokens  # noqa: F401  (registers "tokens", "tokens-data")
 from generators import gherkin  # noqa: F401  (registers "gherkin", "sequences")
 from generators import graph_export  # noqa: F401  (registers "export")
 from generators import graph_prd_synthesizer  # noqa: F401  (registers "prd")

@@ -77,23 +77,14 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - prd                # indexing whatever was produced - that one is not listed here and cannot be
 #   - tree               # turned off. See generators/pipeline.py.
 #   - openapi            # available names: coverage, prd, tree, openapi, catalog,
-#   - catalog            #                  catalog-data, flows,
-#                        usability, tokens,
-#                        tokens-data, accessibility,
+#   - catalog            #                  catalog-data, flows, usability,
 #                        gherkin, sequences, export
 #   - flows
 #   - usability
-#   - tokens
-#   - accessibility
 #   - gherkin
 #   - sequences
 #   - catalog-data
 #   - export
-measurement_pass: false  # after the crawl, re-visit each finished page once with images enabled
-                       # and a 1280x800 viewport, running axe-core. Only navigation - no clicking or
-                       # filling - so it costs a fraction of the crawl, not a second one. Required for
-                       # the `accessibility` document to have anything to report. See
-                       # spiders/orchestration/measurement_pass.py.
 export_json: false    # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the
                        # prose PRD and the component tree - for a downstream tool that wants the
