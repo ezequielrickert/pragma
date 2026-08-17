@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlsplit
 
 from .payload_capture import truncate_and_hash
 from .redaction import redact_body
@@ -49,7 +50,8 @@ def _auth_scheme(headers: Dict[str, str]) -> str:
 
         Values are never read. A bearer token, a basic credential and a
         session cookie all stay entirely out of the graph - the same
-        names-not-values discipline `query_param_names` already follows.
+        names-not-values discipline `_split_url` already follows for a
+        query string's own parameter names.
     Details: docs/dev/spiders/content/network_filter.md#_auth_scheme
     """
     lowered = {name.lower(): value for name, value in (headers or {}).items()}
@@ -93,6 +95,31 @@ def _is_meaningful(event: Dict[str, Any]) -> bool:
     # submit alike, so it cannot tell them apart.
     # Details: docs/dev/spiders/content/network_filter.md#_is_meaningful
     return (event.get("method") or "").upper() != "GET"
+
+
+def _split_url(url: str) -> Tuple[str, str, List[str]]:
+    """`(host, path, query_param_names)` - the storage-plan redaction
+    policy applied at capture time, not left for a later pass to enforce.
+
+    A live query string is exactly the kind of per-instance data
+    (`InferredRequest.query_params`'s own docstring calls it out: an
+    order id, a share token) this whole feature deliberately never
+    persists - only a parameter's *name* survives, sorted and
+    deduplicated so the same endpoint always reports the same list
+    regardless of the original call's own param order.
+
+    Args:
+        url: a full request URL, e.g.
+            `"https://x.supabase.co/rest/v1/orders?select=*&id=eq.8d2..."`.
+
+    Returns:
+        `("x.supabase.co", "/rest/v1/orders", ["id", "select"])` - `path`
+        never carries a `?`, and is `"/"` for a bare-host request.
+    Details: docs/dev/spiders/content/network_filter.md#_split_url
+    """
+    split = urlsplit(url)
+    query_params = sorted({name for name, _ in parse_qsl(split.query)})
+    return split.netloc, split.path or "/", query_params
 
 
 def _json_shape(value: Any) -> Any:
@@ -229,13 +256,16 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
         if not _is_meaningful(event):
             continue
         url = event.get("url")
+        host, path, query_params = _split_url(url or "")
         failed = url in failures_by_url
         request_excerpt, request_length, request_hash = _capture_payload(post_data_by_url.get(url))
         response_excerpt, response_length, response_hash = _capture_payload(response_body_by_url.get(url))
         results.append(
             {
                 "method": event.get("method", ""),
-                "url": url,
+                "host": host,
+                "path": path,
+                "query_params": query_params,
                 "resource_type": event.get("resource_type", ""),
                 "status": statuses_by_url.get(url),
                 "failed": failed,

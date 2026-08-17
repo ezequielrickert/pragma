@@ -255,12 +255,13 @@ class _LadybugComponentMixin:
     def get_component_ledger(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component record for the whole site, `{page_url:
         {path: record}}`, each record carrying its own ordered
-        `interactions` list.
+        `interactions` list and the `network_requests` its interactions
+        triggered.
 
-        Does not yet carry `options`/`network_requests` - steps 7-8 add
-        the `Option`/`Request` nodes those come from. Every consumer of
-        this ledger already reads both defensively (`.get(...)`/`or []`),
-        so their absence degrades to "nothing known yet," not a crash.
+        Does not yet carry `options` - step 8 adds the `Option` nodes
+        that comes from. Every consumer of this ledger already reads it
+        defensively (`.get(...)`/`or []`), so its absence degrades to
+        "nothing known yet," not a crash.
         Details: docs/dev/database/ladybug/component.md#get_component_ledger
         """
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
@@ -278,6 +279,7 @@ class _LadybugComponentMixin:
                 record: Dict[str, Any] = {"interacted": interacted, "interaction_count": interaction_count}
                 record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:]))
                 record["interactions"] = []
+                record["network_requests"] = []
                 ledger.setdefault(page_url, {})[path] = record
 
             interaction_rows = conn.execute(
@@ -304,6 +306,26 @@ class _LadybugComponentMixin:
                         # to be reconstructed here, not read off verbatim.
                         "resulting_url": target_url if target_url != page_url else "",
                         "source_path": source_path, "visit_id": visit_id, "step_seq": step_seq,
+                    }
+                )
+
+            request_rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)-[:TRIGGERED]->(req:Request)
+                RETURN p.url, c.path, req.method, req.path, req.status, req.failed, req.failure_text,
+                       i.visit_id, i.step_seq
+                ORDER BY req.id
+                """
+            )
+            for page_url, path, method, req_path, status, failed, failure_text, visit_id, step_seq in request_rows:
+                page_components = ledger.get(page_url)
+                if page_components is None or path not in page_components:
+                    continue
+                page_components[path]["network_requests"].append(
+                    {
+                        "method": method, "path": req_path, "status": status,
+                        "failed": failed, "failure_text": failure_text,
+                        "visit_id": visit_id, "step_seq": step_seq,
                     }
                 )
             return ledger

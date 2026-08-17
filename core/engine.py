@@ -19,7 +19,6 @@ from generators.component_family import build_component_families
 from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
-from generators.request_family import build_inferred_requests
 from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape, slugify
@@ -86,40 +85,6 @@ def _apply_component_families(graph_store: Any, agent: Agent) -> None:
     }
     families = narrate_family_purposes(agent, families, member_texts, known_purposes)
     graph_store.record_component_families(families)
-
-
-def _apply_request_graph(graph_store: Any) -> None:
-    """Post-hoc, whole-site pass: infer distinct API endpoints (and which
-    Components trigger each one) from network requests already captured
-    on Component nodes, then write them back. Independent of - and reads
-    the graph a second time from - `_apply_component_families`, rather
-    than sharing its already-flattened component list: this keeps the
-    two passes fully separable (one about component *look-alikes*, this
-    one about *endpoint* identity), at the cost of one extra
-    `get_component_ledger` read per crawl - a single local read, not a
-    hot path, run once per whole crawl.
-
-    Args:
-        graph_store: same store the crawl wrote to.
-
-    Returns:
-        None. Reads every discovered component's `network_requests` via
-        `ledger.flat_component_ledger`, clusters them via
-        `request_family.build_inferred_requests` (see that function's own
-        docstring), and writes the result via `record_inferred_requests`
-        - a full rebuild of the site's inferred-request structure every
-        call, same contract as `record_component_families`.
-
-        `get_page_network_ledger`/`record_inferred_requests` are both
-        still `database/ladybug/deferred.py` no-op placeholders (storage-
-        migration plan step 7 hasn't landed) - this pass runs unmodified
-        and produces zero inferred requests until it does, rather than
-        needing to be specially skipped.
-    Details: docs/dev/core/engine.md#_apply_request_graph
-    """
-    components = flat_component_ledger(graph_store)
-    page_requests = graph_store.get_page_network_ledger()
-    graph_store.record_inferred_requests(build_inferred_requests(components, page_requests))
 
 
 def _apply_graph_projection(graph_store: Any, root: str) -> None:
@@ -373,8 +338,6 @@ class Engine:
         graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
         _apply_component_families(graph_store, self.agent)
-        print("Inferring API endpoints from captured requests...")
-        _apply_request_graph(graph_store)
         print("Projecting the navigation graph into modules and metrics...")
         _apply_graph_projection(graph_store, route_shape(url))
 

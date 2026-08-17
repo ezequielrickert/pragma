@@ -33,8 +33,7 @@ def flat_component_ledger(graph_store: Any) -> List[Dict[str, Any]]:
         Order follows the ledger's own iteration order, which neither
         shipped backend guarantees to be meaningful - callers that need
         a stable order sort it themselves, the same way
-        `build_component_families` and `build_inferred_requests`
-        already do.
+        `build_component_families` and `get_inferred_requests` already do.
     """
     ledger = graph_store.get_component_ledger()
     return [

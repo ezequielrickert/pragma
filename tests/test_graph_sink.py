@@ -6,13 +6,13 @@ matches the existing test suite's convention (see tests/test_graph_store.py).
 The store's own contract is covered by tests/test_ladybug_observation.py/
 test_ladybug_read_path.py.
 
-Option/Request-derived assertions (revealed-dropdown/stepper options,
-fetch-request attribution) are absent here - `record_component_options`/
-`record_component_network` are `database/ladybug/deferred.py` no-op
-placeholders until storage-migration plan steps 7-8 land. What each test
-below still covers (the component/link inventory, the consolidation
-itself) keeps working; only the assertions reading the (currently
-unwritten) `options`/`network_requests` fields are gone.
+Option-derived assertions (revealed-dropdown/stepper option membership)
+are absent here - `record_component_options` is still a
+`database/ladybug/deferred.py` no-op placeholder until storage-migration
+plan step 8 lands. What each test below still covers (the component/link
+inventory, the consolidation itself) keeps working; only the assertions
+reading the (currently unwritten) `options` field are gone.
+Fetch-request attribution (step 7) is real and covered below.
 """
 import asyncio
 import http.server
@@ -134,6 +134,29 @@ def test_interaction_ledger_records_attempted_actions(fixture_server):
         if c.get("interacted") and any(i["action"] == "fill" for i in c.get("interactions", []))
     ]
     assert fill_entries, "the fillable nameInput field must show up as interacted in the persisted ledger"
+
+
+def test_clicking_a_fetch_button_records_a_request_attributed_to_the_click(fetch_aware_fixture_server):
+    """End-to-end: a real click fires a real `fetch('/api/ping')`, and the
+    resulting `Request` node ends up hung off exactly that click's own
+    `Interaction` (`TRIGGERED`), not floating unattributed - the capability
+    `fetch_aware_fixture_server`/`fetch_button.html` exist to exercise,
+    dormant until storage-migration plan step 7 landed."""
+    store, sink, (mech, results) = _crawl_with_graph_store(
+        f"{fetch_aware_fixture_server}/fetch_button.html", max_pages=1
+    )
+    page_key = results[0].url
+
+    ledger = store.get_component_ledger()
+    button = next(c for c in ledger[page_key].values() if c.get("element_id") == "pingButton")
+    assert button["network_requests"], "the click must have an attributed request, not an empty pool"
+    request = button["network_requests"][0]
+    assert request["method"] == "GET"
+    assert request["path"] == "/api/ping"
+    assert request["status"] == 200
+
+    inferred = store.get_inferred_requests()
+    assert any(r.endpoint.endswith("/api/ping") for r in inferred)
 
 
 def test_navigation_produces_a_graph_edge(fixture_server):

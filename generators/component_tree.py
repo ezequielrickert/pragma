@@ -76,7 +76,7 @@ def _render_request_line(request: Dict[str, Any]) -> str:
         outcome = str(request["status"])
     else:
         outcome = "? (no response captured)"
-    return f"{request.get('method', '')} {request.get('url', '')} -> {outcome}"
+    return f"{request.get('method', '')} {request.get('path', '')} -> {outcome}"
 
 
 def build_component_tree(graph_store: Any, site: str) -> SiteTree:

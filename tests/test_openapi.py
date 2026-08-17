@@ -59,8 +59,8 @@ def test_no_captured_shape_means_an_empty_schema_not_a_crash():
 # --- path templating ---
 
 def test_repeated_id_segments_get_distinct_names():
-    """normalized_endpoint collapses every opaque segment to {id}; declaring
-    the same parameter name twice is an invalid OpenAPI path."""
+    """`_pattern_and_params` collapses every opaque segment to {id};
+    declaring the same parameter name twice is an invalid OpenAPI path."""
     templated, names = path_template("/orders/{id}/items/{id}")
 
     assert templated == "/orders/{orderId}/items/{itemId}"

@@ -29,11 +29,11 @@ def is_opaque_token(segment: str) -> bool:
     """Public wrapper combining `_TOKEN_SEGMENT_RE` + `_looks_generated` -
     `route_shape`'s own per-path-segment check, exposed for any other
     code that needs the identical "does this look like a generated id,
-    not a real word" judgment on a single path segment. `request_family.
-    py`'s endpoint normalization is the other caller (an API URL's
-    dynamic `/orders/<uuid>/` segment is the same kind of per-instance
-    noise a page's own session token is - same heuristic, different URL
-    kind).
+    not a real word" judgment on a single path segment.
+    `database/ladybug/network.py::_pattern_and_params` is the other
+    caller (an API URL's dynamic `/orders/<uuid>/` segment is the same
+    kind of per-instance noise a page's own session token is - same
+    heuristic, different URL kind).
     Details: docs/dev/utils/urls.md#is_opaque_token
     """
     return bool(_TOKEN_SEGMENT_RE.match(segment)) and _looks_generated(segment)

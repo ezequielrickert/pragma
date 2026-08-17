@@ -32,6 +32,7 @@ from .clock import now
 from .component import _LadybugComponentMixin
 from .component_family import _LadybugComponentFamilyMixin
 from .deferred import _LadybugDeferredMixin
+from .network import _LadybugNetworkMixin
 from .page import _LadybugPageMixin
 from .schema import DDL
 from .text_content import _LadybugTextContentMixin
@@ -60,7 +61,8 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
 
 class LadybugGraphStore(
     _LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin,
-    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugDeferredMixin,
+    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugNetworkMixin,
+    _LadybugDeferredMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -69,15 +71,16 @@ class LadybugGraphStore(
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction. The six mixins supply the observation/inferred-tier
+    construction. The seven mixins supply the observation/inferred-tier
     read+write path - `page.py` (Page/link/edge, and the shared
     `_ensure_page` helper the others call through `self`),
     `component.py` (Component/Interaction), `text_content.py`
     (TextContent), `component_family.py` (ComponentFamily),
-    `analysis.py` (derived graph metrics), `deferred.py` (Option/
-    Container/Request/Endpoint no-op placeholders - see its own module
-    docstring) - same split-by-concern shape the retired DuckDB backend
-    used, for the same file-size reason.
+    `analysis.py` (derived graph metrics), `network.py` (Request/
+    Endpoint/Payload - the API contract), `deferred.py` (Option/
+    Container no-op placeholders - see its own module docstring) - same
+    split-by-concern shape the retired DuckDB backend used, for the same
+    file-size reason.
     """
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:

@@ -2,7 +2,6 @@
 Pure functions over hand-built edges and ledger rows."""
 from generators.user_flows import (
     ERROR,
-    MIXED,
     OK,
     UNKNOWN,
     build_flow_graph,
@@ -14,15 +13,28 @@ def _edge(from_state="/shop", to_state="/checkout", path="div > button", action=
     return {"from": from_state, "component": path, "action": action, "to": to_state}
 
 
-def _component(page="/shop", path="div > button", text="Comprar", requests=None):
+def _component(page="/shop", path="div > button", text="Comprar", requests=None, to_state="/checkout"):
+    """A `Request` only ever exists hung off a specific `Interaction` in
+    the real graph (see `database/ladybug/network.py`), never pooled
+    loose on a `Component` - so each of `requests` gets its own matching,
+    stamped interaction here, one visit ("v1"), sequential steps, all
+    resulting in `to_state` (the edge target most of this file's cases
+    share `_edge()`'s own default for)."""
+    requests = requests or []
     return {
         "page_url": page, "path": path, "text": text, "component_type": "button",
-        "network_requests": requests or [],
+        "interactions": [
+            {"action": "click", "resulting_url": to_state, "visit_id": "v1", "step_seq": i + 1}
+            for i in range(len(requests))
+        ],
+        "network_requests": [
+            {**r, "visit_id": "v1", "step_seq": i + 1} for i, r in enumerate(requests)
+        ],
     }
 
 
-def _request(status=201, failed=False, method="POST", url="https://api/x/orders"):
-    return {"method": method, "url": url, "status": status, "failed": failed}
+def _request(status=201, failed=False, method="POST", path="https://api/x/orders"):
+    return {"method": method, "path": path, "status": status, "failed": failed}
 
 
 # --- transitions ---
@@ -211,42 +223,34 @@ def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
     assert "no navigation" in text
 
 
-def test_one_control_leading_to_two_screens_does_not_claim_both_failed():
-    """Requests sit on the control, not the move. Labelling the successful
-    branch with the failed branch's 422 would be a plain false statement -
-    exactly what this document exists to avoid."""
-    edges = [
-        _edge("/cart", "/receipt", path="div > pay"),
-        _edge("/cart", "/cart", path="div > pay"),
-    ]
-    component = _component("/cart", "div > pay", "Pagar",
-                           requests=[_request(status=201), _request(status=422)])
-
-    flow = build_flow_graph(edges, [component])
-
-    assert {t.outcome for t in flow.transitions} == {MIXED}
-    assert all(t.status is None for t in flow.transitions)
-    # The endpoint is still reported - that part is not in doubt.
-    assert all(t.endpoint for t in flow.transitions)
-
-
 def test_one_control_leading_to_two_screens_with_agreeing_requests_keeps_its_outcome():
-    """No ambiguity to flag when every request the control fired failed."""
+    """No ambiguity to resolve when every request the control fired failed -
+    both destinations should read as the same clear ERROR."""
     edges = [
         _edge("/cart", "/receipt", path="div > pay"),
         _edge("/cart", "/cart", path="div > pay"),
     ]
-    component = _component("/cart", "div > pay", "Pagar",
-                           requests=[_request(status=422), _request(status=500)])
+    component = {
+        "page_url": "/cart", "path": "div > pay", "text": "Pagar", "component_type": "button",
+        "interactions": [
+            {"action": "click", "resulting_url": "/receipt", "visit_id": "v1", "step_seq": 1},
+            {"action": "click", "resulting_url": "/cart", "visit_id": "v1", "step_seq": 2},
+        ],
+        "network_requests": [
+            {**_request(status=422), "visit_id": "v1", "step_seq": 1},
+            {**_request(status=500), "visit_id": "v1", "step_seq": 2},
+        ],
+    }
 
     flow = build_flow_graph(edges, [component])
 
     assert {t.outcome for t in flow.transitions} == {ERROR}
 
 
-def test_stamped_interactions_resolve_the_ambiguity_the_pool_could_not():
-    """The Fase 4 limitation, now fixed: the successful branch keeps its 201
-    and the failed one its 422, instead of both being 'not attributable'."""
+def test_one_control_leading_to_two_screens_keeps_each_destinations_own_outcome():
+    """Requests sit on the interaction that fired them, not pooled on the
+    control - the successful branch keeps its 201 and the failed one its
+    422, never both labelled with the other's status."""
     edges = [
         _edge("/cart", "/receipt", path="div > pay"),
         _edge("/cart", "/cart", path="div > pay"),
@@ -270,18 +274,3 @@ def test_stamped_interactions_resolve_the_ambiguity_the_pool_could_not():
     assert by_destination["/receipt"].status == 201
     assert by_destination["/cart"].outcome == ERROR
     assert by_destination["/cart"].status == 422
-
-
-def test_unstamped_data_still_degrades_to_the_declared_ambiguity():
-    """A graph written before stamping existed must not silently gain
-    precision it does not have."""
-    edges = [
-        _edge("/cart", "/receipt", path="div > pay"),
-        _edge("/cart", "/cart", path="div > pay"),
-    ]
-    component = _component("/cart", "div > pay", "Pagar",
-                           requests=[_request(status=201), _request(status=422)])
-
-    flow = build_flow_graph(edges, [component])
-
-    assert {t.outcome for t in flow.transitions} == {MIXED}

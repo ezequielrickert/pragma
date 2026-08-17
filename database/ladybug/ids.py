@@ -35,3 +35,13 @@ def split_component_id(component_id_value: str) -> tuple[str, str]:
     """
     page_url, _, path = component_id_value.partition(_COMPONENT_ID_SEPARATOR)
     return page_url, path
+
+
+def endpoint_id(method: str, host: str, path_pattern: str) -> str:
+    """`Endpoint`'s own primary key - `"METHOD host/path/{id}"`. Built from
+    exactly the fields every observation of the same logical endpoint
+    shares, so two `Request`s for the same call always `MERGE` onto one
+    `Endpoint` node regardless of which specific ids their URLs carried.
+    Details: docs/dev/database/ladybug/ids.md#endpoint_id
+    """
+    return f"{method} {host}{path_pattern}"

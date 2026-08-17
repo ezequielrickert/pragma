@@ -29,9 +29,10 @@ def test_xhr_and_fetch_requests_are_kept_with_joined_status():
     ]
     result = filter_meaningful_requests(events)
     assert len(result) == 2
-    ping = next(r for r in result if r["url"] == "/api/ping")
+    ping = next(r for r in result if r["path"] == "/api/ping")
     assert ping == {
-        "method": "GET", "url": "/api/ping", "resource_type": "fetch",
+        "method": "GET", "host": "", "path": "/api/ping", "query_params": [],
+        "resource_type": "fetch",
         "status": 200, "failed": False, "failure_text": None,
         "body_shape": "", "response_shape": "",
         "request_body_excerpt": "", "request_body_length": 0, "request_body_hash": "",
@@ -39,9 +40,28 @@ def test_xhr_and_fetch_requests_are_kept_with_joined_status():
         "latency_ms": None,
         "status_text": "", "media_type": "", "auth_scheme": "",
     }
-    legacy = next(r for r in result if r["url"] == "/api/legacy")
+    legacy = next(r for r in result if r["path"] == "/api/legacy")
     assert legacy["status"] == 201
     assert legacy["method"] == "POST"
+
+
+def test_the_query_string_is_stripped_from_path_and_only_param_names_survive():
+    """The redaction policy `InferredRequest.query_params` already stated:
+    a live query string can carry an order id or a share token, so only
+    the sorted, deduplicated parameter *names* may reach storage."""
+    events = [
+        {
+            "event_type": "request", "method": "GET", "resource_type": "fetch",
+            "url": "https://x.supabase.co/rest/v1/orders?select=*&order_id=eq.8d206b72-secret",
+        },
+    ]
+
+    result = filter_meaningful_requests(events)[0]
+
+    assert result["host"] == "x.supabase.co"
+    assert result["path"] == "/rest/v1/orders"
+    assert result["query_params"] == ["order_id", "select"]
+    assert "8d206b72-secret" not in str(result)
 
 
 def test_response_capture_error_leaves_status_none_not_a_crash():
