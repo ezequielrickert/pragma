@@ -37,6 +37,18 @@ from core.interfaces import ComponentFacts
 # order from, so the two can't drift apart.
 FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys())
 
+# Descriptive fields a component rediscovery always refreshes identically
+# on both a first sighting and a later one - same set and same reasoning
+# as the retired DuckDB backend's `DESCRIPTIVE_COLUMNS`: the ledger fields
+# (`interacted`/`interaction_count`) are bootstrapped only by a MERGE's
+# own `ON CREATE` schema defaults, never touched again by the `ON MATCH`
+# clause a rediscovery runs. `observation.py` builds its `SET` fragment
+# from this tuple so the same list can't drift between the two clauses.
+DESCRIPTIVE_COMPONENT_FIELDS: Tuple[str, ...] = (
+    "tag", "text", "role", "input_type", "visible", "layer",
+    "x", "y", "width", "height", "component_type",
+) + FACTS_FIELDS
+
 # Every ComponentFacts column defaults exactly as blank as the retired
 # DuckDB backend's DDL made it - FALSE for a bool-typed fact, '' for a
 # string-typed one - so a bare component write with no facts supplied
@@ -63,7 +75,6 @@ CREATE NODE TABLE IF NOT EXISTS Page(
     title STRING DEFAULT '',
     description STRING DEFAULT '',
     caption STRING DEFAULT '',
-    label STRING DEFAULT '',
     component_count INT64 DEFAULT 0,
     visited_at TIMESTAMP,
     metadata MAP(STRING, STRING),

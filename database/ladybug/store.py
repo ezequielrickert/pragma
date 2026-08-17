@@ -29,24 +29,15 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import datetime, timezone
 from typing import Optional
 
 from utils.urls import slugify
+from .clock import now
+from .component import _LadybugComponentMixin
+from .page import _LadybugPageMixin
 from .schema import DDL
+from .text_content import _LadybugTextContentMixin
 from .writer import LadybugWriter
-
-
-def _now() -> datetime:
-    """A real `datetime`, not an ISO string - Ladybug's `TIMESTAMP` columns
-    (unlike DuckDB's TEXT-stored timestamps this replaces) bind a Python
-    `datetime` object directly and reject a string with no implicit cast,
-    confirmed against the real engine. Every `TIMESTAMP` write in this
-    package goes through this function so none of them drift back to a
-    string by habit.
-    Details: docs/dev/database/ladybug/store.md#_now
-    """
-    return datetime.now(timezone.utc)
 
 
 def _resolve_path(directory: Optional[str], site: str) -> str:
@@ -64,7 +55,7 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
     return os.path.join(directory, f"{slugify(site)}.lbdb")
 
 
-class LadybugGraphStore:
+class LadybugGraphStore(_LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin):
     """Owns one Ladybug database, scoped to exactly one site.
 
     All access goes through `self._writer.call(...)`, which runs on one
@@ -72,7 +63,12 @@ class LadybugGraphStore:
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction.
+    construction. The three mixins supply the observation-tier write
+    path - `page.py` (Page/link/edge, and the shared `_ensure_page`
+    helper the other two call through `self`), `component.py`
+    (Component/Interaction), `text_content.py` (TextContent) - same
+    split-by-concern shape the retired DuckDB backend used, for the same
+    file-size reason.
     """
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:
@@ -100,7 +96,7 @@ class LadybugGraphStore:
         `record_edge`'s `first_seen_run` follows.
         Details: docs/dev/database/ladybug/store.md#_touch_site
         """
-        now = _now()
+        now_value = now()
 
         def op(conn) -> None:
             conn.execute(
@@ -109,7 +105,7 @@ class LadybugGraphStore:
                 ON CREATE SET s.first_crawled = $now, s.last_crawled = $now
                 ON MATCH SET s.last_crawled = $now
                 """,
-                {"name": self.site, "now": now},
+                {"name": self.site, "now": now_value},
             )
 
         self._call(op)
