@@ -22,17 +22,12 @@ from generators.pipeline import DocumentNaming, run_document_pipeline
 from generators.request_family import build_inferred_requests
 from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
-from utils.urls import route_shape
+from utils.urls import route_shape, slugify
 from .caching_graph_store import CachingGraphStore
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
 from .interfaces import Agent, GraphStore
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
-
-
-def _slugify(url: str) -> str:
-    """Turn URL into a filesystem-safe slug."""
-    return url.replace("https://", "").replace("http://", "").replace("/", "_")
 
 
 def _timestamp() -> str:
@@ -308,7 +303,7 @@ class Engine:
 
         debug_log: Optional[CrawlDebugLog] = None
         if self.debug_logs_dir:
-            run_dir = f"{self.debug_logs_dir}/{_slugify(url)}_{_timestamp()}"
+            run_dir = f"{self.debug_logs_dir}/{slugify(url)}_{_timestamp()}"
             debug_log = CrawlDebugLog(run_dir, site=site)
 
         crawler_config = Crawl4AICrawlerConfig(
@@ -348,7 +343,7 @@ class Engine:
         if debug_log:
             await debug_log.close()
             # Prune only after close() - see prune_old_runs's own doc.
-            prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
+            prune_old_runs(self.debug_logs_dir, slugify(url), self.debug_logs_keep_last)
 
         # Whole-site passes, after every component the crawl found is
         # already in the graph - must run before synthesis reads it below.
@@ -385,7 +380,7 @@ class Engine:
                 "stopped_reason": stopped_reason,
             },
         )
-        naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
+        naming = DocumentNaming(out_dir=self.out_dir, slug=slugify(url), timestamp=run_timestamp)
         produced = run_document_pipeline(request, naming, self._document_names())
         paths = {document.name: document.path for document in produced}
 

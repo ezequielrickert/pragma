@@ -74,6 +74,16 @@ def _host(url: str) -> str:
     return clean_url(url).partition("/")[0]
 
 
+def slugify(url: str) -> str:
+    """Turn `url` into a filesystem-safe slug - the one function every
+    per-site filename (a debug-log run directory, a generated document, a
+    `.lbdb` database file) derives its name from, so the same URL always
+    resolves to the same path.
+    Details: docs/dev/utils/urls.md#slugify
+    """
+    return url.replace("https://", "").replace("http://", "").replace("/", "_")
+
+
 def is_in_scope(url: str, base_url: str, allow_subdomains: bool = False) -> bool:
     """Whether `url` belongs to the same site as `base_url` (host-only comparison).
     Details: docs/dev/utils/urls.md#is_in_scope
