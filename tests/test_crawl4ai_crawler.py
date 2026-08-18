@@ -431,6 +431,41 @@ def test_close_session_watchdog_aborts_a_hang_kill_session_never_returns_from(fi
         asyncio.run(run())
 
 
+def test_close_session_waits_for_an_in_flight_arun_call(fixture_server):
+    """The exact race confirmed live on austral.edu.ar: close_session()
+    (periodic session recycling) must not proceed while a concurrent
+    discover_page() for the same session is still using the shared
+    browser context - kill_session can tear that context down out from
+    under it if crawl4ai judges this the context's last active page. This
+    is the integration-level proof; see test_session_recycle_gate.py for
+    the gate's own isolated semantics."""
+    async def run():
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            events = []
+            real_arun = crawler._crawler.arun
+
+            async def _slow_arun(*args, **kwargs):
+                events.append("arun-start")
+                await asyncio.sleep(0.1)
+                result = await real_arun(*args, **kwargs)
+                events.append("arun-end")
+                return result
+
+            crawler._crawler.arun = _slow_arun
+
+            discover_task = asyncio.create_task(
+                crawler.discover_page(f"{fixture_server}/index.html", session_id="race-test")
+            )
+            await asyncio.sleep(0.02)  # let discover_page actually start first
+            await crawler.close_session("race-test")
+            events.append("close_session-end")
+            await discover_task
+
+            return events
+
+    assert asyncio.run(run()) == ["arun-start", "arun-end", "close_session-end"]
+
+
 def test_close_session_watchdog_generous_enough_still_succeeds(fixture_server):
     """A session_cleanup_timeout_seconds comfortably above real close time
     must succeed normally, same proof-of-bounding pattern as every other

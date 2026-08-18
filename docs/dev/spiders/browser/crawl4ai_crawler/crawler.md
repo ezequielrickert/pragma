@@ -20,7 +20,11 @@ This class owns the browser and the navigate/interact API surface only;
 the crawl4ai hook callbacks themselves and the `PageState`-assembly logic
 are their own collaborators - see
 `docs/dev/spiders/browser/crawl4ai_crawler/hooks.md` and
-`docs/dev/spiders/browser/crawl4ai_crawler/page_state.md`.
+`docs/dev/spiders/browser/crawl4ai_crawler/page_state.md`. Reader-writer
+coordination between in-flight `arun()` calls and session recycling is
+also its own collaborator, for the same reason - see
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+the three-part austral.edu.ar deadlock investigation that produced it.
 
 ## Crawl4AICrawler
 
@@ -120,6 +124,15 @@ On timeout, calls `_force_close_wedged_session` before re-raising as a
 callers) already know how to turn any `RuntimeError` from this layer
 into an ordinary, recoverable per-page failure instead of propagating
 and killing the worker.
+
+Also holds `_session_gate`'s reader role for the `arun()` call's
+duration - see
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+the third, distinct deadlock this guards against (a concurrent
+`close_session` tearing the shared browser context down mid-navigation),
+found only after `navigation_watchdog_seconds` and
+`session_cleanup_timeout_seconds` were both already live and a freeze
+still reproduced.
 
 ## _force_close_wedged_session
 
@@ -389,3 +402,12 @@ exactly the recovery a hung recycle attempt needs.
 Same honesty as `navigation_watchdog_seconds`'s own doc: this bounds and
 recovers from a hang in crawl4ai's own internals, it does not fix
 whatever's actually contended inside them.
+
+**Second update - also holds `_session_gate`'s writer role**: bounding
+`kill_session` alone didn't fully explain a *third* reproduced deadlock
+- a `py-spy dump` again showed everything idle, well past both this
+timeout and `navigation_watchdog_seconds`. See
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+why: this method can tear down the browser context every other worker's
+session shares, and nothing previously stopped that from racing a
+concurrent worker's own in-flight `arun()` call.

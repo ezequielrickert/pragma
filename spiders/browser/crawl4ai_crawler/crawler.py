@@ -17,6 +17,7 @@ from .config import Crawl4AICrawlerConfig
 from .hooks import _ACTION_MARK, HookHandlers
 from .page_state import build_page_state
 from .quiet_logger import QuietCaptureLogger
+from .session_recycle_gate import SessionRecycleGate
 
 
 class Crawl4AICrawler:
@@ -41,6 +42,10 @@ class Crawl4AICrawler:
         self._throttle = TargetLoadThrottle(
             config.backoff_ceiling_seconds, config.circuit_breaker_cooldown_seconds
         )
+        # Keeps close_session's own context-teardown risk from racing a
+        # concurrent worker's in-flight arun() call - see the class's own
+        # docstring. Details: docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md#module
+        self._session_gate = SessionRecycleGate()
         # Every crawl4ai hook callback plus the stash they read/write -
         # composed, not inlined here. Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#module
         self._hooks = HookHandlers(config)
@@ -164,13 +169,19 @@ class Crawl4AICrawler:
         codebase doesn't control crawl4ai's own internals), just an attempt
         to stop this worker's *next* call from inheriting whatever internal
         state caused this one to wedge.
+
+        Holds `_session_gate`'s reader role for the call's duration - see
+        `docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md`
+        for why a concurrent `close_session` must never tear the shared
+        browser context down while this is still in flight.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_run_with_watchdog
         """
         print(f"[arun] {session_id} -> {url}")
         try:
-            return await asyncio.wait_for(
-                self._crawler.arun(url=url, config=config), timeout=self.navigation_watchdog_seconds
-            )
+            async with self._session_gate.reader():
+                return await asyncio.wait_for(
+                    self._crawler.arun(url=url, config=config), timeout=self.navigation_watchdog_seconds
+                )
         except asyncio.TimeoutError as exc:
             await self._force_close_wedged_session(session_id)
             raise RuntimeError(
@@ -345,6 +356,13 @@ class Crawl4AICrawler:
         Bounding it here, at the one definition both `_recycle_session_if_due`
         and `_force_close_wedged_session` call through, covers both callers
         at once rather than wrapping each separately.
+
+        Also holds `_session_gate`'s writer role for the call's duration -
+        `kill_session` can tear down the *shared* browser context (not just
+        this session's own page) if crawl4ai judges this the context's
+        last active page, so it must never run concurrently with another
+        worker's in-flight `arun()` call. See
+        `docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md`.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#close_session
         """
         if self._crawler is None:
@@ -352,10 +370,11 @@ class Crawl4AICrawler:
                 "Crawl4AICrawler must be used as an async context manager"
             )
         try:
-            await asyncio.wait_for(
-                self._crawler.crawler_strategy.kill_session(session_id),
-                timeout=self.session_cleanup_timeout_seconds,
-            )
+            async with self._session_gate.writer(self.navigation_watchdog_seconds):
+                await asyncio.wait_for(
+                    self._crawler.crawler_strategy.kill_session(session_id),
+                    timeout=self.session_cleanup_timeout_seconds,
+                )
         except asyncio.TimeoutError as exc:
             raise RuntimeError(
                 f"close_session watchdog: {session_id!r} did not close within "
