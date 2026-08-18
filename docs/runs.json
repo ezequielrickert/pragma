@@ -1,40 +1,29 @@
 {
-  "www.empanad.app": [
+  "www.stjohns.edu.ar": [
     {
-      "components_total": 0,
-      "components_unexplored": 0,
+      "components_total": 4677,
+      "components_unexplored": 4677,
+      "document_paths": {
+        "catalog": "docs/www.stjohns.edu.ar_web__catalog_20260818T215324Z.md",
+        "coverage": "docs/www.stjohns.edu.ar_web__coverage_20260818T215324Z.md",
+        "flows": "docs/www.stjohns.edu.ar_web__flows_20260818T215324Z.md",
+        "gherkin": "docs/www.stjohns.edu.ar_web__gherkin_20260818T215324Z.feature",
+        "master": "docs/www.stjohns.edu.ar_web__master_20260818T215324Z.md",
+        "openapi": "docs/www.stjohns.edu.ar_web__openapi_20260818T215324Z.yaml",
+        "prd": "docs/www.stjohns.edu.ar_web__prd_20260818T215324Z.md",
+        "sequences": "docs/www.stjohns.edu.ar_web__sequences_20260818T215324Z.md",
+        "tree": "docs/www.stjohns.edu.ar_web__tree_20260818T215324Z.md",
+        "usability": "docs/www.stjohns.edu.ar_web__usability_20260818T215324Z.md"
+      },
       "export_path": null,
-      "graph_store": "Neo4jGraphStore",
-      "pages_finished": 1,
-      "pages_total": 1,
-      "prd_path": "docs/www.empanad.app__prd_20260811T223053Z.md",
-      "timestamp": "20260811T223053Z",
-      "tree_path": "docs/www.empanad.app__tree_20260811T223053Z.md",
-      "url": "https://www.empanad.app/"
-    },
-    {
-      "components_total": 0,
-      "components_unexplored": 0,
-      "export_path": null,
-      "graph_store": "Neo4jGraphStore",
-      "pages_finished": 1,
-      "pages_total": 1,
-      "prd_path": "docs/www.empanad.app__prd_20260812T000123Z.md",
-      "timestamp": "20260812T000123Z",
-      "tree_path": "docs/www.empanad.app__tree_20260812T000123Z.md",
-      "url": "https://www.empanad.app/"
-    },
-    {
-      "components_total": 27,
-      "components_unexplored": 22,
-      "export_path": null,
-      "graph_store": "Neo4jGraphStore",
-      "pages_finished": 1,
-      "pages_total": 3,
-      "prd_path": "docs/www.empanad.app__prd_20260812T000404Z.md",
-      "timestamp": "20260812T000404Z",
-      "tree_path": "docs/www.empanad.app__tree_20260812T000404Z.md",
-      "url": "https://www.empanad.app/"
+      "graph_store": "LadybugGraphStore",
+      "master_path": "docs/www.stjohns.edu.ar_web__master_20260818T215324Z.md",
+      "pages_finished": 0,
+      "pages_total": 85,
+      "prd_path": "docs/www.stjohns.edu.ar_web__prd_20260818T215324Z.md",
+      "timestamp": "20260818T215324Z",
+      "tree_path": "docs/www.stjohns.edu.ar_web__tree_20260818T215324Z.md",
+      "url": "https://www.stjohns.edu.ar/web/"
     }
   ]
 }
