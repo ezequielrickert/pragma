@@ -186,7 +186,7 @@ def test_output_is_parseable_yaml():
     from generators.openapi import OpenAPIDocument
 
     class _Store:
-        def get_inferred_requests(self, site):
+        def get_inferred_requests(self):
             return [_request(method="POST", status_codes=(201,))]
 
     class _Request:
