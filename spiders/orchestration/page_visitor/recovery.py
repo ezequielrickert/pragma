@@ -173,7 +173,7 @@ class NavigationRecovery:
             return False
         self._enqueue(silently_navigated_to)
         result.interrupted_by_navigation = True
-        self.frontier_state.mark_navigation_trigger(page_key, component)
+        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             await self.sink.record_navigation_edge(page_key, route_shape(silently_navigated_to), path, failed.action)
         return True

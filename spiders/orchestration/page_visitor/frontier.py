@@ -20,18 +20,15 @@ class Frontier:
     """
 
     def __init__(self) -> None:
-        # page_key -> identities proven to navigate away from that page.
+        # Identities proven to navigate away, site-wide - not page_key-keyed.
         # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities
-        self._navigation_trigger_identities: Dict[str, Set[tuple]] = {}
+        self._navigation_trigger_identities: Set[tuple] = set()
         # page_key -> identities ever interacted with, regardless of path.
         # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_interacted_identities
         self._interacted_identities: Dict[str, Set[tuple]] = {}
 
     def _excluded_identities(self, page_key: str) -> Set[tuple]:
-        return (
-            self._navigation_trigger_identities.get(page_key, set())
-            | self._interacted_identities.get(page_key, set())
-        )
+        return self._navigation_trigger_identities | self._interacted_identities.get(page_key, set())
 
     def is_excluded(self, page_key: str, component: Dict[str, Any]) -> bool:
         """Whether `component`'s content identity is a proven navigation
@@ -60,11 +57,12 @@ class Frontier:
         seen_paths = {c.get("path") for c in frontier}
         return frontier, seen_paths
 
-    def mark_navigation_trigger(self, page_key: str, component: Dict[str, Any]) -> None:
-        """Remember `component`'s content identity as a proven one-way door.
+    def mark_navigation_trigger(self, component: Dict[str, Any]) -> None:
+        """Remember `component`'s content identity as a proven one-way door,
+        site-wide - not scoped to whichever page_key it was proven on.
         Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#mark_navigation_trigger
         """
-        self._navigation_trigger_identities.setdefault(page_key, set()).add(component_identity(component))
+        self._navigation_trigger_identities.add(component_identity(component))
 
     def mark_interacted_identity(self, page_key: str, component: Dict[str, Any]) -> None:
         """Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#mark_interacted_identity"""

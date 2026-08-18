@@ -91,7 +91,7 @@ class InteractionOutcomes:
         actually happened here to record.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link
         """
-        self.frontier_state.mark_navigation_trigger(page_key, component)
+        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             await self.sink.record_navigation_edge(page_key, target_key, path, "click")
 
@@ -124,7 +124,7 @@ class InteractionOutcomes:
         """
         # Remember this component's content identity as a proven one-way door.
         # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-identity
-        self.frontier_state.mark_navigation_trigger(page_key, component)
+        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-self-loop

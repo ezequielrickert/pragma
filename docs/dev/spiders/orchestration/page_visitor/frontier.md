@@ -10,14 +10,19 @@ live inline in `visit()` and (what is now) `outcomes.py`'s
 
 ## Frontier
 
-Owns the per-page navigation-trigger and interacted-identity sets, and
-the eligibility rule built from them.
+Owns the site-wide navigation-trigger set and the per-page
+interacted-identity sets, and the eligibility rule built from them - one
+shared `Frontier` instance for the whole crawl (constructed once by
+`PageVisitor.__init__`, itself constructed once by `MechanicalCrawler`),
+not one per visit, which is what makes a site-wide set meaningful here
+rather than something that would reset every page anyway.
 
 ## _navigation_trigger_identities
 
-page_key -> set of `component_identity()` tuples already *proven* to
-navigate away from that page (either cleanly, via the success branch, or
-detected after an interaction failure - see
+A flat, **site-wide** set of `component_identity()` tuples already
+*proven* to navigate away - not keyed by page_key at all - populated
+either cleanly, via the success branch, or detected after an interaction
+failure (see
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#check_for_silent_navigation`).
 A component's exact `path` churns across separate `discover_page()`
 reloads on sites where a persistent, site-wide element (a main-nav link,
@@ -30,8 +35,30 @@ failure. `path`-keyed `tracker.is_interacted` alone can never catch this
 (it's a *different* key each reload, by construction); content identity
 is stable across the reload precisely because it's independent of any
 assigned id. Once a component's identity is known to navigate away,
-`eligible()` never offers it again for that page_key, regardless of what
+`eligible()` never offers it again, on *any* page, regardless of what
 path it shows up under next.
+
+**Update - promoted from page_key-keyed to site-wide:** confirmed live on
+a real, fresh crawl of austral.edu.ar (after the settle-wait
+double-payment fix, `docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#before_retrieve_html-js-only-skip`)
+that a persistent site-wide nav menu was still being fully re-explored
+and re-learned from scratch on *every single page* - the identity set
+was correctly excluding a proven trigger from *that page's* own future
+frontiers, but had no memory at all once a different page_key's frontier
+was built, even for the exact same real-world element. In a debug log's
+interaction-duration sample, 5 of the 10 slowest interactions were the
+same nav item recurring across different pages. This section's own
+`mark_navigation_trigger` reasoning already argued site-wide validity
+("a persistent, site-wide element always leads to the same real
+destination regardless of which page it's clicked from") - the
+implementation had just never actually extended the *scope* of what it
+remembers to match that reasoning. Same tradeoff class as
+`_interacted_identities`' churning-widget case below, now at a larger
+radius: two coincidentally-identical-looking components on genuinely
+different pages that lead somewhere different would now both be excluded
+once either is proven - accepted for the same reason a same-page
+collision already is, just applied across the whole site instead of one
+page.
 
 ## _interacted_identities
 
@@ -81,12 +108,13 @@ call this instead of duplicating the list comprehension.
 
 ## mark_navigation_trigger
 
-Remember a component's content identity as a proven one-way door out of
-a page_key - see `_navigation_trigger_identities` above. A persistent,
-site-wide element (a main-nav link) always leads to the same place
-regardless of which page you click it from or what selector it happens
-to render with this time, so this is safe to remember permanently for
-this page_key, not just for one pass.
+Remember a component's content identity as a proven one-way door - see
+`_navigation_trigger_identities` above. Takes only `component`, not
+`page_key`: a persistent, site-wide element (a main-nav link) always
+leads to the same place regardless of which page you click it from or
+what selector it happens to render with this time, so this is safe to
+remember permanently, site-wide, not just for this page_key or this one
+pass.
 
 ## mark_interacted_identity
 

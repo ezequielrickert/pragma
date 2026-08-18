@@ -1076,6 +1076,92 @@ def test_redirect_to_external_domain_resumes_the_pass_but_never_gets_crawled():
     assert fake.other_path in all_paths
 
 
+class _FakeSiteWideNavCrawler:
+    """A persistent nav link present on two different pages, under two
+    different paths but the identical content identity (tag/text) - once
+    page A's copy proves it navigates away, page B's copy must be excluded
+    from page B's own frontier too, never clicked a second time."""
+
+    def __init__(self) -> None:
+        self.page_a_url = "http://fixture/pageA"
+        self.page_b_url = "http://fixture/pageB"
+        self.nav_target_url = "http://fixture/navTarget"
+        self.nav_path_a = "body > nav > a#navA"
+        self.nav_path_b = "body > nav > a#navB"
+        self.other_path_b = "body > button#otherB"
+
+    def _page_a_state(self) -> PageState:
+        return PageState(
+            url=self.page_a_url,
+            components=[_component(self.nav_path_a, "Inicio", tag="a")],
+            links=[{"href": self.page_b_url, "scheme": "http"}],
+        )
+
+    def _page_b_state(self) -> PageState:
+        return PageState(
+            url=self.page_b_url,
+            components=[
+                _component(self.nav_path_b, "Inicio", tag="a"),
+                _component(self.other_path_b, "Other"),
+            ],
+        )
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url == self.page_a_url:
+            return self._page_a_state()
+        if url == self.page_b_url:
+            return self._page_b_state()
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        if selector == self.nav_path_a:
+            return PageState(url=self.nav_target_url, components=[])
+        if selector == self.nav_path_b:
+            raise AssertionError(
+                "page B's nav link must never be clicked - already proven "
+                "a site-wide navigation trigger on page A"
+            )
+        if selector == self.other_path_b:
+            return self._page_b_state()
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        return self._page_a_state()
+
+
+def test_navigation_trigger_identity_is_excluded_site_wide_not_just_per_page():
+    """A component proven to navigate away on one page must be excluded
+    from every other page's frontier too, not just re-learned from scratch
+    on each one - confirmed live on austral.edu.ar: a persistent nav menu
+    present on every page was being fully re-explored per page, dominating
+    real crawl time on a site whose nav items number in the hundreds.
+    page_concurrency=1 makes page A's pass (which proves the identity)
+    deterministically finish before page B (only discovered via a link on
+    page A) is ever dequeued."""
+    fake = _FakeSiteWideNavCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10, page_concurrency=1))
+    results = asyncio.run(mech.crawl_site(fake.page_a_url))
+
+    # Page A's nav click happened for real and resumed in place.
+    page_a_results = [r for r in results if r.url.endswith("pageA")]
+    assert any(i.path == fake.nav_path_a and not i.error for r in page_a_results for i in r.interactions)
+
+    # Page B was visited, its own distinct component was interacted with,
+    # and no error was ever recorded for its nav link - proving it was
+    # skipped (excluded from the frontier), not attempted and swallowed.
+    page_b_results = [r for r in results if r.url.endswith("pageB")]
+    assert page_b_results
+    all_interactions = [i for r in results for i in r.interactions]
+    assert any(i.path == fake.other_path_b and not i.error for i in all_interactions)
+    assert not any(i.path == fake.nav_path_b for i in all_interactions)
+
+
 def test_allow_subdomains_wiring_through_mechanical_crawler():
     """allow_subdomains, threaded through from the constructor, must
     actually change is_in_scope's outcome for a discovered subdomain link -
