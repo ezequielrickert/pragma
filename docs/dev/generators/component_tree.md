@@ -72,6 +72,36 @@ disagree by construction - a real disagreement would itself be a
 persistence bug to investigate, not a data-quality gap to paper over
 silently.
 
+## region
+
+A leaf's landmark region, or `""` for a leaf in none - which is also what
+every leaf reports for a crawl recorded before structural containment
+capture existed.
+
+Text leaves never get one. Containment is recorded per interactive
+component; assigning a text node to a region by proximity would be a guess,
+and this document does not guess.
+
+## regions
+
+`build_component_tree`'s read of `get_component_regions()`. One store call
+per document, not one per leaf.
+
+## group_by_region
+
+The nesting lives in the renderer, not in `TreePage`. A leaf knowing its own
+region is a fact about the leaf; nesting is a way of showing it. Keeping the
+built tree flat means `build_component_tree` stays a straight read and every
+caller that just wants "every leaf on this page" - including the component
+and text counts in the document header - still gets it without walking two
+levels.
+
+Named regions sort first, alphabetically; leaves in no region come last
+under `""`. A page where nothing is in a landmark renders with no header and
+no extra indent at all, exactly as it did before this existed: a single
+"(no landmark region)" line above every leaf on the page would be one more
+level of indentation carrying no information.
+
 ## render_ascii_tree
 
 No `GraphStore`/AI access at all. Two calls against identical input

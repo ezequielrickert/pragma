@@ -129,6 +129,27 @@ def test_a_component_with_no_options_grows_no_options_prop():
     assert "option_labels" not in [p.name for p in catalog[0].props]
 
 
+# --- regions ---
+
+def test_a_pattern_reports_every_region_its_instances_sit_in():
+    """A button used in both the nav and the footer is a different thing
+    from one used only in the footer."""
+    catalog = build_catalog(
+        [_family(["a", "b"])],
+        [_member("a"), _member("b")],
+        {PAGE: {"a": "navigation", "b": "contentinfo"}},
+    )
+
+    assert catalog[0].regions == ("contentinfo", "navigation")
+
+
+def test_regions_are_empty_when_ancestry_was_never_recorded():
+    """A pre-containment crawl must not invent a region."""
+    catalog = build_catalog([_family(["a"])], [_member("a")], {})
+
+    assert catalog[0].regions == ()
+
+
 # --- variants ---
 
 def test_members_differing_only_by_a_modifier_class_are_variants_not_components():
@@ -201,6 +222,9 @@ def test_the_json_document_is_parseable_and_carries_the_same_entries():
         def get_component_ledger(self):
             return {PAGE: {"a": _member("a")}}
 
+        def get_component_regions(self):
+            return {PAGE: {"a": "main"}}
+
     class _Request:
         graph_store = _Store()
         site = "shop.example"
@@ -220,6 +244,9 @@ def test_the_markdown_document_says_which_states_it_cannot_show():
 
         def get_component_ledger(self):
             return {PAGE: {"a": _member("a")}}
+
+        def get_component_regions(self):
+            return {PAGE: {"a": "main"}}
 
     class _Request:
         graph_store = _Store()

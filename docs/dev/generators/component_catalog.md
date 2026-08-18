@@ -53,6 +53,25 @@ can plainly see are different.
 
 ## CatalogEntry
 
+## regions
+
+The landmark regions a pattern's instances actually sit in. A button used in
+both the navigation and the footer is a different component from one used
+only in the footer, and that belongs next to its props.
+
+Empty means one of two things - no instance is inside a landmark, or the
+crawl predates containment capture - and the two are indistinguishable here.
+`ComponentCatalogDocument.generate` says which possibilities are open rather
+than letting a blank line imply "no regions" as a finding.
+
+## _regions_of
+
+Reads each member's region out of `get_component_regions()`'s
+`{page_url: {path: landmark}}` and returns the distinct set, sorted. A
+member in no region contributes nothing rather than an empty string.
+
+## catalog_for
+
 ## component_name
 
 A single-word parenthetical is kept, a longer one dropped.
@@ -102,6 +121,14 @@ Derived into a copy (`{**member, ...}`), never assigned onto the ledger
 entry: `flat_component_ledger` hands out the same dicts to every generator
 in the run, and a document that edits its own input is a document that
 changes the one after it.
+
+## catalog_for
+
+The three store reads both documents need, in one place. `ComponentCatalogDocument`
+and `ComponentCatalogData` used to carry byte-identical copies of them, which
+is exactly how the prose catalogue and the JSON catalogue could drift into
+describing different things - and adding `get_component_regions` would have
+meant a third copy.
 
 ## build_catalog
 

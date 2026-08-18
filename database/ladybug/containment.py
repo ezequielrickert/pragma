@@ -116,3 +116,53 @@ class _LadybugContainmentMixin:
                 )
 
         self._call(op)
+
+    def get_component_regions(self) -> Dict[str, Dict[str, str]]:
+        """Which landmark region each component sits in -
+        `{page_url: {component_path: landmark}}`.
+
+        The question D5 asks of containment: not the whole ancestor chain,
+        but the one region a reader would name ("this button is in the
+        navigation"). A component's *nearest* landmark ancestor wins, so a
+        `<form>` inside `<main>` reports `main` and a search box inside
+        `<nav>` inside `<main>` reports `navigation` - the inner region is
+        the informative one.
+
+        Nearest is resolved by `length()` on the recursive relationship,
+        confirmed against the real engine: `size()` rejects a
+        `RECURSIVE_REL` outright ("Function SIZE did not receive correct
+        arguments"), and `length()` is the one that takes it. With
+        `ORDER BY` on that length the first row per component is already
+        the nearest, so no second pass and no per-component query.
+
+        Returns:
+            One entry per page that has at least one component inside a
+            landmark, and within it one entry per such component.
+            Components in no landmark region at all are absent rather than
+            present-with-`""`: a caller asking "which region is this in"
+            gets the same "no answer" from a missing key as it would from
+            an empty string, and the missing key cannot be mistaken for a
+            region named `""`.
+
+            `{}` when nothing recorded ancestry - which is also what a
+            crawl from before containment capture existed reads back as.
+        Details: docs/dev/database/ladybug/containment.md#get_component_regions
+        """
+        def op(conn) -> Dict[str, Dict[str, str]]:
+            rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(comp:Component)
+                MATCH (region:Container)-[chain:CONTAINS*1..8]->(comp)
+                WHERE region.landmark <> ''
+                RETURN p.url, comp.path, region.landmark, length(chain) AS distance
+                ORDER BY p.url, comp.path, distance
+                """
+            )
+            regions: Dict[str, Dict[str, str]] = {}
+            for page_url, path, landmark, _distance in rows:
+                by_path = regions.setdefault(page_url, {})
+                if path not in by_path:
+                    by_path[path] = landmark
+            return regions
+
+        return self._call(op)
