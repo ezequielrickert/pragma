@@ -180,6 +180,46 @@ freshly-reloaded page's own churned selectors can't be caught by the path
 check alone - `Frontier.eligible()` is what applies both the
 navigation-trigger and interacted-identity exclusions here.
 
+## visit-page_url
+
+The full, scheme'd URL of whatever page this pass is currently on -
+tracked alongside `page_literal` (`clean_url`'s stripped form, used for
+the physical-navigation identity check) purely because
+`resolve_href`/`urljoin` needs a real base URL to resolve a relative href
+against, which `page_literal` no longer is once its scheme/`www.` prefix
+are gone. Updated at the exact same two points `page_literal` is: once at
+`visit`'s own top (`state.url`), and again on a successful
+`return_to_origin` (`fresh_state.url`) - never on a state transition,
+since that branch doesn't change the literal URL by definition.
+
+## visit-static-href-check
+
+The primary fix for a known-destination navigation, ahead of
+`visit-physical-navigation-branch` below - runs before every non-fillable
+component's click is even attempted. A real `<a href>`'s destination is
+knowable from its raw `href` attribute without clicking it (unlike an
+`onclick` handler or any other JS-driven navigation, which only reveals
+its destination by actually firing). `resolve_href` turns that raw,
+possibly-relative attribute into an absolute URL against `page_url`; if
+it resolves to something and
+`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known`
+says the crawl already has a place for it,
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link`
+records the edge and this component never gets clicked at all - no
+browser navigation happens for it, so none of `handle_physical_navigation`/
+`return_to_origin`'s own failure modes (a slow/degraded target, an
+anti-bot false positive on a mid-navigation DOM snapshot, `go_back`
+landing somewhere unexpected) can occur for it either.
+
+Confirmed necessary, not just an optimization on top of
+`return_to_origin`: live against austral.edu.ar, `return_to_origin`'s
+`go_back` step itself was failing often enough under the site's own
+degraded/rate-limited conditions that most known-destination navigations
+were still falling back to the ordinary interrupted-and-requeue path -
+this check removes the browser navigation (and everything that can go
+wrong with one) for the common case entirely, rather than trying to
+recover from it faster.
+
 ## visit-frontier-loop
 
 No numeric ceiling on how many components one visit interacts with -
@@ -295,6 +335,10 @@ Real *physical* navigation - the live browser session moved to a
 different literal URL, even if it canonicalizes to the same route_shape
 (e.g. a "start a new order" flow landing on a fresh `/o/<hash>` every
 time - the selectors this pass was built for are still gone either way).
+Reached only for what `visit-static-href-check` above couldn't already
+avoid entirely (a real click happened this time, not a skipped one) -
+`go_back` below is the fallback recovery for a navigation that already
+happened, not the primary mechanism for avoiding one.
 Delegates to
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`,
 which decides whether the destination is already known to this crawl.

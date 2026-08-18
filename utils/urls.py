@@ -4,6 +4,8 @@ Details: docs/dev/utils/urls.md#module
 from __future__ import annotations
 
 import re
+from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 # An opaque, per-visit token path segment (session id, order hash, nonce).
 # Details: docs/dev/utils/urls.md#_token_segment_re
@@ -82,6 +84,28 @@ def slugify(url: str) -> str:
     Details: docs/dev/utils/urls.md#slugify
     """
     return url.replace("https://", "").replace("http://", "").replace("/", "_")
+
+
+def resolve_href(base_url: str, href: str) -> Optional[str]:
+    """Resolve a possibly-relative anchor `href` (the raw DOM attribute -
+    discover_components.js's own `getAttribute('href')`, not the
+    browser-resolved `.href` property) against `base_url` into an
+    absolute, navigable URL - or `None` if `href` isn't one: empty, a
+    same-page fragment (`#section`), or a non-http(s) pseudo-scheme
+    (`javascript:`, `mailto:`, `tel:`).
+
+    The eager pre-click check `PageVisitor.visit()` uses: a real `<a
+    href>` component's destination is knowable without ever clicking it,
+    so a known destination never has to cost a browser navigation at all.
+    Details: docs/dev/utils/urls.md#resolve_href
+    """
+    href = (href or "").strip()
+    if not href or href.startswith("#"):
+        return None
+    resolved = urljoin(base_url, href)
+    if urlparse(resolved).scheme.lower() not in ("http", "https"):
+        return None
+    return resolved
 
 
 def is_in_scope(url: str, base_url: str, allow_subdomains: bool = False) -> bool:

@@ -49,6 +49,19 @@ overlap fact is what triggered this branch in the first place - so
 abandoning them here is correct, not a loss: attempting them would raise
 "element not found" the moment the pass reached them anyway.
 
+## skip_known_link
+
+The primary, cheaper sibling to `handle_physical_navigation` below - for
+the specific case of a real `<a href>` component whose destination
+`visit`'s own pre-click check
+(`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-static-href-check`)
+already resolved and found already-known, *before* any click happened.
+Same edge-recording and identity-exclusion as the followed-link case, but
+there is no `new_state`/`interaction` to build a `ComponentInteraction`
+from - nothing was attempted, so nothing goes into `result.interactions`
+either, the same discipline every other silently-skipped component
+(excluded/churning-widget) already follows.
+
 ## handle_physical_navigation
 
 `visit`'s response to an interaction whose *literal* result URL differs
@@ -56,6 +69,13 @@ from the page it was interacted on - the live browser session moved to a
 different literal URL, even if it canonicalizes to the same route_shape
 (e.g. a "start a new order" flow landing on a fresh `/o/<hash>` every
 time - the selectors this pass was built for are still gone either way).
+
+Only reached for a component `skip_known_link` couldn't already handle
+statically - a fillable field, a non-anchor clickable (an `onclick`
+handler, not a real `href`), or an anchor whose href resolved to
+something *not* already known. A real, physical browser navigation
+already happened by the time this runs; unlike `skip_known_link`, there's
+no way to avoid it after the fact, only to decide what to do about it.
 
 Always records the edge and the navigation-trigger identity (below) -
 that bookkeeping is true regardless of where the click led. Whether the

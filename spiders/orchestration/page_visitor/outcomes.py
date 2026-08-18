@@ -71,6 +71,30 @@ class InteractionOutcomes:
         frontier, seen_paths_this_pass = self.frontier_state.eligible(new_page_key, new_state.components, self.tracker)
         return new_page_key, frontier, seen_paths_this_pass
 
+    async def skip_known_link(
+        self, page_key: str, target_key: str, component: Dict[str, Any], path: str
+    ) -> None:
+        """Record a static `<a href>` component's destination without ever
+        clicking it - its raw `href` attribute resolved (via
+        `docs/dev/utils/urls.md#resolve_href`) to a destination already
+        known to this crawl, so there's nothing a real click would
+        discover that this doesn't already assert, and clicking it would
+        cost a real browser navigation (and everything that can go wrong
+        with one - anti-bot false positives, target load, a failed
+        `return_to_origin`) for no new information.
+
+        Same edge-recording and identity-exclusion bookkeeping
+        `handle_physical_navigation` does for a *followed* known-
+        destination link - deliberately does not touch `tracker`/append to
+        `result.interactions`, though: `visit`'s caller does that (same as
+        every other skipped-without-attempting component), since no click
+        actually happened here to record.
+        Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link
+        """
+        self.frontier_state.mark_navigation_trigger(page_key, component)
+        if self.sink:
+            await self.sink.record_navigation_edge(page_key, target_key, path, "click")
+
     async def handle_physical_navigation(
         self,
         page_key: str,

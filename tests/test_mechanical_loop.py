@@ -836,6 +836,62 @@ def test_known_destination_resume_uses_go_back_not_a_fresh_navigation():
     assert fake.discover_calls_by_url.get(fake.origin_url, 0) == 1  # only the initial visit
 
 
+class _FakeStaticHrefKnownDestinationCrawler:
+    """The primary fix, ahead of go_back entirely: a real `<a href>`
+    component's destination is knowable from its raw href attribute
+    without ever clicking it. If that destination is already known to
+    this crawl (queued via the page's own initial link discovery here),
+    the click must never happen at all - no browser navigation, so none
+    of go_back/return_to_origin's own failure modes (a slow target, an
+    anti-bot false positive on a mid-navigation snapshot) can occur for
+    it. click() and go_back() both raise if this fixture's one component
+    is ever touched.
+    """
+
+    def __init__(self) -> None:
+        self.origin_url = "http://fixture/origin"
+        self.known_url = "http://fixture/known"
+        self.nav_path = "body > a#nav"
+
+    def _anchor_component(self) -> Dict[str, Any]:
+        component = _component(self.nav_path, "Nav", tag="a")
+        component["attributes"] = {"id": "", "class": "", "href": "/known"}
+        return component
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url == self.origin_url:
+            return PageState(
+                url=self.origin_url,
+                components=[self._anchor_component()],
+                links=[{"href": self.known_url, "scheme": "http"}],
+            )
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        raise AssertionError(f"a known-destination <a href> must never be clicked: {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("must never navigate away for a link that was never clicked")
+
+
+def test_known_destination_a_href_is_never_clicked():
+    fake = _FakeStaticHrefKnownDestinationCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
+    results = asyncio.run(mech.crawl_site(fake.origin_url))
+
+    origin_results = [r for r in results if r.url.endswith("fixture/origin")]
+    assert len(origin_results) == 1
+    assert not origin_results[0].interrupted_by_navigation
+    assert origin_results[0].interactions == []  # nothing was ever attempted, let alone clicked
+    assert any(r.url.endswith("fixture/known") for r in results)  # still reached via the plain link
+
+
 class _FakeExternalLinkCrawler:
     """A page linking to both an in-scope page (same host) and an
     out-of-scope one (a different host entirely) - the ordinary "discovered
