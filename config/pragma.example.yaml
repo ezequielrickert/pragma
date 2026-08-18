@@ -108,6 +108,18 @@ export_json: false    # also write data/output/{slug}_export_{timestamp}.json - 
                        # never fires (a WAF holding the response open), every subsequent interaction
                        # against that session ate a full 30s before failing - see Crawl4AICrawler's
                        # own interaction_timeout_seconds docstring.
+# navigation_watchdog_seconds: 60.0  # a FOURTH timeout phase - an outer backstop around every
+                       # crawl4ai arun() call, independent of page_timeout_seconds (which only
+                       # bounds crawl4ai's own internal navigation clock, once a navigation has
+                       # actually started). Confirmed live on austral.edu.ar: a two_phase_crawl scout
+                       # sweep deadlocked for 12+ minutes with page_timeout_seconds in effect the
+                       # whole time - a py-spy dump proved nothing had even reached a graph-store
+                       # write yet, so the stall was inside crawl4ai/Playwright itself (most likely a
+                       # browser/session-management lock), somewhere page_timeout_seconds's own clock
+                       # never got the chance to start. This bounds the WHOLE call from our own side
+                       # instead, regardless of where inside crawl4ai it gets stuck, and best-effort
+                       # closes the wedged session before raising so the crawl can recover and move
+                       # on to the next page rather than hang forever.
 # prefetch: false       # skip crawl4ai's own markdown-generation pipeline entirely - real savings,
                        # since this project never reads that output (all facts come from its own
                        # discovery JS instead). Side effect: data/debug_logs/*/pages/*.md snapshots come

@@ -91,6 +91,56 @@ A page's own load fires the API calls a SPA needs to render at all - not
 attributable to any one component, but part of the contract all the
 same.
 
+The `arun()` call itself goes through `_run_with_watchdog`, not a bare
+`await self._crawler.arun(...)` - see that section below for why
+`page_timeout_seconds` alone isn't a sufficient bound.
+
+## _run_with_watchdog
+
+Wraps `self._crawler.arun(...)` in `asyncio.wait_for(...,
+timeout=navigation_watchdog_seconds)` - an outer backstop independent of
+`page_timeout_seconds`, which only bounds crawl4ai's own internal
+navigation clock once a navigation has actually started. See
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`
+for the live austral.edu.ar deadlock this exists for and the reasoning
+behind the default. Shared by `discover_page()` and `_interact()` - both
+go through the identical `arun()` call, and both are equally exposed to
+whatever this guards against (a real crawl4ai/Playwright hang doesn't
+care whether it's mid-navigation or mid-interaction).
+
+Prints `[arun] {session_id} -> {url}` before the call - crawl4ai's own
+`[FETCH]`/`[SCRAPE]`/`[COMPLETE]` console lines only print *after* each
+phase finishes (they carry a timing), so a genuine hang otherwise leaves
+no trace of which URL a worker was even attempting. Confirmed live: a
+12+ minute deadlock left nothing in the console or `debug.md` to
+distinguish "which page" a frozen worker was on.
+
+On timeout, calls `_force_close_wedged_session` before re-raising as a
+`RuntimeError` - `PageVisitor._discover_or_fail` (or `_interact`'s own
+callers) already know how to turn any `RuntimeError` from this layer
+into an ordinary, recoverable per-page failure instead of propagating
+and killing the worker.
+
+## _force_close_wedged_session
+
+Best-effort session cleanup after a watchdog timeout - tries
+`close_session(session_id)` so this worker's *next* call gets a fresh
+session instead of possibly inheriting whatever internal crawl4ai state
+caused this one to wedge. Bounded by its own short, separate timeout
+(`_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS`, 10s) and any exception is
+caught and only printed - a cleanup attempt that's itself stuck on the
+same underlying problem must never mask the original watchdog error or
+introduce a second unbounded wait on top of the first.
+
+**Explicitly a partial fix, stated plainly rather than oversold**: this
+codebase doesn't control crawl4ai's own internals, so neither this nor
+the watchdog above can fix whatever actually wedged inside it - they can
+only stop *this codebase's own loop* from hanging forever because of it,
+converting an unbounded, silent freeze into a bounded, recoverable,
+per-page failure. If the true root cause turns out to be a leaked lock
+inside crawl4ai's own session/browser-management code, closing the
+session is the most this layer can do about it from the outside.
+
 ## _save_markdown
 
 Save crawl4ai's own readable-markdown conversion of the page `result`
@@ -139,6 +189,11 @@ a successful no-op, per wiki/browser-automation-pitfalls.md. `session_id`
 must be the same one `discover_page()` was called with for this URL, so
 this reuses the live page/session instead of triggering a fresh
 navigation.
+
+Its own `arun()` call goes through `_run_with_watchdog` too, same as
+`discover_page()`'s - a hang here (mid-click, mid-fill) is exactly as
+possible as one during navigation, and exactly as invisible to
+`page_timeout_seconds` alone.
 
 ## _interact-network-capture
 

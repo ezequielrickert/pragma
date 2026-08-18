@@ -36,3 +36,16 @@ class Crawl4AICrawlerConfig:
     # navigation >= _SEVERE_SLOWDOWN_MULTIPLIER times the crawl's fastest).
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#circuit_breaker_cooldown_seconds
     circuit_breaker_cooldown_seconds: float = 10.0
+    # Outer backstop around every arun() call, independent of page_timeout_seconds
+    # (which only bounds crawl4ai's OWN internal navigation timeout, once a
+    # navigation actually starts). Confirmed live on austral.edu.ar: a full
+    # crawl deadlocked for 12+ minutes with zero recovery - a py-spy dump of
+    # the live process proved none of the workers had even reached a graph-
+    # store write yet, so the stall was somewhere inside crawl4ai/Playwright
+    # itself (most likely a browser/session-management lock, contested at a
+    # much higher rate under two_phase_crawl's scout sweep, which removes the
+    # interaction pacing that kept this from ever surfacing before) - a class
+    # of hang page_timeout_seconds structurally cannot bound, since it never
+    # gets the chance to start its own internal clock.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds
+    navigation_watchdog_seconds: float = 60.0

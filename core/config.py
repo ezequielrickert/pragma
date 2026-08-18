@@ -38,6 +38,11 @@ class PragmaConfig:
     # crawl4ai's raw navigation/goto dead-page timeout, a different phase.
     # Details: docs/dev/core/config.md#page_timeout_seconds
     page_timeout_seconds: float = 15.0
+    # A fourth timeout phase - an outer backstop around every arun() call,
+    # independent of page_timeout_seconds (which only bounds crawl4ai's own
+    # internal navigation clock once a navigation has actually started).
+    # Details: docs/dev/core/config.md#navigation_watchdog_seconds
+    navigation_watchdog_seconds: float = 60.0
     # A third timeout phase, bounding Playwright's own unbounded internal
     # waits. Left unset, Playwright's own 1s default governs instead - real
     # cost on a page stuck behind e.g. an anti-bot block (3 retry attempts at

@@ -158,6 +158,7 @@ class Engine:
         ai_fill_values: bool = True,
         page_concurrency: int = 4,
         page_timeout_seconds: float = 15.0,
+        navigation_watchdog_seconds: float = 60.0,
         prefetch: bool = False,
         two_phase_crawl: bool = False,
         block_images: bool = True,
@@ -181,6 +182,7 @@ class Engine:
         # See PragmaConfig / Crawl4AICrawlerConfig for what each changes.
         # Details: docs/dev/core/engine.md#__init__-crawl-timeouts
         self.page_timeout_seconds = page_timeout_seconds
+        self.navigation_watchdog_seconds = navigation_watchdog_seconds
         self.prefetch = prefetch
         # See MechanicalCrawlerConfig.two_phase_crawl for what this changes.
         self.two_phase_crawl = two_phase_crawl
@@ -245,6 +247,7 @@ class Engine:
             ai_fill_values=config.ai_fill_values,
             page_concurrency=config.page_concurrency,
             page_timeout_seconds=config.page_timeout_seconds,
+            navigation_watchdog_seconds=config.navigation_watchdog_seconds,
             prefetch=config.prefetch,
             two_phase_crawl=config.two_phase_crawl,
             block_images=config.block_images,
@@ -290,6 +293,7 @@ class Engine:
             interaction_wait_seconds=self.interaction_wait_seconds,
             debug_log=debug_log,
             page_timeout_seconds=self.page_timeout_seconds,
+            navigation_watchdog_seconds=self.navigation_watchdog_seconds,
             prefetch=self.prefetch,
             block_images=self.block_images,
             interaction_timeout_seconds=self.interaction_timeout_seconds,

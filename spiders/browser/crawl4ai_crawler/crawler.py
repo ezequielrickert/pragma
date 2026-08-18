@@ -18,6 +18,13 @@ from .hooks import _ACTION_MARK, HookHandlers
 from .page_state import build_page_state
 from .quiet_logger import QuietCaptureLogger
 
+# Bound on the best-effort session-cleanup attempt a watchdog timeout makes -
+# short and separate from navigation_watchdog_seconds itself, since a
+# cleanup call that's ALSO stuck on whatever wedged the original arun() must
+# never introduce a second unbounded wait on top of the first.
+# Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_wedged_session_cleanup_timeout_seconds
+_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS = 10.0
+
 
 class Crawl4AICrawler:
     """Owns one crawl4ai `AsyncWebCrawler` for the lifetime of an `async with` block.
@@ -29,6 +36,7 @@ class Crawl4AICrawler:
         self.headless = config.headless
         self.debug_log = config.debug_log
         self.page_timeout_seconds = config.page_timeout_seconds
+        self.navigation_watchdog_seconds = config.navigation_watchdog_seconds
         self.prefetch = config.prefetch
         self.viewport_width = config.viewport_width
         self.viewport_height = config.viewport_height
@@ -129,7 +137,7 @@ class Crawl4AICrawler:
         )
         await self._throttle.wait_before_navigation()
         start = asyncio.get_running_loop().time()
-        result = await self._crawler.arun(url=url, config=config)
+        result = await self._run_with_watchdog(url, session_id, config)
         self._throttle.record_navigation(asyncio.get_running_loop().time() - start)
         if not result.success:
             raise RuntimeError(
@@ -141,6 +149,56 @@ class Crawl4AICrawler:
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)
         return page_state
+
+    async def _run_with_watchdog(self, url: str, session_id: str, config: CrawlerRunConfig):
+        """`self._crawler.arun(...)`, bounded by `navigation_watchdog_seconds` -
+        an outer backstop independent of `page_timeout_seconds`, which only
+        bounds crawl4ai's own internal navigation clock once a navigation has
+        actually started. Shared by `discover_page()` and `_interact()` - both
+        go through the identical `arun()` call, and both are equally exposed
+        to whatever this guards against.
+
+        Prints a breadcrumb before the call - crawl4ai's own [FETCH]/[SCRAPE]/
+        [COMPLETE] lines only print *after* each phase finishes, so a genuine
+        hang otherwise leaves no trace of which URL a worker was even
+        attempting; confirmed live on austral.edu.ar, where a 12+ minute
+        deadlock left nothing to distinguish "which page" from the console
+        alone.
+
+        On timeout, best-effort closes `session_id`
+        (`_force_close_wedged_session`) before raising - not a full fix (this
+        codebase doesn't control crawl4ai's own internals), just an attempt
+        to stop this worker's *next* call from inheriting whatever internal
+        state caused this one to wedge.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_run_with_watchdog
+        """
+        print(f"[arun] {session_id} -> {url}")
+        try:
+            return await asyncio.wait_for(
+                self._crawler.arun(url=url, config=config), timeout=self.navigation_watchdog_seconds
+            )
+        except asyncio.TimeoutError as exc:
+            await self._force_close_wedged_session(session_id)
+            raise RuntimeError(
+                f"navigation watchdog: {url!r} did not complete within "
+                f"{self.navigation_watchdog_seconds:.0f}s - crawl4ai/Playwright is stuck "
+                "somewhere page_timeout_seconds alone doesn't reach (a lock, a hung "
+                "subprocess call, etc.), not just a slow page."
+            ) from exc
+
+    async def _force_close_wedged_session(self, session_id: str) -> None:
+        """Best-effort session cleanup after a watchdog timeout, bounded and
+        swallowed - a cleanup attempt that's itself stuck on whatever wedged
+        the original call must never mask the real error or introduce a
+        second unbounded wait on top of the first.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_force_close_wedged_session
+        """
+        try:
+            await asyncio.wait_for(
+                self.close_session(session_id), timeout=_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            print(f"Warning: could not close wedged session {session_id!r} after watchdog timeout: {exc}")
 
     def _save_markdown(self, session_id: str, result) -> None:
         """Save crawl4ai's markdown conversion of the page, if debug logging is on.
@@ -176,7 +234,7 @@ class Crawl4AICrawler:
             page_timeout=int(self.page_timeout_seconds * 1000),
             prefetch=self.prefetch,
         )
-        result = await self._crawler.arun(url=url, config=config)
+        result = await self._run_with_watchdog(url, session_id, config)
 
         # result.success can be False for reasons unrelated to our own action.
         # Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_interact-success-signal

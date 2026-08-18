@@ -60,6 +60,21 @@ open as an anti-automation measure), every subsequent interaction
 against that session silently ate a full 30s before failing - see
 `Crawl4AICrawlerConfig`'s own `interaction_timeout_seconds` entry.
 
+## navigation_watchdog_seconds
+
+A FOURTH timeout phase, distinct from every one above: an outer backstop
+around every crawl4ai `arun()` call, independent of `page_timeout_seconds`
+- that one only bounds crawl4ai's own internal navigation clock once a
+navigation has actually started, so anything stuck *before* that point
+(a lock inside crawl4ai's own browser/session management, for example)
+is invisible to it entirely. Passed straight through to
+`Crawl4AICrawlerConfig.navigation_watchdog_seconds` - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`
+for the live austral.edu.ar deadlock this exists for (a `two_phase_crawl`
+scout sweep frozen for 12+ minutes with `page_timeout_seconds` in effect
+the whole time) and the reasoning behind the default. Explicitly a
+partial fix, not a root-cause one - see that same entry's closing note.
+
 ## prefetch
 
 Skips crawl4ai's own markdown-generation/content-scraping pipeline

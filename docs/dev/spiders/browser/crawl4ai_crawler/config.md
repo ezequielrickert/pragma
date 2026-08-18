@@ -145,3 +145,40 @@ it).
 How long every worker pauses once `TargetLoadThrottle`'s circuit breaker
 trips - a navigation `_SEVERE_SLOWDOWN_MULTIPLIER` times the crawl's own
 fastest. See `docs/dev/spiders/browser/target_load_throttle.md#_trip_circuit_breaker`.
+
+## navigation_watchdog_seconds
+
+Outer backstop `Crawl4AICrawler._run_with_watchdog` wraps around every
+`arun()` call, independent of `page_timeout_seconds` above -
+`page_timeout_seconds` only bounds crawl4ai's own internal navigation
+clock once a navigation has actually started, so anything stuck *before*
+that (a browser/session-management lock inside crawl4ai itself, for
+example) is invisible to it entirely.
+
+Confirmed live on austral.edu.ar: a `two_phase_crawl` scout sweep
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+deadlocked for 12+ minutes with `page_timeout_seconds` in effect the
+whole time. A `py-spy dump` of the live process proved none of the
+workers had even reached a graph-store write yet - the `ladybug-writer`
+thread sat idle with nothing queued, and every `asyncio.to_thread` pool
+worker showed only its bare dispatch-loop frame, nothing deeper into
+`sink.py`. So the stall was somewhere inside crawl4ai/Playwright itself,
+most plausibly a lock contested at a much higher rate under the scout
+sweep - which removes the interaction pacing (click waits, extraction
+delays) that had kept this from ever surfacing under the ordinary fused
+`visit()` pass.
+
+Default `60.0` - four times the default `page_timeout_seconds` (15.0),
+mirroring the same "4x = something is wrong" ratio
+`TargetLoadThrottle._SEVERE_SLOWDOWN_MULTIPLIER` already uses elsewhere
+in this codebase - generous enough that a legitimately slow-but-alive
+page (which crawl4ai's own `page_timeout_seconds` should already have
+caught and converted to an ordinary failure well before this fires)
+never trips it, but bounded enough that a genuine hang costs minutes,
+not an unbounded wait.
+
+Explicitly a partial fix, not a root-cause one: this codebase doesn't
+control crawl4ai's own internals, so this can only bound *this
+codebase's own* wait and recover the crawl - it can't fix whatever
+actually wedged inside crawl4ai. See `_run_with_watchdog` below for the
+best-effort session-cleanup attempt that goes with it.

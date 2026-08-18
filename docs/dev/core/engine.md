@@ -40,7 +40,10 @@ what each of these actually changes and their tradeoffs
 `prefetch` empties debug markdown snapshots; `block_images` is a real
 behavior change some sites may depend on). `interaction_timeout_seconds`
 is a third timeout phase, distinct from `page_timeout_seconds` - see
-`Crawl4AICrawlerConfig`'s own entry for it.
+`Crawl4AICrawlerConfig`'s own entry for it. `navigation_watchdog_seconds`
+is a fourth, independent of all three - an outer backstop around every
+`arun()` call rather than a bound on any one internal phase of it - see
+`docs/dev/core/config.md#navigation_watchdog_seconds`.
 
 ## __init__-two_phase_crawl
 
