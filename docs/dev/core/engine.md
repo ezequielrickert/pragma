@@ -42,6 +42,16 @@ behavior change some sites may depend on). `interaction_timeout_seconds`
 is a third timeout phase, distinct from `page_timeout_seconds` - see
 `Crawl4AICrawlerConfig`'s own entry for it.
 
+## __init__-two_phase_crawl
+
+Passed straight through to `MechanicalCrawlerConfig.two_phase_crawl` -
+see `PragmaConfig`'s own `two_phase_crawl` entry
+(`docs/dev/core/config.md#two_phase_crawl`) and
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for what it actually changes. `Engine` itself makes no decision about
+it - just wiring, same as every other `MechanicalCrawlerConfig` field
+threaded through here.
+
 ## __init__-allow_subdomains
 
 A link (or a redirect a click lands on) that leaves this crawl's own

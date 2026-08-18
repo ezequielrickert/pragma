@@ -71,6 +71,18 @@ while this is on - leave `False` during an active debugging session that
 still wants to read those; `True` for a bulk/production run. See
 `Crawl4AICrawlerConfig`'s own `prefetch` entry.
 
+## two_phase_crawl
+
+Passed straight through `Engine.__init__`/`from_config` to
+`MechanicalCrawlerConfig.two_phase_crawl` - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for the full rationale (crawl4ai's own `prefetch` above is a dead end
+for this purpose; this is the actual scout-then-interact mechanism).
+`False` by default, same single fused scout+interact pass per page as
+always. No dedicated `cli.py` flag - set via YAML only, same as
+`prefetch` above; add `two_phase_crawl: true` to `pragma.yaml` to turn
+it on.
+
 ## block_images
 
 Aborts image/media/font network requests outright via a Playwright
