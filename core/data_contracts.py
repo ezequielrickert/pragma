@@ -33,15 +33,6 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
-    # axe-core WCAG violations; only ever populated by the measurement pass,
-    # empty on every ordinary crawl navigation.
-    # Details: docs/dev/core/interfaces.md#pagestateaccessibility_violations
-    accessibility_violations: List[Dict[str, Any]] = field(default_factory=list)
-    # Declared :hover/:focus styles per control, and where Tab actually
-    # goes. Same story: measurement pass only.
-    # Details: docs/dev/core/interfaces.md#pagestatemeasurements
-    pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
-    tab_order: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -114,10 +105,9 @@ class ComponentFamily:
 
     Fields:
         tag: the raw HTML tag every member shares, e.g. `"button"`,
-            `"input"`, `"a"`. See `component_family.label_for_tag` for
-            how this becomes a Neo4j node label (`"button"` -> `Button`,
-            `"a"` -> `Link`, etc.) - a related but separate mechanism
-            from family grouping itself.
+            `"input"`, `"a"` - part of the bucketing key
+            `build_component_families` clusters within, alongside
+            `component_type` below.
         component_type: the human-readable role label every member
             shares, e.g. `"button"`, `"submit button"`, `"checkbox"`,
             `"combobox (searchable dropdown)"` - the same value
@@ -155,23 +145,24 @@ class ComponentFamily:
 
 @dataclass(frozen=True)
 class InferredRequest:
-    """One distinct API endpoint's shape, inferred from every network
-    request matching the same `(method, endpoint, query_params)` seen
-    across a crawl - computed by `generators/request_family.py::
-    build_inferred_requests`. Lives here (not in `generators/`) for the
-    same layering reason as `ComponentFamily`.
+    """One distinct API endpoint's contract, computed on read from every
+    first-party `Request` node that `CALLS` the same `Endpoint` -
+    `database/ladybug/network.py::get_inferred_requests`. There is no
+    write-time rebuild pass: an `Endpoint` stores no aggregates of its
+    own, so this is assembled fresh from observations every time it's
+    asked for, and can never go stale between crawl passes the way the
+    retired `generators/request_family.py::build_inferred_requests`
+    whole-site clustering pass could. Lives here (not in `generators/`)
+    for the same layering reason as `ComponentFamily`.
 
     Frozen + tuple fields, same reasoning as `ComponentFamily`: hashable,
     safely comparable by value.
 
     Fields:
         method: the HTTP method every occurrence shared, e.g. `"GET"`,
-            `"POST"` - uppercased. This is also the grouping key
-            `GraphStore.record_inferred_requests` uses to create one
-            `:RequestFamily` node per distinct method (a trivial groupby,
-            unlike `ComponentFamily`'s similarity clustering - there's no
-            algorithm to speak of, "GET" and "POST" are never the same
-            family by definition).
+            `"POST"` - uppercased. Half of `Endpoint.id`
+            (`database/ladybug/ids.py::endpoint_id`), the other half
+            being `endpoint` below.
         endpoint: `host/path`, with any opaque generated path segment
             (an order id, a session token) collapsed to `{id}` - the same
             heuristic (`utils.urls.is_opaque_token`) `route_shape` already

@@ -28,6 +28,15 @@ PURPOSE_SYSTEM_INSTRUCTION = (
     "texts don't suggest one clear common purpose, say that plainly instead of guessing."
 )
 
+# A family used site-wide (every "Buy" button on 200 product pages) has no
+# other bound on how many member texts reach the prompt.
+# wiki/local-and-small-model-constraints.md's own checklist named this
+# exact surface. Deduplicated first (below), then capped - showing 20
+# *distinct* texts is far more informative than 20 copies of "Buy", and
+# dedup is also what keeps a genuinely repetitive family well under the cap
+# without ever truncating it.
+_MAX_TEXTS_PER_FAMILY = 20
+
 
 def family_signature(family: ComponentFamily) -> Tuple:
     """A key for one family that survives re-clustering.
@@ -45,6 +54,22 @@ def family_signature(family: ComponentFamily) -> Tuple:
     Details: docs/dev/generators/component_family_narrator.md#family_signature
     """
     return (family.tag, family.component_type, tuple(family.common_classes), tuple(sorted(family.member_paths)))
+
+
+def _deduped_and_capped(texts: List[str]) -> Tuple[List[str], int]:
+    """First-seen-order dedup, then capped at `_MAX_TEXTS_PER_FAMILY`.
+
+    Returns:
+        `(shown, omitted)` - `shown` is the deduplicated, capped list;
+        `omitted` is how many *distinct* texts beyond the cap were left
+        out (0 if dedup alone already brought the count under the cap).
+    """
+    seen: Dict[str, None] = {}
+    for text in texts:
+        seen.setdefault(text, None)
+    distinct = list(seen.keys())
+    shown = distinct[:_MAX_TEXTS_PER_FAMILY]
+    return shown, max(0, len(distinct) - len(shown))
 
 
 def narrate_family_purposes(
@@ -131,10 +156,12 @@ def narrate_family_purposes(
         # Printed before the call, not after: the whole point is showing
         # which family the run is currently blocked on.
         print(f"  family {family_number}/{total_calls}: {family.tag} ({family.component_type})")
+        shown_texts, omitted = _deduped_and_capped(texts)
         prompt = (
             f"Component pattern: {family.tag} ({family.component_type})\n"
             f"Used {len(family.member_paths)} times, with these visible texts:\n"
-            + "\n".join(f"- {text}" for text in texts)
+            + "\n".join(f"- {text}" for text in shown_texts)
+            + (f"\n... and {omitted} more instance(s) not shown." if omitted else "")
             + "\n\nWrite the one-sentence purpose."
         )
         try:

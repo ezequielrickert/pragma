@@ -4,7 +4,18 @@ Details: docs/dev/spiders/content/network_filter.md#module
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlsplit
+
+from .payload_capture import truncate_and_hash
+from .redaction import redact_body
+
+# Cap on the redacted body text stored per request - a page's own HTML can
+# run 350-550KB (measured on austral.edu.ar); an API response has no
+# comparable upper bound of its own. byte_length below still records the
+# real, pre-truncation size, so "this response was huge" survives even
+# when the excerpt doesn't.
+_PAYLOAD_EXCERPT_BYTES = 8192
 
 # Asynchronous API traffic - the obvious case.
 # Details: docs/dev/spiders/content/network_filter.md#_meaningful_resource_types
@@ -39,7 +50,8 @@ def _auth_scheme(headers: Dict[str, str]) -> str:
 
         Values are never read. A bearer token, a basic credential and a
         session cookie all stay entirely out of the graph - the same
-        names-not-values discipline `query_param_names` already follows.
+        names-not-values discipline `_split_url` already follows for a
+        query string's own parameter names.
     Details: docs/dev/spiders/content/network_filter.md#_auth_scheme
     """
     lowered = {name.lower(): value for name, value in (headers or {}).items()}
@@ -83,6 +95,31 @@ def _is_meaningful(event: Dict[str, Any]) -> bool:
     # submit alike, so it cannot tell them apart.
     # Details: docs/dev/spiders/content/network_filter.md#_is_meaningful
     return (event.get("method") or "").upper() != "GET"
+
+
+def _split_url(url: str) -> Tuple[str, str, List[str]]:
+    """`(host, path, query_param_names)` - the storage-plan redaction
+    policy applied at capture time, not left for a later pass to enforce.
+
+    A live query string is exactly the kind of per-instance data
+    (`InferredRequest.query_params`'s own docstring calls it out: an
+    order id, a share token) this whole feature deliberately never
+    persists - only a parameter's *name* survives, sorted and
+    deduplicated so the same endpoint always reports the same list
+    regardless of the original call's own param order.
+
+    Args:
+        url: a full request URL, e.g.
+            `"https://x.supabase.co/rest/v1/orders?select=*&id=eq.8d2..."`.
+
+    Returns:
+        `("x.supabase.co", "/rest/v1/orders", ["id", "select"])` - `path`
+        never carries a `?`, and is `"/"` for a bare-host request.
+    Details: docs/dev/spiders/content/network_filter.md#_split_url
+    """
+    split = urlsplit(url)
+    query_params = sorted({name for name, _ in parse_qsl(split.query)})
+    return split.netloc, split.path or "/", query_params
 
 
 def _json_shape(value: Any) -> Any:
@@ -148,6 +185,28 @@ def _shape_of_json_text(text: Optional[str]) -> str:
     return json.dumps(_json_shape(parsed))
 
 
+def _capture_payload(text: Optional[str]) -> Tuple[str, int, str]:
+    """Redact, then truncate-and-hash, one request/response body for storage.
+
+    Args:
+        text: raw body text, or `None`/`""`.
+
+    Returns:
+        `(excerpt, byte_length, sha256_hex)` via `truncate_and_hash` - but
+        note `byte_length` here is the *original* text's size, not the
+        redacted text's: redaction can shrink or grow a body (a token
+        replaced by the literal `[REDACTED]`), and "how big was the real
+        response" is the more useful fact to keep. The hash and excerpt
+        are computed from the redacted text, since that's what's actually
+        stored - a real secret must never survive into either.
+    """
+    if not text:
+        return "", 0, ""
+    redacted = redact_body(text)
+    excerpt, _redacted_length, digest = truncate_and_hash(redacted, _PAYLOAD_EXCERPT_BYTES)
+    return excerpt, len(text.encode("utf-8")), digest
+
+
 def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Reduce one `arun()` call's `result.network_requests` to the meaningful subset.
     Details: docs/dev/spiders/content/network_filter.md#filter_meaningful_requests
@@ -197,17 +256,33 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
         if not _is_meaningful(event):
             continue
         url = event.get("url")
+        host, path, query_params = _split_url(url or "")
         failed = url in failures_by_url
+        request_excerpt, request_length, request_hash = _capture_payload(post_data_by_url.get(url))
+        response_excerpt, response_length, response_hash = _capture_payload(response_body_by_url.get(url))
         results.append(
             {
                 "method": event.get("method", ""),
-                "url": url,
+                "host": host,
+                "path": path,
+                "query_params": query_params,
                 "resource_type": event.get("resource_type", ""),
                 "status": statuses_by_url.get(url),
                 "failed": failed,
                 "failure_text": failures_by_url.get(url) if failed else None,
                 "body_shape": _shape_of_json_text(post_data_by_url.get(url)),
                 "response_shape": _shape_of_json_text(response_body_by_url.get(url)),
+                # Full (redacted, size-capped) bodies, alongside the shapes
+                # above - shapes stay the compact form for prompts
+                # (openapi.py already reads them), these are the actual
+                # payload data the storage-plan review found was never
+                # captured at all.
+                "request_body_excerpt": request_excerpt,
+                "request_body_length": request_length,
+                "request_body_hash": request_hash,
+                "response_body_excerpt": response_excerpt,
+                "response_body_length": response_length,
+                "response_body_hash": response_hash,
                 "latency_ms": _latency_ms(sent_at_by_url.get(url), received_at_by_url.get(url)),
                 "status_text": status_text_by_url.get(url, ""),
                 "media_type": media_type_by_url.get(url, ""),

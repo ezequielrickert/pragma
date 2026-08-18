@@ -7,9 +7,11 @@
 # Any value here can be overridden by a CLI flag.
 # url: https://example.com
 agent: local          # local | mock
-graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" needs a live instance
-                      # (see docker-compose.yml) and is the crawl's live, primary source of truth -
-                      # written to as the crawl happens, then read back by GraphPRDSynthesizer
+graph_store: memory  # memory | ladybug - "memory" needs nothing running and persists nothing across
+                      # runs; "ladybug" is an embedded graph database, one file per site under
+                      # graph_stores.ladybug.directory (no server to start), and is the crawl's
+                      # live, primary source of truth - written to as the crawl happens, then read
+                      # back by GraphPRDSynthesizer
 # How much ONE run does before stopping and leaving the rest Pending for the next
 # run to resume from. Leave the whole block out (or pass --full) to crawl until the
 # frontier drains, which is what every run did before this existed - a long run is
@@ -18,14 +20,14 @@ graph_store: memory  # memory | neo4j - "memory" needs nothing running; "neo4j" 
 # crawl_budget:
 #   pages: 20          # stop after 20 finished pages - the unit that matches "look at
 #                      # the data, then do 20 more"
-#   nodes: 500         # or after 500 graph nodes, if Neo4j weight is the concern
+#   nodes: 500         # or after 500 graph nodes, if database size is the concern
 #   minutes: 90        # or after 90 minutes. Worth setting even when `pages` is what you
 #                      # mean: a page whose DOM keeps producing new components finishes no
 #                      # page and creates no node, so a page/node budget never trips and
 #                      # the run goes forever. This is the cap that returns your terminal.
 
 fresh: false          # purge this site's previously recorded graph_store state before crawling
-                       # (only matters for graph_store: neo4j - memory never persists across runs
+                       # (only matters for graph_store: ladybug - memory never persists across runs
                        # regardless). Off by default because the pages a cut-short run leaves
                        # Pending ARE its saved progress, and purging deletes them before the next
                        # run can resume. Set true on purpose for any site whose
@@ -76,23 +78,14 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - prd                # indexing whatever was produced - that one is not listed here and cannot be
 #   - tree               # turned off. See generators/pipeline.py.
 #   - openapi            # available names: coverage, prd, tree, openapi, catalog,
-#   - catalog            #                  catalog-data, flows,
-#                        usability, tokens,
-#                        tokens-data, accessibility,
+#   - catalog            #                  catalog-data, flows, usability,
 #                        gherkin, sequences, export
 #   - flows
 #   - usability
-#   - tokens
-#   - accessibility
 #   - gherkin
 #   - sequences
 #   - catalog-data
 #   - export
-measurement_pass: false  # after the crawl, re-visit each finished page once with images enabled
-                       # and a 1280x800 viewport, running axe-core. Only navigation - no clicking or
-                       # filling - so it costs a fraction of the crawl, not a second one. Required for
-                       # the `accessibility` document to have anything to report. See
-                       # spiders/orchestration/measurement_pass.py.
 export_json: false    # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the
                        # prose PRD and the component tree - for a downstream tool that wants the
@@ -145,10 +138,8 @@ agents:
                          # only set this once you know your model's real budget
 
 # Optional: non-secret, per-graph-store settings, same shape as `agents:`
-# above. Only used when `graph_store: neo4j`. Password stays in .env
-# (NEO4J_PASSWORD) - never here.
+# above. Only used when `graph_store: ladybug` - no credentials to keep in
+# .env, since each site is an embedded file, not a server.
 graph_stores:
-  neo4j:
-    host: localhost
-    port: 7687
-    database: neo4j
+  ladybug:
+    directory: data/sites  # one <slug>.lbdb file per site under this directory

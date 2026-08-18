@@ -4,9 +4,9 @@
 
 Every tuning knob `MechanicalCrawler` accepts beyond its two core
 collaborators (`crawler`, `tracker`) - bundled into one object (mirroring
-`Neo4jConfig` in `database/neo4j_graph_store.py`, and
-`Crawl4AICrawlerConfig` in `spiders/browser/crawl4ai_crawler/config.py`)
-instead of a long constructor argument list.
+`Crawl4AICrawlerConfig` in `spiders/browser/crawl4ai_crawler/config.py`,
+and the same per-provider `Config` dataclass pattern every agent/
+graph-store module uses) instead of a long constructor argument list.
 
 ## MechanicalCrawlerConfig
 
@@ -43,9 +43,25 @@ instead of a long constructor argument list.
   still scoping to the site root).
 - `allow_subdomains`: Passed through to `is_in_scope()` - whether a
   subdomain of `base_url`'s host counts as in-scope.
+- `max_requeue_attempts`: see its own section below.
 - `session_recycle_after`/`memory_ceiling_percent`/`min_page_concurrency`/
   `concurrency_taper_start_ratio`/`concurrency_taper_end_ratio`: see their
   own sections below.
+
+## max_requeue_attempts
+
+Cap on how many times `UrlFrontier.requeue` will put the same clean_url
+key back on the queue after an interrupted pass, before giving up on it
+for good (marked `FAILED_PAGE_STATUS` instead -
+`docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status`).
+Confirmed live on austral.edu.ar without a cap: a page whose interactions
+reliably trip the anti-bot block, or a popular redirect destination many
+different interrupted passes independently requeue, cycled without limit
+- "requeued" climbing far past "unique" and the queue growing into the
+thousands. Default 3 - generous enough that a genuinely transient block
+gets a real second chance, small enough that a page that is *always*
+going to fail this way stops burning worker time on it within a handful
+of attempts.
 
 ## session_recycle_after
 

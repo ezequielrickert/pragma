@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 from uuid import uuid4
 
 from core.interfaces import PageState, VisitStep
-from utils.urls import clean_url, route_shape
+from utils.urls import clean_url, resolve_href, route_shape
 from ...content.component_matching import (
     component_identity,
     component_overlap_ratio,
@@ -53,6 +53,7 @@ class PageVisitor:
         enqueue_url: Callable[[str], None],
         enqueue_links: Callable[[List[Dict[str, str]]], None],
         config: "MechanicalCrawlerConfig",
+        is_known_url: Callable[[str], bool],
     ) -> None:
         self.crawler = crawler
         self.tracker = tracker
@@ -67,8 +68,11 @@ class PageVisitor:
             crawler, tracker, enqueue_url, enqueue_links, self.sink, self._frontier
         )
         self._outcomes = InteractionOutcomes(
-            tracker, enqueue_url, enqueue_links, self.sink, self._frontier
+            tracker, enqueue_url, enqueue_links, self.sink, self._frontier, is_known_url
         )
+        # Also used directly by visit()'s own pre-click static-href check,
+        # not just by InteractionOutcomes - see visit-static-href-check.
+        self._is_known = is_known_url
         self._enqueue = enqueue_url
         self._enqueue_links = enqueue_links
         # (page_key, component_identity) -> value already generated for that field.
@@ -118,6 +122,11 @@ class PageVisitor:
             return self._discovery_failed(url, exc)
         page_literal = clean_url(state.url)
         page_key = route_shape(state.url)
+        # Full, scheme'd URL - kept alongside page_literal purely to
+        # resolve relative hrefs against (urljoin needs a real base URL,
+        # not clean_url's stripped form). Updated at the same points
+        # page_literal is. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-page_url
+        page_url = state.url
 
         if self.sink:
             await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
@@ -168,6 +177,24 @@ class PageVisitor:
                 continue  # revealed again by an earlier interaction this pass, already handled
 
             fillable = is_fillable(component)
+
+            if not fillable:
+                # A real <a href> whose destination is already knowable
+                # without clicking - if that destination is already known
+                # to this crawl, skip the click entirely: no browser
+                # navigation, so none of return_to_origin's failure modes
+                # (a slow/degraded target, an anti-bot false positive on a
+                # mid-navigation DOM snapshot) can happen for it.
+                # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-static-href-check
+                href = component.get("attributes", {}).get("href", "")
+                target_url = resolve_href(page_url, href)
+                if target_url is not None and self._is_known(target_url):
+                    await self._outcomes.skip_known_link(
+                        page_key, route_shape(target_url), component, path
+                    )
+                    self.tracker.mark_interacted(page_key, path)
+                    self._frontier.mark_interacted_identity(page_key, component)
+                    continue
 
             try:
                 if fillable:
@@ -244,12 +271,31 @@ class PageVisitor:
                     )
 
             if new_literal != page_literal:
-                # Real physical navigation - must stop the pass regardless of page_key.
+                # Real physical navigation. A destination this crawl doesn't
+                # know about yet still stops the pass regardless of
+                # page_key; a known one (the common case for a site-wide nav
+                # menu, where nearly every page links to nearly every other
+                # page) doesn't need a separate pass - hop back and keep
+                # draining this page's own frontier instead.
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-physical-navigation-branch
-                await self._outcomes.handle_physical_navigation(
+                must_stop = await self._outcomes.handle_physical_navigation(
                     page_key, new_key, new_state, component, path, interaction, result
                 )
-                break
+                if must_stop:
+                    break
+                fresh_state = await self._recovery.return_to_origin(
+                    url, session_id, page_key, page_literal, frontier, idx, result, seen_paths_this_pass
+                )
+                if fresh_state is None:
+                    # Couldn't get back to page_key - no live page left to
+                    # keep interacting with, so fall back to the ordinary
+                    # interrupted path rather than continue against nothing.
+                    result.interrupted_by_navigation = True
+                    break
+                known_components = fresh_state.components
+                page_literal = clean_url(fresh_state.url)
+                page_url = fresh_state.url
+                continue
             elif component_overlap_ratio(known_components, new_state.components) < self.state_transition_overlap_threshold:
                 # In-page state transition, not a mere reveal.
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-state-transition-branch

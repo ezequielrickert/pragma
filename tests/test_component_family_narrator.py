@@ -4,6 +4,8 @@ from typing import List, Optional, Tuple
 from core.interfaces import Agent, ComponentFamily
 from generators.component_family_narrator import (
     PURPOSE_SYSTEM_INSTRUCTION,
+    _MAX_TEXTS_PER_FAMILY,
+    _deduped_and_capped,
     narrate_family_purposes,
 )
 
@@ -138,6 +140,56 @@ def test_member_order_does_not_change_the_key():
     other = ComponentFamily("a", "link", (), (("/y", "#2"), ("/x", "#1")))
 
     assert family_signature(one) == family_signature(other)
+
+
+def test_deduped_and_capped_removes_duplicates_first():
+    """A family used site-wide ("Buy" on 200 product pages) must show
+    distinct texts, not 200 copies of the same word."""
+    texts = ["Buy"] * 50 + ["Add to cart"] * 30
+
+    shown, omitted = _deduped_and_capped(texts)
+
+    assert shown == ["Buy", "Add to cart"]
+    assert omitted == 0
+
+
+def test_deduped_and_capped_caps_after_dedup():
+    distinct_texts = [f"Option {i}" for i in range(_MAX_TEXTS_PER_FAMILY + 7)]
+
+    shown, omitted = _deduped_and_capped(distinct_texts)
+
+    assert len(shown) == _MAX_TEXTS_PER_FAMILY
+    assert shown == distinct_texts[:_MAX_TEXTS_PER_FAMILY]
+    assert omitted == 7
+
+
+def test_narrate_family_purposes_prompt_stays_bounded_for_a_site_wide_family():
+    """wiki/local-and-small-model-constraints.md's own checklist named this
+    exact surface - the third of the three unbounded prompt inputs it
+    flagged. member_paths itself (the real usage count) stays unbounded
+    and correct in the prompt text; only the *rendered texts* are capped."""
+    agent = RecordingAgent()
+    paths = tuple((f"/product-{i}", "#buy") for i in range(300))
+    family = _family(paths=paths)
+    member_texts = {(f"/product-{i}", "#buy"): "Buy" for i in range(300)}
+
+    narrate_family_purposes(agent, [family], member_texts)
+
+    prompt, _ = agent.calls[0]
+    assert "Used 300 times" in prompt
+    assert prompt.count("- Buy") == 1  # deduplicated down to one distinct text
+
+
+def test_narrate_family_purposes_notes_omitted_texts_past_the_cap():
+    agent = RecordingAgent()
+    paths = tuple((f"/p{i}", "#opt") for i in range(_MAX_TEXTS_PER_FAMILY + 5))
+    family = _family(paths=paths)
+    member_texts = {(f"/p{i}", "#opt"): f"Option {i}" for i in range(_MAX_TEXTS_PER_FAMILY + 5)}
+
+    narrate_family_purposes(agent, [family], member_texts)
+
+    prompt, _ = agent.calls[0]
+    assert "5 more instance(s) not shown" in prompt
 
 
 class _CountingAgent:

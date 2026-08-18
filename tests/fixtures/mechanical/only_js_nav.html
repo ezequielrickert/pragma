@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: js-only nav</title></head>
+<body>
+  <h1>JS-only nav</h1>
+  <!-- No <a href> anywhere on this page points at unknown_target.html - the
+       only route to it is this button's onclick, so the crawl has no way
+       to know about it before the click actually happens. -->
+  <button id="jsNavOnly" onclick="window.location.href='/unknown_target.html'">Go via JS only</button>
+  <button id="otherOnJsOnly">Other</button>
+</body>
+</html>

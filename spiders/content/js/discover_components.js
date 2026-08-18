@@ -12,43 +12,59 @@
     // gp() builds a valid, unique CSS selector path for an element - ported
     // verbatim from PlaywrightScraper._discover_components, with one fix (see
     // below) found via the crawl4ai migration spike (2026-08-07).
-    const gp = (e, p = []) => {
-        while (e) {
-            if (!e.parentElement) {
-                const root = e.getRootNode();
-                if (root instanceof ShadowRoot) {
-                    // FIX (found via crawl4ai spike, not present in the original
-                    // PlaywrightScraper code): `e` is a shadow root's *direct*
-                    // child - per the DOM spec its `parentElement` is null (a
-                    // ShadowRoot is not an Element), so the original code jumped
-                    // straight to `root.host` here without ever computing this
-                    // element's own segment. That silently dropped the element
-                    // from its own path, resolving to the shadow host's path
-                    // instead - confirmed live: a shadow-root-direct-child
-                    // <button id="shadowBtn"> resolved to its host div's path,
-                    // not its own. Disambiguate against the ShadowRoot's own
-                    // children (a ShadowRoot has `.children` just like an
-                    // Element) before climbing to the host, mirroring the normal
-                    // sibling-disambiguation branch below exactly.
-                    let seg = e.tagName.toLowerCase();
-                    if (e.id) {
-                        seg += '#' + CSS.escape(e.id);
-                    } else {
-                        const siblings = Array.from(root.children).filter(c => c.tagName === e.tagName);
-                        if (siblings.length > 1) {
-                            seg += ':nth-of-type(' + (siblings.indexOf(e) + 1) + ')';
-                        }
+    //
+    // Rewritten recursive + memoized (Storage Phase 5) so computing a whole
+    // element's structural-ancestor chain (structuralAncestorsOf below) costs
+    // O(depth) total instead of O(depth^2): the naive per-ancestor "call gp()
+    // fresh for each of a leaf's d ancestors" walks the same upper portion of
+    // the tree d, d-1, d-2, ... times over. Recursing through gp(e.parentElement)
+    // and caching every element's result means the first gp() call for any
+    // element also primes every one of its ancestors' cache entries, and any
+    // later element sharing part of that ancestor chain (near-certain across a
+    // real page's components) hits the cache instead of re-walking. Output is
+    // verified byte-identical to the original loop, including the shadow-DOM
+    // fix below - same segment-building logic, just recursive instead of
+    // iterative, with results kept instead of thrown away.
+    const pathCache = new WeakMap();
+    const gp = (e) => {
+        if (!e) return '';
+        if (pathCache.has(e)) return pathCache.get(e);
+        let result;
+        if (!e.parentElement) {
+            const root = e.getRootNode();
+            if (root instanceof ShadowRoot) {
+                // FIX (found via crawl4ai spike, not present in the original
+                // PlaywrightScraper code): `e` is a shadow root's *direct*
+                // child - per the DOM spec its `parentElement` is null (a
+                // ShadowRoot is not an Element), so the original code jumped
+                // straight to `root.host` here without ever computing this
+                // element's own segment. That silently dropped the element
+                // from its own path, resolving to the shadow host's path
+                // instead - confirmed live: a shadow-root-direct-child
+                // <button id="shadowBtn"> resolved to its host div's path,
+                // not its own. Disambiguate against the ShadowRoot's own
+                // children (a ShadowRoot has `.children` just like an
+                // Element) before climbing to the host, mirroring the normal
+                // sibling-disambiguation branch below exactly.
+                let seg = e.tagName.toLowerCase();
+                if (e.id) {
+                    seg += '#' + CSS.escape(e.id);
+                } else {
+                    const siblings = Array.from(root.children).filter(c => c.tagName === e.tagName);
+                    if (siblings.length > 1) {
+                        seg += ':nth-of-type(' + (siblings.indexOf(e) + 1) + ')';
                     }
-                    p.unshift(seg);
-                    e = root.host;
-                    continue;
                 }
+                const hostPath = gp(root.host);
+                result = hostPath ? hostPath + ' > ' + seg : seg;
+            } else {
                 // Top of the real document (e.g. <html>, whose parent is
                 // `document`, not an Element) - intentionally not added to the
                 // path; every path already implicitly starts at <body> the same
                 // way it always has.
-                break;
+                result = '';
             }
+        } else {
             let seg = e.tagName.toLowerCase();
             if (e.id) {
                 // CSS.escape() is required, not cosmetic: component libraries
@@ -66,10 +82,74 @@
                     seg += ':nth-of-type(' + (siblings.indexOf(e) + 1) + ')';
                 }
             }
-            p.unshift(seg);
-            e = e.parentElement;
+            const parentPath = gp(e.parentElement);
+            result = parentPath ? parentPath + ' > ' + seg : seg;
         }
-        return p.join(' > ');
+        pathCache.set(e, result);
+        return result;
+    };
+
+    // Structural containment (Storage Phase 5): which real layout/landmark
+    // containers a component sits inside, so a post-hoc pass can group
+    // components into modules ("Investigacion", "Sedes", ...) instead of
+    // only ever seeing a flat component list with no hierarchy at all - see
+    // ARCHITECTURE.md's own admission that [:CONTAINS] is "absent by
+    // consequence: discovery records interactive elements and text leaves,
+    // never the containers between them."
+    //
+    // Only structural elements are emitted (a curated tag list plus real ARIA
+    // landmark roles), not every DOM ancestor - a component sitting inside
+    // eight <div>s produces at most a handful of ancestor rows, not eight.
+    const STRUCTURAL_TAGS = new Set([
+        'main', 'nav', 'header', 'footer', 'aside', 'section', 'article',
+        'form', 'dialog', 'table', 'ul', 'ol',
+    ]);
+    const LANDMARK_ROLES = new Set([
+        'banner', 'navigation', 'main', 'contentinfo', 'complementary', 'search', 'form', 'region',
+    ]);
+    // Implicit ARIA landmark role for a structural tag with no explicit
+    // `role` attribute, per the HTML-AAM spec - `header`/`footer` are only
+    // banner/contentinfo landmarks at the page's top level, not when nested
+    // inside `article`/`section` (there they're just a section's own header).
+    const implicitLandmarkOf = (e, tag) => {
+        if (tag === 'main') return 'main';
+        if (tag === 'nav') return 'navigation';
+        if (tag === 'aside') return 'complementary';
+        if (tag === 'header' && !e.closest('article, section')) return 'banner';
+        if (tag === 'footer' && !e.closest('article, section')) return 'contentinfo';
+        if (tag === 'form' && (e.getAttribute('aria-label') || e.getAttribute('aria-labelledby'))) return 'form';
+        return '';
+    };
+    const landmarkOf = (e, tag) => {
+        const explicit = e.getAttribute('role');
+        if (explicit && LANDMARK_ROLES.has(explicit)) return explicit;
+        return implicitLandmarkOf(e, tag);
+    };
+    // Same shadow-host climb as gp() itself - a shadow root's direct child
+    // has no parentElement, so the walk continues at the host, not nowhere.
+    const parentOrHost = (e) => {
+        if (e.parentElement) return e.parentElement;
+        const root = e.getRootNode();
+        return (root instanceof ShadowRoot) ? root.host : null;
+    };
+    const structuralAncestorsOf = (el) => {
+        const out = [];
+        let cur = parentOrHost(el);
+        let depth = 1;
+        while (cur) {
+            const tag = cur.tagName.toLowerCase();
+            const role = cur.getAttribute('role') || '';
+            const landmark = landmarkOf(cur, tag);
+            if (STRUCTURAL_TAGS.has(tag) || landmark) {
+                out.push({
+                    path: gp(cur), tag, role, landmark,
+                    id: cur.id || '', class: cur.className || '', depth,
+                });
+            }
+            cur = parentOrHost(cur);
+            depth++;
+        }
+        return out;
     };
     // getComputedStyle() forces a style recalculation - cache it per element
     // so the pointer-cursor scan, isVisible, and getStyleFacts each read one
@@ -204,6 +284,7 @@
                 el.getAttribute('data-state') === 'checked' ||
                 el.getAttribute('data-state') === 'on' ||
                 !!el.checked,
-            attributes: { id: el.id, class: el.className, href: el.getAttribute('href') || '' }
+            attributes: { id: el.id, class: el.className, href: el.getAttribute('href') || '' },
+            ancestors: structuralAncestorsOf(el),
         }));
 }

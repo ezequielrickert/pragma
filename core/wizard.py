@@ -56,22 +56,12 @@ PROVIDER_FIELDS: Dict[str, List[Dict[str, Any]]] = {
 # Per-graph-store prompts, same shape as PROVIDER_FIELDS - persisted to
 # pragma.yaml's `graph_stores:` block (non-secret) / .env (secret).
 GRAPH_STORE_FIELDS: Dict[str, List[Dict[str, Any]]] = {
-    "neo4j": [
-        {"name": "host", "label": "Neo4j host", "default": "localhost", "secret": False},
+    "ladybug": [
         {
-            "name": "port",
-            "label": "Neo4j bolt port",
-            "default": "7687",
+            "name": "directory",
+            "label": "Directory for per-site LadybugDB files (one <slug>.lbdb per site)",
+            "default": "data/sites",
             "secret": False,
-            "type": "int",
-        },
-        {"name": "database", "label": "Neo4j database name", "default": "neo4j", "secret": False},
-        {"name": "user", "label": "Neo4j username", "default": "neo4j", "secret": False},
-        {
-            "name": "password",
-            "label": "Neo4j password (blank = keep current)",
-            "secret": True,
-            "env": "NEO4J_PASSWORD",
         },
     ],
     "memory": [],

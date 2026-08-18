@@ -3,8 +3,10 @@
 ## module
 
 Every tuning knob `Crawl4AICrawler` accepts, bundled into one object
-(mirroring `Neo4jConfig` in `database/neo4j_graph_store.py`) instead of a
-long constructor argument list. Pure data - no logic of its own, which is
+(mirroring the per-provider `Config` dataclass pattern every agent/
+graph-store module uses, e.g. `DuckDBGraphStore`'s own connection
+settings) instead of a long constructor argument list. Pure data - no
+logic of its own, which is
 exactly why it's its own file: a change here is never a change to how a
 hook fires or how a page gets navigated.
 
@@ -119,26 +121,14 @@ hook fires or how a page gets navigated.
   for the complementary fix that actually stops burning attempts once a
   session looks dead, rather than just making each dead attempt cheaper.
 - `backoff_ceiling_seconds`/`circuit_breaker_cooldown_seconds`: see
-  `viewport`/`audit_accessibility`/`backoff_ceiling_seconds`/
-  `circuit_breaker_cooldown_seconds` sections below.
+  `viewport`/`backoff_ceiling_seconds`/`circuit_breaker_cooldown_seconds`
+  sections below.
 
 ## viewport
 
-The crawl default (800x600) is small on purpose - less render cost per
-navigation. `measurement_pass.py` overrides both dimensions with
-something a person would actually use (1280x800): the crawl's own
-browser config is a deliberate speed decision, not representative of
-what a real visitor sees, so anything measuring the page for a human-
-facing document (accessibility, visual audits) needs its own pass with a
-realistic viewport instead of a faithful-but-slow crawl.
-
-## audit_accessibility
-
-Off during the crawl itself: running axe-core costs about a second per
-page, and its contrast results come back wrong with `block_images`
-active (since contrast checks need the real rendered image, not a
-blocked request). `measurement_pass.py` turns this on for its own
-separate, image-enabled pass instead.
+Small (800x600) on purpose - less render cost per navigation. Nothing in
+this pipeline needs a realistic viewport, so there is no second, larger
+value to override it with.
 
 ## backoff_ceiling_seconds
 

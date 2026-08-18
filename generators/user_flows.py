@@ -1,9 +1,9 @@
 """D6: the finite-state machine a crawl walked - which screens exist, what
 moves between them, and which moves fail.
 
-Needs no new capture. Every transition is a `NAVIGATED_TO` edge the crawl
-already wrote; the endpoint and status on it come from the network
-requests already sitting on the component that triggered it.
+Needs no new capture. Every transition is a `NAVIGATES_TO` edge the crawl
+already wrote; the endpoint and status on it come from the `Request` the
+triggering interaction's own `TRIGGERED` edge points at.
 
 The error branches are what make this worth reading. A diagram of the
 happy path restates the navigation menu; one that shows the checkout
@@ -26,11 +26,6 @@ from .traces import requests_for
 OK = "ok"
 ERROR = "error"
 UNKNOWN = "unknown"
-# One control that led to several different screens, whose requests did not
-# all agree. Which request belongs to which move is not recoverable: they
-# are stored per interaction but flattened into one list on read.
-# Details: docs/dev/generators/user_flows.md#mixed
-MIXED = "mixed"
 
 
 @dataclass(frozen=True)
@@ -73,45 +68,36 @@ def _trigger_label(component: Optional[Dict[str, Any]], path: str) -> str:
     return (component.get("text") or component.get("component_type") or path).strip() or path
 
 
-def _requests_for_move(component: Optional[Dict[str, Any]], to_state: str) -> Tuple[List[Dict[str, Any]], bool]:
-    """The requests this specific move fired, and whether that is exact.
+def _requests_for_move(component: Optional[Dict[str, Any]], to_state: str) -> List[Dict[str, Any]]:
+    """The requests this specific move fired.
 
     Interactions carry the position they happened at (`VisitStep`), and so
-    do the requests they fired, so a control clicked twice can have each
-    click's response separated from the other's - which is what stops the
+    do the requests they fired (a `Request` is written hung directly off
+    its own `Interaction`, never pooled onto the `Component` - see
+    `database/ladybug/network.py`), so a control clicked twice has each
+    click's response separated from the other's: what stops the
     successful branch being labelled with the failed branch's status.
-
-    Falls back to the control's pooled requests, flagged inexact, when
-    nothing is stamped: data written before the stamping existed.
     Details: docs/dev/generators/user_flows.md#_requests_for_move
     """
     if not component:
-        return [], True
+        return []
     matching = [
         interaction
         for interaction in component.get("interactions") or []
         if interaction.get("visit_id")
         and route_shape(interaction.get("resulting_url") or "") == to_state
     ]
-    if not matching:
-        return list(component.get("network_requests") or []), False
     requests: List[Dict[str, Any]] = []
     for interaction in matching:
         requests.extend(
             requests_for(component, interaction["visit_id"], interaction.get("step_seq") or 0)
         )
-    return requests, True
+    return requests
 
 
 def _is_failure(request: Dict[str, Any]) -> bool:
     status = request.get("status")
     return bool(request.get("failed")) or (isinstance(status, int) and status >= 400)
-
-
-def _outcomes_agree(requests: Sequence[Dict[str, Any]]) -> bool:
-    """Whether every request on one control succeeded, or every one failed."""
-    failures = {_is_failure(request) for request in requests}
-    return len(failures) <= 1
 
 
 def _request_outcome(requests: Sequence[Dict[str, Any]]) -> Tuple[str, Optional[int], str]:
@@ -133,7 +119,7 @@ def _request_outcome(requests: Sequence[Dict[str, Any]]) -> Tuple[str, Optional[
 
     chosen = sorted(requests, key=rank)[0]
     status = chosen.get("status")
-    endpoint = f"{chosen.get('method', '')} {chosen.get('url', '')}".strip()
+    endpoint = f"{chosen.get('method', '')} {chosen.get('path', '')}".strip()
     if _is_failure(chosen):
         return ERROR, status, endpoint
     return (OK if isinstance(status, int) else UNKNOWN), status, endpoint
@@ -151,20 +137,18 @@ def build_flow_graph(edges: Sequence[Dict[str, str]], components: Sequence[Dict[
             label a transition with and the requests to annotate it.
 
     Returns:
-        A `FlowGraph`. `edges` is written with `CREATE`, so a page visited
-        twice yields the same edge twice - transitions are deduplicated by
-        `(from, to, trigger, action)` here rather than in the store, where
-        the repetition is real history worth keeping.
+        A `FlowGraph`. `GraphStore.record_edge` already deduplicates by
+        `(from, to, component, action)` and counts repeats as
+        `observation_count` rather than storing them again - the grouping
+        here is coarser still, by `(from, to, trigger, action)`, since two
+        different components can render the same human-readable `trigger`
+        label (e.g. two links with identical visible text on one page
+        leading to the same destination) and are worth collapsing into one
+        transition in the diagram even though the store keeps them as two
+        distinct edges.
     Details: docs/dev/generators/user_flows.md#build_flow_graph
     """
     by_key = {(c.get("page_url"), c.get("path")): c for c in components}
-    # A control that led to several different screens can't have its
-    # requests attributed to one of them - see MIXED.
-    destinations: Dict[Tuple[str, str], set] = {}
-    for edge in edges:
-        destinations.setdefault((edge.get("from", ""), edge.get("component", "")), set()).add(
-            edge.get("to", "")
-        )
 
     seen: Dict[Tuple[str, str, str, str], FlowTransition] = {}
     for edge in edges:
@@ -172,11 +156,8 @@ def build_flow_graph(edges: Sequence[Dict[str, str]], components: Sequence[Dict[
         path = edge.get("component", "")
         component = by_key.get((from_state, path))
         trigger = _trigger_label(component, path)
-        requests, exact = _requests_for_move(component, to_state)
+        requests = _requests_for_move(component, to_state)
         outcome, status, endpoint = _request_outcome(requests)
-        # Ambiguity only survives where the stamps could not resolve it.
-        if not exact and len(destinations[(from_state, path)]) > 1 and not _outcomes_agree(requests):
-            outcome, status = MIXED, None
         key = (from_state, to_state, trigger, edge.get("action", ""))
         # An error outcome seen on any repeat of the same move wins - the
         # run where the form was rejected is the informative one.
@@ -217,12 +198,10 @@ def render_state_diagram(flow: FlowGraph) -> str:
     for transition in flow.transitions:
         label = transition.trigger.replace(":", " ").replace("\n", " ")[:40]
         if transition.endpoint:
-            label += f" ({transition.endpoint.split('?')[0]}"
+            label += f" ({transition.endpoint}"
             label += f" -> {transition.status})" if transition.status is not None else ")"
         if transition.outcome == ERROR:
             label += " [error]"
-        elif transition.outcome == MIXED:
-            label += " [outcome not attributable]"
         lines.append(f"    {ids[transition.from_state]} --> {ids[transition.to_state]} : {label}")
     lines.append("```")
     return "\n".join(lines)
@@ -231,9 +210,7 @@ def render_state_diagram(flow: FlowGraph) -> str:
 def _render_table(flow: FlowGraph) -> List[str]:
     lines = ["| From | Trigger | Action | Endpoint | Status | To |", "|---|---|---|---|---|---|"]
     for t in flow.transitions:
-        if t.outcome == MIXED:
-            status = "not attributable"
-        elif t.outcome == ERROR and t.status is None:
+        if t.outcome == ERROR and t.status is None:
             status = "failed"
         else:
             status = t.status if t.status is not None else "-"
@@ -253,8 +230,8 @@ class UserFlowsDocument(DocumentGenerator):
 
     def generate(self, request: DocumentRequest) -> str:
         flow = build_flow_graph(
-            request.graph_store.get_edges(request.site),
-            flat_component_ledger(request.graph_store, request.site),
+            request.graph_store.get_edges(),
+            flat_component_ledger(request.graph_store),
         )
         lines = [f"# User Flows: {request.site}", ""]
         if not flow.transitions:
@@ -266,9 +243,8 @@ class UserFlowsDocument(DocumentGenerator):
             "States are route shapes, not raw URLs, so many instances of one screen collapse into one node.",
             "",
             "Each request is attributed to the interaction that fired it, using the position both "
-            "carry. A move is marked *not attributable* only where that position is missing - a "
-            "graph crawled before interactions were stamped - rather than being given a status it "
-            "may not have had.",
+            "carry - a control clicked twice keeps each click's own response separate from the "
+            "other's.",
             "",
             render_state_diagram(flow),
             "",

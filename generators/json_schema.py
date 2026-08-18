@@ -1,7 +1,7 @@
 """Translate this project's captured "shape" language into JSON Schema.
 
 The shape language is what `network_filter._json_shape` produces and
-`request_family._merge_shape` unions: a JSON document with every value
+`database/ladybug/network.py::_merge_shape` unions: a JSON document with every value
 replaced by its type name, and a trailing `?` on any key that some
 observed samples were missing. It exists so a request body can be
 described without ever persisting a real value.

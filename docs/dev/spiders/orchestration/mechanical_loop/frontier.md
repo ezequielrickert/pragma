@@ -82,3 +82,47 @@ Put a URL straight onto the queue, bypassing every gate `enqueue` applies
 `docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-requeue`),
 which needs to resume a page already known to be in-scope and already
 past its route-shape/dedup checks the first time it was enqueued.
+
+Returns `False` instead of requeuing once `max_requeue_attempts` is
+exceeded for that clean_url key - see `_requeue_attempts` below. Confirmed
+live on a real crawl (austral.edu.ar): a reliably anti-bot-blocked page,
+or a popular redirect destination many different interrupted passes
+independently call this for (the exact race `in_flight`'s own doc
+describes), had no limit before this - "requeued" climbed far past
+"unique" and the queue grew into the thousands on a site with a few
+hundred real pages, because every interrupted pass added its own copy
+with nothing capping how many times any one destination could cycle back
+through.
+
+## is_known
+
+Whether `url`'s clean_url key is already in `_queued` (queued or already
+dequeued - `_queued` is a dedup guard, never pruned), currently
+`in_flight`, or `tracker.is_visited` - i.e. whether this crawl already has
+a place for it, without regard for *how* it got there.
+
+Read by
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+before deciding whether a mid-pass navigation is worth pausing the whole
+page for: a link to a destination already covered by one of these three
+doesn't need a separate pass of its own, so
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
+can hop the browser back and keep going instead.
+
+Deliberately checks `tracker.is_visited` too, not just `_queued` - a page
+finished in a *previous* run (resumed via `MechanicalCrawler._resume_urls`)
+is never re-added to `_queued` this run (only still-Pending URLs are), but
+is exactly as "already accounted for" as one this run queued itself.
+
+## _requeue_attempts
+
+clean_url key -> how many times `requeue` has been called for it. Keyed
+by the destination, not by which pass called it or which worker is
+running - the whole point is to cap a popular destination's *total*
+requeue count across every independent interrupted pass that lands on
+it, not just one page's own retry count.
+
+`_worker`'s caller reads `requeue`'s return value to know when to stop:
+past the cap, it marks the page `FAILED_PAGE_STATUS`
+(`docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status`)
+instead of calling this again.

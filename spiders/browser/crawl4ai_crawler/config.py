@@ -20,16 +20,12 @@ class Crawl4AICrawlerConfig:
     page_timeout_seconds: float = 15.0
     prefetch: bool = False
     block_images: bool = False
-    # Viewport the browser renders at. The crawl default is small on purpose
-    # (less render cost per navigation); the measurement pass overrides it
-    # with something a person would actually use.
+    # Viewport the browser renders at - small by design, since a smaller
+    # viewport cuts render cost per navigation and nothing in this pipeline
+    # needs a realistic one.
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#viewport
     viewport_width: int = 800
     viewport_height: int = 600
-    # Run axe-core after each navigation. Off during the crawl: it costs a
-    # second per page and its contrast results are wrong with images blocked.
-    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#audit_accessibility
-    audit_accessibility: bool = False
     interaction_timeout_seconds: Optional[float] = None
     # Cap on the polite delay grown between navigations when the target
     # server itself is slowing down. `None` disables backoff (and the

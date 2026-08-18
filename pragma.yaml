@@ -7,10 +7,10 @@
 # 40-page cap and bounded nothing, and the run it was meant to stop went 12
 # hours. The loader now names any key it does not recognize on startup.
 agent: local
-graph_store: neo4j
+graph_store: ladybug
 out_dir: docs
 headless: true
-wait_seconds: 15.0
+wait_seconds: 5.0
 
 # Purga lo que este sitio tenga en el grafo antes de arrancar: el crawl
 # empieza de cero. Combinado con crawl_budget de abajo, cada corrida vuelve a
@@ -28,10 +28,6 @@ crawl_budget:
   # budget never trips. This is the backstop that still returns the terminal.
   minutes: 90
 agents:
-  gemini:
-    model: models/gemini-2.0-flash
-  openai:
-    model: gpt-3.5-turbo
   local:
     # Reached through a Tailscale tunnel - requires LOCAL_API_KEY in .env for
     # bearer-token auth (see .env.example); this hostname itself isn't secret.
@@ -50,8 +46,5 @@ agents:
     timeout: 1800
     max_tokens: 8192
 graph_stores:
-  neo4j:
-    host: localhost
-    port: 7687
-    database: neo4j
-    user: neo4j
+  ladybug:
+    directory: data/sites

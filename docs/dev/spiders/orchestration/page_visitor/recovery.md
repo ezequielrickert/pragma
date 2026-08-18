@@ -2,9 +2,11 @@
 
 ## module
 
-Reconcile state after an ambiguous or failed interaction: a stale
-selector, or a session that silently moved without reporting it. Split
-out of `PageVisitor` - one responsibility, independent of the normal
+Reconcile state after an ambiguous or failed interaction (a stale
+selector, or a session that silently moved without reporting it), plus
+one deliberate-not-ambiguous case: hopping the browser back after a
+*successful* click landed on a destination the crawl already knows about.
+Split out of `PageVisitor` - one responsibility, independent of the normal
 success-path bookkeeping `outcomes.py` owns.
 
 ## NavigationRecovery
@@ -13,14 +15,14 @@ Takes `crawler`/`tracker`/`enqueue_url`/`enqueue_links`/`sink`/the shared
 `Frontier` as constructor dependencies - `PageVisitor.__init__` is the
 composition root that wires these once per instance.
 
-## recover_stale_frontier
+## _reconcile_frontier
 
-Resync current DOM state after an "element not found" failure and
-reconcile the remaining, not-yet-attempted frontier against it - see
-`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-except-stale-resync`
-for when this runs and
-`docs/dev/spiders/content/component_matching.md#remap_stale_frontier` for the
-reconciliation itself.
+Shared second half of `recover_stale_frontier` and `return_to_origin`
+below: both obtain a fresh `PageState` some other way (a no-op resync vs.
+a real navigation) and then need the identical reconciliation against it -
+see
+`docs/dev/spiders/content/component_matching.md#remap_stale_frontier` for
+the remap itself.
 
 Mutates `frontier` in place (slice-replaces `frontier[idx:]` with the
 reconciled remainder, same length or shorter) and adds every surviving
@@ -30,11 +32,63 @@ own "is this genuinely new" dedup check, so the very next successful
 reveal's append-new-components step
 (`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_same_page_reveal`)
 would see that same path as unseen and queue a duplicate entry for a
-component already sitting in `frontier`. Returns the fresh component
-snapshot to become the pass's new `known_components` baseline, or `None`
-if the resync call itself failed (network/crawl4ai error) - frontier is
-left untouched in that case, same as any other best-effort recovery that
-couldn't get fresh data to act on.
+component already sitting in `frontier`.
+
+## recover_stale_frontier
+
+Resync current DOM state after an "element not found" failure and
+reconcile the remaining, not-yet-attempted frontier against it via
+`_reconcile_frontier` - see
+`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-except-stale-resync`
+for when this runs.
+
+Returns the fresh component snapshot to become the pass's new
+`known_components` baseline, or `None` if the resync call itself failed
+(network/crawl4ai error) - frontier is left untouched in that case, same
+as any other best-effort recovery that couldn't get fresh data to act on.
+
+## return_to_origin
+
+The known-destination counterpart to `recover_stale_frontier`: called
+from `visit`'s physical-navigation branch when
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+determined the click's destination is already known to this crawl, so the
+pass doesn't need to stop for it - only the browser, which really did
+navigate away, needs to come back.
+
+Steps back via `Crawl4AICrawler.go_back` (browser history, not a no-op
+resync - the session is actually on the wrong page - and deliberately not
+a fresh `discover_page` either, see that method's own docstring for why:
+a full navigation would re-request the target server for a page this
+session just rendered a moment ago) and reconciles via
+`_reconcile_frontier`, same as `recover_stale_frontier`. Returns the fresh
+`PageState` itself (not just its components) - unlike
+`recover_stale_frontier`, the caller also needs the new `page_literal` to
+replace its own.
+
+Takes `page_literal` (the caller's expected destination) as an explicit
+parameter and checks the result against it: `go_back` can return
+successfully - no exception - without the session actually being back on
+the expected page (an empty history stack, or a client-side router
+swallowing the `popstate` event), and continuing to interact under
+`page_key` against the *wrong* live page would silently misattribute
+whatever happens next. Confirmed live on austral.edu.ar
+(FETCH time for a repeated request to the same URL climbing from 2.77s to
+4.21s in one observed run - the target's own rate limiting, not a crawl4ai
+timeout) that a full re-navigation was measurably provoking exactly the
+load-sensitivity `TargetLoadThrottle` exists to react to, which is what
+motivated replacing the `discover_page` call this method used before with
+`go_back`.
+
+Returns `None` on either failure mode (the call itself raising, or landing
+somewhere unexpected) - `visit`'s caller then has no live page left to
+keep interacting with and falls back to the ordinary interrupted path
+(`result.interrupted_by_navigation = True`, stop, requeue the origin for a
+later pass, which reaches it via a real `discover_page` instead) rather
+than continue against nothing. Covered by
+`tests/test_mechanical_loop.py::test_known_destination_return_navigation_failure_falls_back_to_interrupted_path`
+and, for the common success path,
+`tests/test_mechanical_loop.py::test_known_destination_resume_uses_go_back_not_a_fresh_navigation`.
 
 ## check_for_silent_navigation
 
@@ -80,3 +134,10 @@ from growing an even deeper nested branch.
 
 Returns whether `visit`'s interaction loop should stop (`True`) -
 mirroring the success branch's own `break`.
+
+Deliberately does *not* run the known-destination check
+`handle_physical_navigation` does - this path only fires alongside a
+genuinely failed interaction (an ambiguous read-back, not a clean
+success), a rarer and already-harder-to-reason-about case where resuming
+in place adds risk the ordinary successful-click path doesn't have. Always
+stops the pass, same as before this distinction existed.

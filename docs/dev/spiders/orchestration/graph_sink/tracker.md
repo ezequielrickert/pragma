@@ -26,8 +26,8 @@ local cache.
 per component" - but before this cache, `is_interacted` called it fresh
 on *every single call*, and `PageVisitor.visit`'s frontier loop calls
 `is_interacted` once per component considered, every pass - so a page
-with N components did N full `GraphStore` round-trips (network
-round-trips for `graph_store: neo4j`) just to answer the same "have I
+with N components did N full `GraphStore` round-trips (a real cost even
+for `graph_store: duckdb`'s single-writer-thread hop) just to answer the same "have I
 interacted with this yet" question the loop already asked moments ago
 for a barely-changed page. This directly contradicted the documented
 "one query per page visit" contract rather than merely being slow by
@@ -35,9 +35,10 @@ coincidence. `is_visited` had the same shape for `_enqueue`/`_worker`
 (called once per discovered link / per dequeue). Caching turns both into
 one real `GraphStore` read per page for the lifetime of this tracker
 instance (one per `MechanicalCrawler`, i.e. one per crawl) instead of one
-per check - a real reduction in `GraphStore` round-trips, and (for
-`graph_store: neo4j`) a real reduction in how often this crawl's own
-event loop is blocked waiting on the synchronous Neo4j driver.
+per check - a real reduction in `GraphStore` round-trips, and a real
+reduction in how often this crawl's own event loop is blocked waiting on
+a synchronous backend call (`asyncio.to_thread` to `graph_sink/sink.py`'s
+`_write`, for whichever backend is configured).
 
 **Why this is safe** (no interface/behavior change from
 `MechanicalCrawler`'s point of view - same sync methods, same signatures,

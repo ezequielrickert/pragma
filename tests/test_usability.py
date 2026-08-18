@@ -164,23 +164,23 @@ def test_findings_are_ordered_by_severity():
     from generators.usability import build_findings
 
     class _Store:
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {PAGE: {
                 "a": _component("a", background_color="#2d7"),
                 "b": _component("b", background_color="#c33"),
                 "c": _component("c", disabled=True),
             }}
 
-        def get_edges(self, site):
+        def get_edges(self):
             return []
 
-        def get_component_families(self, site):
+        def get_component_families(self):
             return [_family(["a", "b"])]
 
-        def get_inferred_requests(self, site):
+        def get_inferred_requests(self):
             return []
 
-        def get_text_content_ledger(self, site):
+        def get_text_content_ledger(self):
             return {PAGE: []}
 
     findings = build_findings(DocumentRequest(graph_store=_Store(), site="shop.example", agent=None))
@@ -194,19 +194,19 @@ def test_an_empty_audit_says_what_it_did_not_check():
     from generators.usability import UsabilityDocument
 
     class _Store:
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {}
 
-        def get_edges(self, site):
+        def get_edges(self):
             return []
 
-        def get_component_families(self, site):
+        def get_component_families(self):
             return []
 
-        def get_inferred_requests(self, site):
+        def get_inferred_requests(self):
             return []
 
-        def get_text_content_ledger(self, site):
+        def get_text_content_ledger(self):
             return {}
 
     text = UsabilityDocument().generate(

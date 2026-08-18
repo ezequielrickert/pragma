@@ -1,9 +1,10 @@
 """D4: an OpenAPI 3.0 contract inferred from the traffic a crawl observed.
 
 Entirely deterministic - no model call anywhere. Everything here is a
-rearrangement of what `request_family.build_inferred_requests` already
-grouped, which is why the output can be trusted as a contract rather than
-read as a summary.
+rearrangement of what `GraphStore.get_inferred_requests` already grouped
+(computed on read from the graph's `Request`/`Endpoint` nodes, not a
+rebuild pass this module triggers), which is why the output can be
+trusted as a contract rather than read as a summary.
 
 What it cannot contain, by construction rather than oversight: security
 schemes, headers, and examples. The crawler persists request and response
@@ -89,8 +90,9 @@ def _singular(segment: str) -> str:
 def path_template(path: str) -> Tuple[str, List[str]]:
     """Rename each `{id}` after the segment before it, and list the results.
 
-    `normalized_endpoint` collapses every opaque segment to the same
-    `{id}`, which is fine as a grouping key and invalid as an OpenAPI path:
+    `database/ladybug/network.py::_pattern_and_params` collapses every
+    opaque segment to the same `{id}`, which is fine as a grouping key
+    and invalid as an OpenAPI path:
     `/orders/{id}/items/{id}` declares one parameter name twice. Naming
     each after its preceding segment fixes that and reads better.
 
@@ -319,6 +321,6 @@ class OpenAPIDocument(DocumentGenerator):
     extension = "yaml"
 
     def generate(self, request: DocumentRequest) -> str:
-        requests = request.graph_store.get_inferred_requests(request.site)
+        requests = request.graph_store.get_inferred_requests()
         document = build_openapi_document(requests, request.site)
         return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)

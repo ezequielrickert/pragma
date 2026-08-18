@@ -11,29 +11,23 @@ component's `tag`, `component_type`, `css_class`) - it never talks to a
 browser or a graph database itself; `core/engine.py::
 _apply_component_families` is the only caller, and it does all the I/O
 (reading `GraphStore.get_component_ledger`, writing the results back via
-`GraphStore.record_component_families`/`apply_tag_labels`).
+`GraphStore.record_component_families`).
 
-Two independent, complementary outputs from the same input data:
-
-1. **Per-tag Neo4j labels** (`tags_with_multiple_instances` + `label_for_
-   tag`) - a coarse, purely tag-based grouping. Every `<button>` on the
-   site becomes a `:Button`-labeled node (as long as there are 2+ of
-   them), every `<input>` becomes `:Input`, `<a>` becomes `:Link`, and so
-   on - see `label_for_tag`'s own docstring for the full naming rule.
-   This exists so a tool like Neo4j Browser (which colors nodes by their
-   label) doesn't render every single component the same flat color.
-2. **Component families** (`build_component_families`) - a finer-grained
-   grouping: components that aren't just the same *kind* of tag, but
-   structurally the same reusable *pattern* (same `component_type` and a
-   similar-enough `css_class`). This is what actually answers "which of
-   these components are really the same button, just used in different
-   places (or with a different color/state)".
+`build_component_families` groups components that aren't just the same
+*kind* of tag, but structurally the same reusable *pattern* (same
+`component_type` and a similar-enough `css_class`) - answering "which of
+these components are really the same button, just used in different
+places (or with a different color/state)". A coarser, purely tag-based
+grouping (`tags_with_multiple_instances`/`label_for_tag`) used to live
+here too, feeding `GraphStore.apply_tag_labels` so Neo4j Browser could
+color nodes by tag - removed along with that backend, since it was purely
+a Browser-coloring affordance with no equivalent once nothing renders the
+graph visually.
 
 Details: docs/dev/generators/component_family.md#module
 """
 from __future__ import annotations
 
-from collections import Counter
 from typing import Dict, FrozenSet, List, Set, Tuple
 
 from core.interfaces import ComponentFamily
@@ -236,7 +230,7 @@ def build_component_families(components: List[Dict]) -> List[ComponentFamily]:
         - `member_paths`: a sorted tuple of `(page_url, path)` pairs, one
           per member - sorted so the result is deterministic regardless
           of input order or clustering iteration order, and so it
-          compares equal to what `Neo4jGraphStore.get_component_families`
+          compares equal to what `DuckDBGraphStore.get_component_families`
           reads back (that method has its own matching `ORDER BY`).
         No family is returned for a bucket where every member is a
         singleton (no two members meet the similarity threshold) - the
@@ -267,85 +261,9 @@ def build_component_families(components: List[Dict]) -> List[ComponentFamily]:
                     component_type=component_type,
                     common_classes=tuple(sorted(common)),
                     # Sorted so a family's member order is deterministic
-                    # regardless of clustering/iteration order - matches
-                    # Neo4jGraphStore.get_component_families's own explicit
-                    # ORDER BY, so a round-trip through either backend
-                    # compares equal.
+                    # regardless of clustering/iteration order - a
+                    # round-trip through any backend compares equal.
                     member_paths=tuple(sorted((m["page_url"], m["path"]) for m in cluster)),
                 )
             )
     return families
-
-
-# `<a>` reads as "Link" - the bare letter "A" is not a usable node label
-# in practice. Everything else just capitalizes its own tag name (see
-# label_for_tag). Extend this dict for any other tag whose capitalized
-# form wouldn't read well as a Neo4j label - there is no other mechanism
-# for a custom override.
-# Details: docs/dev/generators/component_family.md#_tag_label_overrides
-_TAG_LABEL_OVERRIDES = {"a": "Link"}
-
-
-def label_for_tag(tag: str) -> str:
-    """Human-readable, Cypher-label-safe name for a raw HTML tag - the
-    single source of truth for how a tag becomes a Neo4j node label
-    (`Neo4jGraphStore.apply_tag_labels` bakes this string directly into a
-    Cypher query, since labels can't be bound parameters, so this
-    function is also what guarantees every value it can ever produce is
-    safe to interpolate).
-
-    Args:
-        tag: raw HTML tag name, any case (`"button"`, `"BUTTON"`,
-            `"Button"` all produce the same result) - normalized to
-            lowercase internally before matching.
-
-    Returns:
-        - `"Link"` for `tag == "a"` - the only entry in
-          `_TAG_LABEL_OVERRIDES` right now; the bare capitalized letter
-          `"A"` reads poorly as a graph label, so `<a>` gets an explicit
-          override instead of falling through to the generic rule.
-        - `tag.capitalize()` for every other tag that's a valid Python
-          identifier - e.g. `"button"` -> `"Button"`, `"input"` ->
-          `"Input"`, `"select"` -> `"Select"`, `"textarea"` ->
-          `"Textarea"`, `"div"` -> `"Div"`.
-        - `"Component"` (the generic fallback, same label every
-          Component already has) for anything that *isn't* a plain
-          identifier - e.g. a custom element like `<my-widget>`, whose
-          hyphen would produce an invalid, unescaped Cypher label - and
-          for an empty/missing tag. This never raises; every input
-          produces *some* valid label string.
-
-    Details: docs/dev/generators/component_family.md#label_for_tag
-    """
-    tag = (tag or "").lower()
-    if tag in _TAG_LABEL_OVERRIDES:
-        return _TAG_LABEL_OVERRIDES[tag]
-    return tag.capitalize() if tag.isidentifier() else "Component"
-
-
-def tags_with_multiple_instances(components: List[Dict]) -> Set[str]:
-    """Which raw HTML tags are common enough, for this site, to deserve
-    their own Neo4j label - the input `Engine._apply_component_families`
-    feeds (after mapping each tag through `label_for_tag`) to
-    `GraphStore.apply_tag_labels`.
-
-    Args:
-        components: same flattened shape `build_component_families`
-            takes - each dict needs at least a `"tag"` key. Components
-            with a falsy/missing tag are ignored, same as
-            `build_component_families`.
-
-    Returns:
-        The set of distinct `tag` values that appear on `_MIN_FAMILY_
-        SIZE` (2) or more components. A tag seen only once has no "type"
-        to speak of yet on this site, so it's excluded - that single
-        component stays labeled only `:Component`, not e.g. `:Button`,
-        until a second instance of the same tag shows up on some future
-        crawl. Order is not meaningful (a plain `set`, not sorted) -
-        callers that need a stable iteration order should sort it
-        themselves.
-
-    Details: docs/dev/generators/component_family.md#tags_with_multiple_instances
-    """
-    counts = Counter(c.get("tag") or "" for c in components)
-    return {tag for tag, count in counts.items() if tag and count >= _MIN_FAMILY_SIZE}

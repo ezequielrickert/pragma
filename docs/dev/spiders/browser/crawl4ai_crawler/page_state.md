@@ -5,9 +5,8 @@
 Free functions, not methods - assembling a `PageState` from a crawl4ai
 `CrawlResult` plus this project's own stashed extraction dict needs
 nothing from `Crawl4AICrawler` itself beyond the two arguments each
-function already takes. Pulled out once `discover_pages_many` needed the
-exact same construction a third time (`discover_page` and `_interact`
-were already duplicating it).
+function already takes. Pulled out once `discover_page` and `_interact`
+were duplicating the exact same construction.
 
 ## resolved_url
 
@@ -23,11 +22,4 @@ specifically to capture JS-driven navigation - see
 ## build_page_state
 
 Shared `PageState`-assembly logic, factored out of `discover_page`'s and
-`_interact`'s own bodies once `discover_pages_many` needed the exact same
-construction a third time. `_interact`'s `PageState` used to omit
-`accessibility_violations`/`pseudo_styles`/`tab_order` explicitly; folding
-it into this shared function just means those three now default to
-whatever `data.get(..., [])` returns - empty, since `on_execution_ended`
-(the hook `_interact` triggers) never populates them, only
-`before_retrieve_html` does. No behavior change, one fewer near-duplicate
-block.
+`_interact`'s own near-identical bodies into one function both call.

@@ -14,8 +14,7 @@ page instead of Pragma's old sync, lazily-started single `Page`.
 `discover_page()` is the primary entry point: navigate to a URL, run
 every read-only extraction pass, return a `PageState`. `click()`/`fill()`/
 `resync()` drive the mechanical interaction loop against an existing
-session instead; `discover_pages_many()` is a third, independent shape -
-see its own section below.
+session instead.
 
 This class owns the browser and the navigate/interact API surface only;
 the crawl4ai hook callbacks themselves and the `PageState`-assembly logic
@@ -91,51 +90,6 @@ than opening a new one per page. See
 A page's own load fires the API calls a SPA needs to render at all - not
 attributable to any one component, but part of the contract all the
 same.
-
-## discover_pages_many
-
-Navigate to every url in a batch concurrently via crawl4ai's own
-`arun_many()` + `MemoryAdaptiveDispatcher`, instead of this crawler's own
-per-navigation `TargetLoadThrottle` loop. Built specifically for
-`measurement_pass.py`'s shape - many independent, already-known URLs, no
-interaction, no session reused across calls - which is exactly what
-`arun_many()` is designed for; `discover_page`/`click`/`fill`'s shape
-(one URL, many sequential `arun()` calls against the same session, each
-depending on the last) has no equivalent in `arun_many()`, so that path
-keeps its own throttle rather than trying to fit this one.
-
-Each URL gets its own `CrawlerRunConfig(session_id=url, ...)`, matching
-`discover_page`'s own `session_id = session_id or url` default so
-`before_retrieve_html`'s stash write never collides across concurrently-
-running pages.
-
-## discover_pages_many-url_matcher
-
-**`url_matcher` is required, not optional, on every one of those configs.**
-Found the hard way: `arun_many()`'s dispatcher resolves which config
-belongs to which URL via `CrawlerRunConfig.is_match(url)`, and a config
-with no `url_matcher` matches *every* URL unconditionally (see
-`crawl4ai`'s own `async_dispatcher.py::select_config`, which returns the
-first config where `is_match()` is true). Without setting one, every
-concurrently-dispatched URL silently resolved to `configs[0]`'s
-`session_id` - live-verified with two distinct fixture pages, where both
-pages' hook invocations reported the *same* `session_id`, and the second
-page's real extraction was lost entirely (its stash entry was just
-overwritten by the first page's data, read back as an empty
-`components: []`). Each config now sets
-`url_matcher=lambda candidate, target=url: candidate == target`, closing
-over `url` by value via the default argument (not the loop variable by
-reference, which would have every lambda close over the same final
-`url`). `tests/test_crawl4ai_crawler.py::test_discover_pages_many_returns_a_page_state_per_url_in_order`
-pins this regression.
-
-Returns `(url, PageState)` per successful page and `(url, None)` for a
-page that failed to load or timed out - the batch's own tolerant
-contract, not `discover_page`'s raise-on-failure one, so one bad page in
-the batch doesn't cost the rest (mirrored by
-`test_discover_pages_many_reports_a_failed_page_as_none_without_costing_the_rest`,
-which forces a real timeout via a slow fixture endpoint alongside a
-normal one).
 
 ## _save_markdown
 
@@ -236,6 +190,45 @@ components/links snapshot to check whether the failure was caused by an
 unrelated DOM remount (e.g. a component-library subtree reassigning its
 ids) - `discover_page()` isn't usable here since it performs a full
 navigation, discarding same-page state a same-URL resync must preserve.
+
+## go_back
+
+Step the `session_id` session's browser history back one entry -
+`history.back()` as the `js_code`, going through the same
+`_interact()`/`on_execution_ended()` path as `click`/`fill`/`resync`, not
+`discover_page()`.
+
+Exists for the mechanical loop's known-destination resume (see
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`):
+once a click has physically navigated to a destination the crawl already
+knows about, the caller needs to get back to the page it left - but
+`discover_page()` performs a *fresh* navigation, a brand-new request
+against the target server for a page this same session was just
+rendering a moment ago. `history.back()` instead lets the browser reuse
+whatever it already has for that history entry (bfcache, or at minimum
+the ordinary HTTP cache) the same way a person clicking their browser's
+own Back button would.
+
+Confirmed live on austral.edu.ar: before this existed, a known-destination
+resume's `discover_page()` re-fetch of the origin was a second navigation
+to the same URL within seconds of the first, and `TargetLoadThrottle`
+(`docs/dev/spiders/browser/target_load_throttle.md#module`) - built for
+exactly this site's own history of degrading under repeated load -
+recorded the second fetch taking visibly longer than the first (2.77s ->
+4.21s in one observed run) as the target itself pushing back.
+
+Not routed through `TargetLoadThrottle` at all - consistent with every
+other `_interact()`-based method (`click`/`fill`/`resync`), none of which
+record a navigation either. A `go_back` that does end up costing the
+target a real request is still far cheaper than a full `discover_page`
+navigation would have been, so under-counting it here is the accepted
+tradeoff, not an oversight.
+
+Returns whatever `PageState` the browser lands on - the caller
+(`NavigationRecovery.return_to_origin`) is responsible for checking that's
+actually the page it expected back, since `history.back()` can return
+without error even when nothing meaningful happened (an empty history
+stack, or a client-side router swallowing the `popstate` event).
 
 ## click
 

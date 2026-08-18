@@ -4,6 +4,8 @@ Details: docs/dev/utils/urls.md#module
 from __future__ import annotations
 
 import re
+from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 # An opaque, per-visit token path segment (session id, order hash, nonce).
 # Details: docs/dev/utils/urls.md#_token_segment_re
@@ -29,11 +31,11 @@ def is_opaque_token(segment: str) -> bool:
     """Public wrapper combining `_TOKEN_SEGMENT_RE` + `_looks_generated` -
     `route_shape`'s own per-path-segment check, exposed for any other
     code that needs the identical "does this look like a generated id,
-    not a real word" judgment on a single path segment. `request_family.
-    py`'s endpoint normalization is the other caller (an API URL's
-    dynamic `/orders/<uuid>/` segment is the same kind of per-instance
-    noise a page's own session token is - same heuristic, different URL
-    kind).
+    not a real word" judgment on a single path segment.
+    `database/ladybug/network.py::_pattern_and_params` is the other
+    caller (an API URL's dynamic `/orders/<uuid>/` segment is the same
+    kind of per-instance noise a page's own session token is - same
+    heuristic, different URL kind).
     Details: docs/dev/utils/urls.md#is_opaque_token
     """
     return bool(_TOKEN_SEGMENT_RE.match(segment)) and _looks_generated(segment)
@@ -72,6 +74,38 @@ def route_shape(url: str) -> str:
 def _host(url: str) -> str:
     """`clean_url()`'s own host-extraction step, standalone."""
     return clean_url(url).partition("/")[0]
+
+
+def slugify(url: str) -> str:
+    """Turn `url` into a filesystem-safe slug - the one function every
+    per-site filename (a debug-log run directory, a generated document, a
+    `.lbdb` database file) derives its name from, so the same URL always
+    resolves to the same path.
+    Details: docs/dev/utils/urls.md#slugify
+    """
+    return url.replace("https://", "").replace("http://", "").replace("/", "_")
+
+
+def resolve_href(base_url: str, href: str) -> Optional[str]:
+    """Resolve a possibly-relative anchor `href` (the raw DOM attribute -
+    discover_components.js's own `getAttribute('href')`, not the
+    browser-resolved `.href` property) against `base_url` into an
+    absolute, navigable URL - or `None` if `href` isn't one: empty, a
+    same-page fragment (`#section`), or a non-http(s) pseudo-scheme
+    (`javascript:`, `mailto:`, `tel:`).
+
+    The eager pre-click check `PageVisitor.visit()` uses: a real `<a
+    href>` component's destination is knowable without ever clicking it,
+    so a known destination never has to cost a browser navigation at all.
+    Details: docs/dev/utils/urls.md#resolve_href
+    """
+    href = (href or "").strip()
+    if not href or href.startswith("#"):
+        return None
+    resolved = urljoin(base_url, href)
+    if urlparse(resolved).scheme.lower() not in ("http", "https"):
+        return None
+    return resolved
 
 
 def is_in_scope(url: str, base_url: str, allow_subdomains: bool = False) -> bool:

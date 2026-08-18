@@ -40,7 +40,7 @@ class MechanicalCrawler:
         if tracker is not None:
             self.tracker = tracker
         elif config.sink is not None:
-            self.tracker = GraphStoreInteractionTracker(config.sink.graph_store, config.sink.site)
+            self.tracker = GraphStoreInteractionTracker(config.sink.graph_store)
         else:
             self.tracker = InMemoryInteractionTracker()
 
@@ -57,6 +57,10 @@ class MechanicalCrawler:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#visit-counters
         self._unique_visits = 0
         self._requeued_visits = 0
+        # A requeued visit UrlFrontier refused to retry again - past
+        # max_requeue_attempts, marked Failed instead of cycling forever.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#visit-counters
+        self._gave_up_visits = 0
         self._budget = BudgetTracker(config.budget)
         # Set once when a budget trips, then read by every other worker to
         # stop taking new pages. Also the "was this run partial" answer the
@@ -64,7 +68,8 @@ class MechanicalCrawler:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#stopped_reason
         self.stopped_reason: Optional[str] = None
         self._page_visitor = PageVisitor(
-            crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links, config
+            crawler, self.tracker, self._frontier.enqueue, self._frontier.enqueue_links,
+            config, self._frontier.is_known
         )
 
     @property
@@ -84,7 +89,7 @@ class MechanicalCrawler:
         """
         if self.sink is None:
             return []
-        rows = self.sink.graph_store.get_progress_table_rows(self.sink.site)
+        rows = self.sink.graph_store.get_progress_table_rows()
         return [row["url"] for row in rows if row.get("status") == "Finished"]
 
     def _resume_urls(self) -> List[str]:
@@ -102,7 +107,7 @@ class MechanicalCrawler:
         """
         if self.sink is None:
             return []
-        pending = self.sink.graph_store.get_pending(self.sink.site)
+        pending = self.sink.graph_store.get_pending()
         return [url for url in pending if "{token}" not in url]
 
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
@@ -164,16 +169,16 @@ class MechanicalCrawler:
         )
         return True
 
-    def _report_visit(self, worker_id: int, url: str, result: PageVisitResult) -> None:
+    def _report_visit(self, worker_id: int, url: str, outcome: str) -> None:
         """One line per finished visit, naming the worker so concurrent
         output stays readable, and splitting unique visits from requeues so a
         crawl churning on the same pages is visibly different from one making
         progress. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_report_visit
         """
-        outcome = "requeued" if result.interrupted_by_navigation else "done"
         print(
             f"worker {worker_id} | visit {self._pages_visited} "
-            f"({self._unique_visits} unique, {self._requeued_visits} requeued) "
+            f"({self._unique_visits} unique, {self._requeued_visits} requeued, "
+            f"{self._gave_up_visits} gave up) "
             f"| queued: {self._frontier.queued_count()} | {outcome}: {url}"
         )
 
@@ -214,9 +219,11 @@ class MechanicalCrawler:
                 visits_since_recycle = await self._recycle_session_if_due(browser_session_id, visits_since_recycle)
                 self.page_results.append(result)
                 self._pages_visited += 1
-                self._budget.record_page()
                 # The page node plus everything discovered on it - an estimate
                 # of graph growth, not a query, so the budget check stays free.
+                # Counted regardless of interruption: record_inventory/
+                # record_page_arrival already wrote this data to the store
+                # before any interruption could happen.
                 # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#budget-nodes
                 self._budget.record_nodes(
                     1 + result.components_discovered + result.links_discovered
@@ -225,11 +232,35 @@ class MechanicalCrawler:
                     # Requeue resolved_url directly - see doc for the redirect bug this avoids.
                     # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-requeue
                     self._requeued_visits += 1
-                    self._frontier.requeue(result.resolved_url)
+                    if self._frontier.requeue(result.resolved_url):
+                        outcome = "requeued"
+                    else:
+                        # Past max_requeue_attempts for this url - give up
+                        # for good rather than cycle forever. Marked visited
+                        # in both places a normal finish would be: the
+                        # tracker cache (so this process never reconsiders
+                        # it) and the store (so a resumed run doesn't either).
+                        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-give-up
+                        outcome = "gave up on"
+                        self._gave_up_visits += 1
+                        self.tracker.mark_visited(key)
+                        if self.sink:
+                            await self.sink.record_page_failed(result.url)
                 else:
+                    # CrawlBudget.pages counts "pages finished this run" (its
+                    # own docstring) - only here, never for a requeued/
+                    # interrupted pass, which hasn't finished and will be
+                    # reattempted. Counting those too let a site whose
+                    # anti-bot protection intermittently blocks requests burn
+                    # its whole page budget re-requeuing the same handful of
+                    # pages, reporting "budget reached" while hundreds of
+                    # newly discovered URLs never got a turn.
+                    # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
+                    self._budget.record_page()
                     self._unique_visits += 1
                     self.tracker.mark_visited(key)
                     self._frontier.record_route_shape_visit(url)
-                self._report_visit(worker_id, url, result)
+                    outcome = "done"
+                self._report_visit(worker_id, url, outcome)
             finally:
                 self._frontier.task_done()

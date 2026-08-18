@@ -154,7 +154,7 @@ lookup.
 ## fresh
 
 Purge this site's previously recorded `graph_store` state before
-crawling (`Engine.from_config`). Matters for `graph_store: neo4j`, which
+crawling (`Engine.from_config`). Matters for `graph_store: duckdb`, which
 persists across runs - without this, a site whose URLs are per-session
 tokens (e.g. a `/o/<random-id>` order flow) accumulates a "visited" node
 per past run forever, none of which will ever be seen again but all of

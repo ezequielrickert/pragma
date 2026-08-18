@@ -7,14 +7,14 @@ import asyncio
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.interfaces import GraphStore, VisitStep
+from core.interfaces import VisitStep
 from generators.component_classifier import (
     classify_component_type,
     group_choice_sets,
     group_option_families,
     group_steppers,
 )
-from utils.urls import clean_url, is_in_scope, route_shape
+from utils.urls import is_in_scope, route_shape
 from .component_facts import component_facts, option_labels_for
 
 # Status for a link target the frontier will never visit because it points off
@@ -25,6 +25,15 @@ from .component_facts import component_facts, option_labels_for
 # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#external_page_status
 EXTERNAL_PAGE_STATUS = "External"
 
+# Status for a page whose interrupted pass exhausted UrlFrontier's
+# max_requeue_attempts (a reliably anti-bot-blocked page, or a redirect
+# destination too many independent passes kept landing on and requeuing).
+# Distinct from "Pending" (get_pending() excludes it, so a resumed run
+# doesn't retry it forever) and from "Finished" (coverage/measurement
+# passes correctly treat it as never actually analyzed).
+# Details: docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status
+FAILED_PAGE_STATUS = "Failed"
+
 
 class GraphStoreSink:
     """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they happen.
@@ -33,13 +42,12 @@ class GraphStoreSink:
 
     def __init__(
         self,
-        graph_store: GraphStore,
-        site: str,
+        graph_store: Any,
         base_url: Optional[str] = None,
         allow_subdomains: bool = False,
+        run_id: str = "",
     ) -> None:
         self.graph_store = graph_store
-        self.site = site
         # The same two values `UrlFrontier` gates on, so a link is judged
         # in-scope identically whether it is being queued or recorded.
         # `None` disables the check, preserving the pre-scope behavior for
@@ -47,16 +55,21 @@ class GraphStoreSink:
         # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#base_url
         self.base_url = base_url
         self.allow_subdomains = allow_subdomains
+        # Identifies this crawl to record_navigation_edge's run_id - "" for
+        # any caller that doesn't track one (tests, mostly), which every
+        # GraphStore backend accepts as "no provenance recorded".
+        self.run_id = run_id
         # page_url -> {member_path: representative_path}, populated by
         # record_inventory. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_resolve_write_path
         self._representative_for: Dict[str, Dict[str, str]] = {}
 
     async def _write(self, fn: Callable[..., None], *args: Any, **kwargs: Any) -> None:
         """Run one blocking `GraphStore` write off the event loop.
-        `GraphStore` backends (e.g. `Neo4jGraphStore`) are synchronous - each
-        call is its own network round-trip - so calling `fn` directly here
-        would stall every other crawl worker sharing this event loop for the
-        duration. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
+        `LadybugGraphStore` is synchronous - it blocks on its own single
+        writer thread (see `database/ladybug/writer.py`) - so calling
+        `fn` directly here would stall every other crawl worker sharing
+        this event loop for the duration.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_write
         """
         await asyncio.to_thread(fn, *args, **kwargs)
 
@@ -65,7 +78,7 @@ class GraphStoreSink:
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_arrival
         """
         await self._write(
-            self.graph_store.upsert_page, self.site, page_key,
+            self.graph_store.upsert_page, page_key,
             status="Pending", description=description, title=title,
         )
 
@@ -76,9 +89,24 @@ class GraphStoreSink:
         """
         if not metadata:
             return
-        await self._write(
-            self.graph_store.record_page_metadata, self.site, page_key, json.dumps(metadata)
-        )
+        await self._write(self.graph_store.record_page_metadata, page_key, metadata)
+
+    def _mark_party(self, requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Stamp `is_first_party` onto each already-filtered request dict,
+        by the same `base_url`/`allow_subdomains` host check `record_inventory`
+        already applies to link targets - reused rather than introducing a
+        second notion of "this site". `GraphStore` reads the stamp to decide
+        whether a request earns its own `Request` node or only bumps its
+        `Endpoint`'s `call_count` - see `database/ladybug/network.py`.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_mark_party
+        """
+        return [{**r, "is_first_party": self._is_first_party_host(r.get("host", ""))} for r in requests]
+
+    def _is_first_party_host(self, host: str) -> bool:
+        """No `base_url` configured means no scope was ever declared -
+        treated as first-party, the same permissive default `record_inventory`'s
+        own off-site check already applies when `self.base_url` is falsy."""
+        return not self.base_url or is_in_scope(host, self.base_url, self.allow_subdomains)
 
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
@@ -86,9 +114,7 @@ class GraphStoreSink:
         """
         if not requests:
             return
-        await self._write(
-            self.graph_store.record_page_network, self.site, page_key, json.dumps(requests)
-        )
+        await self._write(self.graph_store.record_page_network, page_key, self._mark_party(requests))
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
@@ -111,7 +137,7 @@ class GraphStoreSink:
                 "height": rect.get("height"),
             })
         if entries:
-            await self._write(self.graph_store.record_text_contents, self.site, page_key, entries)
+            await self._write(self.graph_store.record_text_contents, page_key, entries)
 
     async def record_inventory(
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
@@ -138,11 +164,10 @@ class GraphStoreSink:
         for stepper in group_steppers(components):
             increment_path = stepper.get("increment_path")
             if increment_path:
-                stepper_json = json.dumps(stepper)
                 await self._write(
                     self.graph_store.record_component_options,
-                    self.site, page_key, increment_path, stepper_json,
-                    option_labels=option_labels_for(stepper_json),
+                    page_key, increment_path, stepper,
+                    option_labels=option_labels_for(json.dumps(stepper)),
                 )
 
         for name, members in choice_sets.items():
@@ -155,7 +180,27 @@ class GraphStoreSink:
                 component_batch.append(args)
 
         if component_batch:
-            await self._write(self.graph_store.record_components, self.site, page_key, component_batch)
+            await self._write(self.graph_store.record_components, page_key, component_batch)
+
+        # Structural containment, keyed to exactly the paths that got a
+        # Component row above: every ungrouped component's own ancestors,
+        # plus each choice-group/stepper-family's representative (the only
+        # member of the group with a row of its own - see _record_choice_group).
+        # A member consolidated into a group never gets its own row, so its
+        # ancestors would be orphaned data with nothing to join against.
+        ancestor_entries = [
+            {"path": comp["path"], "ancestors": comp["ancestors"]}
+            for comp in components
+            if comp.get("path") and comp.get("ancestors") and comp["path"] not in grouped_paths
+        ]
+        for members in (*choice_sets.values(), *option_families.values()):
+            representative = members[0]
+            if representative.get("path") and representative.get("ancestors"):
+                ancestor_entries.append(
+                    {"path": representative["path"], "ancestors": representative["ancestors"]}
+                )
+        if ancestor_entries:
+            await self._write(self.graph_store.record_component_ancestors, page_key, ancestor_entries)
 
         link_batch = []
         off_site: List[str] = []
@@ -176,15 +221,13 @@ class GraphStoreSink:
             if self.base_url and not is_in_scope(href, self.base_url, self.allow_subdomains):
                 off_site.append(target)
         if link_batch:
-            await self._write(self.graph_store.record_links, self.site, page_key, link_batch)
+            await self._write(self.graph_store.record_links, page_key, link_batch)
         # After record_links, never instead of it: the edge to an off-site
         # page is real data (where this site sends you) and stays recorded.
         # Only the target's status changes, so it stops posing as work.
         # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#off-site-targets
         for url in dict.fromkeys(off_site):
-            await self._write(
-                self.graph_store.upsert_page, self.site, url, status=EXTERNAL_PAGE_STATUS
-            )
+            await self._write(self.graph_store.upsert_page, url, status=EXTERNAL_PAGE_STATUS)
 
     def _component_args(self, comp: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """One component's descriptive fields as `record_component(s)` kwargs,
@@ -233,18 +276,16 @@ class GraphStoreSink:
         if not representative_path:
             return None
         args = self._component_args(representative)
-        option_summary = json.dumps(
-            {
-                "group": group_name,
-                "options": [
-                    {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
-                    for m in members
-                ],
-            }
-        )
+        option_summary = {
+            "group": group_name,
+            "options": [
+                {"path": m.get("path"), "text": m.get("text"), "selected": bool(m.get("selected"))}
+                for m in members
+            ],
+        }
         await self._write(
-            self.graph_store.record_component_options, self.site, page_key, representative_path, option_summary,
-            option_labels=option_labels_for(option_summary),
+            self.graph_store.record_component_options, page_key, representative_path, option_summary,
+            option_labels=option_labels_for(json.dumps(option_summary)),
         )
         page_map = self._representative_for.setdefault(page_key, {})
         for member in members:
@@ -276,7 +317,7 @@ class GraphStoreSink:
         """
         write_path, source_path = self._resolve_write_path(page_key, path)
         await self._write(
-            self.graph_store.record_component_interaction, self.site, page_key, write_path,
+            self.graph_store.record_component_interaction, page_key, write_path,
             action=action, value=value, resulting_url=resulting_url, source_path=source_path,
             step=step,
         )
@@ -301,27 +342,34 @@ class GraphStoreSink:
         write_path, source_path = self._resolve_write_path(page_key, path)
         payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
         await self._write(
-            self.graph_store.record_component_network, self.site, page_key, write_path, json.dumps(payload)
+            self.graph_store.record_component_network, page_key, write_path, self._mark_party(payload)
         )
 
     async def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_revealed_options
         """
-        payload = json.dumps({"trigger": trigger_path, "revealed_options": revealed})
+        payload = {"trigger": trigger_path, "revealed_options": revealed}
         await self._write(
-            self.graph_store.record_component_options, self.site, page_key, trigger_path, payload,
-            option_labels=option_labels_for(payload),
+            self.graph_store.record_component_options, page_key, trigger_path, payload,
+            option_labels=option_labels_for(json.dumps(payload)),
         )
 
     async def record_navigation_edge(self, from_key: str, to_key: str, path: str, action: str) -> None:
         """Only called when an interaction's resulting URL differs from the page it ran on."""
-        await self._write(self.graph_store.record_edge, self.site, from_key, to_key, component=path, action=action)
+        await self._write(
+            self.graph_store.record_edge, from_key, to_key,
+            component=path, action=action, run_id=self.run_id,
+        )
 
     async def record_page_finished(self, page_key: str, component_count: int) -> None:
         """Called once a page's pass completes without being cut short by navigation.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_finished
         """
-        await self._write(
-            self.graph_store.upsert_page, self.site, page_key, status="Finished", components=component_count
-        )
+        await self._write(self.graph_store.upsert_page, page_key, status="Finished", components=component_count)
+
+    async def record_page_failed(self, page_key: str) -> None:
+        """Called once `UrlFrontier.requeue` gives up on a page for good -
+        see `FAILED_PAGE_STATUS`. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_failed
+        """
+        await self._write(self.graph_store.upsert_page, page_key, status=FAILED_PAGE_STATUS)

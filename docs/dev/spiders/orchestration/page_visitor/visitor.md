@@ -44,6 +44,13 @@ navigation-trigger/interacted-identity state for one page_key, so there's
 exactly one `Frontier` instance per `PageVisitor`, not one per
 collaborator.
 
+`is_known_url` (`MechanicalCrawler.__init__` passes `UrlFrontier.is_known`
+bound through - see
+`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known`)
+only goes to `InteractionOutcomes`, not `NavigationRecovery` - it's a
+decision `handle_physical_navigation` makes, not something the recovery
+methods themselves need to know.
+
 ## _fill_value_cache
 
 `(page_key, component_identity())` -> the value already generated for
@@ -173,6 +180,46 @@ freshly-reloaded page's own churned selectors can't be caught by the path
 check alone - `Frontier.eligible()` is what applies both the
 navigation-trigger and interacted-identity exclusions here.
 
+## visit-page_url
+
+The full, scheme'd URL of whatever page this pass is currently on -
+tracked alongside `page_literal` (`clean_url`'s stripped form, used for
+the physical-navigation identity check) purely because
+`resolve_href`/`urljoin` needs a real base URL to resolve a relative href
+against, which `page_literal` no longer is once its scheme/`www.` prefix
+are gone. Updated at the exact same two points `page_literal` is: once at
+`visit`'s own top (`state.url`), and again on a successful
+`return_to_origin` (`fresh_state.url`) - never on a state transition,
+since that branch doesn't change the literal URL by definition.
+
+## visit-static-href-check
+
+The primary fix for a known-destination navigation, ahead of
+`visit-physical-navigation-branch` below - runs before every non-fillable
+component's click is even attempted. A real `<a href>`'s destination is
+knowable from its raw `href` attribute without clicking it (unlike an
+`onclick` handler or any other JS-driven navigation, which only reveals
+its destination by actually firing). `resolve_href` turns that raw,
+possibly-relative attribute into an absolute URL against `page_url`; if
+it resolves to something and
+`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known`
+says the crawl already has a place for it,
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link`
+records the edge and this component never gets clicked at all - no
+browser navigation happens for it, so none of `handle_physical_navigation`/
+`return_to_origin`'s own failure modes (a slow/degraded target, an
+anti-bot false positive on a mid-navigation DOM snapshot, `go_back`
+landing somewhere unexpected) can occur for it either.
+
+Confirmed necessary, not just an optimization on top of
+`return_to_origin`: live against austral.edu.ar, `return_to_origin`'s
+`go_back` step itself was failing often enough under the site's own
+degraded/rate-limited conditions that most known-destination navigations
+were still falling back to the ordinary interrupted-and-requeue path -
+this check removes the browser navigation (and everything that can go
+wrong with one) for the common case entirely, rather than trying to
+recover from it faster.
+
 ## visit-frontier-loop
 
 No numeric ceiling on how many components one visit interacts with -
@@ -287,13 +334,40 @@ session may not be stuck the same way.
 Real *physical* navigation - the live browser session moved to a
 different literal URL, even if it canonicalizes to the same route_shape
 (e.g. a "start a new order" flow landing on a fresh `/o/<hash>` every
-time - the selectors this pass was built for are still gone, so this
-must still stop the pass, regardless of what the storage layer considers
-"the same page" - see `visit`'s own doc above). Delegates to
+time - the selectors this pass was built for are still gone either way).
+Reached only for what `visit-static-href-check` above couldn't already
+avoid entirely (a real click happened this time, not a skipped one) -
+`go_back` below is the fallback recovery for a navigation that already
+happened, not the primary mechanism for avoiding one.
+Delegates to
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`,
-then stops this page's pass right here: the session's page has physically
-left `page_literal`, so no further frontier item from this pass can be
-safely acted on.
+which decides whether the destination is already known to this crawl.
+
+An **unknown** destination (`must_stop` is `True`) still stops the pass
+right here, same as before this distinction existed: the session's page
+has physically left `page_literal`, so no further frontier item from this
+pass can be safely acted on, and the whole page gets requeued for a
+separate later pass.
+
+A **known** destination doesn't need a separate pass - only the browser,
+which really did navigate away, needs to come back.
+`docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
+does that via browser history (`Crawl4AICrawler.go_back` - not a fresh
+`discover_page` navigation, and not a no-op resync either) and reconciles
+the remaining frontier against whatever DOM state it finds; passed the
+current `page_literal` so it can check the browser actually landed back
+where expected. On success the loop `continue`s with the fresh
+`known_components`/`page_literal` instead of breaking. If the return
+fails - `go_back` itself raises, or lands somewhere unexpected - there's
+no live page left to act on, so this falls back to the unknown-destination
+outcome: `result.interrupted_by_navigation = True`, then `break`.
+
+Confirmed live on austral.edu.ar: without this distinction, a site-wide
+nav menu (nearly every page links to nearly every other page) meant
+nearly every page's first few interactions were known-destination clicks
+that each interrupted the pass anyway - most pages exhausted
+`max_requeue_attempts` purely on nav-menu links, marked Failed before
+reaching any of their own content.
 
 ## visit-state-transition-branch
 

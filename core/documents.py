@@ -2,10 +2,10 @@
 and what it produces.
 
 Lives in its own module rather than in `interfaces.py` for the same reason
-`data_contracts.py` does - `interfaces.py` holds the *crawl's* contracts
-(`Agent`, `GraphStore`), and the document pipeline is a separate concern
-that happens to consume them. Keeping it here also stops `interfaces.py`
-from drifting further past this project's file-size threshold.
+`data_contracts.py` does - `interfaces.py` holds the *crawl's* own
+contract (`Agent`), and the document pipeline is a separate concern that
+happens to consume it. Keeping it here also stops `interfaces.py` from
+drifting further past this project's file-size threshold.
 
 Details: docs/dev/core/documents.md#module
 """
@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, Tuple
 
-from .interfaces import Agent, GraphStore
+from .interfaces import Agent
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class DocumentRequest:
     Details: docs/dev/core/documents.md#documentrequest
     """
 
-    graph_store: GraphStore
+    graph_store: Any
     site: str
     agent: Agent
     settings: Dict[str, Any] = field(default_factory=dict)

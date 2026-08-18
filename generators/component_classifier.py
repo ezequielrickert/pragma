@@ -211,6 +211,53 @@ def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def describe_options_from_rows(rows: List[Dict[str, Any]], group_name: str) -> Optional[Dict[str, Any]]:
+    """`describe_options`'s counterpart for the real graph: the same
+    normalized `{"kind", ...}` shape, built directly from `Option` rows
+    (`database/ladybug/options.py`'s own write-side encoding, reversed)
+    instead of parsing a JSON blob - there is no blob to parse anymore.
+
+    Args:
+        rows: one dict per `Option` a component's `HAS_OPTION` edges
+            reach, each `{"path", "text", "selected"}`, in `seq` order.
+        group_name: the `group_name` every one of those `Option`s shares -
+            `"stepper"` (a reserved sentinel, see `options.py`'s module
+            docstring for the four-role-tag encoding this decodes), or
+            the group/trigger name for the other two kinds.
+
+    Returns:
+        `None` for an empty `rows`. Otherwise the same shape
+        `describe_options` returns for each of its three kinds -
+        distinguished the same way the write side did: `group_name ==
+        "stepper"` first, then whether any row carries a real `path`
+        (only ever true for `choice_group`; `revealed_options` rows
+        never had a DOM selector of their own).
+    Details: docs/dev/generators/component_classifier.md#describe_options_from_rows
+    """
+    if not rows:
+        return None
+    if group_name == "stepper":
+        by_text = {r["text"]: r for r in rows if not r["text"].startswith("value:")}
+        value_row = next((r for r in rows if r["text"].startswith("value:")), None)
+        return {
+            "kind": "stepper",
+            "container": (by_text.get("container") or {}).get("path"),
+            "increment_path": (by_text.get("increment") or {}).get("path"),
+            "decrement_path": (by_text.get("decrement") or {}).get("path"),
+            "value_path": value_row["path"] if value_row else None,
+            "current_value": value_row["text"].partition(":")[2] if value_row else None,
+        }
+    if any(r.get("path") for r in rows):
+        return {
+            "kind": "choice_group", "group": group_name,
+            "choices": [{"path": r["path"], "text": r["text"], "selected": r["selected"]} for r in rows],
+        }
+    return {
+        "kind": "revealed_options", "trigger": group_name,
+        "choices": [{"text": r["text"], "selected": r["selected"]} for r in rows],
+    }
+
+
 def format_option_choices(parsed: Optional[Dict[str, Any]]) -> List[str]:
     """Render `describe_options`' normalized shape as short, human-readable
     display strings - the same clean form the component-tree document

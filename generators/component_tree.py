@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.documents import DocumentGenerator, DocumentRequest
-from core.interfaces import GraphStore
 from core.registry import DOCUMENT_REGISTRY
-from .component_classifier import choice_text_by_path, describe_options, format_option_choices
+from .component_classifier import choice_text_by_path, describe_options_from_rows, format_option_choices
 
 
 @dataclass
@@ -77,18 +76,21 @@ def _render_request_line(request: Dict[str, Any]) -> str:
         outcome = str(request["status"])
     else:
         outcome = "? (no response captured)"
-    return f"{request.get('method', '')} {request.get('url', '')} -> {outcome}"
+    return f"{request.get('method', '')} {request.get('path', '')} -> {outcome}"
 
 
-def build_component_tree(graph_store: GraphStore, site: str) -> SiteTree:
-    """Pure, deterministic read of `GraphStore` into an in-memory tree structure.
+def build_component_tree(graph_store: Any, site: str) -> SiteTree:
+    """Pure, deterministic read of the graph store into an in-memory tree
+    structure. `site` labels the tree's own root (`SiteTree.site`,
+    rendered as the ASCII tree's top line) - the store itself needs no
+    `site` argument, already scoped to exactly one by construction.
     Details: docs/dev/generators/component_tree.md#build_component_tree
     """
-    rows = graph_store.get_progress_table_rows(site)
-    titles = graph_store.get_page_titles(site)
-    ledger = graph_store.get_component_ledger(site)
-    text_ledger = graph_store.get_text_content_ledger(site)
-    edges = graph_store.get_edges(site)
+    rows = graph_store.get_progress_table_rows()
+    titles = graph_store.get_page_titles()
+    ledger = graph_store.get_component_ledger()
+    text_ledger = graph_store.get_text_content_ledger()
+    edges = graph_store.get_edges()
 
     # Fallback/cross-check only - a component's own resulting_url is primary.
     # Details: docs/dev/generators/component_tree.md#redirect_index
@@ -102,7 +104,7 @@ def build_component_tree(graph_store: GraphStore, site: str) -> SiteTree:
 
         for path in sorted(ledger.get(url, {}).keys()):
             record = ledger[url][path]
-            parsed = describe_options(record.get("options") or "")
+            parsed = describe_options_from_rows(*record.get("options", ([], "")))
 
             placeholder_value = None
             redirect_target_url = None
@@ -193,7 +195,7 @@ def render_ascii_tree(tree: SiteTree, use_box_drawing: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_component_tree_document(graph_store: GraphStore, site: str, use_box_drawing: bool = True) -> str:
+def generate_component_tree_document(graph_store: Any, site: str, use_box_drawing: bool = True) -> str:
     """Top-level entry point `Engine` calls: build + render + a short header.
     Details: docs/dev/generators/component_tree.md#generate_component_tree_document
     """

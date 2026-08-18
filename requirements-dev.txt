@@ -2,22 +2,6 @@
 # run Pragma itself. Install with:
 #   pip install -r requirements.txt -r requirements-dev.txt
 #
-# testcontainers: lets tests/test_neo4j_graph_store_integration.py start an
-# ephemeral, throwaway Neo4j container automatically (when Docker is
-# available but no instance is already reachable) instead of requiring
-# `docker compose up -d neo4j` run by hand first - see that file's own
-# module docstring and docs/explicativos/plan-almacenamiento.md Fase C.
-#
-# Deliberately the plain `testcontainers` package, NOT the `testcontainers[neo4j]`
-# extra: that extra hard-requires `neo4j>=6`, which would force-upgrade this
-# project's pinned `neo4j==5.24.0` (requirements.txt) as a side effect of
-# installing a test-only tool - confirmed live while adding this (`pip install
-# "testcontainers[neo4j]"` silently bumped the installed neo4j driver to
-# 6.2.0). Every actual Neo4j query in these tests still goes through this
-# project's own pinned driver either way - testcontainers here only starts
-# the server, it never talks to it itself.
-testcontainers==4.15.0
-
 # openapi-spec-validator: lets tests/test_openapi.py check the generated
 # contract against the real OpenAPI 3.0 schema instead of hand-asserting a
 # handful of keys. Test-only - the generator itself writes YAML with the

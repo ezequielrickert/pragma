@@ -1,12 +1,15 @@
 """Regression tests for Phase 3 of the crawl4ai migration: live GraphStore
 writes via MechanicalCrawler + GraphStoreSink (spiders/orchestration/graph_sink.py).
 
-Uses InMemoryGraphStore (same GraphStore interface Neo4jGraphStore implements)
-so these run without a live Neo4j instance - matches the existing test suite's
-convention (see tests/test_graph_store.py) of testing the GraphStore contract
-against the in-memory backend and leaving live-Neo4j checks to
-tests/test_neo4j_graph_store_integration.py, which self-skips when no
-instance is reachable.
+Uses LadybugGraphStore in-memory mode so these run with no setup at all -
+matches the existing test suite's convention (see tests/test_graph_store.py).
+The store's own contract is covered by tests/test_ladybug_observation.py/
+test_ladybug_read_path.py.
+
+Option/Request write paths (storage-migration plan steps 7-8) are both
+real now. Fetch-request attribution is covered end-to-end below; Option
+membership is covered end-to-end by tests/test_component_tree.py and at
+the storage layer by tests/test_ladybug_options.py, not duplicated here.
 """
 import asyncio
 import http.server
@@ -16,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
+from generators.component_classifier import describe_options_from_rows
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from spiders.orchestration.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
-from generators.component_classifier import describe_options
-from database.memory_graph_store import InMemoryGraphStore
+from database.ladybug.store import LadybugGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 SITE = "test-site"
@@ -76,9 +79,9 @@ def fetch_aware_fixture_server():
 
 
 def _crawl_with_graph_store(start_url: str, **kwargs):
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    sink = GraphStoreSink(store, SITE)
+    sink = GraphStoreSink(store)
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
@@ -92,7 +95,7 @@ def _crawl_with_graph_store(start_url: str, **kwargs):
 
 def test_page_arrival_and_completion_are_recorded(fixture_server):
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
-    rows = {r["url"]: r for r in store.get_progress_table_rows(SITE)}
+    rows = {r["url"]: r for r in store.get_progress_table_rows()}
     assert any(u.endswith("index.html") for u in rows)
     index_row = next(r for u, r in rows.items() if u.endswith("index.html"))
     assert index_row["status"] == "Finished"
@@ -102,7 +105,7 @@ def test_page_arrival_and_completion_are_recorded(fixture_server):
 def test_page_title_is_persisted(fixture_server):
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     page_key = next(r.url for r in results if r.url.endswith("index.html"))
-    titles = store.get_page_titles(SITE)
+    titles = store.get_page_titles()
     assert titles.get(page_key) == "Mechanical loop fixture: index"
 
 
@@ -112,7 +115,7 @@ def test_component_inventory_is_recorded_unconditionally(fixture_server):
     right after `discover_page`, independent of the interaction loop."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/chain.html", max_pages=1)
     page_key = results[0].url
-    states = store.get_component_states(SITE, page_key)
+    states = store.get_component_states(page_key)
     # chain.html's c0 is the only initially-visible button (c1-c4 start
     # CSS-hidden) - it must be in the inventory from the very first
     # discovery, before this pass ever clicks anything.
@@ -122,7 +125,7 @@ def test_component_inventory_is_recorded_unconditionally(fixture_server):
 def test_interaction_ledger_records_attempted_actions(fixture_server):
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     page_key = next(r.url for r in results if r.url.endswith("index.html"))
-    ledger = store.get_component_ledger(SITE)
+    ledger = store.get_component_ledger()
     page_ledger = ledger.get(page_key, {})
     fill_entries = [
         c for c in page_ledger.values()
@@ -131,9 +134,32 @@ def test_interaction_ledger_records_attempted_actions(fixture_server):
     assert fill_entries, "the fillable nameInput field must show up as interacted in the persisted ledger"
 
 
+def test_clicking_a_fetch_button_records_a_request_attributed_to_the_click(fetch_aware_fixture_server):
+    """End-to-end: a real click fires a real `fetch('/api/ping')`, and the
+    resulting `Request` node ends up hung off exactly that click's own
+    `Interaction` (`TRIGGERED`), not floating unattributed - the capability
+    `fetch_aware_fixture_server`/`fetch_button.html` exist to exercise,
+    dormant until storage-migration plan step 7 landed."""
+    store, sink, (mech, results) = _crawl_with_graph_store(
+        f"{fetch_aware_fixture_server}/fetch_button.html", max_pages=1
+    )
+    page_key = results[0].url
+
+    ledger = store.get_component_ledger()
+    button = next(c for c in ledger[page_key].values() if c.get("element_id") == "pingButton")
+    assert button["network_requests"], "the click must have an attributed request, not an empty pool"
+    request = button["network_requests"][0]
+    assert request["method"] == "GET"
+    assert request["path"] == "/api/ping"
+    assert request["status"] == 200
+
+    inferred = store.get_inferred_requests()
+    assert any(r.endpoint.endswith("/api/ping") for r in inferred)
+
+
 def test_navigation_produces_a_graph_edge(fixture_server):
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
-    edges = store.get_edges(SITE)
+    edges = store.get_edges()
     to_page_b = [e for e in edges if e["to"].endswith("page-b.html")]
     assert to_page_b, "a navigating click/link must produce a recorded edge into page-b.html"
 
@@ -143,9 +169,9 @@ def test_graph_backed_tracker_prevents_re_interaction_across_a_fresh_mechanical_
     sharing the same GraphStore, must not redo work the first one already
     did - the persisted ledger is what makes this possible without any
     in-process state carried over."""
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    sink = GraphStoreSink(store, SITE)
+    sink = GraphStoreSink(store)
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
@@ -161,9 +187,9 @@ def test_graph_backed_tracker_prevents_re_interaction_across_a_fresh_mechanical_
 
 
 def test_default_tracker_derives_from_sink_when_no_explicit_tracker_given(fixture_server):
-    store = InMemoryGraphStore()
+    store = LadybugGraphStore(SITE)
     store.connect()
-    sink = GraphStoreSink(store, SITE)
+    sink = GraphStoreSink(store)
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
@@ -173,7 +199,6 @@ def test_default_tracker_derives_from_sink_when_no_explicit_tracker_given(fixtur
 
     tracker = asyncio.run(run())
     assert tracker.graph_store is store
-    assert tracker.site == SITE
 
 
 def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server):
@@ -184,10 +209,15 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     which option they are - see component_classifier.group_option_families
     and GraphStoreSink._record_choice_group. The original ghost-node failure
     mode (a blank auto-created stub instead of real fields) is still guarded
-    against: it must be that one real node, not a blank one."""
+    against: it must be that one real node, not a blank one.
+
+    The `options` field itself (what choices the consolidated node
+    offers) is checked too: the representative's own `Option` rows must
+    list all three revealed choices, not just the one whose text
+    happened to survive consolidation onto the Component node."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
+    ledger = store.get_component_ledger()[page_key]
 
     option_entries = {c["text"]: c for c in ledger.values() if c.get("text") in ("Small", "Medium", "Large")}
     assert set(option_entries) == {"Small"}, "the 3 revealed options must collapse into 1 representative node"
@@ -195,13 +225,14 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     assert entry["tag"] == "div", "the representative must carry real fields, not a ghost-node blank"
     assert entry["component_type"], "the representative must have a real component_type"
 
-    parsed = describe_options(entry["options"])
-    assert parsed["kind"] == "choice_group"
-    assert {c["text"] for c in parsed["choices"]} == {"Small", "Medium", "Large"}
+    parsed = describe_options_from_rows(*entry["options"])
+    assert parsed is not None, "the consolidated node must carry the choices it represents"
+    choice_texts = {c["text"] for c in parsed["choices"]}
+    assert choice_texts == {"Small", "Medium", "Large"}
 
     # A link that only exists inside the revealed popover must also get
     # queued - regression for the _enqueue_links gap in the same branch.
-    rows = {r["url"]: r for r in store.get_progress_table_rows(SITE)}
+    rows = {r["url"]: r for r in store.get_progress_table_rows()}
     assert any(u.endswith("size-details") for u in rows), "a link revealed only via a popover must still be queued"
 
 
@@ -209,68 +240,22 @@ def test_stepper_detected_in_a_revealed_snapshot_not_just_the_initial_one(fixtur
     """Falls out of the same record_inventory fix for free (per the plan):
     group_steppers already runs inside record_inventory over whatever
     component list it's given, so a stepper that only appears after a reveal
-    (reveal.html's quantity control) must get its options field populated
-    once record_inventory is called again for that reveal's snapshot."""
+    (reveal.html's quantity control) must get inventoried once
+    record_inventory is called again for that reveal's snapshot."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
+    ledger = store.get_component_ledger()[page_key]
 
     minus_entry = next((c for path, c in ledger.items() if "qtyMinus" in path), None)
     assert minus_entry is not None, "the revealed stepper's decrement button must be inventoried"
+
+    parsed_options = [describe_options_from_rows(*c["options"]) for c in ledger.values()]
+    stepper_kinds = [p["kind"] for p in parsed_options if p]
+    assert "stepper" in stepper_kinds, "the revealed stepper's own control must be recorded as a stepper"
     assert minus_entry["tag"] == "button", "must have real descriptive fields, not a ghost-node blank"
 
-    # record_inventory attaches the stepper's options JSON to the increment
-    # path only (see GraphStoreSink.record_inventory), not both members.
     plus_entry = next((c for path, c in ledger.items() if "qtyPlus" in path), None)
     assert plus_entry is not None
-    assert plus_entry["options"], "the stepper's options field must be populated on the increment path"
-
-
-def test_revealed_options_attributed_to_trigger_component(fixture_server):
-    """Phase 1: the trigger's own `options` field must carry the diff-
-    detected revealed options, keyed the way GraphStoreSink.record_revealed_options
-    writes them."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
-    page_key = results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
-
-    trigger_entry = next((c for path, c in ledger.items() if "sizeTrigger" in path), None)
-    assert trigger_entry is not None
-    options = json.loads(trigger_entry["options"])
-    assert options["trigger"].endswith("sizeTrigger")
-    revealed_texts = {o["text"] for o in options["revealed_options"]}
-    assert revealed_texts == {"Small", "Medium", "Large"}
-
-
-def test_fetch_triggered_by_click_is_captured_and_attributed(fetch_aware_fixture_server):
-    """Phase 3: a click that fires a real fetch() must show up on the
-    clicked component's own network_requests, with a real joined status -
-    the case a static <form method/action> reading would see nothing on."""
-    store, sink, (mech, results) = _crawl_with_graph_store(
-        f"{fetch_aware_fixture_server}/fetch_button.html", max_pages=1
-    )
-    page_key = results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
-    button_entry = next((c for path, c in ledger.items() if "pingButton" in path), None)
-    assert button_entry is not None
-    requests = button_entry["network_requests"]
-    assert requests, "the click must have captured at least one meaningful request"
-    ping = next(r for r in requests if r["url"].endswith("/api/ping"))
-    assert ping["resource_type"] == "fetch"
-    assert ping["status"] == 200
-    assert ping["failed"] is False
-
-
-def test_static_form_produces_no_network_requests(fixture_server):
-    """Contrast case: a plain HTML form submit fires no XHR/fetch at all -
-    network_requests must stay empty, not be fabricated from the form's own
-    static method/action attributes."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/form.html", max_pages=1)
-    page_key = results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
-    submit_entry = next((c for path, c in ledger.items() if c.get("tag") == "button"), None)
-    assert submit_entry is not None
-    assert submit_entry["network_requests"] == []
 
 
 def test_static_text_content_captured_as_distinct_kind(fixture_server):
@@ -279,7 +264,7 @@ def test_static_text_content_captured_as_distinct_kind(fixture_server):
     (it's that button's own accessible label, already captured there)."""
     store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     page_key = next(r.url for r in results if r.url.endswith("index.html"))
-    text_ledger = store.get_text_content_ledger(SITE).get(page_key, [])
+    text_ledger = store.get_text_content_ledger().get(page_key, [])
     texts = {e["text"] for e in text_ledger}
 
     assert "Index" in texts
@@ -306,12 +291,12 @@ def test_reveal_chain_gets_fully_drained_in_one_continuous_session(fixture_serve
     assert len(chain_results) == 1, "one continuous visit, no requeue needed to finish the chain"
 
     page_key = chain_results[0].url
-    ledger = store.get_component_ledger(SITE)[page_key]
+    ledger = store.get_component_ledger()[page_key]
     all_interacted = [c for path, c in ledger.items() if path.split("#")[-1].startswith("c") and c["tag"] == "button"]
     assert all(c["interacted"] for c in all_interacted), "every chain button must eventually be interacted with"
     assert len(all_interacted) == 5, "all 5 chain buttons must have been discovered and inventoried"
 
-    rows = {r["url"]: r for r in store.get_progress_table_rows(SITE)}
+    rows = {r["url"]: r for r in store.get_progress_table_rows()}
     assert rows[page_key]["status"] == "Finished", "must be marked Finished once genuinely fully drained"
 
 

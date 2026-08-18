@@ -13,8 +13,9 @@ Playwright loop — see `wiki/` for the durable lessons carried forward from tha
 
 1. **Crawl** (`MechanicalCrawler.crawl_site`): starting from the given URL, mechanically visit
    every reachable page and interact with every discovered interactive element on it — no LLM
-   picks what to click. Live writes to `GraphStore` (Neo4j by default) as pages/components/edges
-   are discovered and interacted with.
+   picks what to click. Live writes to `GraphStore` (`memory` by default; `duckdb` for a run whose
+   data needs to persist and be queried after) as pages/components/edges are discovered and
+   interacted with.
 2. **Synthesize** (`GraphPRDSynthesizer.synthesize`): reads the crawl's graph back — pages, edges,
    the component ledger, page descriptions — and makes two kinds of AI call: one narration call
    per page (turning that page's component facts into readable prose) and one final call that
@@ -27,7 +28,7 @@ sequenceDiagram
     participant Crawler as Crawl4AICrawler
     participant Mech as MechanicalCrawler
     participant Sink as GraphStoreSink
-    participant Graph as GraphStore (Neo4j)
+    participant Graph as GraphStore (DuckDB)
     participant Synth as GraphPRDSynthesizer
     participant Agent as LLM Agent
 
@@ -66,7 +67,7 @@ now, unlike agents/graph stores which are genuinely pluggable and still resolved
 - **`AGENT_REGISTRY`**: implementations of the `Agent` interface ("The Brain"/LLM backend) —
   `local`, `mock`. `Agent` is now just `generate(prompt, system_instruction)`
   — there is no more per-step decision schema for a backend to implement (see "What changed" below).
-- **`GRAPH_STORE_REGISTRY`**: implementations of the `GraphStore` interface — `memory`, `neo4j`.
+- **`GRAPH_STORE_REGISTRY`**: implementations of the `GraphStore` interface — `memory`, `duckdb`.
 
 Each plugin module self-registers via a decorator (`@AGENT_REGISTRY.register("local")` on
 `LocalAgent`, etc.). `core/bootstrap.py` imports every plugin module once so their
@@ -101,10 +102,11 @@ synthesizing a PRD from an accumulated research log. That entire per-step decisi
   `spiders/content/js/discover_components.js`, run via `page.evaluate()` inside a crawl4ai hook
   (`Crawl4AICrawler`) instead of a Playwright `Page` method. One real bug was found and fixed in
   the port — see the plan/wiki for details.
-- **Neo4j is the primary, live-updated source of truth**, not a secondary debug artifact.
-  `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based logs) no longer
-  exist — everything they used to capture (route status, the navigation graph, the component
-  ledger, page descriptions) is written straight to `GraphStore` as the crawl happens
+- **`GraphStore` is the primary, live-updated source of truth**, not a secondary debug artifact
+  (Neo4j held this role at the time of this migration; DuckDB has held it since - see "Directory
+  Roles" below). `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based
+  logs) no longer exist — everything they used to capture (route status, the navigation graph, the
+  component ledger, page descriptions) is written straight to `GraphStore` as the crawl happens
   (`GraphStoreSink`, `spiders/orchestration/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
 
 ---
@@ -157,7 +159,7 @@ interacted, so a follow-up pass always makes real progress on whatever's left.
 **Consult before acting, not just after**: `InteractionTracker` (in-memory by default, or
 `GraphStoreInteractionTracker` when a `GraphStoreSink` is wired) is checked before mechanically
 re-interacting with a component — this is what makes the crawl's "already touched this" property
-survive across a persisted, multi-run crawl (`graph_store: neo4j`), not just within one process.
+survive across a persisted, multi-run crawl (`graph_store: duckdb`), not just within one process.
 
 Fillable fields get their value from `fill_value_fn` — the deterministic
 `fill_values.default_placeholder_fill_value` by default, or a real AI call
@@ -167,7 +169,7 @@ the placeholder on any failure.
 
 ---
 
-## Live Neo4j Wiring
+## Live Graph Store Wiring
 
 `GraphStoreSink` (`spiders/orchestration/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
 directly as the crawl happens:
@@ -188,7 +190,7 @@ through — scheme, trailing slash, and fragment stripped, so `https://x.com/y/#
 identity is the whole game").
 
 `PragmaConfig.fresh` (default `true`) calls `GraphStore.clear_site(site)` in `Engine.from_config`
-before crawling, same purge-on-start semantics as before — matters for `graph_store: neo4j`, which
+before crawling, same purge-on-start semantics as before — matters for `graph_store: duckdb`, which
 persists across runs; a no-op for `graph_store: memory`.
 
 ---
@@ -197,15 +199,15 @@ persists across runs; a no-op for `graph_store: memory`.
 
 The graph's node labels and relationship types, as actually implemented:
 
-**Nodes**: `:Site`, `:Page`, `:Component` (plus a per-tag label — `:Button`, `:Input`, `:Link` —
-added by `apply_tag_labels` purely so Neo4j Browser colors them apart), `:TextContent`,
-`:ComponentFamily`, `:Request`, `:RequestFamily`.
+**Nodes**: `:Site`, `:Page`, `:Component`, `:TextContent`, `:ComponentFamily`, `:Request`,
+`:RequestFamily`. (An earlier Neo4j-backed version of this store also added a per-tag label —
+`:Button`, `:Input`, `:Link` — purely so Neo4j Browser could color them apart; that feature had no
+DuckDB equivalent and no other consumer, so it was retired along with that backend.)
 
-Every node also carries a short `caption` property — what Neo4j Browser displays — and every
-inferred node (`:ComponentFamily`, `:RequestFamily`, `:Request`) carries a second `:Inferred`
-label, so what the crawl *observed* and what the model *deduced* separate at a glance and in a
-query. `scripts/neo4j-browser.grass` is the matching style file; `docs/consultas-neo4j.md` holds
-the saved queries worth starting from.
+Every `:Page` also carries a short `caption` (its title, falling back to its URL) for any tooling
+that wants a human-readable label without a second lookup. Every inferred node
+(`:ComponentFamily`, `:RequestFamily`, `:Request`) carries a second `:Inferred` label, so what the
+crawl *observed* and what the model *deduced* separate at a glance and in a query.
 
 **Relationships**: `HAS_PAGE`, `HAS_COMPONENT`, `HAS_TEXT`, `HAS_VARIANT`, `HAS_REQUEST`,
 `TRIGGERS`, `DISCOVERED_LINK`, `NAVIGATED_TO {component, action, created_at}`,
@@ -296,15 +298,15 @@ new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent
   (`PageState`, `Agent`, `GraphStore`), and layered configuration (`PragmaConfig`).
 - **`spiders/`**: The crawl itself — `Crawl4AICrawler` ("The Hands", crawl4ai-backed discovery
   + interaction), `MechanicalCrawler` (the two-frontier orchestration loop), `GraphStoreSink`/
-  `GraphStoreInteractionTracker` (live Neo4j wiring), `fill_value_agent.py`/`fill_values.py`
+  `GraphStoreInteractionTracker` (live graph-store wiring), `fill_value_agent.py`/`fill_values.py`
   (AI/placeholder fill values), plus the discovery JS assets in `js/`.
 - **`agents/`**: LLM interface implementations ("The Brain") — `generate()` only.
-- **`database/`**: `GraphStore` implementations (`InMemoryGraphStore`, `Neo4jGraphStore`).
+- **`database/`**: `GraphStore` implementations (`InMemoryGraphStore`, `DuckDBGraphStore`).
 - **`generators/`**: `GraphPRDSynthesizer` (post-hoc, graph-reading synthesis) and
   `component_classifier.py` (pure, deterministic component classification/grouping, no LLM/browser
   dependency).
 - **`utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
 - **`docs/`**: Final generated Digital Blueprint PRDs — the only output artifact; there are no more
   `research_logs/`/`progress_logs/`/`graph_logs/` file-based debug logs, since `GraphStore` is now
-  the live, queryable record of a crawl (inspect it directly, or via a database browser for
-  `graph_store: neo4j`).
+  the live, queryable record of a crawl (inspect it directly, or via the `duckdb` CLI/any DuckDB
+  client for `graph_store: duckdb`).

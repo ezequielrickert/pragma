@@ -5,14 +5,14 @@
 Phase 5 of the crawl4ai migration: post-hoc PRD synthesis from
 `GraphStore`.
 
-With Neo4j (or `InMemoryGraphStore`) as the crawl's primary source of
-truth (Phase 3), this is the step that reads it back and produces the
-final markdown blueprint - the same output artifact
+With `DuckDBGraphStore` (or `InMemoryGraphStore`) as the crawl's primary
+source of truth (Phase 3), this is the step that reads it back and
+produces the final markdown blueprint - the same output artifact
 `SimplePRDGenerator.generate_prd` produced, but sourced entirely from
 persisted graph state rather than an in-process research log. Runs
 independently of any live crawl: given a `site` whose graph was
 populated by an earlier `MechanicalCrawler` run (or even one from
-hours/days ago against a persisted Neo4j store), `synthesize()` needs
+hours/days ago against a persisted DuckDB store), `synthesize()` needs
 nothing else.
 
 Three-stage map-reduce synthesis - not the two-stage shape this module

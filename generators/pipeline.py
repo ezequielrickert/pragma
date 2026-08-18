@@ -48,7 +48,7 @@ def _with_banner(content: str, generator: DocumentGenerator, request: DocumentRe
     if generator.extension != "md":
         return content
     banner = render_coverage_banner(
-        build_coverage(request.graph_store, request.site),
+        build_coverage(request.graph_store),
         stopped_reason=request.settings.get("stopped_reason", ""),
     )
     return f"{banner}\n{content}"

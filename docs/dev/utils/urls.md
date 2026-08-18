@@ -97,6 +97,31 @@ failure mode this guards against - an unbounded frontier, or N
 duplicate nodes, on a session-token site - is far more costly than the
 rare over-collapse).
 
+## resolve_href
+
+Resolves a component's raw `href` attribute (`discover_components.js`'s
+own `getAttribute('href')` - the unresolved DOM attribute, not the
+browser-computed `.href` property `extract_links.js` uses) against the
+page's own full URL, via `urllib.parse.urljoin`. Returns `None` for
+anything that isn't a navigable destination: empty, a same-page
+`#fragment`, or a non-http(s) pseudo-scheme (`javascript:`, `mailto:`,
+`tel:`).
+
+The eager pre-click check
+(`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-static-href-check`):
+a real `<a href>` component's destination is knowable *before* clicking
+it, unlike every other component kind the mechanical loop only learns
+about by interacting. Combined with `UrlFrontier.is_known`
+(`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known`),
+a link to an already-known destination never has to cost a browser
+navigation at all - no `click()`, no `go_back()`, none of either's own
+failure modes (a slow/degraded target, an anti-bot false positive on a
+mid-navigation DOM snapshot).
+
+Needs the page's *full*, scheme'd URL as `base_url` - `clean_url()`'s
+stripped form (`example.com/x`, no scheme) isn't a valid `urljoin` base
+and would resolve relative hrefs incorrectly.
+
 ## is_in_scope
 
 Whether `url` belongs to the same site as `base_url` - the crawl's

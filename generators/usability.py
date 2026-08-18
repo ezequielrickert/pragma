@@ -245,14 +245,14 @@ def build_findings(request: DocumentRequest) -> List[Finding]:
     """Every rule, over one site's graph.
     Details: docs/dev/generators/usability.md#build_findings
     """
-    store, site = request.graph_store, request.site
-    components = flat_component_ledger(store, site)
-    flow = build_flow_graph(store.get_edges(site), components)
+    store = request.graph_store
+    components = flat_component_ledger(store)
+    flow = build_flow_graph(store.get_edges(), components)
     findings = (
-        inconsistent_family_styling(store.get_component_families(site), components)
-        + inconsistent_action_naming(store.get_inferred_requests(site), components)
+        inconsistent_family_styling(store.get_component_families(), components)
+        + inconsistent_action_naming(store.get_inferred_requests(), components)
         + missing_semantic_input_type(components)
-        + unexplained_disabled_controls(components, store.get_text_content_ledger(site))
+        + unexplained_disabled_controls(components, store.get_text_content_ledger())
         + flow_findings(flow)
     )
     order = {"high": 0, "medium": 1, "low": 2}

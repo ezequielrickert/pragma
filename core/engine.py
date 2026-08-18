@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
@@ -14,27 +14,19 @@ from spiders.browser.debug_log import CrawlDebugLog, prune_old_runs
 from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.measurement_pass import run_measurement_pass
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
-from generators.component_family import (
-    build_component_families,
-    label_for_tag,
-    tags_with_multiple_instances,
-)
+from generators.component_family import build_component_families
 from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
-from generators.request_family import build_inferred_requests
+from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
+from utils.urls import route_shape, slugify
+from .caching_graph_store import CachingGraphStore
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
-from .interfaces import Agent, GraphStore
+from .interfaces import Agent
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
-
-
-def _slugify(url: str) -> str:
-    """Turn URL into a filesystem-safe slug."""
-    return url.replace("https://", "").replace("http://", "").replace("/", "_")
 
 
 def _timestamp() -> str:
@@ -42,27 +34,26 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) -> None:
+def _apply_component_families(graph_store: Any, agent: Agent) -> None:
     """Post-hoc, whole-site pass: infer reusable component families, give
-    each a one-sentence LLM-narrated purpose, and add per-tag Neo4j
-    labels - all from what the crawl just discovered, then write it back.
-    Runs once, after the crawl finishes - family clustering needs to see
+    each a one-sentence LLM-narrated purpose, then write it back. Runs
+    once, after the crawl finishes - family clustering needs to see
     every discovered component at once, not the live per-page write
     stream `MechanicalCrawler` produces during the crawl.
 
     Args:
-        graph_store: the same `GraphStore` the just-finished crawl wrote
-            to - read back from here (`get_component_ledger`), then
-            written back to (`record_component_families`,
-            `apply_tag_labels`).
-        site: which site's just-crawled data to process.
+        graph_store: the same store the just-finished crawl wrote to -
+            read back from here (`get_component_ledger`), then written
+            back to (`record_component_families`). Site-scoped by
+            construction (one store per site), so no `site` argument
+            here or on any of the calls below.
         agent: the same LLM backend used for PRD narration - passed
             through to `narrate_family_purposes` for the one-sentence
             "what is this pattern used for" description each family gets.
 
     Returns:
-        None. Four steps, always in this order:
-        1. Read every discovered component for `site` via
+        None. Three steps, always in this order:
+        1. Read every discovered component via
            `ledger.flat_component_ledger` - see that function for why the
            ledger's per-page nesting has to be flattened for a whole-site
            pass like this one.
@@ -73,18 +64,13 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
         3. `narrate_family_purposes` fills in `purpose`, one
            `agent.generate()` call per family that has any member text at
            all - see that function's own docstring for its graceful-
-           degradation behavior on a single family's failure.
-        4. The narrated families are written via `record_component_
-           families` (a full rebuild of `site`'s family structure every
-           call, per that method's own contract), and
-           `tags_with_multiple_instances` picks which raw HTML tags
-           appear often enough to deserve their own Neo4j label, each
-           mapped through `label_for_tag` to its actual label string
-           (e.g. `"button"` -> `"Button"`), written via
-           `apply_tag_labels`.
+           degradation behavior on a single family's failure - and the
+           narrated families are written via `record_component_families`
+           (a full rebuild of the site's family structure every call, per
+           that method's own contract).
     Details: docs/dev/core/engine.md#_apply_component_families
     """
-    components = flat_component_ledger(graph_store, site)
+    components = flat_component_ledger(graph_store)
     families = build_component_families(components)
     print(f"Grouped {len(components)} components into {len(families)} families.")
     member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
@@ -94,43 +80,39 @@ def _apply_component_families(graph_store: GraphStore, site: str, agent: Agent) 
     # everything every pass. Details: docs/dev/core/engine.md#known-purposes
     known_purposes = {
         family_signature(existing): existing.purpose
-        for existing in graph_store.get_component_families(site)
+        for existing in graph_store.get_component_families()
         if existing.purpose
     }
     families = narrate_family_purposes(agent, families, member_texts, known_purposes)
-    graph_store.record_component_families(site, families)
-
-    tags = tags_with_multiple_instances(components)
-    graph_store.apply_tag_labels(site, {tag: label_for_tag(tag) for tag in tags})
+    graph_store.record_component_families(families)
 
 
-def _apply_request_graph(graph_store: GraphStore, site: str) -> None:
-    """Post-hoc, whole-site pass: infer distinct API endpoints (and which
-    Components trigger each one) from network requests already captured
-    on Component nodes, then write them back. Independent of - and reads
-    the graph a second time from - `_apply_component_families`, rather
-    than sharing its already-flattened component list: this keeps the
-    two passes fully separable (one about component *look-alikes*, this
-    one about *endpoint* identity), at the cost of one extra
-    `get_component_ledger` read per crawl - a single local read, not a
-    hot path, run once per whole crawl.
+def _apply_graph_projection(graph_store: Any, root: str) -> None:
+    """Post-hoc, whole-site pass: materialize the navigation graph into
+    `networkx` and write back per-page metrics and module assignments -
+    Storage Phase 7. Independent of the two passes above (reads only
+    `get_edges`, not the component ledger), so it can run in any order
+    relative to them.
 
     Args:
-        graph_store: same `GraphStore` the crawl wrote to.
-        site: which site's just-crawled data to process.
+        graph_store: same store the crawl wrote to.
+        root: the crawl's own start URL, `route_shape`d to match every
+            other page key in the graph - `project_graph`'s `click_depth`
+            is BFS distance from here.
 
     Returns:
-        None. Reads every discovered component's `network_requests` via
-        `ledger.flat_component_ledger`, clusters them via
-        `request_family.build_inferred_requests` (see that function's own
-        docstring), and writes the result via `record_inferred_requests`
-        - a full rebuild of `site`'s inferred-request structure every
-        call, same contract as `record_component_families`.
-    Details: docs/dev/core/engine.md#_apply_request_graph
+        None. `project_graph` (`analysis/graph_projection.py`) computes
+        in/out degree, click depth, betweenness, PageRank, articulation
+        points, and Louvain module assignment; results are written via
+        `record_page_metrics`/`record_page_modules` - full rebuilds, same
+        contract as `record_component_families`.
+    Details: docs/dev/core/engine.md#_apply_graph_projection
     """
-    components = flat_component_ledger(graph_store, site)
-    page_requests = graph_store.get_page_network_ledger(site)
-    graph_store.record_inferred_requests(site, build_inferred_requests(components, page_requests))
+    result = project_graph(graph_store.get_edges(), root=root)
+    graph_store.record_page_metrics([m.as_dict() for m in result.metrics])
+    graph_store.record_page_modules([m.as_dict() for m in result.modules])
+    if result.cycles:
+        print(f"Graph projection: {len(result.cycles)} navigation cycle(s) found.")
 
 
 @dataclass
@@ -162,7 +144,7 @@ class Engine:
     def __init__(
         self,
         agent: Agent,
-        graph_store: GraphStore,
+        graph_store: Any,
         out_dir: str = "data/output",
         site: str = "",
         max_pages: Optional[int] = None,
@@ -184,7 +166,6 @@ class Engine:
         prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
         documents: Optional[List[str]] = None,
-        measurement_pass: bool = False,
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -217,7 +198,6 @@ class Engine:
         # None keeps PragmaConfig's own default rather than duplicating the
         # list here - see docs/dev/core/config.md#documents.
         self.documents = documents if documents is not None else list(PragmaConfig().documents)
-        self.measurement_pass = measurement_pass
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "Engine":
@@ -229,18 +209,22 @@ class Engine:
             print(f"Failed to initialize {config.agent} agent: {exc}; falling back to mock")
             agent = AGENT_REGISTRY.create("mock")
 
+        # Computed before the store: LadybugGraphStore is site-scoped at
+        # construction (one database per site), unlike every backend this
+        # replaces, which took `site` per method call instead and could be
+        # built with no site known yet.
+        site = urlparse(config.url).netloc if config.url else ""
         store_options = config.graph_stores.get(config.graph_store, {})
         try:
-            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, **store_options)
+            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, site=site, **store_options)
             graph_store.connect()
         except Exception as exc:
             print(f"Failed to initialize {config.graph_store} graph store: {exc}; falling back to memory")
-            graph_store = GRAPH_STORE_REGISTRY.create("memory")
+            graph_store = GRAPH_STORE_REGISTRY.create("memory", site=site)
             graph_store.connect()
 
-        site = urlparse(config.url).netloc if config.url else ""
         if config.fresh and site:
-            graph_store.clear_site(site)  # no-op for InMemoryGraphStore - see PragmaConfig.fresh
+            graph_store.reset()  # see PragmaConfig.fresh
 
         return cls(
             agent,
@@ -266,7 +250,6 @@ class Engine:
             prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
             documents=config.documents,
-            measurement_pass=config.measurement_pass,
         )
 
     def run(self, url: str) -> EngineRunResult:
@@ -277,14 +260,24 @@ class Engine:
 
     async def _run_async(self, url: str) -> EngineRunResult:
         site = self.site or urlparse(url).netloc
+        # One id for this whole crawl, stamped onto every edge it writes
+        # (GraphStoreSink.record_navigation_edge) so a later run can tell
+        # "this transition first appeared in run X, last seen in run Y"
+        # apart from one that's been stable since the first crawl. Distinct
+        # from `run_timestamp` below (generated after the crawl, for
+        # document/manifest filenames) - this one has to exist before the
+        # crawl starts, since writes need it as they happen.
+        run_id = _timestamp()
         # Same base_url/allow_subdomains the frontier gates on, so a link is
         # judged in-scope identically whether it is queued or recorded.
         # Details: docs/dev/core/engine.md#sink-scope
-        sink = GraphStoreSink(self.graph_store, site, base_url=url, allow_subdomains=self.allow_subdomains)
+        sink = GraphStoreSink(
+            self.graph_store, base_url=url, allow_subdomains=self.allow_subdomains, run_id=run_id,
+        )
 
         debug_log: Optional[CrawlDebugLog] = None
         if self.debug_logs_dir:
-            run_dir = f"{self.debug_logs_dir}/{_slugify(url)}_{_timestamp()}"
+            run_dir = f"{self.debug_logs_dir}/{slugify(url)}_{_timestamp()}"
             debug_log = CrawlDebugLog(run_dir, site=site)
 
         crawler_config = Crawl4AICrawlerConfig(
@@ -324,7 +317,7 @@ class Engine:
         if debug_log:
             await debug_log.close()
             # Prune only after close() - see prune_old_runs's own doc.
-            prune_old_runs(self.debug_logs_dir, _slugify(url), self.debug_logs_keep_last)
+            prune_old_runs(self.debug_logs_dir, slugify(url), self.debug_logs_keep_last)
 
         # Whole-site passes, after every component the crawl found is
         # already in the graph - must run before synthesis reads it below.
@@ -332,23 +325,25 @@ class Engine:
         # written document used to run silent, which made a long run
         # indistinguishable from a hung one.
         # Details: research/plan-progreso-en-terminal.md
+        #
+        # graph_store (not self.graph_store) from here on: the crawl has
+        # finished writing, so every whole-site read from here to the end
+        # of the pipeline is safe to memoize per method -
+        # get_component_ledger alone was called ~8 times per run before
+        # this, once per generator that needed it. See
+        # CachingGraphStore's own module docstring for why this is safe
+        # specifically *here* (after the crawl, not during it) and not a
+        # general-purpose cache. self.graph_store itself is untouched, so
+        # self.graph_store.close() below still closes the real connection.
+        graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
-        _apply_component_families(self.graph_store, site, self.agent)
-        print("Inferring API endpoints from captured requests...")
-        _apply_request_graph(self.graph_store, site)
-
-        if self.measurement_pass:
-            # After the crawl and before synthesis: it writes to the graph
-            # the accessibility document then reads.
-            # Details: docs/dev/core/engine.md#measurement_pass
-            print("Measurement pass: re-visiting each page with images on...")
-            result = await run_measurement_pass(self.graph_store, site, headless=self.headless)
-            print(f"Measurement pass: audited {len(result.measured)} pages, "
-                  f"skipped {len(result.skipped_shaped_routes)} shaped routes.")
+        _apply_component_families(graph_store, self.agent)
+        print("Projecting the navigation graph into modules and metrics...")
+        _apply_graph_projection(graph_store, route_shape(url))
 
         run_timestamp = _timestamp()
         request = DocumentRequest(
-            graph_store=self.graph_store,
+            graph_store=graph_store,
             site=site,
             agent=self.agent,
             settings={
@@ -357,14 +352,14 @@ class Engine:
                 "stopped_reason": stopped_reason,
             },
         )
-        naming = DocumentNaming(out_dir=self.out_dir, slug=_slugify(url), timestamp=run_timestamp)
+        naming = DocumentNaming(out_dir=self.out_dir, slug=slugify(url), timestamp=run_timestamp)
         produced = run_document_pipeline(request, naming, self._document_names())
         paths = {document.name: document.path for document in produced}
 
         print("Writing run manifest and index...")
 
-        finished_pages, total_pages = self.graph_store.count_visited(site)
-        unexplored_components, total_components = self.graph_store.count_unexplored_components(site)
+        finished_pages, total_pages = self.graph_store.count_visited()
+        unexplored_components, total_components = self.graph_store.count_unexplored_components()
         manifest_path = record_run_manifest(
             self.out_dir,
             site,

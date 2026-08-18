@@ -148,13 +148,6 @@ Discovery point for a plain navigation pass (no `js_code` on this
 `arun()` call) - see the `module` section above for why this hook is
 specifically wrong for a post-interaction re-discovery.
 
-## audit_accessibility
-
-Runs axe-core/pseudo-style extraction/tab-order walking last, in that
-order specifically because tab-order walking moves focus around the
-page - anything read after it would see a page in a state the crawl
-itself put it in, not the page's own natural state.
-
 ## on_execution_ended
 
 Discovery point for the interaction-followup case: fires immediately

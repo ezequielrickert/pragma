@@ -1,14 +1,14 @@
-"""Post-hoc PRD synthesis from `GraphStore`: map, batch-summarize, reduce.
+"""Post-hoc PRD synthesis from the crawl graph: map, batch-summarize, reduce.
 Details: docs/dev/generators/graph_prd_synthesizer.md#module
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from core.documents import DocumentGenerator, DocumentRequest
-from core.interfaces import Agent, GraphStore
+from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
-from .component_classifier import choice_text_by_path, describe_options
+from .component_classifier import choice_text_by_path, describe_options_from_rows
 
 CATALOG_SYSTEM_INSTRUCTION = (
     "You are documenting the interactive components found on one page of a web application, from "
@@ -39,6 +39,37 @@ REDUCE_SYSTEM_INSTRUCTION = (
     "synthesize them. Do not invent pages, routes, or components not present in the provided summaries."
 )
 
+# Combine stage: same shape as the reduce call below, but its output feeds
+# back into another reduce rather than being the final overview - used only
+# when there are more sections than one reduce call should take at once.
+# Details: docs/dev/generators/graph_prd_synthesizer.md#combine_system_instruction
+COMBINE_SYSTEM_INSTRUCTION = (
+    "You are combining several already-condensed section summaries of a web application's Digital "
+    "Blueprint into one shorter combined summary covering all of them, for a later step to combine "
+    "further. Preserve every distinct fact and section name; do not add an overall narrative framing "
+    "yet - that happens in a later step. Do not invent pages, routes, or components not present in the "
+    "provided summaries."
+)
+
+# A real page can carry 100-300+ raw components before choice-group/stepper
+# consolidation; a page's own narration prompt has no other bound on how
+# many go in. Cap deterministically (facts are already sorted by path) and
+# say so in the rendered block, rather than silently dropping the rest -
+# the same "bounded, not exhaustive" discipline axe_run.js's per-rule node
+# cap and probe_focus.js's _MAX_TAB_STEPS already apply elsewhere in this
+# pipeline. wiki/local-and-small-model-constraints.md's own checklist named
+# this exact surface: a max_tokens truncation already cost 4/4 runs their
+# documents before the map/reduce split existed - this is the map stage's
+# remaining unbounded input.
+_MAX_FACTS_PER_PAGE = 60
+
+# Reduce-stage input is the number of *sections* (batch_size pages each),
+# not pages - a 200-page site at the default batch_size=5 still produces 40
+# sections, which the old single reduce() call joined unconditionally into
+# one prompt. Chunk-and-recurse (_reduce below) once past this many, rather
+# than growing the very call this map-reduce split exists to bound.
+_MAX_SECTIONS_PER_REDUCE = 8
+
 
 def _choices_leading_elsewhere(record: Dict[str, Any], parsed: Dict[str, Any]) -> List[str]:
     """`"choice text -> resulting_url"` for every consolidated choice-group
@@ -56,16 +87,29 @@ def _choices_leading_elsewhere(record: Dict[str, Any], parsed: Dict[str, Any]) -
     ]
 
 
-def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One catalog-ready fact dict per distinct control on a page.
+def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], bool]:
+    """One catalog-ready fact dict per distinct control on a page, capped
+    at `_MAX_FACTS_PER_PAGE` - see that constant's own comment.
+
+    Returns:
+        `(facts, truncated)` - `truncated` is `True` only when the cap
+        itself is what stopped the loop, distinct from a page whose own
+        component count is simply small (or reduced further by
+        stepper/choice-group consolidation, which is unrelated to the
+        cap) - `len(facts) < len(page_components)` alone can't tell those
+        two cases apart.
     Details: docs/dev/generators/graph_prd_synthesizer.md#_build_page_facts
     """
     facts: List[Dict[str, Any]] = []
     seen_stepper_containers = set()
     seen_choice_groups = set()
+    truncated = False
     for path in sorted(page_components.keys()):
+        if len(facts) >= _MAX_FACTS_PER_PAGE:
+            truncated = True
+            break
         record = page_components[path]
-        parsed = describe_options(record.get("options") or "")
+        parsed = describe_options_from_rows(*record.get("options", ([], "")))
 
         if parsed and parsed["kind"] == "stepper":
             container = parsed.get("container") or path
@@ -107,7 +151,7 @@ def _build_page_facts(page_components: Dict[str, Dict[str, Any]]) -> List[Dict[s
                 "interacted": bool(record.get("interacted")),
             }
         )
-    return facts
+    return facts, truncated
 
 
 def _render_fact_line(index: int, fact: Dict[str, Any]) -> str:
@@ -144,14 +188,14 @@ class GraphPRDSynthesizer:
     Details: docs/dev/generators/graph_prd_synthesizer.md#graphprdsynthesizer
     """
 
-    def __init__(self, agent: Agent, graph_store: GraphStore, batch_size: int = 5) -> None:
+    def __init__(self, agent: Agent, graph_store: Any, batch_size: int = 5) -> None:
         self.agent = agent
         self.graph_store = graph_store
         # Pages per batch-summarize call; deliberately small - see doc.
         # Details: docs/dev/generators/graph_prd_synthesizer.md#batch_size
         self.batch_size = batch_size
 
-    def _narrate_page_catalog(self, site: str) -> Dict[str, str]:
+    def _narrate_page_catalog(self) -> Dict[str, str]:
         """One `agent.generate()` call per page; a failure degrades to raw facts.
 
         Prints a `page i/n` line per call - see
@@ -159,19 +203,26 @@ class GraphPRDSynthesizer:
         `narrate_family_purposes` are the two that needed a counter.
         Details: docs/dev/generators/graph_prd_synthesizer.md#_narrate_page_catalog
         """
-        ledger = self.graph_store.get_component_ledger(site)
+        ledger = self.graph_store.get_component_ledger()
         narrations: Dict[str, str] = {}
         # Pages whose facts come back empty are skipped without a call, so
         # like the family narrator the denominator counts calls, not pages.
         facts_by_page = {}
+        truncated_pages = set()
         for page_url in sorted(ledger.keys()):
-            facts = _build_page_facts(ledger[page_url])
+            facts, truncated = _build_page_facts(ledger[page_url])
             if facts:
                 facts_by_page[page_url] = facts
+            if truncated:
+                truncated_pages.add(page_url)
         if facts_by_page:
             print(f"Narrating {len(facts_by_page)} page catalogs ({len(facts_by_page)} model calls)...")
+        if truncated_pages:
+            print(f"  {len(truncated_pages)} page(s) exceeded {_MAX_FACTS_PER_PAGE} components; showing the first {_MAX_FACTS_PER_PAGE}.")
         for page_number, (page_url, facts) in enumerate(facts_by_page.items(), 1):
             facts_block = "\n".join(_render_fact_line(i, f) for i, f in enumerate(facts, 1))
+            if page_url in truncated_pages:
+                facts_block += f"\n... and more components not shown (capped at {_MAX_FACTS_PER_PAGE})."
             print(f"  page {page_number}/{len(facts_by_page)}: {page_url}")
             prompt = f"Page: {page_url}\n\nComponents:\n{facts_block}\n\nWrite the documentation entries."
             try:
@@ -216,16 +267,57 @@ class GraphPRDSynthesizer:
                 summaries.append(f"_(section summary unavailable: {exc})_\n\n{batch_block}")
         return summaries
 
-    def _reduce(self, site: str, section_summaries: List[str]) -> str:
-        """Combine condensed section summaries into the overview narrative.
-        Details: docs/dev/generators/graph_prd_synthesizer.md#_reduce
+    @staticmethod
+    def _section_summaries_prompt(site: str, section_summaries: List[str], closing_instruction: str) -> str:
+        """Shared by `_combine_chunk` and `_reduce`'s terminal call - same
+        "site + numbered section summaries" framing either way, differing
+        only in what the model is asked to produce from them.
         """
-        print(f"Reducing {len(section_summaries)} section summaries into the overview (1 model call)...")
-        prompt = (
+        return (
             f"Site: {site}\n\n"
             f"Section summaries ({len(section_summaries)}):\n\n" + "\n\n---\n\n".join(section_summaries) + "\n\n"
-            "Write the overview narrative."
+            + closing_instruction
         )
+
+    def _combine_chunk(self, site: str, chunk: List[str], chunk_number: int, total_chunks: int) -> str:
+        """One intermediate combine call: fewer, larger summaries, never
+        the final overview itself - see `COMBINE_SYSTEM_INSTRUCTION`.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_combine_chunk
+        """
+        print(f"  combining chunk {chunk_number}/{total_chunks} ({len(chunk)} sections)...")
+        prompt = self._section_summaries_prompt(site, chunk, "Write the combined summary.")
+        try:
+            return self.agent.generate(prompt, system_instruction=COMBINE_SYSTEM_INSTRUCTION)
+        except Exception as exc:  # noqa: BLE001 - degrade to raw sections, don't abort the run
+            return f"_(chunk combine unavailable: {exc})_\n\n" + "\n\n".join(chunk)
+
+    def _reduce(self, site: str, section_summaries: List[str]) -> str:
+        """Combine condensed section summaries into the overview narrative.
+
+        Chunked and recursively combined first when there are more than
+        `_MAX_SECTIONS_PER_REDUCE` of them, so the final reduce call's own
+        prompt never grows past the same bound this whole map-reduce split
+        exists to enforce - a 200-page site at the default batch_size=5
+        produces 40 sections, which the un-chunked version joined
+        unconditionally into one prompt. Recursion terminates because each
+        chunk collapses `_MAX_SECTIONS_PER_REDUCE` summaries into one
+        combined summary, so the list strictly shrinks every call.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_reduce
+        """
+        if len(section_summaries) > _MAX_SECTIONS_PER_REDUCE:
+            chunks = [
+                section_summaries[i : i + _MAX_SECTIONS_PER_REDUCE]
+                for i in range(0, len(section_summaries), _MAX_SECTIONS_PER_REDUCE)
+            ]
+            print(
+                f"Reduce stage: {len(section_summaries)} sections exceed "
+                f"{_MAX_SECTIONS_PER_REDUCE} per call; combining into {len(chunks)} chunk(s) first..."
+            )
+            combined = [self._combine_chunk(site, chunk, i, len(chunks)) for i, chunk in enumerate(chunks, 1)]
+            return self._reduce(site, combined)
+
+        print(f"Reducing {len(section_summaries)} section summaries into the overview (1 model call)...")
+        prompt = self._section_summaries_prompt(site, section_summaries, "Write the overview narrative.")
         try:
             return self.agent.generate(prompt, system_instruction=REDUCE_SYSTEM_INSTRUCTION)
         except Exception as exc:  # noqa: BLE001 - degrade to raw sections, don't abort the run
@@ -236,10 +328,10 @@ class GraphPRDSynthesizer:
         """Produce the final PRD markdown for `site` - the only method callers need.
         Details: docs/dev/generators/graph_prd_synthesizer.md#synthesize
         """
-        rows = self.graph_store.get_progress_table_rows(site)
-        edges = self.graph_store.get_edges(site)
-        descriptions = self.graph_store.get_page_descriptions(site)
-        catalog = self._narrate_page_catalog(site)
+        rows = self.graph_store.get_progress_table_rows()
+        edges = self.graph_store.get_edges()
+        descriptions = self.graph_store.get_page_descriptions()
+        catalog = self._narrate_page_catalog()
 
         page_lines = self._build_page_lines(rows, descriptions, catalog)
         section_summaries = self._summarize_batches(site, page_lines)

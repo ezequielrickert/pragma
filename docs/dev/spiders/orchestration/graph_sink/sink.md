@@ -3,9 +3,9 @@
 ## module
 
 Phase 3 of the crawl4ai migration: live `GraphStore` wiring for
-`MechanicalCrawler` - Neo4j (or `InMemoryGraphStore`) becomes the crawl's
-source of truth, written to as the crawl happens rather than batched by an
-in-process orchestrator afterward.
+`MechanicalCrawler` - `DuckDBGraphStore` (or `InMemoryGraphStore`) becomes
+the crawl's source of truth, written to as the crawl happens rather than
+batched by an in-process orchestrator afterward.
 
 The detail-rich writer `MechanicalCrawler` calls directly at each point
 in the crawl (page arrival, full component/link inventory, each
@@ -34,10 +34,10 @@ actual interaction *result* (did the URL change), which only exists once
 ## _write
 
 Runs one blocking `GraphStore` write off the event loop via
-`asyncio.to_thread` - `GraphStore` backends (e.g. `Neo4jGraphStore`) are
-synchronous, each call its own network round-trip, so calling `fn`
-directly here would stall every other crawl worker sharing this event
-loop for the duration.
+`asyncio.to_thread` - `GraphStore` backends are synchronous
+(`DuckDBGraphStore` in particular blocks on its single writer thread), so
+calling `fn` directly here would stall every other crawl worker sharing
+this event loop for the duration.
 
 ## record_page_arrival
 
@@ -179,3 +179,23 @@ short by a navigation (see
 - an interrupted pass leaves the page genuinely incomplete, so it must
 stay `Pending` for its guaranteed follow-up pass, not be marked
 `Finished` prematurely.
+
+## failed_page_status
+
+`FAILED_PAGE_STATUS = "Failed"` - a page `UrlFrontier.requeue`
+(`docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue`)
+gave up on after `max_requeue_attempts` interrupted passes: reliably
+anti-bot-blocked, or a redirect destination too many independent passes
+kept landing on and requeuing. Distinct from `Pending` (`get_pending()`
+excludes it, so a resumed run doesn't retry it forever) and from
+`Finished` (coverage/measurement passes correctly treat it as never
+actually analyzed, not silently done). `GraphStore.is_visited` treats it
+the same as `Finished` - both mean "concluded, don't queue or visit
+again" - see `DuckDBGraphStore.is_visited`'s own comment.
+
+## record_page_failed
+
+Called once by `_worker` (`docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-give-up`)
+when `UrlFrontier.requeue` refuses to requeue a page again - the
+concluding write for a page that gave up, the same role
+`record_page_finished` plays for one that actually finished.
