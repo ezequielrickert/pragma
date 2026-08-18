@@ -1,0 +1,20 @@
+<!doctype html><html lang="es"><head><title>Click sin efecto</title></head>
+<body>
+  <!-- A button with no onclick handler at all: clicking it produces no DOM
+       change and no navigation, so before_retrieve_html's own settle-wait
+       (fired unconditionally by crawl4ai on every arun() call, js_only or
+       not) can never observe a change and would burn its full ceiling for
+       nothing if it weren't skipped for a js_only call. Long enough that
+       crawl4ai's own anti-bot heuristic does not reject it as a stub page. -->
+  <h1>Pagina de prueba</h1>
+  <p>Este documento existe unicamente para verificar que un clic sin efecto
+     observable no paga dos veces el mismo tiempo de espera de asentamiento
+     dentro de la suite automatizada de este proyecto. No describe ningun
+     servicio real ni contiene informacion que deba tomarse como valida
+     fuera de este contexto de prueba.</p>
+  <p>El boton de abajo no tiene manejador de eventos: al hacer clic, el
+     documento permanece exactamente igual, sin cambios en su contenido ni
+     en su estructura, lo cual es precisamente el escenario que este
+     archivo necesita reproducir de forma confiable.</p>
+  <button id="noop">Sin efecto</button>
+</body></html>
