@@ -102,7 +102,7 @@ Writes nothing back to `GraphStore` - the inverse of `MechanicalCrawler`.
 
 ## batch_size
 
-Pages per batch-summarize call (see `_summarize_batches`). Default kept
+Pages per section-summarize call (see `_summarize_sections`). Default kept
 small deliberately: each "item" here is a full page block including its
 already-narrated component catalog - much heavier per item than a short
 label, so this is a more conservative budget than a typical crawl-time
@@ -117,14 +117,62 @@ narration failure on one page degrades to its raw facts rather than
 aborting the whole catalog - documentation enrichment, not something
 correctness depends on.
 
-## _summarize_batches
+## _section_label
 
-Group `page_lines` into `self.batch_size`-sized chunks and produce one
-bounded `agent.generate()` call per chunk - the fix for the unbounded
-"every page in one prompt" call this module used to make (see `module`
-above). A batch failure degrades to its raw page lines rather than
-aborting the whole run, matching `_narrate_page_catalog`'s existing
-degrade-not-abort discipline.
+What a module's section is called. `module_label` is
+`graph_projection._module_label`'s deterministic shared-URL-prefix name, and
+`""` is one of its real outcomes - a module whose pages share no prefix - so
+it falls back to the module id rather than to an invented name or a blank
+heading.
+
+Pages the projection never assigned get their own heading rather than being
+appended to the last real module. "Not part of any module" is a fact about
+the site's shape; hiding those pages in a leftovers bucket would misreport
+it.
+
+## group_pages_by_module
+
+**What this replaced.** Sections used to be `batch_size`-sized slices of a
+url-sorted list. For a forty-page site the document's shape was decided by
+the chunk size, and two pages shared a section because they were
+alphabetically adjacent - the reduce step then wrote an "overview" over
+groupings that corresponded to nothing.
+
+Now the grouping is the Louvain module `Engine`'s projection pass already
+computes and writes onto each `Page`, with each module's pages ordered by
+click depth. The document reads outside-in through parts that exist.
+
+Each returned row is a **copy** of its `get_progress_table_rows` row with
+`click_depth` and `is_articulation_point` merged in. Joining metrics to
+pages is this function's job; mutating the caller's rows is not - those rows
+are read by other things in the same run.
+
+Ordering: sections by label with unassigned last, and within a section
+shallowest first, `None` depth (unreachable from the root) last, then url,
+so the whole result is deterministic.
+
+## _build_page_lines
+
+The structural facts are stated in the prompt, not left for the model to
+infer, because it cannot infer them. "There is no alternate route around
+this page" is a property of the whole navigation graph; a model handed one
+page at a time will either omit it or invent it. Same division of labour the
+rest of this project uses: deterministic computation decides, the model
+writes prose over it.
+
+## _summarize_sections
+
+One bounded `agent.generate()` call per section, named by the module it
+describes - still the fix for the unbounded "every page in one prompt" call
+this module used to make (see `module` above).
+
+`batch_size` still bounds a single prompt, because a module with sixty pages
+cannot go in one call, so a large module becomes several calls carrying the
+same section name. The difference from `_summarize_batches` is that the
+chunk boundary no longer *defines* a section; it only splits one.
+
+A section failure degrades to its raw page lines rather than aborting the
+whole run, matching `_narrate_page_catalog`'s degrade-not-abort discipline.
 
 ## _reduce
 
