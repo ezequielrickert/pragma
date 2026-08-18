@@ -24,7 +24,7 @@ are their own collaborators - see
 coordination between in-flight `arun()` calls and session recycling is
 also its own collaborator, for the same reason - see
 `docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
-the three-part austral.edu.ar deadlock investigation that produced it.
+the ongoing austral.edu.ar deadlock investigation that produced it.
 
 ## Crawl4AICrawler
 

@@ -2,8 +2,7 @@
 
 ## module
 
-The third and final piece of a live, three-part austral.edu.ar deadlock
-investigation, in order:
+Part of a live, ongoing austral.edu.ar deadlock investigation, in order:
 
 1. `navigation_watchdog_seconds` (`docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`)
    bounded `discover_page()`/`_interact()`'s own `arun()` call.
@@ -23,28 +22,41 @@ investigation, in order:
    navigation could tear the context down out from under it, hanging
    that worker's own `arun()` call indefinitely with no clean error to
    catch - the exact "everything idle, nothing recovering" signature
-   every one of these three incidents shared.
+   every one of these incidents shared. `SessionRecycleGate` was built to
+   fix this.
+4. Fixed the first three, but a *fourth* freeze still reproduced after
+   this module went live too - same signature again (idle writer, idle
+   thread pool, minutes of silence). Cause: `SessionRecycleGate`'s own
+   first version fully serialized writers against each other through a
+   single `asyncio.Lock`, reasoned as safe because recycling is
+   infrequent. That reasoning broke down the moment the target started
+   straining - the very log evidence this time showed a
+   `TargetLoadThrottle` circuit-breaker trip (navigations running 10s+).
+   Every worker progresses through pages at roughly the same degraded
+   pace, so several independently hit `session_recycle_after` close
+   together; each one's own reader-drain wait (already bounded by
+   `navigation_watchdog_seconds`) then queued fully behind the last
+   instead of running independently, turning an intended ~60s bound into
+   up to `page_concurrency` x that - multiple minutes, matching exactly
+   what kept reproducing. See `## SessionRecycleGate` below for the fix:
+   writers no longer wait on each other, only on readers.
 
-This module is the fix: a reader-writer lock, one instance per
-`Crawl4AICrawler`, shared by every worker through that one owning
+This module is the fix for point 3: a reader-writer lock, one instance
+per `Crawl4AICrawler`, shared by every worker through that one owning
 object - not a per-worker lock, since the risk is specifically two
 *different* workers' calls racing each other over the *shared* context.
 
 ## SessionRecycleGate
 
-See the class's own docstring for the reader/writer roles. Two
-`asyncio` primitives, not one: `_condition` (an `asyncio.Condition`)
-coordinates the actual reader-count/writer-pending state machine,
-`_writer_lock` (a plain `asyncio.Lock`) separately serializes writers
-against *each other* - without it, two concurrent `close_session` calls
-could each independently see `_writer_pending` already `True` (set by
-the other), proceed past their own wait, and one's `finally` block could
-clear `_writer_pending` while the other's `kill_session` call was still
-running, briefly reopening the gate to new readers mid-recycle. Given
-recycling only fires every `session_recycle_after` visits per worker,
-contention between two concurrent writers is rare enough that fully
-serializing them is a simpler, sufficient answer to that particular
-problem than tracking a second reference count.
+See the class's own docstring for the reader/writer roles, and for the
+full reasoning behind point 4 above: two writers recycling *different*
+sessions never conflict with each other in the first place - the one
+thing they could actually race on (a shared context's refcount) is
+already protected by crawl4ai's own internal lock inside `kill_session`,
+not something this gate needs to duplicate. One `asyncio.Condition`
+coordinates both roles via two plain counters, `_active_readers` and
+`_active_writers` - no separate lock serializing writers against each
+other, unlike the version this replaced.
 
 ## reader
 

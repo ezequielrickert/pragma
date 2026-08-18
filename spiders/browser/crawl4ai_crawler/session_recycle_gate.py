@@ -22,18 +22,29 @@ class SessionRecycleGate:
     best-supported explanation for a third deadlock, after `arun()` and
     `close_session` were each independently bounded and neither one alone
     explained it.
+
+    **Writers never wait on each other** - only on readers. An earlier
+    version serialized writers through a single `asyncio.Lock`, reasoned
+    as safe because recycling is infrequent; that reasoning broke down
+    live on austral.edu.ar the moment the target started straining (a
+    `TargetLoadThrottle` circuit-breaker trip, navigations running 10s+):
+    every worker progresses through pages at roughly the same degraded
+    pace, so several independently hit `session_recycle_after` close
+    together, and each one's own reader-drain wait (bounded by
+    `navigation_watchdog_seconds`) queued fully behind the last, turning
+    an intended ~60s bound into up to `page_concurrency` x that. Two
+    writers recycling *different* sessions never conflict with each
+    other in the first place - the one shared thing they could race on
+    (a shared context's refcount) is already protected by crawl4ai's own
+    internal lock inside `kill_session`, not something this gate needs
+    to duplicate.
     Details: docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md#sessionrecyclegate
     """
 
     def __init__(self) -> None:
         self._active_readers = 0
-        self._writer_pending = False
+        self._active_writers = 0
         self._condition = asyncio.Condition()
-        # Serializes writers among themselves - recycling is infrequent
-        # (every session_recycle_after visits per worker), so contention
-        # between two concurrent recycles is rare enough that fully
-        # serializing them is simpler than a second reference count.
-        self._writer_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def reader(self) -> AsyncIterator[None]:
@@ -41,7 +52,7 @@ class SessionRecycleGate:
         Details: docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md#reader
         """
         async with self._condition:
-            while self._writer_pending:
+            while self._active_writers > 0:
                 await self._condition.wait()
             self._active_readers += 1
         try:
@@ -65,24 +76,29 @@ class SessionRecycleGate:
         recycling forever - the same "give up and proceed" discipline
         `WorkerPacing.wait_for_memory_headroom` already established for
         its own bounded wait.
+
+        Runs concurrently with any other writer already in progress -
+        see the class's own docstring for why that's safe and why an
+        earlier version's full serialization was a real bug, not just
+        unnecessary caution.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md#writer
         """
-        async with self._writer_lock:
-            async with self._condition:
-                self._writer_pending = True
-                try:
-                    await asyncio.wait_for(
-                        self._condition.wait_for(lambda: self._active_readers == 0),
-                        timeout=drain_timeout_seconds,
-                    )
-                except asyncio.TimeoutError:
-                    print(
-                        f"Warning: session recycle proceeding after {drain_timeout_seconds:.0f}s "
-                        f"still waiting on {self._active_readers} in-flight browser operation(s)."
-                    )
+        async with self._condition:
+            self._active_writers += 1
             try:
-                yield
-            finally:
-                async with self._condition:
-                    self._writer_pending = False
+                await asyncio.wait_for(
+                    self._condition.wait_for(lambda: self._active_readers == 0),
+                    timeout=drain_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                print(
+                    f"Warning: session recycle proceeding after {drain_timeout_seconds:.0f}s "
+                    f"still waiting on {self._active_readers} in-flight browser operation(s)."
+                )
+        try:
+            yield
+        finally:
+            async with self._condition:
+                self._active_writers -= 1
+                if self._active_writers == 0:
                     self._condition.notify_all()

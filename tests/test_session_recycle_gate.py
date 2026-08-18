@@ -79,6 +79,32 @@ def test_writer_blocks_new_readers_until_it_releases():
     assert events == ["writer-start", "writer-end", "reader-start"]
 
 
+def test_two_writers_run_concurrently_not_serialized():
+    """The actual regression this test pins: an earlier version fully
+    serialized writers through a single asyncio.Lock, reasoned as safe
+    because recycling is infrequent - that broke down live on
+    austral.edu.ar the moment the target started straining, where several
+    workers' own recycle attempts clustered together and each queued
+    fully behind the last, turning an intended ~60s bound into minutes.
+    Two writers recycling different sessions must never wait on each
+    other - only on readers."""
+    gate = SessionRecycleGate()
+    overlap = {"count": 0, "max": 0}
+
+    async def writer_task():
+        async with gate.writer(drain_timeout_seconds=5.0):
+            overlap["count"] += 1
+            overlap["max"] = max(overlap["max"], overlap["count"])
+            await asyncio.sleep(0.05)
+            overlap["count"] -= 1
+
+    async def run():
+        await asyncio.gather(writer_task(), writer_task())
+
+    asyncio.run(run())
+    assert overlap["max"] == 2
+
+
 def test_writer_gives_up_waiting_past_drain_timeout_and_proceeds_anyway(capsys):
     """A reader that never releases (a bug in some future caller not
     bounded by navigation_watchdog_seconds, since every real reader today
