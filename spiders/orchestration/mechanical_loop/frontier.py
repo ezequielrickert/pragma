@@ -77,6 +77,24 @@ class UrlFrontier:
             if href:
                 self.enqueue(href)
 
+    def enqueue_scouted(self, url: str) -> None:
+        """Re-add a page phase 1's scout sweep already fully drained through
+        this same frontier's `_queued` dedup set - `enqueue()`'s own dedup
+        guard would silently refuse it (the whole point of `_queued` is
+        "never queue the same key twice"), so phase 2 needs its own entry
+        point that skips only that guard while keeping the scope gate.
+        Deliberately does not touch `_requeue_attempts` or
+        `_route_shape_visits` - unlike `requeue()`, this isn't a failure
+        retry, and the scouted set already respects
+        `max_visits_per_route_shape` from phase 1's own `enqueue()` gate.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#enqueue_scouted
+        """
+        key = clean_url(url)
+        if self.base_url and not is_in_scope(url, self.base_url, self.allow_subdomains):
+            return
+        self._pending.add(key)
+        self._queue.put_nowait(url)
+
     def requeue(self, url: str) -> bool:
         """Put `url` straight onto the queue, bypassing `enqueue`'s scope/
         dedup/route-shape gates - for `_worker`'s redirect-requeue case only.

@@ -182,6 +182,20 @@ class _LadybugPageMixin:
 
         return self._call(op)
 
+    def get_scouted(self, limit: Optional[int] = None) -> List[str]:
+        """Up to `limit` Scouted page urls, sorted ascending - phase 2 of a
+        `two_phase_crawl` run builds its fresh frontier from exactly this
+        list. Unbounded if limit is None, same contract as `get_pending`.
+        Details: docs/dev/database/ladybug/page.md#get_scouted
+        """
+        def op(conn) -> List[str]:
+            query = "MATCH (p:Page) WHERE p.status = 'Scouted' RETURN p.url ORDER BY p.url"
+            if limit is not None:
+                query += f" LIMIT {int(limit)}"
+            return [row[0] for row in conn.execute(query)]
+
+        return self._call(op)
+
     def get_progress_table_rows(self) -> List[Dict[str, Any]]:
         """Every page as `{"url", "status", "components"}`, sorted -
         unfinished pages first, then by url. `label` is gone from this

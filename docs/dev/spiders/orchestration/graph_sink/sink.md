@@ -199,3 +199,26 @@ Called once by `_worker` (`docs/dev/spiders/orchestration/mechanical_loop/loop.m
 when `UrlFrontier.requeue` refuses to requeue a page again - the
 concluding write for a page that gave up, the same role
 `record_page_finished` plays for one that actually finished.
+
+## scouted_page_status
+
+`SCOUTED_PAGE_STATUS = "Scouted"` - phase 1 of a `two_phase_crawl` run
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+has finished discovery + sink bookkeeping for this page but not yet
+interaction. Distinct from `Pending` (still owed a first pass of any
+kind) and `Finished` (`interact()`'s own trailing `record_page_finished`
+call overwrites this once phase 2 actually runs the page's interaction
+frontier). `is_visited()` deliberately does not treat `Scouted` as
+concluded - unlike `Failed`/`Finished` above, a scouted page is real,
+unfinished work still owed to the crawl.
+
+## record_page_scouted
+
+Called once `PageVisitor.scout()`'s discovery + bookkeeping pass
+completes for a page
+(`docs/dev/spiders/orchestration/page_visitor/visitor.md#scout`) - never
+interrupted the way `interact()` can be (`scout()` never clicks, so
+nothing can trigger a mid-pass navigation), so this call is
+unconditional, unlike `record_page_finished`'s own
+not-`interrupted_by_navigation` guard. Mirrors `record_page_finished`'s
+own shape/params (`page_key`, `component_count`).

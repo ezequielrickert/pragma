@@ -45,6 +45,22 @@ def test_get_pending_respects_limit(store) -> None:
     assert store.get_pending(limit=1) == ["https://x/a"]
 
 
+def test_get_scouted_returns_only_scouted_urls_sorted(store) -> None:
+    store.upsert_page("https://x/b", status="Scouted")
+    store.upsert_page("https://x/a", status="Scouted")
+    store.upsert_page("https://x/pending", status="Pending")
+    store.upsert_page("https://x/done", status="Finished")
+
+    assert store.get_scouted() == ["https://x/a", "https://x/b"]
+
+
+def test_get_scouted_respects_limit(store) -> None:
+    store.upsert_page("https://x/a", status="Scouted")
+    store.upsert_page("https://x/b", status="Scouted")
+
+    assert store.get_scouted(limit=1) == ["https://x/a"]
+
+
 def test_get_progress_table_rows_orders_unfinished_first_then_by_url(store) -> None:
     store.upsert_page("https://x/z", status="Finished", components=3)
     store.upsert_page("https://x/a", status="Pending")

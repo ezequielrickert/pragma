@@ -544,6 +544,172 @@ def test_page_concurrency_raised_visits_pages_in_parallel():
     assert fake.max_in_flight > 1  # real concurrent overlap happened
 
 
+class _FakeTwoPhaseSiteCrawler:
+    """A hub page linking to `num_leaves` independent leaf pages, each with
+    one clickable button that reveals nothing further - the minimal shape
+    needed to prove: `scout()` discovers every page's links but clicks
+    nothing; `interact()` re-navigates into each leaf and clicks its button.
+    """
+
+    def __init__(self, num_leaves: int = 3) -> None:
+        self.start_url = "http://fixture/hub"
+        self.leaf_urls = [f"http://fixture/leaf{i}" for i in range(num_leaves)]
+        self.discover_calls: List[str] = []
+        self.click_calls: List[str] = []
+        self.fill_calls: List[str] = []
+
+    _BUTTON = {"path": "body > button#go", "tag": "button", "text": "Go", "visible": True}
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls.append(url)
+        # Phase 2 re-navigates using the graph store's route-shaped (thus
+        # schemeless) page key, not the literal start_url - see
+        # loop.py#_scouted_urls - so identity here can't be a strict `==`.
+        if route_shape(url) == route_shape(self.start_url):
+            links = [{"href": u, "scheme": "http"} for u in self.leaf_urls]
+            return PageState(url=url, components=[], links=links)
+        return PageState(url=url, components=[self._BUTTON])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.click_calls.append(url)
+        # Unchanged component set - a real no-op reveal, not a low-overlap
+        # state transition (which would legitimately re-record inventory).
+        return PageState(url=url, components=[self._BUTTON])
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        self.fill_calls.append(url)
+        return PageState(url=url, components=[])
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_scout_only_sweep_discovers_the_whole_site_without_clicking():
+    """A scout-only sweep (`_run_sweep(page_visitor.scout, ...)`) must
+    discover every reachable page via `enqueue_links`, exactly like a normal
+    fused crawl - but never build or drain an interaction frontier, so
+    `click`/`fill` are never called."""
+    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
+    mech._frontier.base_url = fake.start_url
+    mech._frontier.enqueue(fake.start_url)
+
+    asyncio.run(mech._run_sweep(mech._page_visitor.scout, count_as_finished=False))
+
+    assert fake.click_calls == []
+    assert fake.fill_calls == []
+    assert set(fake.discover_calls) == {fake.start_url, *fake.leaf_urls}
+
+
+class _FakeBareLeafCrawler:
+    """One page, zero interactable components - isolates the discovery-time
+    bookkeeping claim (`record_page_arrival`/`record_inventory`/
+    `record_text_content`/`record_page_network`/`record_page_metadata`/
+    `enqueue_links`, all done once by `scout()`) from the *separate*,
+    always-true fact that a real interaction loop re-records inventory
+    per-reveal regardless of phase - an empty frontier means that loop body
+    never runs at all, so any of those five calls firing a second time can
+    only be `interact()` redundantly repeating scout()'s own initial write.
+    """
+
+    def __init__(self) -> None:
+        self.url = "http://fixture/leaf"
+        self.discover_calls: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls.append(url)
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        raise AssertionError("no components to click")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("no components to fill")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_interact_re_navigates_but_skips_scouts_bookkeeping():
+    """The whole saving `interact()` exists to capture: `discover_page` must
+    run again (the tab moved on during phase 1), but none of the five sink
+    bookkeeping writes or `enqueue_links` may run a second time for a page
+    `scout()` already recorded."""
+    fake = _FakeBareLeafCrawler()
+    store = LadybugGraphStore("interact-reuse-test")
+    store.connect()
+    sink = GraphStoreSink(store, base_url=fake.url)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, base_url=fake.url))
+
+    asyncio.run(mech._page_visitor.scout(fake.url, "s"))
+    assert fake.discover_calls == [fake.url]
+
+    spy_names = [
+        "record_page_arrival", "record_inventory", "record_text_content",
+        "record_page_network", "record_page_metadata",
+    ]
+    call_counts = {name: 0 for name in spy_names}
+    for name in spy_names:
+        original = getattr(sink, name)
+
+        def spy(*args, _name=name, _original=original, **kwargs):
+            call_counts[_name] += 1
+            return _original(*args, **kwargs)
+
+        setattr(sink, name, spy)
+    enqueue_links_calls: List[Any] = []
+    mech._page_visitor._enqueue_links = lambda links: enqueue_links_calls.append(links)
+
+    asyncio.run(mech._page_visitor.interact(fake.url, "s"))
+
+    assert fake.discover_calls == [fake.url, fake.url]
+    assert all(count == 0 for count in call_counts.values())
+    assert enqueue_links_calls == []
+
+
+def test_two_phase_crawl_visits_and_interacts_the_same_pages_as_the_fused_pass():
+    """Equivalence: a two-phase run must discover and click exactly the same
+    pages/components a fused run does - the two-sweep restructuring changes
+    *when* work happens, never *what* gets done."""
+    fake_fused = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech_fused = MechanicalCrawler(fake_fused, config=MechanicalCrawlerConfig(base_url=fake_fused.start_url))
+    results_fused = asyncio.run(mech_fused.crawl_site(fake_fused.start_url))
+
+    fake_two_phase = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    store = LadybugGraphStore("two-phase-equivalence-test")
+    store.connect()
+    sink = GraphStoreSink(store, base_url=fake_two_phase.start_url)
+    mech_two_phase = MechanicalCrawler(
+        fake_two_phase,
+        config=MechanicalCrawlerConfig(sink=sink, base_url=fake_two_phase.start_url, two_phase_crawl=True),
+    )
+    results_two_phase = asyncio.run(mech_two_phase.crawl_site(fake_two_phase.start_url))
+
+    # Phase 2's frontier is seeded from the graph store's Scouted urls, which
+    # - like every other page key this store holds - are route-shaped, not
+    # literal (see _scouted_urls()/_resume_urls()'s shared doc note). Compare
+    # by route_shape, the level at which "same real page" is actually judged
+    # everywhere else in this codebase, not by raw string equality.
+    assert {r.url for r in results_fused} == {r.url for r in results_two_phase}
+    assert sorted(route_shape(u) for u in fake_fused.click_calls) == sorted(
+        route_shape(u) for u in fake_two_phase.click_calls
+    )
+
+
+def test_two_phase_crawl_defaults_to_off_and_never_double_navigates():
+    """Backward compatibility: `two_phase_crawl` defaults to `False`, and a
+    plain `crawl_site()` run must call `discover_page` exactly once per
+    page - no accidental double-navigation regression from this feature."""
+    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
+    assert mech._two_phase_crawl is False
+
+    asyncio.run(mech.crawl_site(fake.start_url))
+
+    assert len(fake.discover_calls) == len({fake.start_url, *fake.leaf_urls})  # exactly once each
+    assert set(fake.click_calls) == set(fake.leaf_urls)
+
+
 def test_effective_concurrency_is_full_below_the_taper_start_ratio():
     """A healthy target (target_slowdown_ratio at or under the taper start)
     must not reduce concurrency at all - only real degradation should."""

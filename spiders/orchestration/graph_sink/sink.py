@@ -34,6 +34,15 @@ EXTERNAL_PAGE_STATUS = "External"
 # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status
 FAILED_PAGE_STATUS = "Failed"
 
+# Status for a page whose scout()-only pass (phase 1 of a two_phase_crawl
+# run) has finished discovery + sink bookkeeping but not yet interaction.
+# Distinct from "Pending" (still owed a first pass of any kind) and
+# "Finished" (interact()'s own trailing record_page_finished call
+# overwrites this once phase 2 actually runs the page's interaction
+# frontier). is_visited() deliberately does not treat this as concluded.
+# Details: docs/dev/spiders/orchestration/graph_sink/sink.md#scouted_page_status
+SCOUTED_PAGE_STATUS = "Scouted"
+
 
 class GraphStoreSink:
     """Writes a `MechanicalCrawler` crawl's facts into `GraphStore` as they happen.
@@ -373,3 +382,13 @@ class GraphStoreSink:
         see `FAILED_PAGE_STATUS`. Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_failed
         """
         await self._write(self.graph_store.upsert_page, page_key, status=FAILED_PAGE_STATUS)
+
+    async def record_page_scouted(self, page_key: str, component_count: int) -> None:
+        """Called once `scout()`'s discovery + bookkeeping pass completes for
+        a page - never interrupted the way `interact()` can be, so this is
+        unconditional. Mirrors `record_page_finished`'s own shape/params.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_scouted
+        """
+        await self._write(
+            self.graph_store.upsert_page, page_key, status=SCOUTED_PAGE_STATUS, components=component_count
+        )

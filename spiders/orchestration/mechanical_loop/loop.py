@@ -4,7 +4,7 @@ Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#module
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import Awaitable, Callable, List, Optional
 
 from utils.urls import clean_url
 from ...browser.crawl4ai_crawler import Crawl4AICrawler
@@ -35,6 +35,9 @@ class MechanicalCrawler:
         self.max_pages = config.max_pages
         self.session_recycle_after = config.session_recycle_after
         self.sink = config.sink
+        # See MechanicalCrawlerConfig.two_phase_crawl for the full rationale.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_two_phase_crawl
+        self._two_phase_crawl = config.two_phase_crawl
         # A sink almost always implies its matching GraphStore tracker.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#tracker-default
         if tracker is not None:
@@ -110,8 +113,45 @@ class MechanicalCrawler:
         pending = self.sink.graph_store.get_pending()
         return [url for url in pending if "{token}" not in url]
 
+    def _scouted_urls(self) -> List[str]:
+        """Pages phase 1 finished scouting - what phase 2's frontier is
+        built from. Same `{token}` filter as `_resume_urls`: a shaped URL
+        carrying a placeholder is a canonical storage key, not a navigable
+        address. Empty (not an error) without a sink - no store, no way
+        `"Scouted"` was ever written.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_scouted_urls
+        """
+        if self.sink is None:
+            return []
+        scouted = self.sink.graph_store.get_scouted()
+        return [url for url in scouted if "{token}" not in url]
+
+    async def _run_sweep(
+        self,
+        visit_fn: Callable[[str, Optional[str]], Awaitable[PageVisitResult]],
+        count_as_finished: bool,
+    ) -> None:
+        """Spin up `page_concurrency` workers draining the frontier with
+        `visit_fn` until empty, then tear them down - one full site-wide
+        pass. Called once (`PageVisitor.visit`) for the default fused crawl,
+        or twice (`scout` then `interact`) under `two_phase_crawl`.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_run_sweep
+        """
+        workers = [
+            asyncio.create_task(self._worker(i, visit_fn, count_as_finished))
+            for i in range(self._pacing.page_concurrency)
+        ]
+        await self._frontier.join()
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
-        """Crawl every page reachable from `start_url`, `page_concurrency` at a time.
+        """Crawl every page reachable from `start_url`, `page_concurrency` at
+        a time. Under `two_phase_crawl`, runs a full scout sweep (discovery
+        only) to completion first, then rebuilds the frontier from every
+        page it left `"Scouted"` and runs a full interact sweep - see
+        `MechanicalCrawlerConfig.two_phase_crawl` for why.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
         """
         if self._frontier.base_url is None:
@@ -130,11 +170,13 @@ class MechanicalCrawler:
             print(f"Resuming: {len(resumed)} page(s) left pending by a previous run.")
             for url in resumed:
                 self._frontier.enqueue(url)
-        workers = [asyncio.create_task(self._worker(i)) for i in range(self._pacing.page_concurrency)]
-        await self._frontier.join()
-        for worker in workers:
-            worker.cancel()
-        await asyncio.gather(*workers, return_exceptions=True)
+        if self._two_phase_crawl:
+            await self._run_sweep(self._page_visitor.scout, count_as_finished=False)
+            for url in self._scouted_urls():
+                self._frontier.enqueue_scouted(url)
+            await self._run_sweep(self._page_visitor.interact, count_as_finished=True)
+        else:
+            await self._run_sweep(self._page_visitor.visit, count_as_finished=True)
         return self.page_results
 
     async def _recycle_session_if_due(self, browser_session_id: str, visits_since_recycle: int) -> int:
@@ -182,12 +224,25 @@ class MechanicalCrawler:
             f"| queued: {self._frontier.queued_count()} | {outcome}: {url}"
         )
 
-    async def _worker(self, worker_id: int) -> None:
-        """One concurrent visitor: pulls a URL, hands it to `PageVisitor`, requeues.
-        Reuses one browser tab (keyed by `worker_id`) across every URL it
-        visits, so tab count stays at `page_concurrency` for the whole crawl
-        instead of growing by one per page - periodically recycled, see
-        `_recycle_session_if_due`. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker
+    async def _worker(
+        self,
+        worker_id: int,
+        visit_fn: Callable[[str, Optional[str]], Awaitable[PageVisitResult]],
+        count_as_finished: bool,
+    ) -> None:
+        """One concurrent visitor: pulls a URL, hands it to `visit_fn`
+        (`PageVisitor.visit`/`scout`/`interact`, chosen by `_run_sweep`),
+        requeues. Reuses one browser tab (keyed by `worker_id`) across every
+        URL it visits, so tab count stays at `page_concurrency` for the whole
+        crawl instead of growing by one per page - periodically recycled,
+        see `_recycle_session_if_due`.
+
+        `count_as_finished` gates whether a completed pass counts as a real
+        completion (`CrawlBudget.pages`, `_unique_visits`, and - critically -
+        `tracker.mark_visited`) or only as scouted: a scout pass marking a
+        page visited would make phase 2's own dequeue gate below skip every
+        page it just scouted, so the interact sweep would silently do
+        nothing. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker
         """
         browser_session_id = f"worker-{worker_id}"
         visits_since_recycle = 0
@@ -212,7 +267,7 @@ class MechanicalCrawler:
                     continue  # duplicate dequeue - see docs/dev/.../mechanical_loop/frontier.md#in_flight
                 self._frontier.mark_in_flight(key)
                 try:
-                    result = await self._page_visitor.visit(url, browser_session_id)
+                    result = await visit_fn(url, browser_session_id)
                 finally:
                     self._frontier.clear_in_flight(key)
                 visits_since_recycle += 1
@@ -247,20 +302,25 @@ class MechanicalCrawler:
                         if self.sink:
                             await self.sink.record_page_failed(result.url)
                 else:
-                    # CrawlBudget.pages counts "pages finished this run" (its
-                    # own docstring) - only here, never for a requeued/
-                    # interrupted pass, which hasn't finished and will be
-                    # reattempted. Counting those too let a site whose
-                    # anti-bot protection intermittently blocks requests burn
-                    # its whole page budget re-requeuing the same handful of
-                    # pages, reporting "budget reached" while hundreds of
-                    # newly discovered URLs never got a turn.
-                    # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
-                    self._budget.record_page()
-                    self._unique_visits += 1
-                    self.tracker.mark_visited(key)
                     self._frontier.record_route_shape_visit(url)
-                    outcome = "done"
+                    if count_as_finished:
+                        # CrawlBudget.pages counts "pages finished this run" (its
+                        # own docstring) - only here, never for a requeued/
+                        # interrupted pass, which hasn't finished and will be
+                        # reattempted. Counting those too let a site whose
+                        # anti-bot protection intermittently blocks requests burn
+                        # its whole page budget re-requeuing the same handful of
+                        # pages, reporting "budget reached" while hundreds of
+                        # newly discovered URLs never got a turn.
+                        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_worker-budget
+                        self._budget.record_page()
+                        self._unique_visits += 1
+                        # See _worker's own docstring for why this stays gated on
+                        # count_as_finished rather than running unconditionally.
+                        self.tracker.mark_visited(key)
+                        outcome = "done"
+                    else:
+                        outcome = "scouted"
                 self._report_visit(worker_id, url, outcome)
             finally:
                 self._frontier.task_done()

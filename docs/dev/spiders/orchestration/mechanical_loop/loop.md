@@ -101,6 +101,42 @@ persists across visits within one crawl).
 Crawl every page reachable from `start_url`, `WorkerPacing.page_concurrency`
 pages at a time.
 
+Under the default `two_phase_crawl=False`
+(`config.md#two_phase_crawl`), runs one `_run_sweep` calling
+`PageVisitor.visit` - the original fused scout+interact behavior,
+unchanged. Under `two_phase_crawl=True`, runs `_run_sweep` twice instead:
+first with `PageVisitor.scout` (`count_as_finished=False`) to completion,
+then seeds a fresh frontier pass from `_scouted_urls()` via
+`UrlFrontier.enqueue_scouted` and runs a second `_run_sweep` with
+`PageVisitor.interact` (`count_as_finished=True`).
+
+## _scouted_urls
+
+Pages phase 1 finished scouting - what phase 2's frontier is built from,
+read via `self.sink.graph_store.get_scouted()`
+(`docs/dev/database/ladybug/page.md#get_scouted`). Mirrors
+`_resume_urls`'s own `{token}`-placeholder filter: a shaped URL carrying
+one is a canonical storage key, not a navigable address. Empty (not an
+error) without a sink - no store, no way `"Scouted"` was ever written.
+
+Like `_resume_urls`, what this returns is `route_shape()`-derived (every
+`Page.url` the graph store holds is), not necessarily the original
+literal URL - a shape with no opaque token segments collapses to the
+same string either way, which is the case for every real site this
+matters for; see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
+for the one place a shape/literal distinction genuinely bites.
+
+## _run_sweep
+
+Spin up `page_concurrency` workers draining the frontier with one
+`visit_fn` until empty, then tear them down - one full site-wide pass.
+Called once (`PageVisitor.visit`) for the default fused crawl, or twice
+(`scout` then `interact`) under `two_phase_crawl` - see
+`config.md#two_phase_crawl`. Factored out of what used to be
+`crawl_site`'s own inline worker-spinup so both call shapes share the
+identical spin-up/join/teardown sequence.
+
 Runs that many `_worker()` tasks pulling from the shared `UrlFrontier`,
 then waits on `self._frontier.join()` - which only returns once every
 enqueued item (including ones enqueued *while* another item is still
@@ -154,11 +190,28 @@ well before it becomes a real slowdown.
 
 ## _worker
 
-One concurrent visitor - pulls a URL, visits it, requeues or marks it
-visited. Runs forever until cancelled by `crawl_site` right after
-`self._frontier.join()` returns, at which point every worker is
-guaranteed to be idly blocked on `self._frontier.get()` (never mid-visit)
-since `join()` only completes once the queue is fully drained.
+One concurrent visitor - pulls a URL, hands it to `visit_fn`
+(`_run_sweep`'s choice of `PageVisitor.visit`/`scout`/`interact`),
+requeues or marks it visited. Runs forever until cancelled by
+`_run_sweep` right after `self._frontier.join()` returns, at which point
+every worker is guaranteed to be idly blocked on `self._frontier.get()`
+(never mid-visit) since `join()` only completes once the queue is fully
+drained.
+
+`count_as_finished` (also from `_run_sweep`) gates whether a completed
+pass counts as a real completion (`CrawlBudget.pages`, `_unique_visits`,
+and - critically - `tracker.mark_visited`) or only as scouted. That last
+point is the correctness-critical one: `GraphStoreInteractionTracker.mark_visited`
+sets a local cache `is_visited()` checks before ever querying the store
+(`docs/dev/spiders/orchestration/graph_sink/tracker.md`), so
+if a scout pass (`count_as_finished=False`) marked a page visited, phase
+2's own dequeue gate a few lines below (`if
+self.tracker.is_visited(key): continue`) would skip every page it just
+scouted, and the interact sweep would silently do nothing. `scout()`
+results are never `interrupted_by_navigation` either (it never clicks,
+so nothing can trigger a mid-pass navigation), so the existing
+requeue/give-up branch below stays dead code on a scout pass without
+needing its own special case.
 
 Builds one `browser_session_id` (`f"worker-{worker_id}"`) up front and
 passes the same value to every `PageVisitor.visit()` call this worker
