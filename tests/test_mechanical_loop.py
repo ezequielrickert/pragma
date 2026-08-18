@@ -1828,6 +1828,32 @@ def test_session_recycled_every_configured_number_of_visits():
     assert fake.closed_session_ids == ["worker-0"] * 3
 
 
+class _FakeSessionRecycleFailsCrawler(_FakeSessionRecordingCrawler):
+    """Same fan-out, but `close_session` always raises - simulating
+    `Crawl4AICrawler.close_session`'s own watchdog
+    (`session_cleanup_timeout_seconds`) firing during periodic recycling.
+    Confirmed live on austral.edu.ar as a real, previously-unguarded
+    deadlock site: `_recycle_session_if_due`'s existing broad `except`
+    must recover from this and keep the crawl going, not let a hung/failed
+    recycle attempt take the whole worker down with it."""
+
+    async def close_session(self, session_id: str) -> None:
+        raise RuntimeError(f"close_session watchdog: {session_id!r} did not close within 10s")
+
+
+def test_recycle_session_failure_does_not_stop_the_crawl():
+    fake = _FakeSessionRecycleFailsCrawler(n_pages=8)
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, session_recycle_after=3)
+    )
+    results = asyncio.run(mech.crawl_site(fake.root_url))
+
+    # Every page still gets visited despite every single recycle attempt
+    # failing - a hung/failed close_session() must never hang or crash the
+    # worker that happened to trigger it.
+    assert len(results) == 9  # 1 root + 8 leaves
+
+
 def test_session_never_recycled_when_disabled():
     fake = _FakeSessionRecyclingCrawler(n_pages=8)
     mech = MechanicalCrawler(

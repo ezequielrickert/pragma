@@ -49,3 +49,13 @@ class Crawl4AICrawlerConfig:
     # gets the chance to start its own internal clock.
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds
     navigation_watchdog_seconds: float = 60.0
+    # Bound on close_session()'s own call into crawl4ai's kill_session -
+    # short and separate from navigation_watchdog_seconds, since a cleanup
+    # call that's ALSO stuck on whatever wedged the original arun() must
+    # never introduce a second unbounded wait on top of the first. Confirmed
+    # live on austral.edu.ar as a second, distinct deadlock site from the
+    # arun() one: MechanicalCrawler._recycle_session_if_due calls
+    # close_session() periodically (every session_recycle_after visits),
+    # completely unguarded before this existed.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds
+    session_cleanup_timeout_seconds: float = 10.0

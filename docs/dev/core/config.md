@@ -75,6 +75,17 @@ scout sweep frozen for 12+ minutes with `page_timeout_seconds` in effect
 the whole time) and the reasoning behind the default. Explicitly a
 partial fix, not a root-cause one - see that same entry's closing note.
 
+## session_cleanup_timeout_seconds
+
+A second, distinct backstop from `navigation_watchdog_seconds` above -
+bounds `Crawl4AICrawler.close_session`'s own call into crawl4ai
+internals, not navigation. Passed straight through to
+`Crawl4AICrawlerConfig.session_cleanup_timeout_seconds` - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds`
+for the second, separately-confirmed austral.edu.ar deadlock this exists
+for (periodic session recycling, not navigation itself) and why it's a
+much shorter default (10s vs. 60s).
+
 ## prefetch
 
 Skips crawl4ai's own markdown-generation/content-scraping pipeline

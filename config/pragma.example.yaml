@@ -120,6 +120,15 @@ export_json: false    # also write data/output/{slug}_export_{timestamp}.json - 
                        # instead, regardless of where inside crawl4ai it gets stuck, and best-effort
                        # closes the wedged session before raising so the crawl can recover and move
                        # on to the next page rather than hang forever.
+# session_cleanup_timeout_seconds: 10.0  # a separate, shorter bound on close_session()'s own
+                       # call into crawl4ai's session-management internals (kill_session) -
+                       # confirmed live on austral.edu.ar as a SECOND, distinct deadlock site from
+                       # navigation_watchdog_seconds above: MechanicalCrawler recycles a worker's
+                       # browser tab every session_recycle_after visits, and that periodic
+                       # close_session() call was completely unguarded before this existed. A hung
+                       # recycle attempt now raises and gets logged (see
+                       # MechanicalCrawler._recycle_session_if_due) instead of blocking its worker
+                       # forever with no recovery.
 # prefetch: false       # skip crawl4ai's own markdown-generation pipeline entirely - real savings,
                        # since this project never reads that output (all facts come from its own
                        # discovery JS instead). Side effect: data/debug_logs/*/pages/*.md snapshots come

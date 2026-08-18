@@ -43,6 +43,11 @@ class PragmaConfig:
     # internal navigation clock once a navigation has actually started).
     # Details: docs/dev/core/config.md#navigation_watchdog_seconds
     navigation_watchdog_seconds: float = 60.0
+    # Bound on close_session()'s own call into crawl4ai internals -
+    # separate from navigation_watchdog_seconds, guards a second, distinct
+    # deadlock site (periodic session recycling), not navigation itself.
+    # Details: docs/dev/core/config.md#session_cleanup_timeout_seconds
+    session_cleanup_timeout_seconds: float = 10.0
     # A third timeout phase, bounding Playwright's own unbounded internal
     # waits. Left unset, Playwright's own 1s default governs instead - real
     # cost on a page stuck behind e.g. an anti-bot block (3 retry attempts at

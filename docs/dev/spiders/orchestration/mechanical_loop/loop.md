@@ -157,6 +157,19 @@ threshold, and best-effort via `getattr` - a crawler fake that doesn't
 implement `close_session` (most of `tests/test_mechanical_loop.py`'s
 fakes) just never recycles, same as `session_recycle_after=None`.
 
+The `try`/`except` around `await close(...)` isn't defensive boilerplate
+- it's load-bearing. Confirmed live on austral.edu.ar: `close_session`'s
+own call into crawl4ai's `kill_session` used to be completely unguarded,
+and a hang there (the same class of crawl4ai-internal stall
+`navigation_watchdog_seconds` guards for navigation - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds`)
+blocked this worker forever with no recovery, on a call that fires
+periodically rather than every visit, matching the observed "runs fine
+for dozens of visits, then freezes" symptom. `close_session` is now
+self-bounded, so this method needed no code change at all once that
+landed - the existing `except Exception` here already turns whatever it
+now raises into a logged warning and a continued crawl.
+
 **Why this exists at all**, confirmed by bypassing crawl4ai entirely and
 driving raw Playwright directly against austral.edu.ar: a single tab kept
 alive across 50 real, distinct page navigations (no repeats) climbed from

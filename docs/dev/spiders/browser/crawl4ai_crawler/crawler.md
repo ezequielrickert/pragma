@@ -359,3 +359,33 @@ cost as approach 2 above, just paid once per `session_recycle_after`
 visits instead of once per visit. See
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#session_recycle_after`
 for picking that number.
+
+**Update - bounded by `session_cleanup_timeout_seconds`, a second
+deadlock site distinct from `arun()`'s own**: `navigation_watchdog_seconds`
+(`#_run_with_watchdog` above) bounds `discover_page`/`_interact`'s own
+`arun()` call, but this method's call into `kill_session` was a
+completely separate, still-unguarded path into the same category of
+crawl4ai-internal code - confirmed live on austral.edu.ar as a genuine,
+reproduced-twice deadlock: a `two_phase_crawl` scout sweep froze for 5+
+minutes with `navigation_watchdog_seconds` (60s) long since elapsed and
+no recovery, which live process forensics (`py-spy dump`) showed was
+*not* stuck inside `arun()` or the graph-store writer - both sat
+completely idle. The one remaining periodic call this method's own
+callers make (`_recycle_session_if_due`, every `session_recycle_after`
+visits) was the best-supported remaining candidate: unguarded, reaches
+crawl4ai's own session/browser-management internals, and fires only
+occasionally, matching the observed "runs fine for dozens of visits,
+then freezes" pattern.
+
+Wrapped here, at the one definition, rather than at each of the two
+callers (`_recycle_session_if_due` in `loop.py`, and this file's own
+`_force_close_wedged_session`) - both get the bound for free, and
+`_force_close_wedged_session` could drop its own now-redundant
+`asyncio.wait_for` wrapper entirely. `_recycle_session_if_due` needed no
+code change at all: its existing broad `except Exception` already turns
+whatever this raises into a logged warning and a continued crawl,
+exactly the recovery a hung recycle attempt needs.
+
+Same honesty as `navigation_watchdog_seconds`'s own doc: this bounds and
+recovers from a hang in crawl4ai's own internals, it does not fix
+whatever's actually contended inside them.

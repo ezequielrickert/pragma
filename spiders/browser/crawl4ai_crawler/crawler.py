@@ -18,13 +18,6 @@ from .hooks import _ACTION_MARK, HookHandlers
 from .page_state import build_page_state
 from .quiet_logger import QuietCaptureLogger
 
-# Bound on the best-effort session-cleanup attempt a watchdog timeout makes -
-# short and separate from navigation_watchdog_seconds itself, since a
-# cleanup call that's ALSO stuck on whatever wedged the original arun() must
-# never introduce a second unbounded wait on top of the first.
-# Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_wedged_session_cleanup_timeout_seconds
-_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS = 10.0
-
 
 class Crawl4AICrawler:
     """Owns one crawl4ai `AsyncWebCrawler` for the lifetime of an `async with` block.
@@ -37,6 +30,7 @@ class Crawl4AICrawler:
         self.debug_log = config.debug_log
         self.page_timeout_seconds = config.page_timeout_seconds
         self.navigation_watchdog_seconds = config.navigation_watchdog_seconds
+        self.session_cleanup_timeout_seconds = config.session_cleanup_timeout_seconds
         self.prefetch = config.prefetch
         self.viewport_width = config.viewport_width
         self.viewport_height = config.viewport_height
@@ -187,16 +181,15 @@ class Crawl4AICrawler:
             ) from exc
 
     async def _force_close_wedged_session(self, session_id: str) -> None:
-        """Best-effort session cleanup after a watchdog timeout, bounded and
-        swallowed - a cleanup attempt that's itself stuck on whatever wedged
-        the original call must never mask the real error or introduce a
-        second unbounded wait on top of the first.
+        """Best-effort session cleanup after a watchdog timeout, swallowed -
+        a cleanup attempt that's itself stuck on whatever wedged the
+        original call must never mask the real error. `close_session` is
+        self-bounded (see its own docstring), so no separate `wait_for`
+        wrapper is needed here.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_force_close_wedged_session
         """
         try:
-            await asyncio.wait_for(
-                self.close_session(session_id), timeout=_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS
-            )
+            await self.close_session(session_id)
         except Exception as exc:
             print(f"Warning: could not close wedged session {session_id!r} after watchdog timeout: {exc}")
 
@@ -340,10 +333,31 @@ class Crawl4AICrawler:
 
     async def close_session(self, session_id: str) -> None:
         """Release the Playwright page/context crawl4ai opened for `session_id`.
+        Bounded by `session_cleanup_timeout_seconds` - `kill_session` is
+        crawl4ai's own session/browser-management internals, exactly the
+        class of code `_run_with_watchdog` already guards `arun()` against.
+        Confirmed live on austral.edu.ar as a second, distinct deadlock site
+        from the `arun()` one: `MechanicalCrawler._recycle_session_if_due`
+        calls this every `session_recycle_after` visits, and an unguarded
+        hang here blocked its calling worker forever with no recovery,
+        invisible to `navigation_watchdog_seconds` (which only wraps
+        `discover_page`/`_interact`'s own `arun()` calls, never this).
+        Bounding it here, at the one definition both `_recycle_session_if_due`
+        and `_force_close_wedged_session` call through, covers both callers
+        at once rather than wrapping each separately.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#close_session
         """
         if self._crawler is None:
             raise RuntimeError(
                 "Crawl4AICrawler must be used as an async context manager"
             )
-        await self._crawler.crawler_strategy.kill_session(session_id)
+        try:
+            await asyncio.wait_for(
+                self._crawler.crawler_strategy.kill_session(session_id),
+                timeout=self.session_cleanup_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError(
+                f"close_session watchdog: {session_id!r} did not close within "
+                f"{self.session_cleanup_timeout_seconds:.0f}s"
+            ) from exc

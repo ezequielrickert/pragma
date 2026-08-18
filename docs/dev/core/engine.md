@@ -44,6 +44,10 @@ is a third timeout phase, distinct from `page_timeout_seconds` - see
 is a fourth, independent of all three - an outer backstop around every
 `arun()` call rather than a bound on any one internal phase of it - see
 `docs/dev/core/config.md#navigation_watchdog_seconds`.
+`session_cleanup_timeout_seconds` is a fifth, guarding a distinct,
+separately-confirmed deadlock site (periodic session recycling via
+`close_session`, not navigation) - see
+`docs/dev/core/config.md#session_cleanup_timeout_seconds`.
 
 ## __init__-two_phase_crawl
 

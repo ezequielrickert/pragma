@@ -182,3 +182,26 @@ control crawl4ai's own internals, so this can only bound *this
 codebase's own* wait and recover the crawl - it can't fix whatever
 actually wedged inside crawl4ai. See `_run_with_watchdog` below for the
 best-effort session-cleanup attempt that goes with it.
+
+## session_cleanup_timeout_seconds
+
+Bounds `Crawl4AICrawler.close_session`'s own call into crawl4ai's
+`kill_session` - a **second, distinct** deadlock site from the one
+`navigation_watchdog_seconds` above guards, found the same way: a
+`two_phase_crawl` scout sweep froze again, for 5+ minutes, well past
+`navigation_watchdog_seconds`'s own 60s bound with no recovery. A live
+`py-spy dump` proved the stall wasn't in `arun()` or the graph-store
+writer - both were completely idle. The remaining, previously-unguarded
+candidate: `MechanicalCrawler._recycle_session_if_due`
+(`docs/dev/spiders/orchestration/mechanical_loop/loop.md#_recycle_session_if_due`)
+calls `close_session` every `session_recycle_after` visits, reaching the
+exact same class of crawl4ai session/browser-management internals
+`navigation_watchdog_seconds` already guards elsewhere - just through a
+call path that bound never touched.
+
+Default `10.0` - short, since closing an already-idle tab is normally
+near-instant; no need for anything close to `navigation_watchdog_seconds`'s
+own 60s scale here. See
+`docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#close_session`
+for the full reasoning and why this is bound once, at `close_session`
+itself, rather than wrapped separately at each of its two callers.
