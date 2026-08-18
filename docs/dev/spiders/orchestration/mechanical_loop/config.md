@@ -54,14 +54,22 @@ Cap on how many times `UrlFrontier.requeue` will put the same clean_url
 key back on the queue after an interrupted pass, before giving up on it
 for good (marked `FAILED_PAGE_STATUS` instead -
 `docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status`).
-Confirmed live on austral.edu.ar without a cap: a page whose interactions
-reliably trip the anti-bot block, or a popular redirect destination many
-different interrupted passes independently requeue, cycled without limit
-- "requeued" climbing far past "unique" and the queue growing into the
-thousands. Default 3 - generous enough that a genuinely transient block
-gets a real second chance, small enough that a page that is *always*
-going to fail this way stops burning worker time on it within a handful
-of attempts.
+Confirmed live on austral.edu.ar without this cap: a page whose
+interactions reliably trip the anti-bot block cycled without limit.
+Default 3 - generous enough that a genuinely transient block gets a real
+second chance, small enough that a page that is *always* going to fail
+this way stops burning worker time on it within a handful of attempts.
+
+A *separate* bug, also found on austral.edu.ar and now fixed independently
+of this cap (`frontier.md#_pending`), used to let a popular redirect
+destination many different interrupted passes independently requeue
+duplicate itself into the live queue - "requeued" climbing far past
+"unique" and the queue growing into the thousands purely from dead
+duplicate entries, not from this cap being too high. `requeue()` now
+short-circuits a call for a URL that's already pending or in flight
+instead of queuing a second copy, and that short-circuited call doesn't
+consume one of this cap's attempts either - only a call that actually
+needs a fresh entry does.
 
 ## session_recycle_after
 

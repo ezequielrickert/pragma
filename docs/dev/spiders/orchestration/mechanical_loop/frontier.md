@@ -28,6 +28,20 @@ as plain callables.
 another item's processing) has been fully handled, with no separate "is
 anything still in flight" bookkeeping of its own.
 
+## _pending
+
+clean_url keys currently sitting un-popped in `_queue` right now - unlike
+`_queued` (permanent, set once, never shrinks), this one drains on `get()`.
+Exists so `requeue()` can tell "this destination already has a live entry
+waiting" apart from "needs a fresh one" - the fact `_queued` alone can't
+answer, since it stays `True` forever once anything is ever enqueued,
+whether or not it's still actually sitting in the queue.
+
+Always a subset of `_queued`: every key added to `_pending` (by `enqueue()`
+or `requeue()`) was already added to `_queued` at that same moment or
+earlier, and nothing ever removes a key from `_queued`. That's why
+`is_known()` doesn't need a separate `_pending` check of its own.
+
 ## in_flight
 
 clean_url keys a worker is *currently* mid-visit on - a second, narrower
@@ -83,16 +97,26 @@ Put a URL straight onto the queue, bypassing every gate `enqueue` applies
 which needs to resume a page already known to be in-scope and already
 past its route-shape/dedup checks the first time it was enqueued.
 
-Returns `False` instead of requeuing once `max_requeue_attempts` is
-exceeded for that clean_url key - see `_requeue_attempts` below. Confirmed
-live on a real crawl (austral.edu.ar): a reliably anti-bot-blocked page,
-or a popular redirect destination many different interrupted passes
-independently call this for (the exact race `in_flight`'s own doc
-describes), had no limit before this - "requeued" climbed far past
-"unique" and the queue grew into the thousands on a site with a few
-hundred real pages, because every interrupted pass added its own copy
-with nothing capping how many times any one destination could cycle back
-through.
+Short-circuits to `True` - without touching `_requeue_attempts` - if the
+key is already `_pending` (a live entry is still sitting un-popped in the
+queue) or `_in_flight` (a worker is visiting it right now). Confirmed live
+on a real crawl (austral.edu.ar): a popular redirect destination many
+different interrupted passes independently call this for (the exact race
+`in_flight`'s own doc describes) used to succeed every single time,
+putting the same clean_url key in `_queue` more than once - not a
+double-*visit* (the dequeue-time `is_visited`/`is_in_flight` checks in
+`loop.md#_worker` already caught that), but dead entries that inflated
+`queued_count()`, cost a full pacing-wait/dequeue/check cycle for nothing,
+and let `_requeue_attempts` climb from duplicate bookkeeping alone. A
+short-circuited call isn't a real retry - nothing new happened - so it's
+deliberately not counted as one; only a call that actually puts a fresh
+entry on the queue advances the counter.
+
+Otherwise returns `False` instead of requeuing once `max_requeue_attempts`
+is exceeded for that clean_url key - see `_requeue_attempts` below. A page
+that reliably trips an anti-bot block still has this real backstop; it's
+only the *duplicate-call* version of unbounded growth that the
+short-circuit above removes.
 
 ## is_known
 
@@ -116,11 +140,13 @@ is exactly as "already accounted for" as one this run queued itself.
 
 ## _requeue_attempts
 
-clean_url key -> how many times `requeue` has been called for it. Keyed
-by the destination, not by which pass called it or which worker is
-running - the whole point is to cap a popular destination's *total*
-requeue count across every independent interrupted pass that lands on
-it, not just one page's own retry count.
+clean_url key -> how many times `requeue` has actually put a fresh entry
+on the queue for it - a call absorbed by the `_pending`/`_in_flight`
+short-circuit above doesn't advance this. Keyed by the destination, not by
+which pass called it or which worker is running - the whole point is to
+cap a popular destination's *total* real requeue count across every
+independent interrupted pass that lands on it, not just one page's own
+retry count.
 
 `_worker`'s caller reads `requeue`'s return value to know when to stop:
 past the cap, it marks the page `FAILED_PAGE_STATUS`

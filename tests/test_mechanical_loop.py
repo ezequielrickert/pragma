@@ -28,8 +28,9 @@ from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerCon
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.orchestration.mechanical_loop.frontier import UrlFrontier
 from database.ladybug.store import LadybugGraphStore
-from utils.urls import route_shape
+from utils.urls import clean_url, route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -81,6 +82,67 @@ def test_url_frontier_follows_links_and_dedups(fixture_server):
     # and never queued again - confirmed by page-b.html (which links back to
     # index.html) not causing unbounded re-visits.
     assert len(results) < 15
+
+
+def test_requeue_absorbs_duplicate_calls_for_a_still_pending_url():
+    """Two independent interrupted passes landing on the same already-known
+    destination (e.g. a shared nav-menu link many pages route through) must
+    not duplicate it in the live queue - confirmed live on austral.edu.ar."""
+    frontier = UrlFrontier(InMemoryInteractionTracker(), MechanicalCrawlerConfig())
+    url = "http://fixture/shared-nav-destination"
+
+    assert frontier.requeue(url) is True
+    assert frontier.requeue(url) is True
+    assert frontier.requeue(url) is True
+    assert frontier.queued_count() == 1
+
+
+def test_requeue_absorbs_a_call_for_an_in_flight_url():
+    """A worker is already mid-visit on this exact destination (reached via
+    a different entry point) when another interrupted pass tries to requeue
+    it - absorbed rather than queued for a second, racy concurrent visit."""
+    frontier = UrlFrontier(InMemoryInteractionTracker(), MechanicalCrawlerConfig())
+    url = "http://fixture/in-flight-destination"
+    frontier.mark_in_flight(clean_url(url))
+
+    assert frontier.requeue(url) is True
+    assert frontier.queued_count() == 0
+
+
+def test_requeue_still_gives_up_after_real_repeated_failures():
+    """Real, non-duplicate requeue() calls (the url fully drained/popped
+    between each) still count toward max_requeue_attempts and still give up
+    once it's exceeded - the new duplicate short-circuit must not swallow
+    genuine repeated-failure bookkeeping."""
+    frontier = UrlFrontier(
+        InMemoryInteractionTracker(), MechanicalCrawlerConfig(max_requeue_attempts=2)
+    )
+    url = "http://fixture/reliably-blocked-page"
+
+    assert frontier.requeue(url) is True  # attempt 1
+    asyncio.run(frontier.get())
+    assert frontier.requeue(url) is True  # attempt 2
+    asyncio.run(frontier.get())
+    assert frontier.requeue(url) is False  # attempt 3 - past the cap, give up
+
+
+def test_duplicate_requeue_calls_do_not_count_toward_max_requeue_attempts():
+    """A requeue() call absorbed as a duplicate (the url is still pending)
+    must not consume one of max_requeue_attempts - only a call that actually
+    puts a fresh entry on the queue is a real attempt."""
+    frontier = UrlFrontier(
+        InMemoryInteractionTracker(), MechanicalCrawlerConfig(max_requeue_attempts=2)
+    )
+    url = "http://fixture/popular-redirect-target"
+
+    assert frontier.requeue(url) is True  # real attempt #1
+    assert frontier.requeue(url) is True  # duplicate - absorbed, not counted
+    assert frontier.requeue(url) is True  # duplicate - absorbed, not counted
+    asyncio.run(frontier.get())  # drains the one real entry, clears _pending
+
+    # If the two duplicates above had counted, this would already be
+    # attempt #4 against a cap of 2 and return False.
+    assert frontier.requeue(url) is True  # real attempt #2 - still within cap
 
 
 def test_same_page_reveal_chain_gets_interacted_within_available_passes(fixture_server):
