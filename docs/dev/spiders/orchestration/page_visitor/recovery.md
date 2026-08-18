@@ -49,12 +49,13 @@ as any other best-effort recovery that couldn't get fresh data to act on.
 
 ## return_to_origin
 
-The known-destination counterpart to `recover_stale_frontier`: called
-from `visit`'s physical-navigation branch when
+The physical-navigation counterpart to `recover_stale_frontier`: called
+from `visit`'s physical-navigation branch, always, right after
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
-determined the click's destination is already known to this crawl, so the
-pass doesn't need to stop for it - only the browser, which really did
-navigate away, needs to come back.
+records the edge/enqueues the destination - known destination or not, the
+pass doesn't need to stop, only the browser, which really did navigate
+away, needs to come back. (Originally known-destination-only - see that
+method's own "Update" note for why the distinction was dropped.)
 
 Steps back via `Crawl4AICrawler.go_back` (browser history, not a no-op
 resync - the session is actually on the wrong page - and deliberately not

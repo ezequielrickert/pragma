@@ -271,18 +271,17 @@ class PageVisitor:
                     )
 
             if new_literal != page_literal:
-                # Real physical navigation. A destination this crawl doesn't
-                # know about yet still stops the pass regardless of
-                # page_key; a known one (the common case for a site-wide nav
-                # menu, where nearly every page links to nearly every other
-                # page) doesn't need a separate pass - hop back and keep
-                # draining this page's own frontier instead.
+                # Real physical navigation. Always resumed in place, known
+                # destination or not (a site-wide nav menu is the common
+                # known case, but there's nothing about an unknown one that
+                # makes a cheap history-back less safe) - hop back and keep
+                # draining this page's own frontier instead of pausing the
+                # whole pass for a link this crawl can already reach some
+                # other way (its own future visit, via the enqueue below).
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-physical-navigation-branch
-                must_stop = await self._outcomes.handle_physical_navigation(
+                await self._outcomes.handle_physical_navigation(
                     page_key, new_key, new_state, component, path, interaction, result
                 )
-                if must_stop:
-                    break
                 fresh_state = await self._recovery.return_to_origin(
                     url, session_id, page_key, page_literal, frontier, idx, result, seen_paths_this_pass
                 )

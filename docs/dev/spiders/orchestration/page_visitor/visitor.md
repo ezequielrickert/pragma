@@ -340,34 +340,31 @@ avoid entirely (a real click happened this time, not a skipped one) -
 `go_back` below is the fallback recovery for a navigation that already
 happened, not the primary mechanism for avoiding one.
 Delegates to
-`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`,
-which decides whether the destination is already known to this crawl.
-
-An **unknown** destination (`must_stop` is `True`) still stops the pass
-right here, same as before this distinction existed: the session's page
-has physically left `page_literal`, so no further frontier item from this
-pass can be safely acted on, and the whole page gets requeued for a
-separate later pass.
-
-A **known** destination doesn't need a separate pass - only the browser,
-which really did navigate away, needs to come back.
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+for the bookkeeping (edge, navigation-trigger identity, enqueue if not
+already known), then always calls
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
-does that via browser history (`Crawl4AICrawler.go_back` - not a fresh
-`discover_page` navigation, and not a no-op resync either) and reconciles
-the remaining frontier against whatever DOM state it finds; passed the
-current `page_literal` so it can check the browser actually landed back
-where expected. On success the loop `continue`s with the fresh
-`known_components`/`page_literal` instead of breaking. If the return
-fails - `go_back` itself raises, or lands somewhere unexpected - there's
-no live page left to act on, so this falls back to the unknown-destination
-outcome: `result.interrupted_by_navigation = True`, then `break`.
+- known destination or not - to hop the browser back via browser history
+(`Crawl4AICrawler.go_back` - not a fresh `discover_page` navigation, and
+not a no-op resync either) and reconcile the remaining frontier against
+whatever DOM state it finds; passed the current `page_literal` so it can
+check the browser actually landed back where expected. On success the
+loop `continue`s with the fresh `known_components`/`page_literal` instead
+of breaking. If the return fails - `go_back` itself raises, or lands
+somewhere unexpected - there's no live page left to act on, so this falls
+back to the only remaining outcome: `result.interrupted_by_navigation =
+True`, then `break`.
 
-Confirmed live on austral.edu.ar: without this distinction, a site-wide
-nav menu (nearly every page links to nearly every other page) meant
-nearly every page's first few interactions were known-destination clicks
-that each interrupted the pass anyway - most pages exhausted
+**Update - originally only resumed in place for a known destination,
+otherwise always broke here**: confirmed live on austral.edu.ar, a
+site-wide nav menu (nearly every page links to nearly every other page)
+meant nearly every page's first few interactions were known-destination
+clicks that used to each interrupt the pass - most pages exhausted
 `max_requeue_attempts` purely on nav-menu links, marked Failed before
-reaching any of their own content.
+reaching any of their own content. That fix was scoped to the known case
+only; re-examined this session and found no technical reason the same
+`go_back` recovery isn't equally safe for a genuinely new destination -
+see `handle_physical_navigation`'s own "Update" note for the reasoning.
 
 ## visit-state-transition-branch
 

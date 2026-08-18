@@ -189,23 +189,34 @@ def test_click_to_a_known_destination_resumes_the_pass_instead_of_interrupting_i
     assert any("leafBtn" in p for p in clicked_paths)
 
 
-def test_click_to_a_genuinely_unknown_destination_still_interrupts_the_pass(fixture_server):
+def test_click_to_a_genuinely_unknown_destination_also_resumes_the_pass(fixture_server):
     """A click that navigates somewhere this crawl has no other route to
-    discovering (no plain <a href> anywhere points at it) must still stop
-    the pass and requeue the origin for a separate later visit - eager
-    resume-in-place is only safe for a destination the crawl already knows
-    about, not for genuinely new content it hasn't seen yet."""
+    discovering (no plain <a href> anywhere points at it) still resumes in
+    place via return_to_origin, exactly like a known destination - there's
+    nothing about the destination being new that makes a cheap
+    history-back less safe. The destination still gets its own separate
+    visit (still enqueued, still not followed inline - no depth-first
+    blowup), but the origin's own pass doesn't have to stop and wait for a
+    future full re-fetch just to pick up the rest of its frontier."""
     mech, results = _crawl(f"{fixture_server}/only_js_nav.html", max_pages=15)
     interactions = _all_interactions_for(results, "only_js_nav.html")
     js_nav = next(i for i in interactions if "jsNavOnly" in i.path)
     assert not js_nav.error
     assert js_nav.resulting_url.endswith("unknown_target.html")
+
+    # The destination still gets visited as its own page result.
     assert any(r.url.endswith("unknown_target.html") for r in results)
 
-    interrupted_passes = [
-        r for r in results if r.url.endswith("only_js_nav.html") and r.interrupted_by_navigation
-    ]
-    assert interrupted_passes
+    # One pass, not interrupted.
+    origin_results = [r for r in results if r.url.endswith("only_js_nav.html")]
+    assert len(origin_results) == 1
+    assert not origin_results[0].interrupted_by_navigation
+
+    # And the pass actually kept going past the navigating click - the
+    # next frontier item still got interacted with once the browser
+    # returned to only_js_nav.html.
+    clicked_paths = {i.path for i in interactions if i.action == "click" and not i.error}
+    assert any("otherOnJsOnly" in p for p in clicked_paths)
 
 
 def test_fillable_field_gets_placeholder_value_and_is_recorded_as_fill(fixture_server):
@@ -1012,7 +1023,7 @@ class _FakeExternalRedirectCrawler:
         self.away_path = "body > a#away"
         self.other_path = "body > button#other"
 
-    async def discover_page(self, url: str, session_id=None) -> PageState:
+    def _start_state(self) -> PageState:
         return PageState(
             url=self.start_url,
             components=[
@@ -1021,16 +1032,13 @@ class _FakeExternalRedirectCrawler:
             ],
         )
 
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        return self._start_state()
+
     async def click(self, url: str, session_id: str, selector: str) -> PageState:
         if selector == self.away_path:
             return PageState(url="http://evil.example/landed", components=[])
-        return PageState(
-            url=self.start_url,
-            components=[
-                _component(self.away_path, "Away", tag="a"),
-                _component(self.other_path, "Other"),
-            ],
-        )
+        return self._start_state()
 
     async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
         raise AssertionError("fixture has no fillable components")
@@ -1038,25 +1046,31 @@ class _FakeExternalRedirectCrawler:
     async def resync(self, url: str, session_id: str) -> PageState:
         raise AssertionError("not exercised by this fixture")
 
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        return self._start_state()
 
-def test_redirect_to_external_domain_stops_the_pass_but_never_gets_crawled():
+
+def test_redirect_to_external_domain_resumes_the_pass_but_never_gets_crawled():
     """A click-triggered redirect that lands outside the crawl's own site
-    must still stop the interrupted pass (it's a real navigation - the live
-    session did leave the page, per crawl4ai-integration-pitfalls.md's
-    "must stop that page's work immediately" entry) and requeue the
-    *originating* page to finish its own frontier, exactly like an ordinary
-    same-site navigation interruption - but the external destination itself
-    must never be enqueued/visited."""
+    resumes in place via return_to_origin - same as any other physical
+    navigation, external or not - but the external destination itself must
+    never be enqueued/visited: is_known()/enqueue()'s own scope gate is
+    what guarantees that, entirely independent of whether the pass resumes
+    or interrupts."""
     fake = _FakeExternalRedirectCrawler()
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.start_url))
 
     assert not any("evil.example" in r.url for r in results)
-    assert any(r.interrupted_by_navigation for r in results)
 
-    # The originating page's frontier still gets fully drained across its
-    # (same-host) follow-up passes - the "away" link that caused the
-    # redirect, and the other, unrelated component.
+    # One pass, not interrupted - resumed in place via go_back instead of
+    # requeuing the origin for a future full re-fetch.
+    origin_results = [r for r in results if r.url.endswith("fixture.example/index")]
+    assert len(origin_results) == 1
+    assert not origin_results[0].interrupted_by_navigation
+
+    # The pass kept going past the redirect - both the "away" link that
+    # caused it and the other, unrelated component got interacted with.
     all_paths = {i.path for r in results for i in r.interactions if not i.error}
     assert fake.away_path in all_paths
     assert fake.other_path in all_paths

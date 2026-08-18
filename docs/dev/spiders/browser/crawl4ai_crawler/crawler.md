@@ -198,19 +198,18 @@ Step the `session_id` session's browser history back one entry -
 `_interact()`/`on_execution_ended()` path as `click`/`fill`/`resync`, not
 `discover_page()`.
 
-Exists for the mechanical loop's known-destination resume (see
+Exists for the mechanical loop's physical-navigation resume (see
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`):
-once a click has physically navigated to a destination the crawl already
-knows about, the caller needs to get back to the page it left - but
-`discover_page()` performs a *fresh* navigation, a brand-new request
-against the target server for a page this same session was just
-rendering a moment ago. `history.back()` instead lets the browser reuse
-whatever it already has for that history entry (bfcache, or at minimum
-the ordinary HTTP cache) the same way a person clicking their browser's
-own Back button would.
+once a click has physically navigated somewhere, the caller needs to get
+back to the page it left - but `discover_page()` performs a *fresh*
+navigation, a brand-new request against the target server for a page this
+same session was just rendering a moment ago. `history.back()` instead
+lets the browser reuse whatever it already has for that history entry
+(bfcache, or at minimum the ordinary HTTP cache) the same way a person
+clicking their browser's own Back button would.
 
-Confirmed live on austral.edu.ar: before this existed, a known-destination
-resume's `discover_page()` re-fetch of the origin was a second navigation
+Confirmed live on austral.edu.ar: before this existed, a resume's
+`discover_page()` re-fetch of the origin was a second navigation
 to the same URL within seconds of the first, and `TargetLoadThrottle`
 (`docs/dev/spiders/browser/target_load_throttle.md#module`) - built for
 exactly this site's own history of degrading under repeated load -

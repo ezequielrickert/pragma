@@ -100,8 +100,10 @@ class NavigationRecovery:
         result: "PageVisitResult",
         seen_paths_this_pass: Set[str],
     ) -> Optional[PageState]:
-        """Step back to `page_literal` after a mid-pass click landed on a
-        destination this crawl already knows about, and reconcile the
+        """Step back to `page_literal` after a mid-pass click physically
+        navigated away - known destination or not, see
+        `docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+        for why this no longer branches on that - and reconcile the
         remaining frontier against the fresh DOM via the same
         `_reconcile_frontier` step `recover_stale_frontier` uses - a real
         navigation away and back can re-render selectors even when the

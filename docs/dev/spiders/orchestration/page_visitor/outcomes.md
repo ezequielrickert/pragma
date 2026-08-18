@@ -78,29 +78,36 @@ already happened by the time this runs; unlike `skip_known_link`, there's
 no way to avoid it after the fact, only to decide what to do about it.
 
 Always records the edge and the navigation-trigger identity (below) -
-that bookkeeping is true regardless of where the click led. Whether the
-*pass* actually has to stop depends on `is_known_url(new_state.url)`:
+that bookkeeping is true regardless of where the click led. Enqueues the
+destination only if `is_known_url(new_state.url)` says the crawl doesn't
+already have a place for it (queued, in flight, or visited already) -
+nothing to add otherwise, it's already accounted for.
 
-- **Unknown destination** (the crawl has never queued, visited, or is
-  currently mid-visit on it): queues it and returns `True`. `visit`
-  breaks and the whole page gets requeued for a separate later pass -
-  avoids a depth-first blowup; the URL frontier picks the destination up
-  in its own turn, same as any other discovered link, still subject to
-  `max_visits_per_route_shape`.
-- **Known destination**: does *not* enqueue it (nothing to add - it's
-  already accounted for) and returns `False`. `visit` then calls
-  `NavigationRecovery.return_to_origin` to hop the browser straight back
-  and keep draining this same page's frontier, instead of pausing the
-  whole pass for a link that doesn't need one.
+Purely bookkeeping now - doesn't decide whether the pass stops. `visit`
+always follows this with `NavigationRecovery.return_to_origin` to hop the
+browser straight back and keep draining this same page's frontier,
+known destination or not; `return_to_origin`'s own failure fallback is
+what handles a genuinely unrecoverable session, not a decision made here.
 
-Confirmed live on austral.edu.ar: a site-wide nav menu means nearly every
-page links to nearly every other page, so nearly every one of the first
-few clicks on any page was a known-destination navigation - before this
-distinction existed, each one interrupted the pass regardless, and most
-pages exhausted `max_requeue_attempts`
+**Update - originally only did this for a *known* destination, unknown
+ones always stopped the pass**: confirmed live on austral.edu.ar, that
+first version fixed the measured problem (a site-wide nav menu meant
+nearly every page's first few clicks were known-destination navigations,
+each interrupting the pass and exhausting `max_requeue_attempts`
 (`docs/dev/spiders/orchestration/mechanical_loop/config.md#max_requeue_attempts`)
-purely on nav-menu links and were marked Failed before ever reaching their
-own content.
+purely on nav-menu links before ever reaching a page's own content) but
+left the *unknown*-destination case interrupting for no proven technical
+reason - it was scoped narrowly to the specific bug being fixed, not
+because eager resume-in-place is actually unsafe for new content.
+Re-examined this session: `go_back`'s browser-history mechanism doesn't
+care what our own Python bookkeeping calls a destination, and the
+destination's own content was already being discarded-and-refetched
+either way (this method never inventories `new_state` before the
+pass moves on - a known destination already has its own inventory from
+whenever it was first discovered; an unknown one gets one for free from
+its own future `discover_page()` visit, same as before). The only thing
+that changed is the *origin* no longer pays for a second full render just
+because the destination happened to be new.
 
 ## handle_physical_navigation-identity
 
