@@ -79,6 +79,30 @@ primary/secondary pair into two variants of one component instead of two
 separate components - and it comes free from the clustering that already
 happened.
 
+## _with_option_labels
+
+`option_labels` is the one entry in `_prop_fields` that is not a ledger
+key. The ledger carries a choice-group's options as `options` - the
+`(rows, group_name)` pair the `Option` table reads back as - and this
+derives the display strings from it with the same two helpers
+`component_tree.py` and `graph_prd_synthesizer.py` use
+(`describe_options_from_rows` then `format_option_choices`).
+
+It used to be a stored field: `graph_sink` pre-rendered the labels and
+wrote them next to a JSON `options` blob. When the `Option` table replaced
+that blob, `component_tree.py` and `graph_prd_synthesizer.py` moved to
+reading `options`; this document did not, and kept asking for a key that
+no longer arrives. Every dropdown, `select` and consolidated choice-group
+in the catalogue lost its options, silently - a prop absent because the
+data is missing renders exactly like a prop absent because the component
+has none. `tests/test_component_catalog.py`'s own fixture supplied
+`option_labels` directly, so no test exercised the real ledger shape.
+
+Derived into a copy (`{**member, ...}`), never assigned onto the ledger
+entry: `flat_component_ledger` hands out the same dicts to every generator
+in the run, and a document that edits its own input is a document that
+changes the one after it.
+
 ## build_catalog
 
 ## member_count

@@ -9,14 +9,29 @@ PAGE = "shop/"
 
 
 def _member(path, css_class="btn", text="Comprar", **facts):
+    """One ledger row, in the shape `flat_component_ledger` really returns.
+
+    `options` is the `(rows, group_name)` pair the `Option` table reads
+    back as - not the pre-rendered `option_labels` list this fixture used
+    to carry, which is exactly why the catalogue could lose that prop for
+    every real choice-group without a single test noticing.
+    """
     row = {
         "page_url": PAGE, "path": path, "tag": "button", "text": text,
         "css_class": css_class, "background_color": "", "label": "", "placeholder": "",
         "name": "", "href": "", "form": "", "required": False, "disabled": False,
-        "option_labels": [],
+        "options": ([], ""),
     }
     row.update(facts)
     return row
+
+
+def _choice_rows(*texts_and_selection):
+    """`Option` rows for a choice-group, one per `(text, selected)` pair."""
+    return [
+        {"path": f"#opt{index}", "text": text, "selected": selected}
+        for index, (text, selected) in enumerate(texts_and_selection)
+    ]
 
 
 def _family(paths, tag="button", component_type="button", common=("btn",), purpose=""):
@@ -92,6 +107,26 @@ def test_style_fields_never_become_props():
     )
 
     assert "background_color" not in [p.name for p in catalog[0].props]
+
+
+def test_a_choice_groups_options_reach_the_catalogue():
+    """The regression this fixture used to hide: options live in `options`
+    as Option rows, and the prop has to be derived from them."""
+    catalog = build_catalog(
+        [_family(["a"])],
+        [_member("a", options=(_choice_rows(("Mi Gusto", True), ("Solo Empanadas", False)), "sabor"))],
+    )
+
+    options = next(p for p in catalog[0].props if p.name == "option_labels")
+    assert options.example == "Mi Gusto (selected), Solo Empanadas"
+
+
+def test_a_component_with_no_options_grows_no_options_prop():
+    """A prop absent because there is nothing to show must stay absent -
+    the boundary that makes the test above meaningful."""
+    catalog = build_catalog([_family(["a"])], [_member("a")])
+
+    assert "option_labels" not in [p.name for p in catalog[0].props]
 
 
 # --- variants ---

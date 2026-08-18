@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 from core.documents import DocumentGenerator, DocumentRequest
 from core.interfaces import ComponentFamily
 from core.registry import DOCUMENT_REGISTRY
+from .component_classifier import describe_options_from_rows, format_option_choices
 from .ledger import flat_component_ledger
 
 # Ledger fields that describe a component's *interface* - what a rebuilt
@@ -178,6 +179,26 @@ def _variants(members: List[Dict[str, Any]], common_classes: Sequence[str]) -> T
     return tuple(sorted(variants, key=lambda v: (-v.count, v.modifiers)))
 
 
+def _with_option_labels(member: Dict[str, Any]) -> Dict[str, Any]:
+    """`member` plus the `option_labels` prop, derived rather than read.
+
+    The ledger carries a choice-group's options as `options` -
+    `(rows, group_name)` straight off the `Option` table. It used to also
+    carry `option_labels`, a pre-rendered list written alongside a JSON
+    blob that no longer exists, and `_PROP_FIELDS` kept asking for that
+    key: every dropdown and choice-group in this document lost its
+    options at the migration, silently, because a missing prop is
+    indistinguishable from a component that has none.
+
+    Derived into a copy, never written onto the ledger entry itself -
+    `flat_component_ledger`'s dicts are shared with every other generator
+    in the run.
+    Details: docs/dev/generators/component_catalog.md#_with_option_labels
+    """
+    labels = format_option_choices(describe_options_from_rows(*member.get("options", ([], ""))))
+    return {**member, "option_labels": labels}
+
+
 def build_catalog(families: Sequence[ComponentFamily], components: Sequence[Dict[str, Any]]) -> List[CatalogEntry]:
     """One `CatalogEntry` per inferred family, largest first.
     Details: docs/dev/generators/component_catalog.md#build_catalog
@@ -187,7 +208,7 @@ def build_catalog(families: Sequence[ComponentFamily], components: Sequence[Dict
     entries = []
 
     for family in sorted(families, key=lambda f: (-len(f.member_paths), f.component_type)):
-        members = [by_key[key] for key in family.member_paths if key in by_key]
+        members = [_with_option_labels(by_key[key]) for key in family.member_paths if key in by_key]
         if not members:
             continue
         name = component_name(family.component_type)
