@@ -8,6 +8,13 @@
        that only cares whether the response was ok. Real sites vary between
        these two shapes, so a single generic response has to satisfy both. -->
 
+  <h1>Mutation response handling fixture</h1>
+  <p>
+    This page exercises two client-side patterns real sites mix: a create
+    form whose JS reads a field back out of the POST response body, and a
+    delete button whose JS only checks whether the response was ok.
+  </p>
+
   <form id="createForm">
     <label for="nameField">Name</label>
     <input id="nameField" name="name" type="text" value="widget">
