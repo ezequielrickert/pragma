@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 
-from spiders.browser.login_session import has_login_form, is_session_valid, session_path
+from spiders.browser.login_session import find_login_trigger, has_login_form, is_session_valid, session_path
 
 
 def test_session_path_scopes_the_file_by_site():
@@ -57,3 +57,26 @@ def test_has_login_form_false_with_no_password_input():
 
 def test_has_login_form_false_for_an_empty_page():
     assert not has_login_form([])
+
+
+def test_find_login_trigger_matches_a_spanish_button():
+    components = [
+        {"tag": "button", "text": "Iniciar Sesión", "path": "#login-btn"},
+        {"tag": "button", "text": "Buscar", "path": "#search-btn"},
+    ]
+    assert find_login_trigger(components) == "#login-btn"
+
+
+def test_find_login_trigger_matches_an_english_link():
+    components = [{"tag": "a", "text": "Sign in", "path": "#nav-signin"}]
+    assert find_login_trigger(components) == "#nav-signin"
+
+
+def test_find_login_trigger_ignores_non_button_or_link_tags():
+    components = [{"tag": "div", "text": "Log in", "path": "#decoy"}]
+    assert find_login_trigger(components) is None
+
+
+def test_find_login_trigger_none_when_nothing_matches():
+    components = [{"tag": "button", "text": "Buscar", "path": "#search-btn"}]
+    assert find_login_trigger(components) is None

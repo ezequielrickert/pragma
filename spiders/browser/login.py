@@ -16,7 +16,13 @@ from typing import Optional
 
 from .crawl4ai_crawler.config import Crawl4AICrawlerConfig
 from .crawl4ai_crawler.crawler import Crawl4AICrawler
-from .login_session import capture_login_session, has_login_form, is_session_valid, session_path
+from .login_session import (
+    capture_login_session,
+    find_login_trigger,
+    has_login_form,
+    is_session_valid,
+    session_path,
+)
 
 
 async def ensure_login_session(
@@ -32,10 +38,15 @@ async def ensure_login_session(
 
     A valid cached session for `site` is used directly - no browser
     opened, no extra navigation. Otherwise a throwaway `Crawl4AICrawler`
-    visits `url` once to check for a login form; a form found there
-    triggers the headed capture flow before the caller's own crawl ever
-    starts. A page with no login form costs nothing beyond that one
-    precheck visit.
+    visits `url` once to check for a login form. Many sites (React/Vue
+    SPAs especially) mount their password field only after a "Log in"/
+    "Iniciar Sesión"-style button is clicked - nothing resembling a form
+    exists on the page as first loaded - so a page with no login form
+    yet gets one more chance: if `find_login_trigger` spots such a
+    button/link, the precheck clicks it and checks again before giving
+    up. A form found either way triggers the headed capture flow before
+    the caller's own crawl ever starts. A page with no login form and no
+    trigger costs nothing beyond that one precheck visit.
     Details: docs/dev/spiders/browser/login.md#ensure_login_session
     """
     candidate = session_path(site, sessions_dir)
@@ -45,12 +56,34 @@ async def ensure_login_session(
 
     precheck_config = Crawl4AICrawlerConfig(headless=headless)
     async with Crawl4AICrawler(precheck_config) as precheck:
-        page_state = await precheck.discover_page(url)
-    if not has_login_form(page_state.components):
+        page_state = await precheck.discover_page(url, session_id=url)
+        if not has_login_form(page_state.components):
+            page_state = await _click_login_trigger_if_any(precheck, url, page_state)
+    if page_state is None or not has_login_form(page_state.components):
         return None
 
     await capture_login_session(url, candidate, headless=headless)
     return candidate
+
+
+async def _click_login_trigger_if_any(precheck: Crawl4AICrawler, url: str, page_state):
+    """One extra click, if `page_state` has a plausible login trigger and
+    nothing resembling a login form yet - see `ensure_login_session` for
+    why. Returns the post-click `PageState`, or `page_state` unchanged
+    when there's no trigger to click. A click that fails outright (the
+    element vanished, an unrelated error) is treated the same as "no
+    trigger found" - this is a best-effort second look, not something
+    the caller should ever crash over.
+    Details: docs/dev/spiders/browser/login.md#_click_login_trigger_if_any
+    """
+    trigger_path = find_login_trigger(page_state.components)
+    if trigger_path is None:
+        return page_state
+    try:
+        return await precheck.click(url, url, trigger_path)
+    except Exception as exc:
+        print(f"Warning: could not click login trigger while checking {url!r}: {exc}")
+        return page_state
 
 
 async def force_login_session(

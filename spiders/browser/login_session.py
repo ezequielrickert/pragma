@@ -11,9 +11,19 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from playwright.async_api import async_playwright
+
+# Case-insensitive substrings that mark a button/link as a login trigger -
+# English and Spanish (the project's other real target sites are
+# Spanish-language), covering the common phrasings without trying to be
+# exhaustive; see find_login_trigger for what this is used for.
+# Details: docs/dev/spiders/browser/login_session.md#_LOGIN_TRIGGER_KEYWORDS
+_LOGIN_TRIGGER_KEYWORDS = (
+    "log in", "login", "sign in", "signin",
+    "iniciar sesión", "iniciar sesion", "acceder", "ingresar",
+)
 
 
 def session_path(site: str, sessions_dir: str = "data/sessions") -> str:
@@ -51,6 +61,27 @@ def has_login_form(components: List[Dict[str, Any]]) -> bool:
         c.get("tag") == "input" and c.get("input_type") == "password"
         for c in components
     )
+
+
+def find_login_trigger(components: List[Dict[str, Any]]) -> Optional[str]:
+    """CSS path of a button/link whose visible text reads like a login
+    trigger (e.g. "Iniciar Sesión", "Log in"), or `None`.
+
+    `has_login_form` alone misses a real, common case: a site (e.g. a
+    React/Vue SPA) that mounts its password field only after this kind
+    of element is clicked - a modal, an inline form swap - so nothing
+    resembling a login form exists in the page as first loaded. This is
+    the one extra hop `ensure_login_session` takes before concluding a
+    page has no login gate at all.
+    Details: docs/dev/spiders/browser/login_session.md#find_login_trigger
+    """
+    for c in components:
+        if c.get("tag") not in ("button", "a"):
+            continue
+        text = (c.get("text") or "").strip().lower()
+        if any(keyword in text for keyword in _LOGIN_TRIGGER_KEYWORDS):
+            return c.get("path")
+    return None
 
 
 async def capture_login_session(url: str, save_path: str, *, headless: bool = False) -> None:

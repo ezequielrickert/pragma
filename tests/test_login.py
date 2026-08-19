@@ -101,6 +101,32 @@ def test_ensure_login_session_captures_when_a_login_form_is_found(fixture_server
     assert os.path.exists(result)
 
 
+def test_ensure_login_session_clicks_a_login_trigger_when_no_form_is_visible_yet(
+    fixture_server, monkeypatch
+):
+    """The password field only mounts after "Iniciar Sesión" is clicked -
+    nothing resembling a login form exists in the page as first loaded.
+    Proves the one-extra-click fallback finds and uses it rather than
+    concluding, wrongly, that the page has no login gate."""
+    captured = {}
+
+    async def _fake_capture(url, save_path, *, headless=False):
+        captured["called"] = True
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("{}")
+
+    monkeypatch.setattr("spiders.browser.login.capture_login_session", _fake_capture)
+
+    sessions_dir = _sessions_dir()
+    site = urlparse(fixture_server).netloc
+    url = f"{fixture_server}/gated_behind_trigger.html"
+    result = asyncio.run(ensure_login_session(url, site, sessions_dir=sessions_dir))
+
+    assert result == session_path(site, sessions_dir)
+    assert captured.get("called")
+
+
 def test_force_login_session_recaptures_even_with_a_valid_cached_session(fixture_server, monkeypatch):
     """`pragma login` is an explicit request to sign in - it must never
     reuse a cached session, proven by seeding a valid one and asserting
