@@ -34,7 +34,6 @@ _CACHED_READS = (
     "get_text_content_ledger",
     "get_component_families",
     "get_inferred_requests",
-    "get_page_network_ledger",
     "get_state_styles",
 )
 # Deliberately absent: `get_page_metrics`. It is a whole-site zero-argument

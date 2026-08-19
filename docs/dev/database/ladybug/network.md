@@ -130,6 +130,13 @@ the non-sensitive `username` preserved.
 
 ## get_page_network_ledger
 
-Per-page request list for the documents that describe a page rather than an
-endpoint. Whole-site and zero-argument, so it is memoized in
-`CachingGraphStore`.
+**This method does not exist**, and the name is here only because it is easy to
+assume it does: `deferred.py` had it as one of five network placeholders, and
+this module implemented four of them.
+
+A page's requests reach the documents through `get_component_ledger`'s own
+`network_requests` instead, and `record_inferred_requests` was dropped for a
+stated reason (an `Endpoint` stores no aggregates). This one was simply never
+needed. It survived as a stale entry in `CachingGraphStore._CACHED_READS` for a
+while, which would have raised `AttributeError` on first use had anything ever
+called it.
