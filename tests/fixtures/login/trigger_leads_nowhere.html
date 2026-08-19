@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Login trigger with no form behind it</title></head>
+<body>
+  <h1>Choose how to continue</h1>
+  <p>
+    Clicking "Iniciar Sesión" here reveals a choice screen with no
+    password field at all - the same shape as a real site's OAuth/email
+    choice step. Proves ensure_login_session tells the difference
+    between "no login gate" and "found one, couldn't finish it".
+  </p>
+  <button id="loginTrigger" onclick="document.getElementById('choices').style.display = 'block'; this.style.display = 'none'">
+    Iniciar Sesión
+  </button>
+  <div id="choices" style="display:none">
+    <button>Continue with Google</button>
+    <button>Continue with Email</button>
+  </div>
+</body>
+</html>

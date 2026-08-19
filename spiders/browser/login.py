@@ -46,7 +46,12 @@ async def ensure_login_session(
     button/link, the precheck clicks it and checks again before giving
     up. A form found either way triggers the headed capture flow before
     the caller's own crawl ever starts. A page with no login form and no
-    trigger costs nothing beyond that one precheck visit.
+    trigger costs nothing beyond that one precheck visit. A trigger that
+    was clicked but still didn't surface a password field (a multi-step
+    flow this precheck isn't meant to chase) prints a pointer at
+    `pragma login` instead of silently crawling anonymous - that failure
+    mode is otherwise indistinguishable from "this site has no login at
+    all".
     Details: docs/dev/spiders/browser/login.md#ensure_login_session
     """
     candidate = session_path(site, sessions_dir)
@@ -55,35 +60,49 @@ async def ensure_login_session(
         return candidate
 
     precheck_config = Crawl4AICrawlerConfig(headless=headless)
+    clicked_a_trigger = False
     async with Crawl4AICrawler(precheck_config) as precheck:
         page_state = await precheck.discover_page(url, session_id=url)
         if not has_login_form(page_state.components):
-            page_state = await _click_login_trigger_if_any(precheck, url, page_state)
-    if page_state is None or not has_login_form(page_state.components):
-        return None
+            page_state, clicked_a_trigger = await _click_login_trigger_if_any(precheck, url, page_state)
+    if has_login_form(page_state.components):
+        await capture_login_session(url, candidate, headless=headless)
+        return candidate
 
-    await capture_login_session(url, candidate, headless=headless)
-    return candidate
+    if clicked_a_trigger:
+        # Found and clicked something that read like a login trigger, but
+        # still no password field - most likely a multi-step flow (an
+        # OAuth/email choice screen, a second click) this precheck isn't
+        # meant to chase. Silently crawling anonymous here would look
+        # identical to "this site genuinely has no login", which it isn't.
+        print(
+            f"Found a login trigger on {url}, but no password field appeared after clicking it - "
+            f"this site's login flow needs more than one step. Run `pragma login {url}` to sign in "
+            "by hand once; every later run will reuse the cached session."
+        )
+    return None
 
 
 async def _click_login_trigger_if_any(precheck: Crawl4AICrawler, url: str, page_state):
     """One extra click, if `page_state` has a plausible login trigger and
     nothing resembling a login form yet - see `ensure_login_session` for
-    why. Returns the post-click `PageState`, or `page_state` unchanged
-    when there's no trigger to click. A click that fails outright (the
-    element vanished, an unrelated error) is treated the same as "no
-    trigger found" - this is a best-effort second look, not something
-    the caller should ever crash over.
+    why. Returns `(post_click_page_state, True)` when a trigger was
+    clicked, or `(page_state, False)` unchanged when there was nothing to
+    click - the caller uses that flag to tell "no login gate at all"
+    apart from "found one, couldn't finish it automatically". A click
+    that fails outright (the element vanished, an unrelated error) is
+    treated the same as "no trigger found" - this is a best-effort
+    second look, not something the caller should ever crash over.
     Details: docs/dev/spiders/browser/login.md#_click_login_trigger_if_any
     """
     trigger_path = find_login_trigger(page_state.components)
     if trigger_path is None:
-        return page_state
+        return page_state, False
     try:
-        return await precheck.click(url, url, trigger_path)
+        return await precheck.click(url, url, trigger_path), True
     except Exception as exc:
         print(f"Warning: could not click login trigger while checking {url!r}: {exc}")
-        return page_state
+        return page_state, False
 
 
 async def force_login_session(

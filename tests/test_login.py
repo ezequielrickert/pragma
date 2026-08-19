@@ -127,6 +127,28 @@ def test_ensure_login_session_clicks_a_login_trigger_when_no_form_is_visible_yet
     assert captured.get("called")
 
 
+def test_ensure_login_session_points_at_pragma_login_when_a_trigger_leads_nowhere(
+    fixture_server, monkeypatch, capsys
+):
+    """A trigger that gets clicked but still surfaces no password field
+    (a multi-step flow, e.g. an OAuth/email choice screen) must not look
+    identical to "this site has no login" - it should say so and point
+    at the manual command instead of silently crawling anonymous."""
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("capture_login_session should not run when no form ever appears")
+
+    monkeypatch.setattr("spiders.browser.login.capture_login_session", _fail_if_called)
+
+    sessions_dir = _sessions_dir()
+    site = urlparse(fixture_server).netloc
+    url = f"{fixture_server}/trigger_leads_nowhere.html"
+    result = asyncio.run(ensure_login_session(url, site, sessions_dir=sessions_dir))
+
+    assert result is None
+    assert "pragma login" in capsys.readouterr().out
+
+
 def test_force_login_session_recaptures_even_with_a_valid_cached_session(fixture_server, monkeypatch):
     """`pragma login` is an explicit request to sign in - it must never
     reuse a cached session, proven by seeding a valid one and asserting
