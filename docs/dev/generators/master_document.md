@@ -40,3 +40,22 @@ double-printed it once the pipeline started applying the banner to every
 Markdown document. The banner now lives in exactly one place
 (`pipeline._with_banner`) and this generator produces its body only -
 the same rule every other Markdown document follows.
+
+## _gaps
+
+The coverage banner says how much of the site was reached. This says which
+*kinds* of question the document set does not answer at all - a different
+axis, and the one a reader is most likely to mistake for a missing file.
+
+Right now it says one thing: no WCAG audit is produced. That needs axe-core
+run against each page at a realistic viewport with images enabled, which is a
+measurement pass this pipeline does not have. The note also names the
+absolute-threshold measurements that go with it (contrast ratios, touch
+targets, spacing) and draws the line that matters: *relative* comparisons -
+these three buttons disagree with each other - survive an 800x600
+images-blocked crawl and are reported; absolute ones do not.
+
+**Conditional on the document actually being absent.** Reviving D11 makes
+this note disappear on its own, rather than leaving behind a claim someone
+has to remember to delete. See `research/plan-segunda-ronda-de-documentos.md`
+B2, where not reviving it was the recommendation rather than an oversight.

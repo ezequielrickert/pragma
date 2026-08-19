@@ -14,16 +14,30 @@ parent - a page's own centrality/module is exactly the latter). Both
 methods are `SET`s against existing `Page` nodes, not inserts into a
 separate table.
 
-`get_page_metrics`/`get_page_modules` are not ported: both had zero
-production callers in the retired backend (only their own writers,
-`Engine`'s post-crawl pass, ever touched this data again - no generator
-reads it back through these methods).
+`get_page_metrics` reads back what both writers below produced, in one
+query rather than two: in this schema every value they write is a property
+of the same `Page` row, so "metrics" and "module" are one read, not a join.
+The retired backend's separate `get_page_metrics`/`get_page_modules` had
+zero production callers and were deliberately not ported; this exists
+because there are callers now - `generators/architecture_map.py` (D13) and
+`GraphPRDSynthesizer`, which groups its sections by module instead of
+listing pages flat.
 
 Details: docs/dev/database/ladybug/analysis.md#module
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List
+
+# Every `Page` property `record_page_metrics`/`record_page_modules` write,
+# in the order `get_page_metrics` returns them. One list so the RETURN
+# clause and the dict it builds cannot drift apart - the same reason
+# `schema.py` derives its DDL from `FACTS_FIELDS`.
+# Details: docs/dev/database/ladybug/analysis.md#_metric_fields
+_METRIC_FIELDS = (
+    "in_degree", "out_degree", "click_depth", "betweenness", "pagerank",
+    "is_articulation_point", "module_id", "module_label",
+)
 
 
 class _LadybugAnalysisMixin:
@@ -97,3 +111,33 @@ class _LadybugAnalysisMixin:
             )
 
         self._call(op)
+
+    def get_page_metrics(self) -> List[Dict[str, Any]]:
+        """Every page's position in the navigation graph, as the two
+        writers above recorded it - one dict per `Page`, ordered by url.
+
+        Returns:
+            One dict per page carrying `url` plus every field in
+            `_METRIC_FIELDS`. A page the projection never assigned to a
+            module (no edges of its own, or a run where the projection
+            never got that far) reads back with `module_id` as `None` and
+            `module_label` as `""`, not omitted: a page that exists and
+            has no module is a real answer, and the documents that read
+            this need to be able to tell it apart from a page that was
+            never crawled. `click_depth` is `None` for a page the root
+            cannot reach, the same distinction `PageMetrics.click_depth`
+            draws.
+
+            `[]` when no page has been recorded at all.
+        Details: docs/dev/database/ladybug/analysis.md#get_page_metrics
+        """
+        fields = ", ".join(f"p.{field}" for field in _METRIC_FIELDS)
+
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(f"MATCH (p:Page) RETURN p.url, {fields} ORDER BY p.url")
+            return [
+                {"url": row[0], **dict(zip(_METRIC_FIELDS, row[1:]))}
+                for row in rows
+            ]
+
+        return self._call(op)

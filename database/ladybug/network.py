@@ -52,6 +52,19 @@ _ENDPOINT_ON_CREATE = (
 )
 
 
+def _shortest(excerpts: Any) -> str:
+    """One body out of every observation of it, or `""` for none.
+
+    Shortest first, ties broken lexicographically. Any observation is as
+    valid an example as any other, so this exists to be *deterministic* -
+    two runs over the same graph must produce the same document - and
+    shortest keeps a 8KB-truncated blob from becoming the example when a
+    small one was also seen.
+    Details: docs/dev/database/ladybug/network.md#_shortest
+    """
+    return min(excerpts, key=lambda body: (len(body), body)) if excerpts else ""
+
+
 def _pattern_and_params(path: str) -> Tuple[str, List[str]]:
     """`("/orders/{id}/items", ["id"])` for `"/orders/8d206b72.../items"` -
     the same opaque-segment heuristic `route_shape` applies to page URLs
@@ -275,17 +288,20 @@ class _LadybugNetworkMixin:
                 OPTIONAL MATCH (i:Interaction)-[:TRIGGERED]->(r)
                 OPTIONAL MATCH (comp:Component)-[:PERFORMED]->(i)
                 OPTIONAL MATCH (comp_page:Page)-[:HAS_COMPONENT]->(comp)
+                OPTIONAL MATCH (r)-[:HAS_BODY {direction: 'request'}]->(sent:Payload)
+                OPTIONAL MATCH (r)-[:HAS_BODY {direction: 'response'}]->(received:Payload)
                 RETURN e.id, e.method, e.host, e.path_pattern,
                        r.query_params, r.request_schema, r.response_schema, r.status,
                        r.latency_ms, r.auth_scheme, r.media_type,
-                       page.url, comp_page.url, comp.path
+                       page.url, comp_page.url, comp.path,
+                       sent.content, received.content
                 """
             )
             buckets: Dict[str, Dict[str, Any]] = {}
             for row in rows:
                 (endpoint_id_value, method, host, path_pattern, query_params, request_schema,
                  response_schema, status, latency_ms, auth_scheme, media_type,
-                 loaded_page, comp_page_url, comp_path) = row
+                 loaded_page, comp_page_url, comp_path, sent_body, received_body) = row
                 bucket = buckets.setdefault(
                     endpoint_id_value,
                     {
@@ -294,6 +310,7 @@ class _LadybugNetworkMixin:
                         "triggered_by": set(), "loaded_by": set(),
                         "status_codes": set(), "latencies_ms": [],
                         "auth_schemes": set(), "media_types": set(),
+                        "request_examples": set(), "response_examples": set(),
                     },
                 )
                 bucket["query_params"].update(query_params or [])
@@ -311,6 +328,13 @@ class _LadybugNetworkMixin:
                     bucket["loaded_by"].add(loaded_page)
                 if comp_page_url and comp_path:
                     bucket["triggered_by"].add((comp_page_url, comp_path))
+                if sent_body:
+                    bucket["request_examples"].add(sent_body)
+                # Only a successful call's body describes the happy path: a
+                # 422's body is the error shape, and publishing it as the
+                # endpoint's response example would misdescribe the API.
+                if received_body and isinstance(status, int) and 200 <= status < 300:
+                    bucket["response_examples"].add(received_body)
 
             return [
                 InferredRequest(
@@ -323,6 +347,8 @@ class _LadybugNetworkMixin:
                     latencies_ms=tuple(sorted(data["latencies_ms"])),
                     auth_schemes=tuple(sorted(data["auth_schemes"])),
                     media_types=tuple(sorted(data["media_types"])),
+                    request_example=_shortest(data["request_examples"]),
+                    response_example=_shortest(data["response_examples"]),
                 )
                 for _, data in sorted(buckets.items())
             ]

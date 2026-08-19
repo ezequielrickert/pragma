@@ -183,3 +183,60 @@ def test_get_inferred_requests_excludes_third_party_endpoints(store) -> None:
     )
 
     assert store.get_inferred_requests() == []
+
+
+# --- captured bodies as contract examples ---
+
+def test_a_captured_request_body_reaches_the_inferred_contract(store) -> None:
+    store.record_page_network("https://x/y", [_request(
+        method="POST", request_body_excerpt='{"item":"empanada"}',
+        request_body_hash="h1", request_body_length=19, status=201,
+    )])
+
+    assert store.get_inferred_requests()[0].request_example == '{"item":"empanada"}'
+
+
+def test_a_response_body_from_a_failed_call_is_not_offered_as_the_example(store) -> None:
+    """A 422's body describes the error shape. Publishing it as the
+    endpoint's response example would misdescribe the happy path."""
+    store.record_page_network("https://x/y", [_request(
+        method="POST", response_body_excerpt='{"error":"invalid"}',
+        response_body_hash="bad", response_body_length=19, status=422,
+    )])
+
+    assert store.get_inferred_requests()[0].response_example == ""
+
+
+def test_the_successful_body_wins_when_both_were_observed(store) -> None:
+    store.record_page_network("https://x/y", [_request(
+        method="POST", response_body_excerpt='{"error":"invalid"}',
+        response_body_hash="bad", response_body_length=19, status=422,
+    )])
+    store.record_page_network("https://x/y", [_request(
+        method="POST", response_body_excerpt='{"id":"ok"}',
+        response_body_hash="good", response_body_length=11, status=201,
+    )])
+
+    assert store.get_inferred_requests()[0].response_example == '{"id":"ok"}'
+
+
+def test_the_shortest_observed_body_is_the_example(store) -> None:
+    """Deterministic across runs, and keeps a truncated 8KB blob from being
+    the example when a small body was also seen."""
+    store.record_page_network("https://x/y", [_request(
+        method="POST", request_body_excerpt='{"item":"a really long body here"}',
+        request_body_hash="long", request_body_length=33, status=201,
+    )])
+    store.record_page_network("https://x/y", [_request(
+        method="POST", request_body_excerpt='{"item":"x"}',
+        request_body_hash="short", request_body_length=12, status=201,
+    )])
+
+    assert store.get_inferred_requests()[0].request_example == '{"item":"x"}'
+
+
+def test_an_endpoint_with_no_captured_bodies_reports_empty_examples(store) -> None:
+    store.record_page_network("https://x/y", [_request()])
+
+    contract = store.get_inferred_requests()[0]
+    assert (contract.request_example, contract.response_example) == ("", "")

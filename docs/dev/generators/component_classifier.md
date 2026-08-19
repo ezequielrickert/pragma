@@ -150,3 +150,18 @@ rebuilding the same dict comprehension over a `choice_group`'s choices -
 this module already owns every other piece of `options`-shape
 interpretation (`describe_options` above), so the one place a
 `source_path` gets resolved back to a label belongs here too.
+
+## describe_options_from_rows
+
+The counterpart to `describe_options` for the real graph: the same normalized
+`{"kind", ...}` shape, built directly from `Option` rows rather than by parsing a
+JSON blob - there is no blob anymore.
+
+It reverses `database/ladybug/options.py`'s write-side encoding, and the three
+kinds are told apart the same way the write side told them: `group_name ==
+"stepper"` first, then whether any row carries a real `path` (only ever true for
+a choice group, since revealed options never had a selector of their own).
+
+The read side lives here rather than in the storage package so that package does
+not depend on `generators/` - the layering `ComponentFamily`'s docstring
+states.

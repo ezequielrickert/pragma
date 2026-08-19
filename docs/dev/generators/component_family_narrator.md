@@ -57,3 +57,31 @@ submits an action."` for the submit-button family. Families whose only
 members are unlabeled text inputs (no visible text on any member)
 correctly stayed at `purpose=""` rather than being sent to the model at
 all.
+
+## family_signature
+
+A key for one family that survives re-clustering.
+
+Families are rebuilt from scratch every run, and that is deliberate: it is what
+lets a component found on page 1 be re-clustered with page 20's evidence on a
+later pass. So a family has **no stable identity** to cache a narration against,
+and reusing a purpose across a membership change would leave it describing a
+group that no longer exists.
+
+What is stable is the family's *content* - same tag, same type, same members - so
+the signature is derived from that.
+
+## known_purposes
+
+The purposes carried over from a previous run, keyed by `family_signature`. Read
+by `Engine` before the rebuild wipes them, so an unchanged family is not
+re-narrated. See `docs/dev/core/engine.md#known-purposes`.
+
+## narrate_family_purposes-progress
+
+One progress line per call, because this and the PRD's page narration are the two
+loops that make a model call per item and can otherwise sit silent for minutes.
+
+The denominator counts *calls*, not families - a family with no visible text is
+skipped without a call, so counting families would show a total the loop never
+reaches.

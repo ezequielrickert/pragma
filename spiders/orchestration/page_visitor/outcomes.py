@@ -64,6 +64,7 @@ class InteractionOutcomes:
             )
             await self.sink.record_inventory(new_page_key, new_state.components, new_state.links)
             await self.sink.record_text_content(new_page_key, new_state.text_content)
+            await self.sink.record_state_styles(new_page_key, new_state.pseudo_styles)
         self._enqueue_links(new_state.links)
 
         # Rebuilt like visit's own initial frontier, keyed to new_page_key.

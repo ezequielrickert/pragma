@@ -155,6 +155,12 @@ CREATE NODE TABLE IF NOT EXISTS Payload(
     hash STRING PRIMARY KEY,
     byte_length INT64 DEFAULT 0,
     content STRING DEFAULT '');
+
+CREATE NODE TABLE IF NOT EXISTS StateStyle(
+    id STRING PRIMARY KEY,
+    state STRING DEFAULT '',
+    property STRING DEFAULT '',
+    value STRING DEFAULT '');
 """
 # Container: direct containment only, not the transitive closure the
 # retired DuckDB backend's `containment` table stored (one row per
@@ -178,6 +184,14 @@ CREATE NODE TABLE IF NOT EXISTS Payload(
 # (stylesheet capture, retired along with the measurement pass); now the
 # API body store `truncate_and_hash` was always hashing for but never had
 # a table wired to receive.
+#
+# StateStyle: one declared `:hover`/`:focus` property value per control, from
+# `extract_pseudo_styles.js`. Observation tier and not a measurement: the JS
+# reads `document.styleSheets`, so unlike geometry these values do not depend
+# on the viewport, on images loading, or on anything being hovered - which is
+# why this runs in the ordinary discovery pass and needs no measurement pass.
+# Keyed by (component, state, property) so a rediscovery overwrites a value
+# instead of appending a second one.
 
 # Inferred tier - deterministic clustering over observations.
 _INFERRED_DDL = """
@@ -204,8 +218,10 @@ CREATE NODE TABLE IF NOT EXISTS Endpoint(
 # runs. See queries.py::endpoint_contract.
 
 # Semantic tier - what the application means, not just what it renders.
-# Every node here is written by semantic.py and must carry at least one
-# DERIVED_FROM edge back to the observations that support it.
+# Every node here must carry at least one DERIVED_FROM edge back to the
+# observations that support it - semantic.py::record_entities enforces that
+# by raising, rather than trusting this comment. Entity/Field have a writer
+# (generators/data_model.py, D14); Screen/Flow/Rule do not yet.
 _SEMANTIC_DDL = """
 CREATE NODE TABLE IF NOT EXISTS Screen(
     id SERIAL PRIMARY KEY,
@@ -256,6 +272,7 @@ CREATE REL TABLE IF NOT EXISTS HAS_COMPONENT(FROM Page TO Component);
 CREATE REL TABLE IF NOT EXISTS HAS_TEXT(FROM Page TO TextContent);
 CREATE REL TABLE IF NOT EXISTS CONTAINS(FROM Container TO Component, FROM Container TO Container);
 CREATE REL TABLE IF NOT EXISTS HAS_OPTION(FROM Component TO Option, seq INT64 DEFAULT 0);
+CREATE REL TABLE IF NOT EXISTS HAS_STATE_STYLE(FROM Component TO StateStyle);
 CREATE REL TABLE IF NOT EXISTS PERFORMED(FROM Component TO Interaction);
 CREATE REL TABLE IF NOT EXISTS RESULTED_IN(FROM Interaction TO Page);
 CREATE REL TABLE IF NOT EXISTS TRIGGERED(FROM Interaction TO Request);

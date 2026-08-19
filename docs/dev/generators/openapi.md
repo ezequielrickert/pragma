@@ -102,3 +102,23 @@ The registry adapter. `extension = "yaml"` is what keeps
 with a Markdown blockquote glued to the front no longer parses. The
 coverage caveat still reaches the reader, through the `info.description`
 preamble.
+
+## _security_scheme
+
+One observed scheme as an OpenAPI `securitySchemes` entry, from what
+`network_filter._auth_scheme` reported - `bearer`, `basic`, `cookie`, or
+`header:x-api-key`.
+
+**An unrecognised scheme becomes an `http` scheme under its own name rather than
+being dropped.** An unfamiliar `Authorization` scheme is still authentication,
+and omitting it would tell a reader the endpoint is open - the one error this
+document could make that actively misleads.
+
+## media-types
+
+`responses:` uses the media type the server actually answered with, rather than
+assuming `application/json`.
+
+An endpoint that returns XML or a redirect is common enough that assuming JSON
+would make the contract wrong for exactly the endpoints a reader is least likely
+to check by hand.

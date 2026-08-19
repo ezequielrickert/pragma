@@ -13,13 +13,18 @@ Playwright loop — see `wiki/` for the durable lessons carried forward from tha
 
 1. **Crawl** (`MechanicalCrawler.crawl_site`): starting from the given URL, mechanically visit
    every reachable page and interact with every discovered interactive element on it — no LLM
-   picks what to click. Live writes to `GraphStore` (`memory` by default; `duckdb` for a run whose
+   picks what to click. Live writes to `GraphStore` (`memory` by default; `ladybug` for a run whose
    data needs to persist and be queried after) as pages/components/edges are discovered and
    interacted with.
-2. **Synthesize** (`GraphPRDSynthesizer.synthesize`): reads the crawl's graph back — pages, edges,
-   the component ledger, page descriptions — and makes two kinds of AI call: one narration call
-   per page (turning that page's component facts into readable prose) and one final call that
-   assembles everything into the Digital Blueprint.
+2. **Whole-site passes** (`Engine._run_async`): with the crawl finished writing, the store is
+   wrapped in `CachingGraphStore` (`core/caching_graph_store.py`) and two passes run over the
+   completed graph — `_apply_component_families` (cluster components into reusable patterns, then
+   narrate each pattern's purpose) and `_apply_graph_projection` (`analysis/graph_projection.py`:
+   modules, centrality, click depth, articulation points, written back onto `Page`).
+3. **Documents** (`generators/pipeline.py`): every generator named in `PragmaConfig.documents` runs
+   against that graph, then the master "Start Here" index. The Digital Blueprint
+   (`GraphPRDSynthesizer`) is one of them, not the run's single output — see "Output Documents"
+   below.
 
 ```mermaid
 sequenceDiagram
@@ -28,7 +33,7 @@ sequenceDiagram
     participant Crawler as Crawl4AICrawler
     participant Mech as MechanicalCrawler
     participant Sink as GraphStoreSink
-    participant Graph as GraphStore (DuckDB)
+    participant Graph as GraphStore (Ladybug)
     participant Synth as GraphPRDSynthesizer
     participant Agent as LLM Agent
 
@@ -39,13 +44,14 @@ sequenceDiagram
         Crawler-->>Mech: PageState (components, links, description)
         Mech->>Sink: record_page_arrival / record_inventory
         Sink->>Graph: upsert_page / record_component / record_link
-        loop Every visible, not-yet-interacted component (budget-capped)
+        loop Every visible, not-yet-interacted component
             Mech->>Crawler: click(path) or fill(path, value)
             Crawler-->>Mech: new PageState
             Mech->>Sink: record_interaction (+ record_navigation_edge if URL changed)
             Sink->>Graph: record_component_interaction / record_edge
         end
     end
+    Engine->>Graph: component families + graph projection
     Engine->>Synth: synthesize(site)
     Synth->>Graph: get_progress_table_rows / get_edges / get_component_ledger / get_page_descriptions
     Synth->>Agent: narrate each page's components
@@ -67,7 +73,13 @@ now, unlike agents/graph stores which are genuinely pluggable and still resolved
 - **`AGENT_REGISTRY`**: implementations of the `Agent` interface ("The Brain"/LLM backend) —
   `local`, `mock`. `Agent` is now just `generate(prompt, system_instruction)`
   — there is no more per-step decision schema for a backend to implement (see "What changed" below).
-- **`GRAPH_STORE_REGISTRY`**: implementations of the `GraphStore` interface — `memory`, `duckdb`.
+- **`GRAPH_STORE_REGISTRY`**: the storage backend — `ladybug` (on disk, one database per site) and
+  `memory` (in-memory). Both names build the same `LadybugGraphStore`
+  (`database/ladybug/store.py`), differing only in whether a directory is passed; they are kept as
+  two names because that is what `pragma.yaml`, `cli.py --graph-store` and the wizard already
+  answered to. Note there is no longer a `GraphStore` ABC to implement: `core/interfaces.py` is
+  down to `Agent` plus re-exported data contracts, and the store is duck-typed against the methods
+  its callers use. A second backend would mean reintroducing that interface first.
 
 Each plugin module self-registers via a decorator (`@AGENT_REGISTRY.register("local")` on
 `LocalAgent`, etc.). `core/bootstrap.py` imports every plugin module once so their
@@ -103,18 +115,19 @@ synthesizing a PRD from an accumulated research log. That entire per-step decisi
   (`Crawl4AICrawler`) instead of a Playwright `Page` method. One real bug was found and fixed in
   the port — see the plan/wiki for details.
 - **`GraphStore` is the primary, live-updated source of truth**, not a secondary debug artifact
-  (Neo4j held this role at the time of this migration; DuckDB has held it since - see "Directory
-  Roles" below). `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based
+  (Neo4j held this role at the time of this migration, then DuckDB; Ladybug has held it since -
+  see "Directory Roles" below). `research_logs/`, `progress_logs/`, and `graph_logs/` (the old per-run file-based
   logs) no longer exist — everything they used to capture (route status, the navigation graph, the
   component ledger, page descriptions) is written straight to `GraphStore` as the crawl happens
-  (`GraphStoreSink`, `spiders/orchestration/graph_sink.py`) and read back by `GraphPRDSynthesizer`.
+  (`GraphStoreSink`, `spiders/orchestration/graph_sink/sink.py`) and read back by the document
+  generators.
 
 ---
 
 ## Discovery JS: unchanged battle-tested logic, new host
 
 `spiders/content/js/discover_components.js` (plus `extract_links.js`/`extract_description.js`/
-`extract_metadata.js`) is what `Crawl4AICrawler` (`spiders/browser/crawl4ai_crawler.py`) runs via
+`extract_metadata.js`) is what `Crawl4AICrawler` (`spiders/browser/crawl4ai_crawler/crawler.py`) runs via
 `page.evaluate()` inside crawl4ai hooks. Every historical fix documented in
 `wiki/browser-automation-pitfalls.md` is preserved:
 
@@ -159,7 +172,7 @@ interacted, so a follow-up pass always makes real progress on whatever's left.
 **Consult before acting, not just after**: `InteractionTracker` (in-memory by default, or
 `GraphStoreInteractionTracker` when a `GraphStoreSink` is wired) is checked before mechanically
 re-interacting with a component — this is what makes the crawl's "already touched this" property
-survive across a persisted, multi-run crawl (`graph_store: duckdb`), not just within one process.
+survive across a persisted, multi-run crawl (`graph_store: ladybug`), not just within one process.
 
 Fillable fields get their value from `fill_value_fn` — the deterministic
 `fill_values.default_placeholder_fill_value` by default, or a real AI call
@@ -171,7 +184,7 @@ the placeholder on any failure.
 
 ## Live Graph Store Wiring
 
-`GraphStoreSink` (`spiders/orchestration/graph_sink.py`) is the detail-rich writer `MechanicalCrawler` calls
+`GraphStoreSink` (`spiders/orchestration/graph_sink/sink.py`) is the detail-rich writer `MechanicalCrawler` calls
 directly as the crawl happens:
 
 - `record_page_arrival` — the moment a page is reached (before discovery), plus its description.
@@ -189,45 +202,101 @@ through — scheme, trailing slash, and fragment stripped, so `https://x.com/y/#
 `http://x.com/y` collapse to the same graph-node key (`wiki/graph-based-crawl-tracking.md`'s "node
 identity is the whole game").
 
-`PragmaConfig.fresh` (default `true`) calls `GraphStore.clear_site(site)` in `Engine.from_config`
-before crawling, same purge-on-start semantics as before — matters for `graph_store: duckdb`, which
-persists across runs; a no-op for `graph_store: memory`.
+`PragmaConfig.fresh` (default `false`) calls `GraphStore.reset()` in `Engine.from_config` before
+crawling — matters for `graph_store: ladybug`, which persists across runs; a no-op for
+`graph_store: memory`. The default flipped from `true` once resuming became possible: the pages a
+cut-short run leaves `Pending` *are* the crawl's saved progress, and purging by default deleted them
+before the next run could read them, so an interrupted crawl silently restarted from scratch every
+time. This repo's own `pragma.yaml` sets `fresh: true` back on explicitly, paired with
+`crawl_budget`, so each run re-purges and never gets past the first 20 pages — turn it off there to
+walk a site in batches. `reset()` closes the connection, deletes the site's database directory and
+reopens it, rather than issuing a `DELETE` per table in dependency order: a purging run reclaims the
+disk instead of leaving freed-but-unshrunk pages behind.
 
 ---
 
-## Graph Ontology, and the names it is sometimes asked to have
+## Graph Ontology: three tiers, and the names it is sometimes asked to have
 
-The graph's node labels and relationship types, as actually implemented:
+The whole schema is one string - `database/ladybug/schema.py::DDL` - split into three tiers that
+stay structurally separate because they carry different trust. Ladybug allows one label per node, so
+a node's tier *is* its table; there is no marker label the way the retired Neo4j backend's
+`:Inferred` was. Every table belongs to one crawled site by construction (one database per site), so
+unlike the DuckDB schema this replaces, no table carries a `site` column and no key includes one.
 
-**Nodes**: `:Site`, `:Page`, `:Component`, `:TextContent`, `:ComponentFamily`, `:Request`,
-`:RequestFamily`. (An earlier Neo4j-backed version of this store also added a per-tag label —
-`:Button`, `:Input`, `:Link` — purely so Neo4j Browser could color them apart; that feature had no
-DuckDB equivalent and no other consumer, so it was retired along with that backend.)
+**Observation - what the crawl saw.** `Site`, `Page`, `Component`, `Interaction`, `TextContent`,
+`Container`, `Option`, `Request`, `Payload`.
 
-Every `:Page` also carries a short `caption` (its title, falling back to its URL) for any tooling
-that wants a human-readable label without a second lookup. Every inferred node
-(`:ComponentFamily`, `:RequestFamily`, `:Request`) carries a second `:Inferred` label, so what the
-crawl *observed* and what the model *deduced* separate at a glance and in a query.
+**Inferred - deterministic clustering over observations.** `ComponentFamily`, `Endpoint`. An
+`Endpoint` stores no aggregates of its own: status codes, schemas and auth schemes are computed on
+read from the `Request` nodes that prove them, so there is nothing here that can go stale between
+runs.
 
-**Relationships**: `HAS_PAGE`, `HAS_COMPONENT`, `HAS_TEXT`, `HAS_VARIANT`, `HAS_REQUEST`,
-`TRIGGERS`, `DISCOVERED_LINK`, `NAVIGATED_TO {component, action, created_at}`,
-`INTERACTED {action, value, resulting_url, source_path, navigated, seq, created_at}`.
+**Semantic - what the application means, not just what it renders.** `Screen`, `Entity`, `Field`,
+`Flow`, `Rule`. **These five tables exist as DDL and nothing writes them yet** - the module their own
+schema comment names (`semantic.py`) is not in the package. The tier is staged, not delivered.
 
-Reverse-engineering literature (and `research/plan-generacion-de-documentos.md`, which analyzes
-one such proposal) commonly names these differently. **The mapping is what matters; the names
-stay as they are.** Renaming would touch six storage modules plus their tests and buy nothing:
+Relationships, grouped by what they connect:
+
+- **Page to page**: `LINKS_TO {label}` (a link found in the markup) and
+  `NAVIGATES_TO {component, action, observation_count, first_seen_run, last_seen_run, created_at}`
+  (a navigation an interaction actually caused). Kept apart on purpose: what the site claims you can
+  reach and what the crawl proved you can reach are different facts.
+- **Page to its contents**: `HAS_COMPONENT`, `HAS_TEXT`, `LOADED` (a request the page's own load
+  fired, no component involved).
+- **Structure**: `CONTAINS` (`Container` to `Component`, or to another `Container`) - direct
+  containment only, one edge per consecutive ancestor pair. Full ancestry is a `CONTAINS*` traversal,
+  not a stored closure; the retired DuckDB backend stored the whole transitive closure and it was
+  that schema's largest table by far.
+- **Interaction**: `PERFORMED` (`Component` to `Interaction`), `RESULTED_IN` (`Interaction` to the
+  `Page` it left you on), `TRIGGERED` (`Interaction` to `Request`). An interaction is a node now,
+  carrying `visit_id`/`step_seq`, which is what lets one control clicked twice keep each click's
+  requests and outcome separate from the other's.
+- **API**: `CALLS` (`Request` to `Endpoint`), `HAS_BODY {direction}` (`Request` to its
+  content-addressed `Payload`).
+- **Grouping**: `HAS_OPTION {seq}` (`Component` to `Option`), `VARIANT_OF` (`Component` to
+  `ComponentFamily`).
+- **Semantic tier, unwritten alongside its node tables**: `RENDERS`, `HAS_FIELD`, `EDITS`,
+  `EXPOSES`, `STEP_OF {seq}`, `GOVERNS`, and `DERIVED_FROM {method, confidence, run_id, generator}` -
+  one polymorphic edge table meant to carry every inferred/semantic node's trail back to the
+  observations supporting it, since "what derived this, how, and how confidently" is the same
+  question regardless of the node types on either end. **Declared, no writer.** Until something
+  populates it, provenance is a schema commitment rather than a queryable property.
+
+Two absences worth stating, since earlier versions of this document implied otherwise: there is no
+`Site`-to-`Page` edge at all (a page is reachable through the tables, not through the `Site` row),
+and the per-tag labels `:Button`/`:Input`/`:Link` are gone - they existed purely so Neo4j Browser
+could color nodes apart, and nothing renders the graph visually now.
+
+Reverse-engineering literature (and `research/plan-generacion-de-documentos.md`, which analyzes one
+such proposal) commonly names these differently. **The mapping is what matters; the names stay as
+they are.**
 
 | Name found in the literature | This codebase | Note |
 |---|---|---|
-| `(:DOM_Element)` | `(:Component)` | Same thing: one discovered interactive element, keyed by `(site, page_url, path)`. |
+| `(:DOM_Element)` | `(:Component)` | Same thing: one discovered interactive element, keyed by `(page_url, path)` - `site` dropped out of the key when each site got its own database. |
 | `(:UI_Component)` | `(:ComponentFamily)` | Partial. The family is the "atom" level; molecule/organism levels are deliberately out of scope. |
-| `(:NetworkRequest)` | `(:Request)` | Same thing, minus request/response *values* — only shapes are ever persisted. |
-| `(:Page)` / `(:View)` | `(:Page)` | Unchanged. |
-| `(:BusinessRule)` | — | Genuinely absent. Planned, then frozen: its value was almost entirely the human-in-the-loop review that is out of scope. |
-| `[:TRIGGERS_EVENT]` | `[:TRIGGERS]` | The event type lives on the interaction record, not the relationship name. |
-| `[:CONTAINS]` / `[:COMPOSED_OF]` | — | Absent by consequence: discovery records interactive elements and text leaves, never the containers between them. |
-| `[:RESULTS_IN_STATE]` | — | Absent for now; `NAVIGATED_TO` carries the same transition between pages. |
-| `[:TRIGGERS_EVENT {type}]` | `[:INTERACTED {action}]` | One edge per interaction, from the control to the page it left you on. |
+| `(:NetworkRequest)` | `(:Request)` + `(:Endpoint)` | Split in two: the observation (one HTTP call, body redacted and truncated) and the contract (one distinct method + path pattern). |
+| `(:Page)` / `(:View)` | `(:Page)` | Unchanged. A semantic `(:Screen)` table now sits above it, unwritten. |
+| `(:BusinessRule)` | `(:Rule)` | Table exists in the semantic tier with nothing writing it. Still frozen for the same reason as before: its value was almost entirely the human-in-the-loop review that is out of scope. |
+| `[:TRIGGERS_EVENT]` | `[:PERFORMED]` + `[:TRIGGERED]` | The event type lives on the `Interaction` node, not the relationship name. |
+| `[:CONTAINS]` / `[:COMPOSED_OF]` | `[:CONTAINS]` | Now present. Was absent when discovery recorded only interactive elements and text leaves; `discover_components.js` captures structural ancestry since. |
+| `[:RESULTS_IN_STATE]` | `[:RESULTED_IN]` | Now present, and per interaction rather than per component - which is what fixed the "which request belongs to which move" ambiguity in `generators/user_flows.py`. |
+
+---
+
+### What the schema stages but nothing reads yet
+
+Stated here rather than left for a reader to find by grepping, in the same spirit as the coverage
+banner on every generated document:
+
+- The **semantic tier** (five node tables, six edge tables, `DERIVED_FROM`) has no writer.
+- **Graph projection results** - `module_id`, `module_label`, `click_depth`, `betweenness`,
+  `pagerank`, `is_articulation_point` - are computed and written onto `Page` every run, but
+  `analysis.py` exposes only `record_*` methods and no generator reads them back. No document
+  currently shows a module, a depth or a bottleneck.
+- The **retrieval surface** (`named_queries.py`'s query library, `raw_query.py`'s guarded Cypher
+  escape hatch, `search.py`'s FTS indexes) has no caller in `generators/`. Document generators use
+  ten whole-site read methods, the same set they used before the migration.
 
 ---
 
@@ -294,19 +363,32 @@ new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent
 
 ## Directory Roles
 
-- **`core/`**: The Kernel — `Engine`, plugin registries, shared interfaces/contracts
-  (`PageState`, `Agent`, `GraphStore`), and layered configuration (`PragmaConfig`).
+- **`core/`**: The Kernel - `Engine`, plugin registries, the `Agent` interface, plain data
+  contracts (`data_contracts.py`: `PageState`, `VisitStep`, `ComponentFacts`, `ComponentFamily`,
+  `InferredRequest`, all re-exported from `interfaces.py`), the document contract (`documents.py`),
+  the post-crawl read cache (`caching_graph_store.py`), and layered configuration
+  (`PragmaConfig`).
 - **`spiders/`**: The crawl itself — `Crawl4AICrawler` ("The Hands", crawl4ai-backed discovery
   + interaction), `MechanicalCrawler` (the two-frontier orchestration loop), `GraphStoreSink`/
   `GraphStoreInteractionTracker` (live graph-store wiring), `fill_value_agent.py`/`fill_values.py`
   (AI/placeholder fill values), plus the discovery JS assets in `js/`.
 - **`agents/`**: LLM interface implementations ("The Brain") — `generate()` only.
-- **`database/`**: `GraphStore` implementations (`InMemoryGraphStore`, `DuckDBGraphStore`).
-- **`generators/`**: `GraphPRDSynthesizer` (post-hoc, graph-reading synthesis) and
-  `component_classifier.py` (pure, deterministic component classification/grouping, no LLM/browser
-  dependency).
+- **`database/`**: the `ladybug/` package - one `LadybugGraphStore` assembled from eleven mixins
+  over `schema.py::DDL`: `page.py`, `component.py`, `text_content.py`, `component_family.py`,
+  `analysis.py`, `network.py`, `options.py`, `containment.py`, plus the retrieval surface split three
+  ways (`raw_query.py`, `named_queries.py`, `search.py`). Every statement funnels through
+  `writer.py`, which runs them all on one dedicated thread.
+- **`analysis/`**: `graph_projection.py` - networkx over `get_edges()` for the analyses no storage
+  engine here provides natively (module detection, centrality, click depth, cycles). Pure functions
+  over plain data, with no storage dependency of its own.
+- **`generators/`**: one module per output document (see "Output Documents"), the `pipeline.py`
+  that runs them, and the pure helpers they share - `component_classifier.py` and
+  `component_family.py` (deterministic classification and clustering, no LLM or browser
+  dependency), `ledger.py`, `traces.py`, `coverage.py`.
 - **`utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
-- **`docs/`**: Final generated Digital Blueprint PRDs — the only output artifact; there are no more
-  `research_logs/`/`progress_logs/`/`graph_logs/` file-based debug logs, since `GraphStore` is now
-  the live, queryable record of a crawl (inspect it directly, or via the `duckdb` CLI/any DuckDB
-  client for `graph_store: duckdb`).
+- **`docs/`**: Every generated document for every run, plus `index.md`/`runs.json` (the browsable
+  run manifest) and `dev/` (the per-module developer notes every `Details:` docstring line points
+  at). There are no `research_logs/`/`progress_logs/`/`graph_logs/` file-based debug logs: the graph
+  store is the live, queryable record of a crawl. With `graph_store: ladybug` that record is a
+  directory under `data/sites/<slug>.lbdb` - query it with Cypher through the `ladybug` package, or
+  through this project's own `raw()`/`query()`/`search_text()` methods.

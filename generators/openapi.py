@@ -6,12 +6,20 @@ rearrangement of what `GraphStore.get_inferred_requests` already grouped
 rebuild pass this module triggers), which is why the output can be
 trusted as a contract rather than read as a summary.
 
-What it cannot contain, by construction rather than oversight: security
-schemes, headers, and examples. The crawler persists request and response
-*shapes*, never values (`network_filter._json_shape`), which is a
-deliberate privacy decision - so there is no captured Authorization header
-to describe and no real payload to show. The generated document says so in
-its own description rather than looking complete.
+**Examples are real bodies, and that is the one place this document
+carries captured data rather than derived shapes.** They pass through two
+layers of redaction first (`spiders/content/redaction.py`: fields named
+like secrets dropped by name, every string pattern-scanned for emails,
+card-like digit runs and tokens, `Authorization`/`Cookie` dropped whole)
+and are truncated at capture. A response example is only ever taken from a
+call that answered 2xx - a 422's body describes the error shape, and
+publishing it as the endpoint's response would misdescribe the API.
+
+What it still cannot contain, by construction rather than oversight: field
+constraints (enum, pattern, minimum), which need many values per field to
+infer and would be guesses from one; and any endpoint the crawl never
+reached. The generated document says so in its own description rather than
+looking complete.
 
 Details: docs/dev/generators/openapi.md#module
 """
@@ -34,10 +42,13 @@ _CRUD_VERBS = {"POST": "create", "PUT": "replace", "PATCH": "update", "DELETE": 
 _CONTRACT_PREAMBLE = (
     "Inferred from traffic observed during an automated crawl, not from server source. Security "
     "schemes are named from request header names only - never from a credential - so this says "
-    "which scheme an endpoint uses and never what the token was. Examples and field constraints "
-    "(enum, pattern, minimum) are absent by design: the crawler records the shape of every "
-    "request and response and never their values, so there is nothing to derive them from. "
-    "Endpoints the crawl never reached are absent too - see the crawl coverage document."
+    "which scheme an endpoint uses and never what the token was. Examples are real captured "
+    "bodies, redacted (secret-named fields dropped, emails/card-like numbers/tokens scrubbed) and "
+    "truncated; each is one observation rather than a canonical payload, and a response example "
+    "is only ever taken from a call that answered 2xx. Field constraints (enum, pattern, minimum) "
+    "are absent by design: inferring them needs many values per field, and from one observation "
+    "they would be guesses. Endpoints the crawl never reached are absent too - see the crawl "
+    "coverage document."
 )
 
 
@@ -223,11 +234,14 @@ def _responses(request: InferredRequest, schemas: _SchemaRegistry, resource: str
     for code in request.status_codes:
         entry: Dict[str, Any] = {"description": f"Observed response (HTTP {code})."}
         if 200 <= code < 300 and response_schema:
-            entry["content"] = {
-                media_type: {
-                    "schema": schemas.reference(response_schema, f"{_capitalized(_singular(resource))}Response")
-                }
+            body: Dict[str, Any] = {
+                "schema": schemas.reference(response_schema, f"{_capitalized(_singular(resource))}Response")
             }
+            # Already restricted to successful calls upstream, so it belongs
+            # on exactly the codes that carry a schema.
+            if request.response_example:
+                body["example"] = request.response_example
+            entry["content"] = {media_type: body}
         responses[str(code)] = entry
     return responses
 
@@ -254,14 +268,12 @@ def _operation(request: InferredRequest, names: List[str], schemas: _SchemaRegis
 
     body_schema = schema_from_shape(request.body_shape)
     if body_schema:
-        operation["requestBody"] = {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": schemas.reference(body_schema, f"{_capitalized(_singular(resource))}Request")
-                }
-            },
+        sent: Dict[str, Any] = {
+            "schema": schemas.reference(body_schema, f"{_capitalized(_singular(resource))}Request")
         }
+        if request.request_example:
+            sent["example"] = request.request_example
+        operation["requestBody"] = {"required": True, "content": {"application/json": sent}}
     return operation
 
 

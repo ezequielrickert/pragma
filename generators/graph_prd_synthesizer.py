@@ -3,8 +3,9 @@ Details: docs/dev/generators/graph_prd_synthesizer.md#module
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from analysis.graph_projection import module_display_name
 from core.documents import DocumentGenerator, DocumentRequest
 from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
@@ -183,6 +184,68 @@ def build_mermaid_graph(edges: List[Dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _section_label(module_id: Optional[int], module_label: str) -> str:
+    """What a module's section is called in the document.
+
+    `module_label` is `graph_projection._module_label`'s deterministic
+    shared-URL-prefix name, which is `""` for a module whose pages share no
+    prefix - a real outcome, not a failure, so it falls back to the id
+    rather than to an invented name. Pages the projection never assigned go
+    last under their own heading: "not part of any module" is a fact about
+    the site's shape, not a leftovers bucket to hide.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#_section_label
+    """
+    if module_id is None:
+        return "Pages outside any module"
+    return module_display_name(module_id, module_label)
+
+
+def group_pages_by_module(
+    rows: List[Dict[str, Any]], metrics: List[Dict[str, Any]]
+) -> List[Tuple[str, List[Dict[str, Any]]]]:
+    """`[(section label, rows)]` - the site's own structure, not batch order.
+
+    Before this, sections were `batch_size`-sized slices of a url-sorted
+    list: for a forty-page site the document's shape was decided by the
+    chunk size, and two pages landed in the same section because they were
+    alphabetically adjacent. Grouping by the Louvain module `Engine`'s
+    projection pass already computed, and ordering each module's pages by
+    click depth, means the document reads outside-in through parts that
+    actually exist.
+
+    Each returned row is a copy of its `get_progress_table_rows` row with
+    `click_depth` and `is_articulation_point` merged in, so the prompt
+    builder needs no second argument for them - joining metrics to pages is
+    this function's job, and mutating the caller's rows is not.
+
+    Sections are ordered by their label, unassigned pages last. Within a
+    section, shallowest page first, `None` depth (unreachable from the root)
+    last, then by url so the result is deterministic.
+    Details: docs/dev/generators/graph_prd_synthesizer.md#group_pages_by_module
+    """
+    by_url = {m["url"]: m for m in metrics}
+    sections: Dict[Tuple[int, str], List[Dict[str, Any]]] = {}
+    for row in rows:
+        metric = by_url.get(row["url"], {})
+        label = _section_label(metric.get("module_id"), metric.get("module_label", ""))
+        # Unassigned sorts after every named section regardless of label.
+        key = (1 if metric.get("module_id") is None else 0, label)
+        sections.setdefault(key, []).append({
+            "click_depth": metric.get("click_depth"),
+            "is_articulation_point": bool(metric.get("is_articulation_point")),
+            **row,
+        })
+
+    def depth_then_url(row: Dict[str, Any]) -> Tuple[int, Any, str]:
+        depth = row.get("click_depth")
+        return (1, 0, row["url"]) if depth is None else (0, depth, row["url"])
+
+    return [
+        (label, sorted(section_rows, key=depth_then_url))
+        for (_unassigned, label), section_rows in sorted(sections.items())
+    ]
+
+
 class GraphPRDSynthesizer:
     """Reads `site`'s crawl graph and produces the final PRD markdown.
     Details: docs/dev/generators/graph_prd_synthesizer.md#graphprdsynthesizer
@@ -233,11 +296,26 @@ class GraphPRDSynthesizer:
 
     @staticmethod
     def _build_page_lines(rows: List[Dict[str, Any]], descriptions: Dict[str, str], catalog: Dict[str, str]) -> List[str]:
-        """One text block per page: route/status/count, description, catalog."""
+        """One text block per page: route/status/count, structure, description, catalog.
+
+        The structural facts come from the rows `group_pages_by_module`
+        already merged them into. They are stated rather than left for the
+        model to infer, because it cannot: "there is no alternate route
+        around this page" is a property of the whole navigation graph, and a
+        model handed one page at a time will either omit it or invent it.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_build_page_lines
+        """
         page_lines = []
         for row in rows:
             url = row["url"]
             line = f"- {url} [{row['status']}, {row['components']} components]"
+            if row.get("click_depth") is not None:
+                line += f"\n  Reached in {row['click_depth']} click(s) from the entry point."
+            if row.get("is_articulation_point"):
+                line += (
+                    "\n  Removing this page disconnects the navigation graph:"
+                    " there is no alternate route around it."
+                )
             if descriptions.get(url):
                 line += f"\n  Description: {descriptions[url]}"
             if catalog.get(url):
@@ -245,26 +323,36 @@ class GraphPRDSynthesizer:
             page_lines.append(line)
         return page_lines
 
-    def _summarize_batches(self, site: str, page_lines: List[str]) -> List[str]:
-        """Group into `batch_size` chunks, one bounded call per chunk.
-        Details: docs/dev/generators/graph_prd_synthesizer.md#_summarize_batches
+    def _summarize_sections(self, site: str, sections: List[Tuple[str, List[str]]]) -> List[str]:
+        """One bounded call per section, named by the module it describes.
+
+        `batch_size` still bounds a single prompt - a module with sixty
+        pages cannot go in one call - so a large module becomes several
+        calls carrying the same section name. What changed is that the chunk
+        boundary no longer *defines* the section; it only splits one.
+        Details: docs/dev/generators/graph_prd_synthesizer.md#_summarize_sections
         """
-        batches = [page_lines[i : i + self.batch_size] for i in range(0, len(page_lines), self.batch_size)]
-        if batches:
-            print(f"Summarizing {len(batches)} sections ({len(batches)} model calls)...")
+        chunks: List[Tuple[str, List[str]]] = [
+            (label, lines[i : i + self.batch_size])
+            for label, lines in sections
+            for i in range(0, len(lines), self.batch_size)
+        ]
+        if chunks:
+            print(f"Summarizing {len(sections)} module(s) in {len(chunks)} model calls...")
         summaries: List[str] = []
-        for batch_number, batch in enumerate(batches, 1):
-            print(f"  section {batch_number}/{len(batches)} ({len(batch)} pages)")
-            batch_block = "\n".join(batch)
+        for chunk_number, (label, chunk) in enumerate(chunks, 1):
+            print(f"  section {chunk_number}/{len(chunks)}: {label} ({len(chunk)} pages)")
+            chunk_block = "\n".join(chunk)
             prompt = (
-                f"Site: {site}\n\n"
-                f"Pages in this section ({len(batch)}):\n{batch_block}\n\n"
+                f"Site: {site}\n"
+                f"Section: {label}\n\n"
+                f"Pages in this section ({len(chunk)}):\n{chunk_block}\n\n"
                 "Write the section summary."
             )
             try:
                 summaries.append(self.agent.generate(prompt, system_instruction=SYNTHESIS_SYSTEM_INSTRUCTION))
-            except Exception as exc:  # noqa: BLE001 - degrade this one batch, not the whole run
-                summaries.append(f"_(section summary unavailable: {exc})_\n\n{batch_block}")
+            except Exception as exc:  # noqa: BLE001 - degrade this one section, not the whole run
+                summaries.append(f"_(section summary unavailable: {exc})_\n\n{chunk_block}")
         return summaries
 
     @staticmethod
@@ -333,8 +421,13 @@ class GraphPRDSynthesizer:
         descriptions = self.graph_store.get_page_descriptions()
         catalog = self._narrate_page_catalog()
 
-        page_lines = self._build_page_lines(rows, descriptions, catalog)
-        section_summaries = self._summarize_batches(site, page_lines)
+        sections = [
+            (label, self._build_page_lines(section_rows, descriptions, catalog))
+            for label, section_rows in group_pages_by_module(
+                rows, self.graph_store.get_page_metrics()
+            )
+        ]
+        section_summaries = self._summarize_sections(site, sections)
         overview = self._reduce(site, section_summaries)
 
         # Rendered deterministically, never asked of the model - see module doc.

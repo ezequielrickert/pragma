@@ -16,6 +16,7 @@ from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from generators.component_family import build_component_families
+from generators.data_model import build_entities
 from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
@@ -113,6 +114,33 @@ def _apply_graph_projection(graph_store: Any, root: str) -> None:
     graph_store.record_page_modules([m.as_dict() for m in result.modules])
     if result.cycles:
         print(f"Graph projection: {len(result.cycles)} navigation cycle(s) found.")
+
+
+def _apply_data_model(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: deduce the semantic tier's `Entity`/`Field`
+    set from the forms the crawl found, and write it back with its provenance.
+
+    Whole-site rather than per-page for the same reason family clustering is:
+    the derivation groups components by the form they sit in, and a live
+    per-page write stream cannot see a form whose inputs arrived across two
+    visits.
+
+    Args:
+        graph_store: same store the crawl wrote to.
+        run_id: stamped onto every `DERIVED_FROM` edge, so a reader can tell
+            which run concluded what.
+
+    Returns:
+        None. `record_entities` refuses any node with no provenance, which is
+        why this pass has no error handling of its own: a raise here means the
+        derivation produced an unsupported assertion, and that is a bug to
+        fix rather than a document to degrade.
+    Details: docs/dev/core/engine.md#_apply_data_model
+    """
+    entities = build_entities(flat_component_ledger(graph_store))
+    field_count = sum(len(entity.fields) for entity in entities)
+    print(f"Deduced {len(entities)} entity/entities with {field_count} field(s) from forms.")
+    graph_store.record_entities(entities, run_id=run_id)
 
 
 @dataclass
@@ -340,6 +368,8 @@ class Engine:
         _apply_component_families(graph_store, self.agent)
         print("Projecting the navigation graph into modules and metrics...")
         _apply_graph_projection(graph_store, route_shape(url))
+        print("Deducing the data model from the forms found...")
+        _apply_data_model(graph_store, run_id)
 
         run_timestamp = _timestamp()
         request = DocumentRequest(

@@ -139,6 +139,17 @@ class GraphStoreSink:
         if entries:
             await self._write(self.graph_store.record_text_contents, page_key, entries)
 
+    async def record_state_styles(self, page_key: str, pseudo_styles: List[Dict[str, Any]]) -> None:
+        """Declared `:hover`/`:focus` values, called once per page visit.
+
+        Same cadence as `record_text_content` and for the same reason: these
+        come from the page's stylesheets, which a click cannot change, so
+        re-recording them per reveal would write identical rows repeatedly.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_state_styles
+        """
+        if pseudo_styles:
+            await self._write(self.graph_store.record_state_styles, page_key, pseudo_styles)
+
     async def record_inventory(
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
     ) -> None:

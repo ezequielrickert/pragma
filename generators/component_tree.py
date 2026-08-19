@@ -26,6 +26,11 @@ class TreeLeaf:
     # distinct outcome - see _build_option_redirects. Empty for every leaf
     # that isn't a consolidated dropdown/choice group.
     option_redirects: List[str] = field(default_factory=list)
+    # The landmark region this leaf sits in ("navigation", "main", ...), or
+    # "" when it is in none - which is also what every leaf reports for a
+    # crawl recorded before structural containment capture existed.
+    # Details: docs/dev/generators/component_tree.md#region
+    region: str = ""
 
 
 @dataclass
@@ -91,6 +96,11 @@ def build_component_tree(graph_store: Any, site: str) -> SiteTree:
     ledger = graph_store.get_component_ledger()
     text_ledger = graph_store.get_text_content_ledger()
     edges = graph_store.get_edges()
+    # Which landmark region each component sits in. Text leaves get no
+    # region: containment is recorded per interactive component, and
+    # inventing one for a text node by proximity would be a guess.
+    # Details: docs/dev/generators/component_tree.md#regions
+    regions = graph_store.get_component_regions()
 
     # Fallback/cross-check only - a component's own resulting_url is primary.
     # Details: docs/dev/generators/component_tree.md#redirect_index
@@ -132,6 +142,7 @@ def build_component_tree(graph_store: Any, site: str) -> SiteTree:
                     requests=[_render_request_line(r) for r in record.get("network_requests", [])],
                     redirect_target=redirect_label,
                     option_redirects=_build_option_redirects(record, parsed, titles),
+                    region=regions.get(url, {}).get(path, ""),
                 )
             )
 
@@ -167,6 +178,28 @@ def _render_leaf_line(leaf: TreeLeaf) -> str:
     return " ".join(parts)
 
 
+def group_by_region(leaves: List[TreeLeaf]) -> List[Tuple[str, List[TreeLeaf]]]:
+    """A page's leaves as `[(landmark, leaves)]`, landmarks first.
+
+    The hierarchy lives here rather than on `TreePage` on purpose: a leaf
+    knowing its own region is a fact about the leaf, while nesting is a way
+    of showing it. Keeping the built tree flat means `build_component_tree`
+    stays a straight read of the store and every caller that just wants
+    "every leaf on this page" still gets it without walking two levels.
+
+    Leaves in no landmark region come last under `""`, so a page whose
+    containment was never recorded renders exactly as it did before this
+    grouping existed - one flat list, no empty region headers.
+    Details: docs/dev/generators/component_tree.md#group_by_region
+    """
+    by_region: Dict[str, List[TreeLeaf]] = {}
+    for leaf in leaves:
+        by_region.setdefault(leaf.region, []).append(leaf)
+    named = sorted((region, group) for region, group in by_region.items() if region)
+    unnamed = [("", by_region[""])] if "" in by_region else []
+    return named + unnamed
+
+
 def render_ascii_tree(tree: SiteTree, use_box_drawing: bool = True) -> str:
     """Deterministic string rendering of an already-built `SiteTree`; no AI access.
     Details: docs/dev/generators/component_tree.md#render_ascii_tree
@@ -176,21 +209,36 @@ def render_ascii_tree(tree: SiteTree, use_box_drawing: bool = True) -> str:
     else:
         branch, last_branch, pipe, space = "|-- ", "`-- ", "|   ", "    "
 
+    def render_leaves(leaves: List[TreeLeaf], indent: str) -> None:
+        for position, leaf in enumerate(leaves):
+            is_last = position == len(leaves) - 1
+            lines.append(f"{indent}{last_branch if is_last else branch}{_render_leaf_line(leaf)}")
+            redirect_indent = indent + (space if is_last else pipe)
+            for redirect_position, redirect_line in enumerate(leaf.option_redirects):
+                redirect_is_last = redirect_position == len(leaf.option_redirects) - 1
+                lines.append(
+                    f"{redirect_indent}{last_branch if redirect_is_last else branch}{redirect_line}"
+                )
+
     lines = [f"{tree.site}/"]
     for i, page in enumerate(tree.pages):
         page_is_last = i == len(tree.pages) - 1
         lines.append(f"{last_branch if page_is_last else branch}{page.title} ({page.url})")
         child_indent = space if page_is_last else pipe
 
-        for j, leaf in enumerate(page.leaves):
-            leaf_is_last = j == len(page.leaves) - 1
-            leaf_prefix = last_branch if leaf_is_last else branch
-            lines.append(f"{child_indent}{leaf_prefix}{_render_leaf_line(leaf)}")
+        groups = group_by_region(page.leaves)
+        # A page with nothing in a landmark keeps its leaves directly under
+        # it: a single "(no region)" header above every leaf on the page
+        # would be one more level of indentation carrying no information.
+        if len(groups) == 1 and not groups[0][0]:
+            render_leaves(page.leaves, child_indent)
+            continue
 
-            grandchild_indent = child_indent + (space if leaf_is_last else pipe)
-            for k, redirect_line in enumerate(leaf.option_redirects):
-                redirect_is_last = k == len(leaf.option_redirects) - 1
-                lines.append(f"{grandchild_indent}{last_branch if redirect_is_last else branch}{redirect_line}")
+        for group_position, (landmark, group) in enumerate(groups):
+            group_is_last = group_position == len(groups) - 1
+            header = f"<{landmark}>" if landmark else "(no landmark region)"
+            lines.append(f"{child_indent}{last_branch if group_is_last else branch}{header}")
+            render_leaves(group, child_indent + (space if group_is_last else pipe))
 
     return "\n".join(lines) + "\n"
 

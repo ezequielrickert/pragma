@@ -29,3 +29,16 @@ The empty case prints an explicit "No documents were generated" rather
 than nothing: every generator failing is survivable by design (the
 pipeline degrades per document), and a silent success would be
 indistinguishable from a run that worked.
+
+## _apply_budget_flags
+
+Folds the three run-budget flags into `config.crawl_budget`.
+
+Kept out of the generic override dict because they are not `PragmaConfig` fields
+in their own right - they edit keys *inside* one field, and `--full` clears
+rather than sets.
+
+`--full` wins outright. It is the "ignore what the YAML says, run the whole
+thing" escape hatch, so combining it with a limit is a contradiction, resolved in
+its favour rather than by erroring - an operator who typed both wants the long
+run.

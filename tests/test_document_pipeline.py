@@ -139,3 +139,38 @@ def test_every_registered_document_declares_its_identity(name):
     assert generator.name == name
     assert generator.title
     assert generator.purpose
+
+
+# --- the master document states what the run does not answer ---
+
+def test_the_master_document_says_no_accessibility_audit_is_produced():
+    """A reader who finds no WCAG file should learn none is produced, not
+    assume they lost one."""
+    from core.documents import DocumentRequest, ProducedDocument
+    from generators.master_document import MasterDocument
+
+    request = DocumentRequest(
+        graph_store=None, site="shop.example", agent=None,
+        produced=(ProducedDocument(name="prd", title="Blueprint", purpose="p", path="docs/a_prd_1.md"),),
+    )
+
+    text = MasterDocument().generate(request)
+
+    assert "No WCAG / accessibility audit" in text
+    assert "must not be read as one" in text
+
+
+def test_the_gap_note_disappears_once_an_accessibility_document_exists():
+    """Conditional so reviving D11 retires the note by itself, instead of
+    leaving a claim someone has to remember to delete."""
+    from core.documents import DocumentRequest, ProducedDocument
+    from generators.master_document import MasterDocument
+
+    request = DocumentRequest(
+        graph_store=None, site="shop.example", agent=None,
+        produced=(
+            ProducedDocument(name="accessibility", title="A11y", purpose="p", path="docs/a_a11y_1.md"),
+        ),
+    )
+
+    assert "Not covered by this run" not in MasterDocument().generate(request)

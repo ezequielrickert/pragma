@@ -210,7 +210,7 @@ def unexplained_disabled_controls(
 
 
 def flow_findings(flow: Any) -> List[Finding]:
-    """The two rules that read the state machine rather than a component.
+    """The rule that reads the state machine rather than a component.
     Details: docs/dev/generators/usability.md#flow_findings
     """
     findings = [
@@ -225,19 +225,14 @@ def flow_findings(flow: Any) -> List[Finding]:
         )
         for state in flow.dead_ends
     ]
-    findings += [
-        Finding(
-            rule="unattributable-outcome",
-            heuristic="Visibility of system status",
-            severity="low",
-            where=f"{t.from_state} -> {t.to_state}",
-            detail=f"One control ({t.trigger}) leads to several screens with differing request outcomes.",
-            recommendation="Make the outcome visible to the user - the same control silently doing two "
-                           "different things is the interface being ambiguous, not just the data.",
-        )
-        for t in flow.transitions
-        if t.outcome == "mixed"
-    ]
+    # `unattributable-outcome` used to be the second rule here, firing on
+    # transitions whose outcome was "mixed". That outcome no longer exists:
+    # a Request now hangs off its own Interaction, so `_request_outcome`
+    # returns only OK/ERROR/UNKNOWN and each click of one control keeps its
+    # own result. The rule described a limitation of the storage, and the
+    # storage stopped having it - deleted rather than left as a branch that
+    # can never be taken.
+    # Details: docs/dev/generators/usability.md#flow_findings
     return findings
 
 

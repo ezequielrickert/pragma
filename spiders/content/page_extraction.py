@@ -20,6 +20,7 @@ EXTRACT_LINKS_JS = _load_js("extract_links.js")
 EXTRACT_DESCRIPTION_JS = _load_js("extract_description.js")
 EXTRACT_METADATA_JS = _load_js("extract_metadata.js")
 EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
+EXTRACT_PSEUDO_STYLES_JS = _load_js("extract_pseudo_styles.js")
 
 
 async def run_extraction(page) -> Dict[str, Any]:
@@ -62,6 +63,19 @@ async def run_extraction(page) -> Dict[str, Any]:
         except Exception as exc:
             print(f"Warning: text content extraction failed in frame {frame.url!r}: {exc}")
 
+    # Main frame only, and no iframe loop: this reads `document.styleSheets`,
+    # so a frame's own sheets belong to that frame's document and the selectors
+    # would not match anything here anyway. Failure degrades to [] rather than
+    # losing the whole extraction - a site serving its CSS cross-origin reports
+    # nothing here by design (`cssRules` throws), and that is indistinguishable
+    # from a site that declares no state styles.
+    # Details: docs/dev/spiders/content/page_extraction.md#pseudo_styles
+    try:
+        pseudo_styles = list(await page.evaluate(EXTRACT_PSEUDO_STYLES_JS))
+    except Exception as exc:
+        print(f"Warning: pseudo-style extraction failed: {exc}")
+        pseudo_styles = []
+
     return {
         "components": components,
         "links": links,
@@ -69,4 +83,5 @@ async def run_extraction(page) -> Dict[str, Any]:
         "metadata": metadata,
         "title": title,
         "text_content": text_content,
+        "pseudo_styles": pseudo_styles,
     }

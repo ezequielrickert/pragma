@@ -116,3 +116,95 @@ class _LadybugContainmentMixin:
                 )
 
         self._call(op)
+
+    def get_component_regions(self) -> Dict[str, Dict[str, str]]:
+        """Which landmark region each component sits in -
+        `{page_url: {component_path: landmark}}`.
+
+        The question D5 asks of containment: not the whole ancestor chain,
+        but the one region a reader would name ("this button is in the
+        navigation"). A component's *nearest* landmark ancestor wins, so a
+        `<form>` inside `<main>` reports `main` and a search box inside
+        `<nav>` inside `<main>` reports `navigation` - the inner region is
+        the informative one.
+
+        Nearest is resolved by `length()` on the recursive relationship,
+        confirmed against the real engine: `size()` rejects a
+        `RECURSIVE_REL` outright ("Function SIZE did not receive correct
+        arguments"), and `length()` is the one that takes it. With
+        `ORDER BY` on that length the first row per component is already
+        the nearest, so no second pass and no per-component query.
+
+        Returns:
+            One entry per page that has at least one component inside a
+            landmark, and within it one entry per such component.
+            Components in no landmark region at all are absent rather than
+            present-with-`""`: a caller asking "which region is this in"
+            gets the same "no answer" from a missing key as it would from
+            an empty string, and the missing key cannot be mistaken for a
+            region named `""`.
+
+            `{}` when nothing recorded ancestry - which is also what a
+            crawl from before containment capture existed reads back as.
+        Details: docs/dev/database/ladybug/containment.md#get_component_regions
+        """
+        def op(conn) -> Dict[str, Dict[str, str]]:
+            rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(comp:Component)
+                MATCH (region:Container)-[chain:CONTAINS*1..8]->(comp)
+                WHERE region.landmark <> ''
+                RETURN p.url, comp.path, region.landmark, length(chain) AS distance
+                ORDER BY p.url, comp.path, distance
+                """
+            )
+            regions: Dict[str, Dict[str, str]] = {}
+            for page_url, path, landmark, _distance in rows:
+                by_path = regions.setdefault(page_url, {})
+                if path not in by_path:
+                    by_path[path] = landmark
+            return regions
+
+        return self._call(op)
+
+    def get_page_landmarks(self) -> Dict[str, Dict[str, int]]:
+        """How many distinct landmark regions of each kind a page has -
+        `{page_url: {landmark: count}}`.
+
+        The question `generators/accessibility.py` asks that
+        `get_component_regions` cannot answer: that one reports the region a
+        *component* sits in, so a page with two separate `<header>`s looks
+        identical to a page with one. Landmark structure is a property of the
+        page, not of any component in it.
+
+        `count(DISTINCT region.id)` rather than `count(region.id)` - confirmed
+        against the real engine that the difference is real here: two banners
+        holding three components between them count 3 naively and 2 distinctly,
+        and 2 is the answer WCAG cares about.
+
+        Reached through components because there is no `Page`-to-`Container`
+        edge in the schema, so a landmark holding no discovered component is
+        invisible here. That is a floor on what this can report, not a bug:
+        an empty region has nothing to be inaccessible about.
+
+        Returns:
+            One entry per page with at least one landmark region. `{}` for a
+            site whose crawl recorded no ancestry at all.
+        Details: docs/dev/database/ladybug/containment.md#get_page_landmarks
+        """
+        def op(conn) -> Dict[str, Dict[str, int]]:
+            rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(comp:Component)
+                MATCH (region:Container)-[:CONTAINS*1..8]->(comp)
+                WHERE region.landmark <> ''
+                RETURN p.url, region.landmark, count(DISTINCT region.id)
+                ORDER BY p.url, region.landmark
+                """
+            )
+            landmarks: Dict[str, Dict[str, int]] = {}
+            for page_url, landmark, count in rows:
+                landmarks.setdefault(page_url, {})[landmark] = count
+            return landmarks
+
+        return self._call(op)

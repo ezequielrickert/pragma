@@ -125,7 +125,7 @@ def test_a_trace_that_changed_nothing_is_left_out():
     """A pass that navigated nowhere and called nothing is an empty
     specification - keeping it would bury the scenarios that matter."""
     class _Store:
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {PAGE: {"a": _component("a", "Noop", [_interaction()])}}
 
     text = GherkinDocument().generate(
@@ -137,7 +137,7 @@ def test_a_trace_that_changed_nothing_is_left_out():
 
 def test_a_crawl_with_no_stamped_interactions_explains_itself():
     class _Store:
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {}
 
     text = GherkinDocument().generate(
@@ -219,7 +219,7 @@ def _ledger_components():
 
 def _request_for_store(agent=None):
     class _Store:
-        def get_component_ledger(self, site):
+        def get_component_ledger(self):
             return {PAGE: {component["path"]: component for component in _ledger_components()}}
 
     return DocumentRequest(graph_store=_Store(), site="shop.example", agent=agent)

@@ -199,3 +199,52 @@ Called once by `_worker` (`docs/dev/spiders/orchestration/mechanical_loop/loop.m
 when `UrlFrontier.requeue` refuses to requeue a page again - the
 concluding write for a page that gave up, the same role
 `record_page_finished` plays for one that actually finished.
+
+## _mark_party
+
+Stamps `is_first_party` onto each already-filtered request dict, so the storage
+layer can route a call to `Request`+`Endpoint` or to `Endpoint` alone without
+re-deriving the host comparison. See
+`docs/dev/database/ladybug/network.md#_merge_third_party_endpoint` for the
+asymmetric retention this feeds.
+
+## base_url
+
+The same two values `UrlFrontier` gates on, so a link is judged in-scope
+identically whether it is being queued or recorded.
+
+`None` disables the check, preserving the pre-scope behaviour for callers that
+never pass it - tests, mostly.
+
+## external_page_status
+
+The status for a link target the frontier will never visit because it points off
+the crawled domain.
+
+Without it those pages sit in `Pending` forever: the frontier refuses them on
+scope grounds while this sink records them anyway, so `get_pending` returns work
+that can never be done and `count_visited` can never reach 100% on any site that
+links outward.
+
+## link-target-key
+
+A link target is keyed by `route_shape`, not `clean_url`.
+
+Every other page key in the graph is shaped - `visit()` derives `page_key` that
+way - so recording a link target unshaped would mint a second node for a screen
+that already has a canonical one, which is exactly what `route_shape` exists to
+prevent.
+
+## off-site-targets
+
+Marked **after** `record_links`, never instead of it.
+
+The edge to an off-site page is real data - where this site sends you - and stays
+recorded. Only the target's status changes, so it stops posing as work the crawl
+still owes.
+
+## record_state_styles
+
+Called once per page visit, the same cadence as `record_text_content` and for
+the same reason: these come from the page's stylesheets, which a click cannot
+change, so recording them per reveal would write identical rows repeatedly.
