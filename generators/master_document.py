@@ -12,6 +12,7 @@ Details: docs/dev/generators/master_document.md#module
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 from core.documents import DocumentGenerator, DocumentRequest
 
@@ -45,4 +46,38 @@ class MasterDocument(DocumentGenerator):
             lines.append("")
             lines.append(document.purpose)
             lines.append("")
+        lines += self._gaps(request)
         return "\n".join(lines)
+
+    @staticmethod
+    def _gaps(request: DocumentRequest) -> List[str]:
+        """What this run did not produce, and why - stated only when true.
+
+        The coverage banner says how much of the site was reached; this says
+        which *kinds* of question the document set does not answer at all.
+        A reader who does not find an accessibility audit should learn that
+        none is produced, rather than assume they lost a file.
+
+        Conditional on the document actually being absent, so that reviving
+        D11 makes this note disappear on its own instead of becoming a lie
+        that has to be remembered.
+        Details: docs/dev/generators/master_document.md#_gaps
+        """
+        produced_names = {document.name for document in request.produced}
+        if "accessibility" in produced_names:
+            return []
+        return [
+            "## Not covered by this run",
+            "",
+            "**No WCAG / accessibility audit.** Producing one means running axe-core against each "
+            "page at a realistic viewport with images enabled, which is a separate measurement "
+            "pass this pipeline does not have. The usability audit overlaps it slightly - missing "
+            "input types, unexplained disabled controls - but is Nielsen-heuristic work, not a "
+            "conformance check, and must not be read as one.",
+            "",
+            "Contrast ratios, touch-target sizes and spacing scales are absent for the same "
+            "reason: they are absolute thresholds, and the crawl measures geometry at 800x600 "
+            "with images blocked. Comparisons that are *relative* - these three buttons disagree "
+            "with each other - survive that and are reported.",
+            "",
+        ]
