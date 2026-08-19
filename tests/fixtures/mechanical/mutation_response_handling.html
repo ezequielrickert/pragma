@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Mechanical loop fixture: mutation response handling</title></head>
+<body>
+  <!-- Two real client-side patterns a mode-gate's synthetic fulfill() has to
+       survive without tripping the page into a visible error state: a POST
+       that awaits a JSON body and reads a field back out of it, and a DELETE
+       that only cares whether the response was ok. Real sites vary between
+       these two shapes, so a single generic response has to satisfy both. -->
+
+  <form id="createForm">
+    <label for="nameField">Name</label>
+    <input id="nameField" name="name" type="text" value="widget">
+    <button type="submit">Create</button>
+  </form>
+  <div id="createStatus">idle</div>
+
+  <button id="deleteButton" type="button">Delete item 42</button>
+  <div id="deleteStatus">idle</div>
+
+  <script>
+    document.getElementById("createForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = document.getElementById("createStatus");
+      status.textContent = "submitting";
+      try {
+        const response = await fetch("/api/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: document.getElementById("nameField").value }),
+        });
+        if (!response.ok) {
+          status.textContent = "error: status " + response.status;
+          return;
+        }
+        const data = await response.json();
+        // The pattern that breaks against an empty {} body: a real backend
+        // echoes the created row back, and the page reads a field straight
+        // off it with no fallback - exactly what a mock-response caller
+        // needs to survive without throwing.
+        status.textContent = "created #" + data.id + ": " + data.name;
+      } catch (err) {
+        status.textContent = "exception: " + err.message;
+      }
+    });
+
+    document.getElementById("deleteButton").addEventListener("click", async () => {
+      const status = document.getElementById("deleteStatus");
+      status.textContent = "deleting";
+      try {
+        const response = await fetch("/api/items/42", { method: "DELETE" });
+        status.textContent = response.ok ? "deleted" : "error: status " + response.status;
+      } catch (err) {
+        status.textContent = "exception: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
