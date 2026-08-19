@@ -82,6 +82,18 @@ Up to `limit` `Pending` urls, sorted, unbounded when `limit` is `None`. The
 frontier's resume source: these pages *are* a cut-short run's saved progress,
 which is why `PragmaConfig.fresh` defaults to off.
 
+## get_scouted
+
+Up to `limit` `"Scouted"` page urls
+(`docs/dev/spiders/orchestration/graph_sink/sink.md#scouted_page_status`),
+sorted ascending, unbounded if `limit` is `None` - same contract as
+`get_pending`, mirrored directly after it in the source. Read by
+`MechanicalCrawler._scouted_urls`
+(`docs/dev/spiders/orchestration/mechanical_loop/loop.md#_scouted_urls`)
+to seed phase 2's frontier once a `two_phase_crawl` run's scout sweep
+has fully drained, or to resume `pragma dynamic` from a separate
+`pragma static --scout-only` run's output.
+
 ## get_progress_table_rows
 
 Every page as `{url, status, components}`, unfinished first then by url, so a

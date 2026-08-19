@@ -15,11 +15,10 @@ from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
-from generators.component_family import build_component_families
 from generators.data_model import build_entities
-from generators.component_family_narrator import family_signature, narrate_family_purposes
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
+from analysis.component_clustering import apply_component_families
 from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape, slugify
@@ -33,59 +32,6 @@ from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 def _timestamp() -> str:
     """Generate a standard timestamp string."""
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _apply_component_families(graph_store: Any, agent: Agent) -> None:
-    """Post-hoc, whole-site pass: infer reusable component families, give
-    each a one-sentence LLM-narrated purpose, then write it back. Runs
-    once, after the crawl finishes - family clustering needs to see
-    every discovered component at once, not the live per-page write
-    stream `MechanicalCrawler` produces during the crawl.
-
-    Args:
-        graph_store: the same store the just-finished crawl wrote to -
-            read back from here (`get_component_ledger`), then written
-            back to (`record_component_families`). Site-scoped by
-            construction (one store per site), so no `site` argument
-            here or on any of the calls below.
-        agent: the same LLM backend used for PRD narration - passed
-            through to `narrate_family_purposes` for the one-sentence
-            "what is this pattern used for" description each family gets.
-
-    Returns:
-        None. Three steps, always in this order:
-        1. Read every discovered component via
-           `ledger.flat_component_ledger` - see that function for why the
-           ledger's per-page nesting has to be flattened for a whole-site
-           pass like this one.
-        2. `build_component_families` clusters that flat list into
-           `ComponentFamily` objects (see that function's own docstring
-           for the full algorithm) - `purpose` is still `""` on every one
-           at this point, since clustering itself never calls the model.
-        3. `narrate_family_purposes` fills in `purpose`, one
-           `agent.generate()` call per family that has any member text at
-           all - see that function's own docstring for its graceful-
-           degradation behavior on a single family's failure - and the
-           narrated families are written via `record_component_families`
-           (a full rebuild of the site's family structure every call, per
-           that method's own contract).
-    Details: docs/dev/core/engine.md#_apply_component_families
-    """
-    components = flat_component_ledger(graph_store)
-    families = build_component_families(components)
-    print(f"Grouped {len(components)} components into {len(families)} families.")
-    member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
-    # Read before record_component_families wipes them: a family whose members
-    # did not change keeps its sentence rather than buying it again, which is
-    # what keeps a site crawled in short resumable passes from re-narrating
-    # everything every pass. Details: docs/dev/core/engine.md#known-purposes
-    known_purposes = {
-        family_signature(existing): existing.purpose
-        for existing in graph_store.get_component_families()
-        if existing.purpose
-    }
-    families = narrate_family_purposes(agent, families, member_texts, known_purposes)
-    graph_store.record_component_families(families)
 
 
 def _apply_graph_projection(graph_store: Any, root: str) -> None:
@@ -186,7 +132,10 @@ class Engine:
         ai_fill_values: bool = True,
         page_concurrency: int = 4,
         page_timeout_seconds: float = 15.0,
+        navigation_watchdog_seconds: float = 60.0,
+        session_cleanup_timeout_seconds: float = 10.0,
         prefetch: bool = False,
+        two_phase_crawl: bool = False,
         block_images: bool = True,
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
@@ -208,7 +157,11 @@ class Engine:
         # See PragmaConfig / Crawl4AICrawlerConfig for what each changes.
         # Details: docs/dev/core/engine.md#__init__-crawl-timeouts
         self.page_timeout_seconds = page_timeout_seconds
+        self.navigation_watchdog_seconds = navigation_watchdog_seconds
+        self.session_cleanup_timeout_seconds = session_cleanup_timeout_seconds
         self.prefetch = prefetch
+        # See MechanicalCrawlerConfig.two_phase_crawl for what this changes.
+        self.two_phase_crawl = two_phase_crawl
         self.block_images = block_images
         self.interaction_timeout_seconds = interaction_timeout_seconds
         # Scope boundary for MechanicalCrawler's URL frontier.
@@ -270,7 +223,10 @@ class Engine:
             ai_fill_values=config.ai_fill_values,
             page_concurrency=config.page_concurrency,
             page_timeout_seconds=config.page_timeout_seconds,
+            navigation_watchdog_seconds=config.navigation_watchdog_seconds,
+            session_cleanup_timeout_seconds=config.session_cleanup_timeout_seconds,
             prefetch=config.prefetch,
+            two_phase_crawl=config.two_phase_crawl,
             block_images=config.block_images,
             allow_subdomains=config.allow_subdomains,
             debug_logs_keep_last=config.debug_logs_keep_last,
@@ -314,6 +270,8 @@ class Engine:
             interaction_wait_seconds=self.interaction_wait_seconds,
             debug_log=debug_log,
             page_timeout_seconds=self.page_timeout_seconds,
+            navigation_watchdog_seconds=self.navigation_watchdog_seconds,
+            session_cleanup_timeout_seconds=self.session_cleanup_timeout_seconds,
             prefetch=self.prefetch,
             block_images=self.block_images,
             interaction_timeout_seconds=self.interaction_timeout_seconds,
@@ -333,6 +291,7 @@ class Engine:
                     page_concurrency=self.page_concurrency,
                     base_url=url,
                     allow_subdomains=self.allow_subdomains,
+                    two_phase_crawl=self.two_phase_crawl,
                 ),
             )
             await mechanical.crawl_site(url)
@@ -365,7 +324,7 @@ class Engine:
         # self.graph_store.close() below still closes the real connection.
         graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
-        _apply_component_families(graph_store, self.agent)
+        apply_component_families(graph_store, self.agent)
         print("Projecting the navigation graph into modules and metrics...")
         _apply_graph_projection(graph_store, route_shape(url))
         print("Deducing the data model from the forms found...")

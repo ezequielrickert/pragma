@@ -341,3 +341,142 @@ def test_page_timeout_seconds_generous_enough_still_succeeds(tracking_fixture_se
     assert any(c["text"] == "Click me" for c in state.components)
 
 
+def test_navigation_watchdog_aborts_a_hang_page_timeout_never_sees(fixture_server):
+    """navigation_watchdog_seconds is a backstop independent of
+    page_timeout_seconds - confirmed live on austral.edu.ar, a
+    two_phase_crawl scout sweep deadlocked for 12+ minutes with a
+    page_timeout_seconds of 15 in effect the whole time; a py-spy dump of
+    the live process proved nothing had even reached a graph-store write,
+    so the stall was inside crawl4ai/Playwright itself, somewhere
+    page_timeout_seconds's own internal clock never got the chance to
+    start. A slow HTTP response (the page_timeout_seconds tests above)
+    can't reproduce that class of hang - this monkeypatches crawl4ai's own
+    arun() to hang past any real page_timeout_seconds, proving the
+    watchdog bounds the call independently of it."""
+    async def run():
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, page_timeout_seconds=30, navigation_watchdog_seconds=0.2)
+        ) as crawler:
+            async def _hang(*args, **kwargs):
+                await asyncio.sleep(60)
+
+            crawler._crawler.arun = _hang
+            return await crawler.discover_page(f"{fixture_server}/index.html")
+
+    with pytest.raises(RuntimeError, match="watchdog"):
+        asyncio.run(run())
+
+
+def test_navigation_watchdog_attempts_to_close_the_wedged_session(fixture_server):
+    """A watchdog timeout must try to close the session it gave up on, not
+    just raise and leave it in whatever state wedged the original call -
+    otherwise this worker's very next call inherits the same problem."""
+    async def run():
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, navigation_watchdog_seconds=0.2)
+        ) as crawler:
+            async def _hang(*args, **kwargs):
+                await asyncio.sleep(60)
+
+            closed_sessions = []
+
+            async def _record_close(session_id):
+                closed_sessions.append(session_id)
+
+            crawler._crawler.arun = _hang
+            crawler.close_session = _record_close
+            try:
+                await crawler.discover_page(f"{fixture_server}/index.html", session_id="watchdog-test")
+            except RuntimeError:
+                pass
+            return closed_sessions
+
+    assert asyncio.run(run()) == ["watchdog-test"]
+
+
+def test_navigation_watchdog_generous_enough_still_succeeds(fixture_server):
+    """A navigation_watchdog_seconds comfortably above real request time
+    must succeed normally, same proof-of-bounding pattern as
+    page_timeout_seconds's own pair above."""
+    async def run():
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, navigation_watchdog_seconds=30)
+        ) as crawler:
+            return await crawler.discover_page(f"{fixture_server}/index.html")
+
+    state = asyncio.run(run())
+    assert state.components
+
+
+def test_close_session_watchdog_aborts_a_hang_kill_session_never_returns_from(fixture_server):
+    """close_session() must bound its own call into crawl4ai's kill_session
+    - a second, distinct deadlock site from the arun() one, confirmed live
+    on austral.edu.ar: MechanicalCrawler._recycle_session_if_due calls
+    close_session() every session_recycle_after visits, completely
+    unguarded before this existed. Monkeypatches kill_session itself (not
+    arun()) to hang, proving this bound is independent of
+    navigation_watchdog_seconds."""
+    async def run():
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, session_cleanup_timeout_seconds=0.2)
+        ) as crawler:
+            async def _hang(*args, **kwargs):
+                await asyncio.sleep(60)
+
+            crawler._crawler.crawler_strategy.kill_session = _hang
+            await crawler.discover_page(f"{fixture_server}/index.html", session_id="cleanup-test")
+            await crawler.close_session("cleanup-test")
+
+    with pytest.raises(RuntimeError, match="close_session watchdog"):
+        asyncio.run(run())
+
+
+def test_close_session_waits_for_an_in_flight_arun_call(fixture_server):
+    """The exact race confirmed live on austral.edu.ar: close_session()
+    (periodic session recycling) must not proceed while a concurrent
+    discover_page() for the same session is still using the shared
+    browser context - kill_session can tear that context down out from
+    under it if crawl4ai judges this the context's last active page. This
+    is the integration-level proof; see test_session_recycle_gate.py for
+    the gate's own isolated semantics."""
+    async def run():
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
+            events = []
+            real_arun = crawler._crawler.arun
+
+            async def _slow_arun(*args, **kwargs):
+                events.append("arun-start")
+                await asyncio.sleep(0.1)
+                result = await real_arun(*args, **kwargs)
+                events.append("arun-end")
+                return result
+
+            crawler._crawler.arun = _slow_arun
+
+            discover_task = asyncio.create_task(
+                crawler.discover_page(f"{fixture_server}/index.html", session_id="race-test")
+            )
+            await asyncio.sleep(0.02)  # let discover_page actually start first
+            await crawler.close_session("race-test")
+            events.append("close_session-end")
+            await discover_task
+
+            return events
+
+    assert asyncio.run(run()) == ["arun-start", "arun-end", "close_session-end"]
+
+
+def test_close_session_watchdog_generous_enough_still_succeeds(fixture_server):
+    """A session_cleanup_timeout_seconds comfortably above real close time
+    must succeed normally, same proof-of-bounding pattern as every other
+    timeout pair in this file."""
+    async def run():
+        async with Crawl4AICrawler(
+            Crawl4AICrawlerConfig(wait_seconds=0, session_cleanup_timeout_seconds=10)
+        ) as crawler:
+            await crawler.discover_page(f"{fixture_server}/index.html", session_id="cleanup-ok")
+            await crawler.close_session("cleanup-ok")
+
+    asyncio.run(run())  # must not raise
+
+

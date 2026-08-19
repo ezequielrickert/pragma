@@ -92,7 +92,7 @@ class InteractionOutcomes:
         actually happened here to record.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link
         """
-        self.frontier_state.mark_navigation_trigger(page_key, component)
+        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             await self.sink.record_navigation_edge(page_key, target_key, path, "click")
 
@@ -105,33 +105,33 @@ class InteractionOutcomes:
         path: str,
         interaction: "ComponentInteraction",
         result: "PageVisitResult",
-    ) -> bool:
-        """Response to an interaction whose literal result URL differs from the page.
+    ) -> None:
+        """Bookkeeping for an interaction whose literal result URL differs
+        from the page - always records the edge and excludes the component
+        from future frontier builds on this page (a proven one-way door
+        either way), and enqueues the destination for its own separate
+        future visit when it isn't already known to this crawl (queued, in
+        flight, or visited) - a known destination needs no separate entry,
+        it's already accounted for.
 
-        Always records the edge and excludes the component from future
-        frontier builds on this page - a proven one-way door either way.
-        Only *enqueues* the destination and marks the pass interrupted when
-        it isn't already known to this crawl (queued, in flight, or
-        visited); a known destination needs no separate pass, so `visit`
-        can hop the browser back via `return_to_origin` and keep draining
-        this page's own frontier instead of pausing it.
-
-        Returns whether the pass must actually stop (`True`) - `visit`
-        breaks on `True`, and resumes in place on `False`.
+        Never decides whether the pass has to stop: `visit` always follows
+        this with `return_to_origin` to hop the browser back and keep
+        draining this page's own frontier, regardless of whether the
+        destination was known - `return_to_origin`'s own failure fallback
+        (falling back to `result.interrupted_by_navigation = True`) is what
+        actually handles a genuinely unrecoverable session, not a decision
+        made here.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation
         """
         # Remember this component's content identity as a proven one-way door.
         # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-identity
-        self.frontier_state.mark_navigation_trigger(page_key, component)
+        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-self-loop
             await self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
-        if self._is_known(new_state.url):
-            return False
-        self._enqueue(new_state.url)
-        result.interrupted_by_navigation = True
-        return True
+        if not self._is_known(new_state.url):
+            self._enqueue(new_state.url)
 
     async def handle_same_page_reveal(
         self,

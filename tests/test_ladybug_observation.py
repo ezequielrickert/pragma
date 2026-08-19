@@ -39,6 +39,14 @@ def test_upsert_page_pending_never_clobbers_finished(store) -> None:
     assert row == [["Finished", 5]]
 
 
+def test_upsert_page_pending_transitions_to_scouted(store) -> None:
+    store.upsert_page("https://x/y", status="Pending")
+    store.upsert_page("https://x/y", status="Scouted", components=4)
+
+    row = _rows(store, "MATCH (p:Page {url: $url}) RETURN p.status, p.component_count", url="https://x/y")
+    assert row == [["Scouted", 4]]
+
+
 def test_upsert_page_sets_caption_from_title_or_falls_back_to_url(store) -> None:
     store.upsert_page("https://x/y", status="Finished", title="Home")
     store.upsert_page("https://x/z", status="Finished")

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Command-line interface for Pragma.
 """
@@ -19,8 +20,14 @@ load_dotenv(override=True)
 from core import bootstrap  # noqa: F401  -- populates the plugin registries
 from core import prompts
 from core.app import run_app
+from core.cli_shared import apply_budget_flags
+from core.cluster_cli import run_cluster_command
 from core.config import PragmaConfig
 from core.engine import Engine, EngineRunResult
+from core.login_cli import run_login_command
+from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
+from core.static_cli import run_static_command
+from core.wizard import run_config_wizard
 
 
 def _print_documents(result: EngineRunResult) -> None:
@@ -50,8 +57,6 @@ def _print_documents(result: EngineRunResult) -> None:
             continue
         print(f"  {document.title:<{width}}  {document.path}")
     print()
-from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
-from core.wizard import run_config_wizard
 
 
 def parse_args(argv: list) -> argparse.Namespace:
@@ -171,32 +176,25 @@ def parse_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _apply_budget_flags(config: PragmaConfig, args: argparse.Namespace) -> None:
-    """Fold the run-budget flags into `config.crawl_budget`.
-
-    Kept out of the generic override dict because these three are not
-    `PragmaConfig` fields in their own right - they edit keys inside one
-    field, and `--full` clears rather than sets. `--full` wins outright: it is
-    the "ignore what the YAML says, run the whole thing" escape hatch, so
-    combining it with a limit is a contradiction resolved in its favor.
-    Details: docs/dev/cli.md#_apply_budget_flags
-    """
-    if args.full_run:
-        config.crawl_budget = {}
-        return
-    if args.budget_pages is not None:
-        config.crawl_budget["pages"] = args.budget_pages
-    if args.budget_minutes is not None:
-        config.crawl_budget["minutes"] = args.budget_minutes
-
-
 def main() -> None:
-    """Bare invocation launches the menu app; `config` jumps to the wizard; flags run directly.
+    """Bare invocation launches the menu app; `config` jumps to the wizard;
+    `login` captures a session; `static` runs a content-capture crawl;
+    `cluster` groups an already-crawled site's components into families;
+    flags run the full crawl+analysis pipeline directly.
     Details: docs/dev/cli.md#main
     """
     argv = sys.argv[1:]
     if argv and argv[0] == "config":
         run_config_wizard()
+        return
+    if argv and argv[0] == "login":
+        run_login_command(argv[1:])
+        return
+    if argv and argv[0] == "static":
+        run_static_command(argv[1:])
+        return
+    if argv and argv[0] == "cluster":
+        run_cluster_command(argv[1:])
         return
 
     if not argv:
@@ -218,7 +216,7 @@ def main() -> None:
     overrides["url"] = url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
-    _apply_budget_flags(config, args)
+    apply_budget_flags(config, args)
 
     if not config.url:
         if sys.stdin.isatty():

@@ -58,3 +58,29 @@ class MechanicalCrawlerConfig:
     # floor. Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#concurrency_taper
     concurrency_taper_start_ratio: float = 2.0
     concurrency_taper_end_ratio: float = 4.0
+    # When True, crawl_site() runs two fully separate site-wide sweeps instead
+    # of PageVisitor.visit()'s usual fused scout+interact pass per page: first
+    # drains the whole frontier calling only PageVisitor.scout() (discover_page
+    # + the sink bookkeeping + link discovery, never a click/fill), then
+    # queries the graph store for every page scout() left "Scouted" and drains
+    # a fresh pass over exactly those pages calling PageVisitor.interact()
+    # (which re-navigates via its own discover_page() - the tab necessarily
+    # moved during the scout sweep, and a component's own path/selector
+    # churns across separate discover_page() reloads, see
+    # frontier.md#_navigation_trigger_identities - but skips the sink
+    # bookkeeping and enqueue_links scout() already did). False (the default)
+    # reproduces today's single fused-pass behavior exactly, unchanged. Not
+    # named `prefetch` - that name is already Crawl4AICrawlerConfig.prefetch,
+    # an unrelated crawl4ai markdown-pipeline skip.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl
+    two_phase_crawl: bool = False
+    # When True, crawl_site() runs the scout sweep only and returns - no
+    # interact phase, in this process or any later one triggered by it.
+    # Pages land in the graph store "Scouted", the exact status
+    # two_phase_crawl's own phase 1 leaves them in, so a later, separate
+    # `pragma dynamic` invocation can pick them up via `get_scouted()` the
+    # same way two_phase_crawl's phase 2 does today. Takes priority over
+    # `two_phase_crawl` if both are set, since "stop after scouting" is a
+    # stronger request than "scout then interact in one process".
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only
+    scout_only: bool = False

@@ -20,7 +20,11 @@ This class owns the browser and the navigate/interact API surface only;
 the crawl4ai hook callbacks themselves and the `PageState`-assembly logic
 are their own collaborators - see
 `docs/dev/spiders/browser/crawl4ai_crawler/hooks.md` and
-`docs/dev/spiders/browser/crawl4ai_crawler/page_state.md`.
+`docs/dev/spiders/browser/crawl4ai_crawler/page_state.md`. Reader-writer
+coordination between in-flight `arun()` calls and session recycling is
+also its own collaborator, for the same reason - see
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+the ongoing austral.edu.ar deadlock investigation that produced it.
 
 ## Crawl4AICrawler
 
@@ -91,6 +95,65 @@ A page's own load fires the API calls a SPA needs to render at all - not
 attributable to any one component, but part of the contract all the
 same.
 
+The `arun()` call itself goes through `_run_with_watchdog`, not a bare
+`await self._crawler.arun(...)` - see that section below for why
+`page_timeout_seconds` alone isn't a sufficient bound.
+
+## _run_with_watchdog
+
+Wraps `self._crawler.arun(...)` in `asyncio.wait_for(...,
+timeout=navigation_watchdog_seconds)` - an outer backstop independent of
+`page_timeout_seconds`, which only bounds crawl4ai's own internal
+navigation clock once a navigation has actually started. See
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`
+for the live austral.edu.ar deadlock this exists for and the reasoning
+behind the default. Shared by `discover_page()` and `_interact()` - both
+go through the identical `arun()` call, and both are equally exposed to
+whatever this guards against (a real crawl4ai/Playwright hang doesn't
+care whether it's mid-navigation or mid-interaction).
+
+Prints `[arun] {session_id} -> {url}` before the call - crawl4ai's own
+`[FETCH]`/`[SCRAPE]`/`[COMPLETE]` console lines only print *after* each
+phase finishes (they carry a timing), so a genuine hang otherwise leaves
+no trace of which URL a worker was even attempting. Confirmed live: a
+12+ minute deadlock left nothing in the console or `debug.md` to
+distinguish "which page" a frozen worker was on.
+
+On timeout, calls `_force_close_wedged_session` before re-raising as a
+`RuntimeError` - `PageVisitor._discover_or_fail` (or `_interact`'s own
+callers) already know how to turn any `RuntimeError` from this layer
+into an ordinary, recoverable per-page failure instead of propagating
+and killing the worker.
+
+Also holds `_session_gate`'s reader role for the `arun()` call's
+duration - see
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+the third, distinct deadlock this guards against (a concurrent
+`close_session` tearing the shared browser context down mid-navigation),
+found only after `navigation_watchdog_seconds` and
+`session_cleanup_timeout_seconds` were both already live and a freeze
+still reproduced.
+
+## _force_close_wedged_session
+
+Best-effort session cleanup after a watchdog timeout - tries
+`close_session(session_id)` so this worker's *next* call gets a fresh
+session instead of possibly inheriting whatever internal crawl4ai state
+caused this one to wedge. Bounded by its own short, separate timeout
+(`_WEDGED_SESSION_CLEANUP_TIMEOUT_SECONDS`, 10s) and any exception is
+caught and only printed - a cleanup attempt that's itself stuck on the
+same underlying problem must never mask the original watchdog error or
+introduce a second unbounded wait on top of the first.
+
+**Explicitly a partial fix, stated plainly rather than oversold**: this
+codebase doesn't control crawl4ai's own internals, so neither this nor
+the watchdog above can fix whatever actually wedged inside it - they can
+only stop *this codebase's own loop* from hanging forever because of it,
+converting an unbounded, silent freeze into a bounded, recoverable,
+per-page failure. If the true root cause turns out to be a leaked lock
+inside crawl4ai's own session/browser-management code, closing the
+session is the most this layer can do about it from the outside.
+
 ## _save_markdown
 
 Save crawl4ai's own readable-markdown conversion of the page `result`
@@ -139,6 +202,11 @@ a successful no-op, per wiki/browser-automation-pitfalls.md. `session_id`
 must be the same one `discover_page()` was called with for this URL, so
 this reuses the live page/session instead of triggering a fresh
 navigation.
+
+Its own `arun()` call goes through `_run_with_watchdog` too, same as
+`discover_page()`'s - a hang here (mid-click, mid-fill) is exactly as
+possible as one during navigation, and exactly as invisible to
+`page_timeout_seconds` alone.
 
 ## _interact-network-capture
 
@@ -198,19 +266,18 @@ Step the `session_id` session's browser history back one entry -
 `_interact()`/`on_execution_ended()` path as `click`/`fill`/`resync`, not
 `discover_page()`.
 
-Exists for the mechanical loop's known-destination resume (see
+Exists for the mechanical loop's physical-navigation resume (see
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`):
-once a click has physically navigated to a destination the crawl already
-knows about, the caller needs to get back to the page it left - but
-`discover_page()` performs a *fresh* navigation, a brand-new request
-against the target server for a page this same session was just
-rendering a moment ago. `history.back()` instead lets the browser reuse
-whatever it already has for that history entry (bfcache, or at minimum
-the ordinary HTTP cache) the same way a person clicking their browser's
-own Back button would.
+once a click has physically navigated somewhere, the caller needs to get
+back to the page it left - but `discover_page()` performs a *fresh*
+navigation, a brand-new request against the target server for a page this
+same session was just rendering a moment ago. `history.back()` instead
+lets the browser reuse whatever it already has for that history entry
+(bfcache, or at minimum the ordinary HTTP cache) the same way a person
+clicking their browser's own Back button would.
 
-Confirmed live on austral.edu.ar: before this existed, a known-destination
-resume's `discover_page()` re-fetch of the origin was a second navigation
+Confirmed live on austral.edu.ar: before this existed, a resume's
+`discover_page()` re-fetch of the origin was a second navigation
 to the same URL within seconds of the first, and `TargetLoadThrottle`
 (`docs/dev/spiders/browser/target_load_throttle.md#module`) - built for
 exactly this site's own history of degrading under repeated load -
@@ -305,3 +372,42 @@ cost as approach 2 above, just paid once per `session_recycle_after`
 visits instead of once per visit. See
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#session_recycle_after`
 for picking that number.
+
+**Update - bounded by `session_cleanup_timeout_seconds`, a second
+deadlock site distinct from `arun()`'s own**: `navigation_watchdog_seconds`
+(`#_run_with_watchdog` above) bounds `discover_page`/`_interact`'s own
+`arun()` call, but this method's call into `kill_session` was a
+completely separate, still-unguarded path into the same category of
+crawl4ai-internal code - confirmed live on austral.edu.ar as a genuine,
+reproduced-twice deadlock: a `two_phase_crawl` scout sweep froze for 5+
+minutes with `navigation_watchdog_seconds` (60s) long since elapsed and
+no recovery, which live process forensics (`py-spy dump`) showed was
+*not* stuck inside `arun()` or the graph-store writer - both sat
+completely idle. The one remaining periodic call this method's own
+callers make (`_recycle_session_if_due`, every `session_recycle_after`
+visits) was the best-supported remaining candidate: unguarded, reaches
+crawl4ai's own session/browser-management internals, and fires only
+occasionally, matching the observed "runs fine for dozens of visits,
+then freezes" pattern.
+
+Wrapped here, at the one definition, rather than at each of the two
+callers (`_recycle_session_if_due` in `loop.py`, and this file's own
+`_force_close_wedged_session`) - both get the bound for free, and
+`_force_close_wedged_session` could drop its own now-redundant
+`asyncio.wait_for` wrapper entirely. `_recycle_session_if_due` needed no
+code change at all: its existing broad `except Exception` already turns
+whatever this raises into a logged warning and a continued crawl,
+exactly the recovery a hung recycle attempt needs.
+
+Same honesty as `navigation_watchdog_seconds`'s own doc: this bounds and
+recovers from a hang in crawl4ai's own internals, it does not fix
+whatever's actually contended inside them.
+
+**Second update - also holds `_session_gate`'s writer role**: bounding
+`kill_session` alone didn't fully explain a *third* reproduced deadlock
+- a `py-spy dump` again showed everything idle, well past both this
+timeout and `navigation_watchdog_seconds`. See
+`docs/dev/spiders/browser/crawl4ai_crawler/session_recycle_gate.md` for
+why: this method can tear down the browser context every other worker's
+session shares, and nothing previously stopped that from racing a
+concurrent worker's own in-flight `arun()` call.

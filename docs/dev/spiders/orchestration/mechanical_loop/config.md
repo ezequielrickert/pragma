@@ -47,6 +47,71 @@ graph-store module uses) instead of a long constructor argument list.
 - `session_recycle_after`/`memory_ceiling_percent`/`min_page_concurrency`/
   `concurrency_taper_start_ratio`/`concurrency_taper_end_ratio`: see their
   own sections below.
+- `two_phase_crawl`: see its own section below.
+
+## two_phase_crawl
+
+When `True`, `crawl_site()` runs two fully separate site-wide sweeps
+instead of `PageVisitor.visit()`'s usual fused scout+interact pass per
+page: first drains the whole frontier calling only `PageVisitor.scout()`
+(`discover_page()` + the sink bookkeeping + link discovery, never a
+click/fill), then queries the graph store for every page `scout()` left
+`"Scouted"` and drains a fresh pass over exactly those pages calling
+`PageVisitor.interact()`.
+
+Motivated by a user request to scout a site cheaply first (full
+component/link/text extraction, zero clicking) before committing to the
+expensive click/fill interaction pass. crawl4ai's own `prefetch` flag
+(`spiders/browser/crawl4ai_crawler/config.md`) looked like the obvious
+lever but turned out to be a dead end for this: verified against the
+installed package, `prefetch=True` only skips crawl4ai's own
+markdown-generation pipeline - this project's actual component/link/text
+extraction runs earlier, in `before_retrieve_html`/`on_execution_ended`
+(`docs/dev/spiders/browser/crawl4ai_crawler/hooks.md`), unaffected by
+that flag either way. `discover_page()` was already exactly the cheap
+scout fetch wanted; it just wasn't exposed as its own phase.
+
+`interact()` still has to call `discover_page()` a second time - the
+browser tab necessarily moved off every page during the scout sweep, and
+per `docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
+a component's own path/selector churns across separate `discover_page()`
+reloads, so a phase-1-cached component can't drive a live click in phase
+2. The real saving `interact()` captures instead: it skips the six sink
+bookkeeping writes (`record_page_arrival`/`record_inventory`/
+`record_text_content`/`record_state_styles`/`record_page_network`/
+`record_page_metadata` - the last of which does real work, component-
+family/choice-set grouping) and the `enqueue_links` walk, since
+`scout()` already did both for every page `interact()` runs against.
+
+`False` (the default) reproduces today's single fused-pass behavior
+exactly, unchanged - `PageVisitor.visit()`'s own call sequence never
+differs based on this flag.
+
+Not named `prefetch` - that name is already
+`Crawl4AICrawlerConfig.prefetch`, the unrelated crawl4ai
+markdown-pipeline flag discussed above, and reusing it here for a wholly
+different mechanism would be actively misleading.
+
+Known, accepted limitation: a `two_phase_crawl=True` run interrupted
+mid-sweep does not resume cleanly today - `loop.md#_resume_urls`/
+`_finished_route_shapes` only read `Pending`/`Finished` status, so a
+resumed run won't re-prime route-shape counts for `Scouted`-but-not-yet-
+interacted pages, and has no "pick up phase 2 where it left off" path.
+
+## scout_only
+
+When `True`, `crawl_site()` runs the scout sweep alone and returns - no
+interact phase, in this process or any later one triggered by it. Pages
+land in the graph store `"Scouted"`, the exact status `two_phase_crawl`'s
+own phase 1 leaves them in, so a later, separate `pragma dynamic`
+invocation can pick them up via `get_scouted()` the same way
+`two_phase_crawl`'s phase 2 does today. This is `pragma static`'s own
+crawl mode (`core/static_engine.py::StaticEngine`) - a standalone
+CLI command's crawl, not a phase of a fused in-process run, which is
+what makes it a different flag from `two_phase_crawl` rather than a
+reuse of it. Takes priority over `two_phase_crawl` if both are set,
+since "stop after scouting" is a stronger request than "scout then
+interact in one process".
 
 ## max_requeue_attempts
 
@@ -54,14 +119,22 @@ Cap on how many times `UrlFrontier.requeue` will put the same clean_url
 key back on the queue after an interrupted pass, before giving up on it
 for good (marked `FAILED_PAGE_STATUS` instead -
 `docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status`).
-Confirmed live on austral.edu.ar without a cap: a page whose interactions
-reliably trip the anti-bot block, or a popular redirect destination many
-different interrupted passes independently requeue, cycled without limit
-- "requeued" climbing far past "unique" and the queue growing into the
-thousands. Default 3 - generous enough that a genuinely transient block
-gets a real second chance, small enough that a page that is *always*
-going to fail this way stops burning worker time on it within a handful
-of attempts.
+Confirmed live on austral.edu.ar without this cap: a page whose
+interactions reliably trip the anti-bot block cycled without limit.
+Default 3 - generous enough that a genuinely transient block gets a real
+second chance, small enough that a page that is *always* going to fail
+this way stops burning worker time on it within a handful of attempts.
+
+A *separate* bug, also found on austral.edu.ar and now fixed independently
+of this cap (`frontier.md#_pending`), used to let a popular redirect
+destination many different interrupted passes independently requeue
+duplicate itself into the live queue - "requeued" climbing far past
+"unique" and the queue growing into the thousands purely from dead
+duplicate entries, not from this cap being too high. `requeue()` now
+short-circuits a call for a URL that's already pending or in flight
+instead of queuing a second copy, and that short-circuited call doesn't
+consume one of this cap's attempts either - only a call that actually
+needs a fresh entry does.
 
 ## session_recycle_after
 

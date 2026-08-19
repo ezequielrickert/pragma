@@ -24,6 +24,27 @@ original migration plan file's "Phase 0 spike" section):
   keyed by `session_id`, and read back by `Crawl4AICrawler` via `pop()`
   after `arun()` returns.
 
+**Update - the original spike correctly picked which hook's *data* to
+trust for each case, but missed that `before_retrieve_html` still *runs*
+on the other one too:** confirmed live on austral.edu.ar - a real crawl's
+own debug log showed 198 `before_retrieve_html` events for 12 distinct
+pages actually visited. Reading crawl4ai's source
+(`async_crawler_strategy.py`) directly shows why:
+`execute_hook("before_retrieve_html", ...)` is called **unconditionally
+on every single `arun()` call**, `js_only` or not - there is no gate
+around it the way `on_execution_ended`'s call *is* correctly wrapped in
+`if config.js_code:`. So every `click`/`fill`/`resync`/`go_back`
+(`_interact`, `js_only=True`) was *also* running
+`before_retrieve_html`'s full body - before `js_code` had even executed,
+so `_wait_for_new_content` could never observe a change and burned its
+entire `wait_seconds` ceiling every time, on top of
+`on_execution_ended`'s own, correct wait afterward. A real, systemic ~2s
+tax on every interaction across the whole crawl - not a one-off cost, and
+easy to misread as "the page got re-fetched" from crawl4ai's own
+per-`arun()` `[FETCH]/[SCRAPE]/[COMPLETE]` console reporting, which fires
+identically for a `js_only` call. Fixed by gating the hook's own body on
+`config.js_only` - see `before_retrieve_html-js-only-skip` below.
+
 ## _action_mark
 
 A window property used to hand a click/fill's own success/failure back
@@ -144,9 +165,22 @@ outcome, not a symptom.
 
 ## before_retrieve_html
 
-Discovery point for a plain navigation pass (no `js_code` on this
-`arun()` call) - see the `module` section above for why this hook is
-specifically wrong for a post-interaction re-discovery.
+Discovery point for a plain navigation pass - see the `module` section
+above for why this hook is specifically wrong for a post-interaction
+re-discovery, and why it has to actively skip itself for one rather than
+just being the wrong *data source* for it.
+
+## before_retrieve_html-js-only-skip
+
+`config.js_only` (set only by `_interact`, never by `discover_page`) is
+what this hook's own early-return actually gates on - not the hook firing
+itself, which crawl4ai fires unconditionally regardless (see the
+`module` section's "Update" note). Skips the settle-wait, extraction,
+`_retry_empty_extraction`, stash write, and debug log entirely for a
+`js_only` call: `on_execution_ended` already does the correct version of
+all of that, after `js_code` has actually run, and nothing ever reads
+this hook's stash write for a `js_only` call before `on_execution_ended`
+overwrites it moments later within the same `arun()` call.
 
 ## on_execution_ended
 

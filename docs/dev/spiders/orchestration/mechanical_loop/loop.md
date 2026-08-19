@@ -70,6 +70,20 @@ What raising `page_concurrency` changes, precisely:
   single-page-at-a-time logic already, so concurrency at the *page*
   level doesn't change any of it.
 
+## _two_phase_crawl
+
+Stored on `self` (not read straight off `config` each time) purely so
+`crawl_site`'s own dispatch reads as `self._two_phase_crawl` next to
+`self._scout_only` - see `docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for the flag's own rationale.
+
+## _scout_only
+
+Same storage pattern as `_two_phase_crawl` immediately above - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`
+for what it changes and why it's a separate flag rather than a variant
+of `two_phase_crawl`.
+
 ## __init__-collaborators
 
 `UrlFrontier` and `WorkerPacing` are each constructed from `self.tracker`/
@@ -101,6 +115,47 @@ persists across visits within one crawl).
 Crawl every page reachable from `start_url`, `WorkerPacing.page_concurrency`
 pages at a time.
 
+Under the default `two_phase_crawl=False` and `scout_only=False`
+(`config.md#two_phase_crawl`), runs one `_run_sweep` calling
+`PageVisitor.visit` - the original fused scout+interact behavior,
+unchanged. Under `scout_only=True` (`config.md#scout_only` - `pragma
+static`'s own crawl mode), runs a single `_run_sweep` calling
+`PageVisitor.scout` (`count_as_finished=False`) and returns - no interact
+phase, in this process or any later one. Under `two_phase_crawl=True`
+(and `scout_only=False`), runs `_run_sweep` twice instead: first with
+`PageVisitor.scout` (`count_as_finished=False`) to completion, then seeds
+a fresh frontier pass from `_scouted_urls()` via
+`UrlFrontier.enqueue_scouted` and runs a second `_run_sweep` with
+`PageVisitor.interact` (`count_as_finished=True`). `scout_only` takes
+priority when both it and `two_phase_crawl` are set.
+
+## _scouted_urls
+
+Pages phase 1 finished scouting - what phase 2's frontier is built from,
+read via `self.sink.graph_store.get_scouted()`
+(`docs/dev/database/ladybug/page.md#get_scouted`). Mirrors
+`_resume_urls`'s own `{token}`-placeholder filter: a shaped URL carrying
+one is a canonical storage key, not a navigable address. Empty (not an
+error) without a sink - no store, no way `"Scouted"` was ever written.
+
+Like `_resume_urls`, what this returns is `route_shape()`-derived (every
+`Page.url` the graph store holds is), not necessarily the original
+literal URL - a shape with no opaque token segments collapses to the
+same string either way, which is the case for every real site this
+matters for; see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
+for the one place a shape/literal distinction genuinely bites.
+
+## _run_sweep
+
+Spin up `page_concurrency` workers draining the frontier with one
+`visit_fn` until empty, then tear them down - one full site-wide pass.
+Called once (`PageVisitor.visit`) for the default fused crawl, or twice
+(`scout` then `interact`) under `two_phase_crawl` - see
+`config.md#two_phase_crawl`. Factored out of what used to be
+`crawl_site`'s own inline worker-spinup so both call shapes share the
+identical spin-up/join/teardown sequence.
+
 Runs that many `_worker()` tasks pulling from the shared `UrlFrontier`,
 then waits on `self._frontier.join()` - which only returns once every
 enqueued item (including ones enqueued *while* another item is still
@@ -120,6 +175,19 @@ visits, resetting the counter to 0; a no-op (return unchanged) below that
 threshold, and best-effort via `getattr` - a crawler fake that doesn't
 implement `close_session` (most of `tests/test_mechanical_loop.py`'s
 fakes) just never recycles, same as `session_recycle_after=None`.
+
+The `try`/`except` around `await close(...)` isn't defensive boilerplate
+- it's load-bearing. Confirmed live on austral.edu.ar: `close_session`'s
+own call into crawl4ai's `kill_session` used to be completely unguarded,
+and a hang there (the same class of crawl4ai-internal stall
+`navigation_watchdog_seconds` guards for navigation - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds`)
+blocked this worker forever with no recovery, on a call that fires
+periodically rather than every visit, matching the observed "runs fine
+for dozens of visits, then freezes" symptom. `close_session` is now
+self-bounded, so this method needed no code change at all once that
+landed - the existing `except Exception` here already turns whatever it
+now raises into a logged warning and a continued crawl.
 
 **Why this exists at all**, confirmed by bypassing crawl4ai entirely and
 driving raw Playwright directly against austral.edu.ar: a single tab kept
@@ -154,11 +222,28 @@ well before it becomes a real slowdown.
 
 ## _worker
 
-One concurrent visitor - pulls a URL, visits it, requeues or marks it
-visited. Runs forever until cancelled by `crawl_site` right after
-`self._frontier.join()` returns, at which point every worker is
-guaranteed to be idly blocked on `self._frontier.get()` (never mid-visit)
-since `join()` only completes once the queue is fully drained.
+One concurrent visitor - pulls a URL, hands it to `visit_fn`
+(`_run_sweep`'s choice of `PageVisitor.visit`/`scout`/`interact`),
+requeues or marks it visited. Runs forever until cancelled by
+`_run_sweep` right after `self._frontier.join()` returns, at which point
+every worker is guaranteed to be idly blocked on `self._frontier.get()`
+(never mid-visit) since `join()` only completes once the queue is fully
+drained.
+
+`count_as_finished` (also from `_run_sweep`) gates whether a completed
+pass counts as a real completion (`CrawlBudget.pages`, `_unique_visits`,
+and - critically - `tracker.mark_visited`) or only as scouted. That last
+point is the correctness-critical one: `GraphStoreInteractionTracker.mark_visited`
+sets a local cache `is_visited()` checks before ever querying the store
+(`docs/dev/spiders/orchestration/graph_sink/tracker.md`), so
+if a scout pass (`count_as_finished=False`) marked a page visited, phase
+2's own dequeue gate a few lines below (`if
+self.tracker.is_visited(key): continue`) would skip every page it just
+scouted, and the interact sweep would silently do nothing. `scout()`
+results are never `interrupted_by_navigation` either (it never clicks,
+so nothing can trigger a mid-pass navigation), so the existing
+requeue/give-up branch below stays dead code on a scout pass without
+needing its own special case.
 
 Builds one `browser_session_id` (`f"worker-{worker_id}"`) up front and
 passes the same value to every `PageVisitor.visit()` call this worker

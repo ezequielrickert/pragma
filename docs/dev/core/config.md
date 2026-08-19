@@ -60,6 +60,32 @@ open as an anti-automation measure), every subsequent interaction
 against that session silently ate a full 30s before failing - see
 `Crawl4AICrawlerConfig`'s own `interaction_timeout_seconds` entry.
 
+## navigation_watchdog_seconds
+
+A FOURTH timeout phase, distinct from every one above: an outer backstop
+around every crawl4ai `arun()` call, independent of `page_timeout_seconds`
+- that one only bounds crawl4ai's own internal navigation clock once a
+navigation has actually started, so anything stuck *before* that point
+(a lock inside crawl4ai's own browser/session management, for example)
+is invisible to it entirely. Passed straight through to
+`Crawl4AICrawlerConfig.navigation_watchdog_seconds` - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`
+for the live austral.edu.ar deadlock this exists for (a `two_phase_crawl`
+scout sweep frozen for 12+ minutes with `page_timeout_seconds` in effect
+the whole time) and the reasoning behind the default. Explicitly a
+partial fix, not a root-cause one - see that same entry's closing note.
+
+## session_cleanup_timeout_seconds
+
+A second, distinct backstop from `navigation_watchdog_seconds` above -
+bounds `Crawl4AICrawler.close_session`'s own call into crawl4ai
+internals, not navigation. Passed straight through to
+`Crawl4AICrawlerConfig.session_cleanup_timeout_seconds` - see
+`docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds`
+for the second, separately-confirmed austral.edu.ar deadlock this exists
+for (periodic session recycling, not navigation itself) and why it's a
+much shorter default (10s vs. 60s).
+
 ## prefetch
 
 Skips crawl4ai's own markdown-generation/content-scraping pipeline
@@ -70,6 +96,38 @@ snapshots (crawl4ai's markdown conversion of each page) come back empty
 while this is on - leave `False` during an active debugging session that
 still wants to read those; `True` for a bulk/production run. See
 `Crawl4AICrawlerConfig`'s own `prefetch` entry.
+
+## login_enabled
+
+Auto-detect a login form on the crawl's start page and open a headed
+browser for a human to sign in before the real crawl starts, caching the
+resulting session for reuse - `spiders/browser/login.py::
+ensure_login_session` is the actual mechanism; this is just the config
+knob that reaches it (`Engine.from_config`, `StaticEngine.from_config`).
+Off skips the precheck entirely - a site with no login form pays only
+one extra navigation for it either way, so this only matters for a
+crawl that must never open an unexpected browser window. No dedicated
+`cli.py` flag on the full-run command; `pragma static` exposes it as
+`--login`/`--no-login` (`docs/dev/core/static_cli.md#parse_static_args`).
+
+## login_session_max_age_hours
+
+How long a captured session file stays trusted before a run re-triggers
+the headed login flow instead of crawling with a possibly-expired
+cookie nothing downstream can detect as stale once the crawl is already
+underway - see `spiders/browser/login_session.py#is_session_valid`.
+
+## two_phase_crawl
+
+Passed straight through `Engine.__init__`/`from_config` to
+`MechanicalCrawlerConfig.two_phase_crawl` - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for the full rationale (crawl4ai's own `prefetch` above is a dead end
+for this purpose; this is the actual scout-then-interact mechanism).
+`False` by default, same single fused scout+interact pass per page as
+always. No dedicated `cli.py` flag - set via YAML only, same as
+`prefetch` above; add `two_phase_crawl: true` to `pragma.yaml` to turn
+it on.
 
 ## block_images
 

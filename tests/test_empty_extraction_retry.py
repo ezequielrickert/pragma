@@ -71,3 +71,26 @@ def test_a_redirecting_shell_is_retried_even_though_it_is_tiny(fixture_server):
     state = _discover(f"{fixture_server}/tiny_shell.html", wait_seconds=0.6)
 
     assert [c["text"] for c in state.components] == ["Entrar"]
+
+
+def test_a_no_op_click_does_not_pay_the_settle_wait_ceiling_twice(fixture_server):
+    """before_retrieve_html fires on every arun() call, not just a real
+    navigation - a click whose interaction produces no DOM change must not
+    also burn a second full ceiling inside before_retrieve_html on top of
+    on_execution_ended's own, correct wait."""
+
+    async def run():
+        config = Crawl4AICrawlerConfig(headless=True, wait_seconds=0.6)
+        async with Crawl4AICrawler(config) as crawler:
+            await crawler.discover_page(f"{fixture_server}/no_op_click.html", session_id="s")
+            start = asyncio.get_running_loop().time()
+            await crawler.click(f"{fixture_server}/no_op_click.html", "s", "#noop")
+            return asyncio.get_running_loop().time() - start
+
+    elapsed = asyncio.run(run())
+    # Measured directly against this fixture: ~3.8s before this fix (two
+    # full ceilings - before_retrieve_html's wasted one plus
+    # on_execution_ended's real one), ~1.0-1.2s after (one ceiling plus
+    # ordinary click/extraction overhead). 2.0s comfortably separates the
+    # two while leaving headroom for real timing noise.
+    assert elapsed < 2.0

@@ -38,6 +38,16 @@ class PragmaConfig:
     # crawl4ai's raw navigation/goto dead-page timeout, a different phase.
     # Details: docs/dev/core/config.md#page_timeout_seconds
     page_timeout_seconds: float = 15.0
+    # A fourth timeout phase - an outer backstop around every arun() call,
+    # independent of page_timeout_seconds (which only bounds crawl4ai's own
+    # internal navigation clock once a navigation has actually started).
+    # Details: docs/dev/core/config.md#navigation_watchdog_seconds
+    navigation_watchdog_seconds: float = 60.0
+    # Bound on close_session()'s own call into crawl4ai internals -
+    # separate from navigation_watchdog_seconds, guards a second, distinct
+    # deadlock site (periodic session recycling), not navigation itself.
+    # Details: docs/dev/core/config.md#session_cleanup_timeout_seconds
+    session_cleanup_timeout_seconds: float = 10.0
     # A third timeout phase, bounding Playwright's own unbounded internal
     # waits. Left unset, Playwright's own 1s default governs instead - real
     # cost on a page stuck behind e.g. an anti-bot block (3 retry attempts at
@@ -46,6 +56,27 @@ class PragmaConfig:
     # Skips crawl4ai's own markdown-generation pipeline; empties debug snapshots.
     # Details: docs/dev/core/config.md#prefetch
     prefetch: bool = False
+    # Auto-detect a login form on the crawl's start page and open a
+    # headed browser for a human to sign in before the real crawl
+    # starts, caching the resulting session for reuse
+    # (spiders/browser/login.py::ensure_login_session). Off skips the
+    # precheck entirely - a site with no login form pays only one extra
+    # navigation for it, so this only matters for a crawl that must
+    # never open an unexpected browser window.
+    # Details: docs/dev/core/config.md#login_enabled
+    login_enabled: bool = True
+    # How long a captured session file stays trusted before a run
+    # re-triggers the headed login flow instead of crawling with a
+    # possibly-expired cookie nothing downstream can detect as stale
+    # once the crawl is already underway.
+    # Details: docs/dev/core/config.md#login_session_max_age_hours
+    login_session_max_age_hours: float = 24.0
+    # Runs MechanicalCrawler's crawl as two separate site-wide sweeps - scout
+    # (discovery only, no clicking) then interact - instead of one fused pass
+    # per page. See MechanicalCrawlerConfig.two_phase_crawl for the full
+    # rationale; False (the default) is the original single-pass behavior.
+    # Details: docs/dev/core/config.md#two_phase_crawl
+    two_phase_crawl: bool = False
     # Aborts image/media/font network requests outright; a real behavior change.
     # Details: docs/dev/core/config.md#block_images
     block_images: bool = True

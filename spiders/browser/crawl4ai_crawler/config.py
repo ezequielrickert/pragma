@@ -14,6 +14,12 @@ class Crawl4AICrawlerConfig:
     """Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#crawl4aicrawlerconfig"""
 
     headless: bool = True
+    # Playwright storage_state JSON path to restore cookies/localStorage
+    # from - `None` (crawl4ai's own default) launches a fresh, anonymous
+    # browser context. Set by a caller's own login-resolution step
+    # (spiders/browser/login.py) before the real crawl starts.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#storage_state_path
+    storage_state_path: Optional[str] = None
     wait_seconds: float = 2.0
     interaction_wait_seconds: Optional[float] = None
     debug_log: Optional[CrawlDebugLog] = None
@@ -36,3 +42,26 @@ class Crawl4AICrawlerConfig:
     # navigation >= _SEVERE_SLOWDOWN_MULTIPLIER times the crawl's fastest).
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#circuit_breaker_cooldown_seconds
     circuit_breaker_cooldown_seconds: float = 10.0
+    # Outer backstop around every arun() call, independent of page_timeout_seconds
+    # (which only bounds crawl4ai's OWN internal navigation timeout, once a
+    # navigation actually starts). Confirmed live on austral.edu.ar: a full
+    # crawl deadlocked for 12+ minutes with zero recovery - a py-spy dump of
+    # the live process proved none of the workers had even reached a graph-
+    # store write yet, so the stall was somewhere inside crawl4ai/Playwright
+    # itself (most likely a browser/session-management lock, contested at a
+    # much higher rate under two_phase_crawl's scout sweep, which removes the
+    # interaction pacing that kept this from ever surfacing before) - a class
+    # of hang page_timeout_seconds structurally cannot bound, since it never
+    # gets the chance to start its own internal clock.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds
+    navigation_watchdog_seconds: float = 60.0
+    # Bound on close_session()'s own call into crawl4ai's kill_session -
+    # short and separate from navigation_watchdog_seconds, since a cleanup
+    # call that's ALSO stuck on whatever wedged the original arun() must
+    # never introduce a second unbounded wait on top of the first. Confirmed
+    # live on austral.edu.ar as a second, distinct deadlock site from the
+    # arun() one: MechanicalCrawler._recycle_session_if_due calls
+    # close_session() periodically (every session_recycle_after visits),
+    # completely unguarded before this existed.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds
+    session_cleanup_timeout_seconds: float = 10.0

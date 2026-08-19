@@ -3,7 +3,7 @@ Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#module
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from core.interfaces import PageState, VisitStep
@@ -103,11 +103,78 @@ class PageVisitor:
         self.errors.append(failed)
         return PageVisitResult(url=page_key, resolved_url=url, components_discovered=0)
 
-    async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:  # noqa: C901
-        """Visit `url` and mechanically interact with its frontier.
-        `session_id` is the physical browser tab to reuse - a caller running
-        several visits in sequence should pass the same one each time so
-        crawl4ai navigates an existing tab instead of opening a new one.
+    async def _discover_or_fail(
+        self, url: str, session_id: Optional[str]
+    ) -> Tuple[Optional[PageState], Optional[PageVisitResult]]:
+        """`discover_page()`, turning an exception into a `(None, failure_result)`
+        pair instead of propagating - shared by `visit()`, `scout()`, and
+        `interact()`, each of which does exactly:
+            state, failure = await self._discover_or_fail(url, session_id)
+            if failure is not None:
+                return failure
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_discover_or_fail
+        """
+        try:
+            return await self.crawler.discover_page(url, session_id=session_id), None
+        except Exception as exc:
+            return None, self._discovery_failed(url, exc)
+
+    async def _record_discovery(self, page_key: str, state: PageState) -> None:
+        """The six sink writes a fresh `discover_page()` pass owes the graph
+        store (page arrival, inventory, text content, state styles,
+        network, metadata) - shared by `visit()` (fused path) and
+        `scout()` (phase 1). `interact()` (phase 2) deliberately never
+        calls this - phase 1 already wrote it for every page `interact()`
+        will run against.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_record_discovery
+        """
+        if not self.sink:
+            return
+        await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
+        await self.sink.record_inventory(page_key, state.components, state.links)
+        await self.sink.record_text_content(page_key, state.text_content)
+        await self.sink.record_state_styles(page_key, state.pseudo_styles)
+        # Only here, not on the post-interaction path: those requests already
+        # belong to the component that fired them.
+        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#record_page_network
+        await self.sink.record_page_network(page_key, state.network_requests)
+        await self.sink.record_page_metadata(page_key, state.metadata)
+
+    def _new_result(self, state: PageState, page_key: str) -> PageVisitResult:
+        """A fresh `PageVisitResult` for one `discover_page()` pass - used
+        directly by `scout()` and internally by `_drain_interaction_frontier`
+        on behalf of `visit()`/`interact()`.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_new_result
+        """
+        return PageVisitResult(
+            url=page_key,
+            resolved_url=state.url,
+            components_discovered=len(state.components),
+            links_discovered=len(state.links),
+        )
+
+    def _derive_page_identity(self, state: PageState) -> Tuple[str, str, str]:
+        """`(page_literal, page_key, page_url)` for one `discover_page()`
+        result - shared by `visit()` and `interact()`, the two callers that
+        go on to drain an interaction frontier and need all three.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_derive_page_identity
+        """
+        page_literal = clean_url(state.url)
+        page_key = route_shape(state.url)
+        # Full, scheme'd URL - kept alongside page_literal purely to
+        # resolve relative hrefs against (urljoin needs a real base URL,
+        # not clean_url's stripped form). Updated at the same points
+        # page_literal is. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-page_url
+        page_url = state.url
+        return page_literal, page_key, page_url
+
+    async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
+        """Visit `url`, record its discovery, and mechanically interact with
+        its frontier - the fused scout+interact pass every crawl used before
+        `two_phase_crawl` existed, and still the default. `session_id` is the
+        physical browser tab to reuse - a caller running several visits in
+        sequence should pass the same one each time so crawl4ai navigates an
+        existing tab instead of opening a new one.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit
         """
         session_id = session_id or url
@@ -116,41 +183,80 @@ class PageVisitor:
         # self would interleave two pages' steps into one nonsense trace.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-step
         visit_step = VisitStep(visit_id=uuid4().hex[:12])
-        try:
-            state = await self.crawler.discover_page(url, session_id=session_id)
-        except Exception as exc:
-            return self._discovery_failed(url, exc)
-        page_literal = clean_url(state.url)
-        page_key = route_shape(state.url)
-        # Full, scheme'd URL - kept alongside page_literal purely to
-        # resolve relative hrefs against (urljoin needs a real base URL,
-        # not clean_url's stripped form). Updated at the same points
-        # page_literal is. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-page_url
-        page_url = state.url
-
-        if self.sink:
-            await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
-            await self.sink.record_inventory(page_key, state.components, state.links)
-            await self.sink.record_text_content(page_key, state.text_content)
-            await self.sink.record_state_styles(page_key, state.pseudo_styles)
-            # Only here, not on the post-interaction path below: those
-            # requests already belong to the component that fired them.
-            # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#record_page_network
-            await self.sink.record_page_network(page_key, state.network_requests)
-            await self.sink.record_page_metadata(page_key, state.metadata)
-
+        state, failure = await self._discover_or_fail(url, session_id)
+        if failure is not None:
+            return failure
+        page_literal, page_key, page_url = self._derive_page_identity(state)
+        await self._record_discovery(page_key, state)
         self._enqueue_links(state.links)
+        return await self._drain_interaction_frontier(
+            url, session_id, page_key, page_literal, page_url, state, visit_step
+        )
+
+    async def scout(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
+        """Phase 1 of a `two_phase_crawl` run: `discover_page()` + the six
+        sink writes + link discovery only - no interaction frontier is ever
+        built or drained here, so `click()`/`fill()` are never called. Ends
+        the page's graph-store status at `"Scouted"`
+        (`GraphStoreSink.record_page_scouted`), signaling phase 2 still owes
+        it a real interaction pass.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#scout
+        """
+        session_id = session_id or url
+        state, failure = await self._discover_or_fail(url, session_id)
+        if failure is not None:
+            return failure
+        page_key = route_shape(state.url)
+        await self._record_discovery(page_key, state)
+        self._enqueue_links(state.links)
+        if self.sink:
+            await self.sink.record_page_scouted(page_key, len(state.components))
+        return self._new_result(state, page_key)
+
+    async def interact(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
+        """Phase 2 of a `two_phase_crawl` run: re-navigates
+        (`discover_page()` again - the tab necessarily moved during phase
+        1's scout sweep, and per
+        `frontier.md#_navigation_trigger_identities` a component's own
+        path/selector churns across separate `discover_page()` reloads, so a
+        phase-1-cached component can't drive a live click here) straight
+        into building and draining the interaction frontier. Deliberately
+        skips the six sink writes and `enqueue_links` - `scout()` already
+        did both for this page in phase 1, the whole saving this method
+        exists to capture.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#interact
+        """
+        session_id = session_id or url
+        visit_step = VisitStep(visit_id=uuid4().hex[:12])
+        state, failure = await self._discover_or_fail(url, session_id)
+        if failure is not None:
+            return failure
+        page_literal, page_key, page_url = self._derive_page_identity(state)
+        return await self._drain_interaction_frontier(
+            url, session_id, page_key, page_literal, page_url, state, visit_step
+        )
+
+    async def _drain_interaction_frontier(  # noqa: C901
+        self,
+        url: str,
+        session_id: Optional[str],
+        page_key: str,
+        page_literal: str,
+        page_url: str,
+        state: PageState,
+        visit_step: VisitStep,
+    ) -> PageVisitResult:
+        """Build this page's interaction frontier from `state.components` and
+        drain it - the click/fill loop shared by `visit()` and `interact()`.
+        Only ever reads `state`; doesn't care whether the caller already
+        wrote sink bookkeeping for this page or already enqueued its links.
+        Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_drain_interaction_frontier
+        """
+        result = self._new_result(state, page_key)
 
         # Baseline snapshot for the next reveal's find_revealed_options diff.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-known-components
         known_components: List[Dict[str, Any]] = state.components
-
-        result = PageVisitResult(
-            url=page_key,
-            resolved_url=state.url,
-            components_discovered=len(state.components),
-            links_discovered=len(state.links),
-        )
 
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-content-identity-exclusions
         frontier, seen_paths_this_pass = self._frontier.eligible(page_key, state.components, self.tracker)
@@ -272,18 +378,17 @@ class PageVisitor:
                     )
 
             if new_literal != page_literal:
-                # Real physical navigation. A destination this crawl doesn't
-                # know about yet still stops the pass regardless of
-                # page_key; a known one (the common case for a site-wide nav
-                # menu, where nearly every page links to nearly every other
-                # page) doesn't need a separate pass - hop back and keep
-                # draining this page's own frontier instead.
+                # Real physical navigation. Always resumed in place, known
+                # destination or not (a site-wide nav menu is the common
+                # known case, but there's nothing about an unknown one that
+                # makes a cheap history-back less safe) - hop back and keep
+                # draining this page's own frontier instead of pausing the
+                # whole pass for a link this crawl can already reach some
+                # other way (its own future visit, via the enqueue below).
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-physical-navigation-branch
-                must_stop = await self._outcomes.handle_physical_navigation(
+                await self._outcomes.handle_physical_navigation(
                     page_key, new_key, new_state, component, path, interaction, result
                 )
-                if must_stop:
-                    break
                 fresh_state = await self._recovery.return_to_origin(
                     url, session_id, page_key, page_literal, frontier, idx, result, seen_paths_this_pass
                 )

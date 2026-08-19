@@ -28,6 +28,12 @@ class UrlFrontier:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#_queue
         self._queue: "asyncio.Queue[str]" = asyncio.Queue()
         self._queued: Set[str] = set()  # clean_url keys already enqueued or visited, dedup guard
+        # clean_url keys currently sitting un-popped in _queue right now - unlike
+        # _queued (permanent, never shrinks), this drains on get() and lets
+        # requeue() tell "already going to be handled" apart from "needs a new
+        # entry". Always a subset of _queued.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#_pending
+        self._pending: Set[str] = set()
         # Narrower than _queued - guards a same-destination-redirect race.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#in_flight
         self._in_flight: Set[str] = set()
@@ -56,6 +62,7 @@ class UrlFrontier:
             )
             return
         self._queued.add(key)
+        self._pending.add(key)
         self._queue.put_nowait(url)
 
     def enqueue_links(self, links: List[Dict[str, str]]) -> None:
@@ -70,20 +77,48 @@ class UrlFrontier:
             if href:
                 self.enqueue(href)
 
+    def enqueue_scouted(self, url: str) -> None:
+        """Re-add a page phase 1's scout sweep already fully drained through
+        this same frontier's `_queued` dedup set - `enqueue()`'s own dedup
+        guard would silently refuse it (the whole point of `_queued` is
+        "never queue the same key twice"), so phase 2 needs its own entry
+        point that skips only that guard while keeping the scope gate.
+        Deliberately does not touch `_requeue_attempts` or
+        `_route_shape_visits` - unlike `requeue()`, this isn't a failure
+        retry, and the scouted set already respects
+        `max_visits_per_route_shape` from phase 1's own `enqueue()` gate.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#enqueue_scouted
+        """
+        key = clean_url(url)
+        if self.base_url and not is_in_scope(url, self.base_url, self.allow_subdomains):
+            return
+        self._pending.add(key)
+        self._queue.put_nowait(url)
+
     def requeue(self, url: str) -> bool:
         """Put `url` straight onto the queue, bypassing `enqueue`'s scope/
         dedup/route-shape gates - for `_worker`'s redirect-requeue case only.
 
-        Returns whether it was actually requeued. Past
-        `max_requeue_attempts` for this clean_url key, returns False instead
-        - the caller is expected to give up on it for good rather than call
-        this again. Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue
+        Short-circuits to True, without touching `_requeue_attempts`, if this
+        key is already pending (un-popped in the queue) or in flight (a
+        worker is visiting it right now) - some other interrupted pass
+        already requeued the same destination, so this call is absorbed as
+        "already going to be handled" rather than a second live entry or a
+        counted attempt.
+
+        Returns whether it was actually requeued (or absorbed as a
+        duplicate). Past `max_requeue_attempts` for this clean_url key,
+        returns False instead - the caller is expected to give up on it for
+        good rather than call this again. Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#requeue
         """
         key = clean_url(url)
+        if key in self._pending or key in self._in_flight:
+            return True
         attempts = self._requeue_attempts.get(key, 0) + 1
         self._requeue_attempts[key] = attempts
         if attempts > self.max_requeue_attempts:
             return False
+        self._pending.add(key)
         self._queue.put_nowait(url)
         return True
 
@@ -98,6 +133,9 @@ class UrlFrontier:
         links to nearly every other page) doesn't need a fresh, separate
         pass - `return_to_origin` can just hop the browser back and keep
         draining this page's own frontier.
+
+        No `_pending` check needed here: `_pending` is always a subset of
+        `_queued`, so a pending key is already covered by the `_queued` check.
         Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#is_known
         """
         key = clean_url(url)
@@ -111,7 +149,9 @@ class UrlFrontier:
         return self._queue.qsize()
 
     async def get(self) -> str:
-        return await self._queue.get()
+        url = await self._queue.get()
+        self._pending.discard(clean_url(url))
+        return url
 
     def task_done(self) -> None:
         self._queue.task_done()

@@ -8,8 +8,8 @@ site). A human looking at the graph wants to know they're really 8 uses
 of *one* reusable button pattern, not 8 unrelated facts. This module infers
 that grouping after the fact from what a crawl already captured (each
 component's `tag`, `component_type`, `css_class`) - it never talks to a
-browser or a graph database itself; `core/engine.py::
-_apply_component_families` is the only caller, and it does all the I/O
+browser or a graph database itself; `analysis/component_clustering.py::
+apply_component_families` is the only caller, and it does all the I/O
 (reading `GraphStore.get_component_ledger`, writing the results back via
 `GraphStore.record_component_families`).
 

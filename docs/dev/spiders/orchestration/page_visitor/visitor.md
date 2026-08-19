@@ -9,11 +9,28 @@ constructs one `PageVisitor` per crawl and hands every dequeued URL to
 `visit()`; this module never touches the URL frontier itself, only the
 `enqueue_url`/`enqueue_links` callbacks passed in at construction time.
 
-`visit()`'s own state machine is the one responsibility left in this
+The interaction state machine is the one responsibility left in this
 file - failure-path recovery and success-path outcome bookkeeping are
 their own collaborators, see
 `docs/dev/spiders/orchestration/page_visitor/recovery.md` and
 `docs/dev/spiders/orchestration/page_visitor/outcomes.md`.
+
+**Update - split into `visit`/`scout`/`interact`, sharing internals**:
+originally one method (`visit`) did discovery, sink bookkeeping, and the
+interaction drain in a single fused pass - the only shape a crawl ever
+needed. `MechanicalCrawlerConfig.two_phase_crawl`
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+added two more: `scout()` (discovery + bookkeeping only, never
+interacts) and `interact()` (re-navigates, then interacts, skipping the
+bookkeeping `scout()` already did for that page). All three now compose
+from four private helpers - `_discover_or_fail`, `_record_discovery`,
+`_derive_page_identity`, `_drain_interaction_frontier` - instead of one
+inlined body, so the actual click/fill state machine (everything the
+`visit-*` anchors below document) is written and tested exactly once,
+regardless of which public method drives it. `visit()` itself is
+unchanged in behavior - same calls, same order, same side effects - it's
+just now assembled from the same pieces `scout()`/`interact()` use
+individually.
 
 ## _max_consecutive_unexplained_failures
 
@@ -104,9 +121,100 @@ alongside `"click"`/`"fill"` - see
 so a crawl's error report shows *which* pages never even loaded, not just
 which components failed once loaded.
 
+## _discover_or_fail
+
+`discover_page()`, turning an exception into a `(None, failure_result)`
+pair instead of propagating - shared by `visit()`, `scout()`, and
+`interact()`, each of which does exactly `state, failure = await
+self._discover_or_fail(...); if failure is not None: return failure`.
+Same failure-handling `_discovery_failed` already provided before the
+split, just usable from three call sites instead of one inlined
+`try`/`except`.
+
+## _record_discovery
+
+The six sink writes a fresh `discover_page()` pass owes the graph store
+(page arrival, inventory, text content, state styles, network, metadata)
+- shared by `visit()` (fused path) and `scout()` (phase 1 of
+`two_phase_crawl`).
+`interact()` (phase 2) deliberately never calls this: `scout()` already
+wrote it for every page `interact()` runs against, and re-writing it
+would repeat real work (`record_inventory`'s component-family/choice-set
+grouping is not cheap) for no new information - the destination-specific
+part of a `two_phase_crawl` run's savings, see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`.
+
+## _new_result
+
+A fresh `PageVisitResult` for one `discover_page()` pass. Used directly
+by `scout()` (which never enters the interaction loop, so this is its
+only result) and internally by `_drain_interaction_frontier` on behalf
+of `visit()`/`interact()`.
+
+## _derive_page_identity
+
+`(page_literal, page_key, page_url)` for one `discover_page()` result -
+see `visit`'s own doc below for what each of the three means. Shared by
+`visit()` and `interact()`, the two callers that go on to drain an
+interaction frontier and need all three; `scout()` derives `page_key`
+directly instead, since it's the only one of the three it needs.
+
+## _drain_interaction_frontier
+
+The actual click/fill state machine - everything documented under the
+`visit-*` anchors below (`visit-known-components` through
+`visit-record-page-finished`) lives here now, moved verbatim out of
+`visit()` when `scout()`/`interact()` were added, with no behavior
+change. Shared by `visit()` (called with a state `_record_discovery`
+already wrote to the sink) and `interact()` (called with a state nothing
+has recorded yet, on purpose - see `_record_discovery` above) - this
+method itself never checks which; it only ever reads `state`/
+`page_key`/etc., so the caller's own choice of what already happened is
+invisible to it.
+
+## scout
+
+Phase 1 of a `two_phase_crawl` run (or the whole of a `scout_only` run -
+see `docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`):
+`discover_page()` + the six sink writes (`_record_discovery`) + link
+discovery (`enqueue_links`) only -
+never builds or drains an interaction frontier, so `click()`/`fill()`
+are never called for a scouted page. Ends the page's graph-store status
+at `"Scouted"` via `GraphStoreSink.record_page_scouted`
+(`docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_scouted`),
+distinct from `"Pending"` (not yet touched at all) and `"Finished"`
+(`interact()`'s own eventual `record_page_finished` call).
+
+## interact
+
+Phase 2 of a `two_phase_crawl` run: re-navigates (`discover_page()`
+again) straight into `_drain_interaction_frontier` - deliberately skips
+`_record_discovery` and `enqueue_links`, since `scout()` already did
+both for this page.
+
+The re-navigation itself is not optional, even though it's the literal
+cost this whole feature exists to reduce elsewhere: the browser tab
+necessarily moved on to other pages during phase 1's scout sweep, and
+per
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
+a component's own path/selector churns across separate `discover_page()`
+reloads on real sites - a phase-1-cached component snapshot cannot
+reliably drive a live click in phase 2. What `interact()` actually saves
+is everything *besides* the navigation itself - see `_record_discovery`
+above and
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for the full accounting.
+
 ## visit
 
-Visit `url` and mechanically interact with its frontier.
+Visit `url`, record its discovery, and mechanically interact with its
+frontier - the fused scout+interact pass every crawl used before
+`two_phase_crawl` existed, and still the default
+(`MechanicalCrawlerConfig.two_phase_crawl` defaults to `False`). Now a
+thin composition of `_discover_or_fail`, `_derive_page_identity`,
+`_record_discovery`, and `_drain_interaction_frontier`, in that order -
+see `## module` above for why the split happened and why this call
+sequence is unchanged from before it.
 
 `session_id` names the physical browser tab crawl4ai should navigate;
 defaults to `url` (a throwaway tab, one per call) so a bare `visit(url)`
@@ -340,34 +448,31 @@ avoid entirely (a real click happened this time, not a skipped one) -
 `go_back` below is the fallback recovery for a navigation that already
 happened, not the primary mechanism for avoiding one.
 Delegates to
-`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`,
-which decides whether the destination is already known to this crawl.
-
-An **unknown** destination (`must_stop` is `True`) still stops the pass
-right here, same as before this distinction existed: the session's page
-has physically left `page_literal`, so no further frontier item from this
-pass can be safely acted on, and the whole page gets requeued for a
-separate later pass.
-
-A **known** destination doesn't need a separate pass - only the browser,
-which really did navigate away, needs to come back.
+`docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation`
+for the bookkeeping (edge, navigation-trigger identity, enqueue if not
+already known), then always calls
 `docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin`
-does that via browser history (`Crawl4AICrawler.go_back` - not a fresh
-`discover_page` navigation, and not a no-op resync either) and reconciles
-the remaining frontier against whatever DOM state it finds; passed the
-current `page_literal` so it can check the browser actually landed back
-where expected. On success the loop `continue`s with the fresh
-`known_components`/`page_literal` instead of breaking. If the return
-fails - `go_back` itself raises, or lands somewhere unexpected - there's
-no live page left to act on, so this falls back to the unknown-destination
-outcome: `result.interrupted_by_navigation = True`, then `break`.
+- known destination or not - to hop the browser back via browser history
+(`Crawl4AICrawler.go_back` - not a fresh `discover_page` navigation, and
+not a no-op resync either) and reconcile the remaining frontier against
+whatever DOM state it finds; passed the current `page_literal` so it can
+check the browser actually landed back where expected. On success the
+loop `continue`s with the fresh `known_components`/`page_literal` instead
+of breaking. If the return fails - `go_back` itself raises, or lands
+somewhere unexpected - there's no live page left to act on, so this falls
+back to the only remaining outcome: `result.interrupted_by_navigation =
+True`, then `break`.
 
-Confirmed live on austral.edu.ar: without this distinction, a site-wide
-nav menu (nearly every page links to nearly every other page) meant
-nearly every page's first few interactions were known-destination clicks
-that each interrupted the pass anyway - most pages exhausted
+**Update - originally only resumed in place for a known destination,
+otherwise always broke here**: confirmed live on austral.edu.ar, a
+site-wide nav menu (nearly every page links to nearly every other page)
+meant nearly every page's first few interactions were known-destination
+clicks that used to each interrupt the pass - most pages exhausted
 `max_requeue_attempts` purely on nav-menu links, marked Failed before
-reaching any of their own content.
+reaching any of their own content. That fix was scoped to the known case
+only; re-examined this session and found no technical reason the same
+`go_back` recovery isn't equally safe for a genuinely new destination -
+see `handle_physical_navigation`'s own "Update" note for the reasoning.
 
 ## visit-state-transition-branch
 

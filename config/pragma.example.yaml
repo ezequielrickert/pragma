@@ -112,11 +112,42 @@ export_json: false    # also write data/output/{slug}_export_{timestamp}.json - 
                        # never fires (a WAF holding the response open), every subsequent interaction
                        # against that session ate a full 30s before failing - see Crawl4AICrawler's
                        # own interaction_timeout_seconds docstring.
+# navigation_watchdog_seconds: 60.0  # a FOURTH timeout phase - an outer backstop around every
+                       # crawl4ai arun() call, independent of page_timeout_seconds (which only
+                       # bounds crawl4ai's own internal navigation clock, once a navigation has
+                       # actually started). Confirmed live on austral.edu.ar: a two_phase_crawl scout
+                       # sweep deadlocked for 12+ minutes with page_timeout_seconds in effect the
+                       # whole time - a py-spy dump proved nothing had even reached a graph-store
+                       # write yet, so the stall was inside crawl4ai/Playwright itself (most likely a
+                       # browser/session-management lock), somewhere page_timeout_seconds's own clock
+                       # never got the chance to start. This bounds the WHOLE call from our own side
+                       # instead, regardless of where inside crawl4ai it gets stuck, and best-effort
+                       # closes the wedged session before raising so the crawl can recover and move
+                       # on to the next page rather than hang forever.
+# session_cleanup_timeout_seconds: 10.0  # a separate, shorter bound on close_session()'s own
+                       # call into crawl4ai's session-management internals (kill_session) -
+                       # confirmed live on austral.edu.ar as a SECOND, distinct deadlock site from
+                       # navigation_watchdog_seconds above: MechanicalCrawler recycles a worker's
+                       # browser tab every session_recycle_after visits, and that periodic
+                       # close_session() call was completely unguarded before this existed. A hung
+                       # recycle attempt now raises and gets logged (see
+                       # MechanicalCrawler._recycle_session_if_due) instead of blocking its worker
+                       # forever with no recovery.
 # prefetch: false       # skip crawl4ai's own markdown-generation pipeline entirely - real savings,
                        # since this project never reads that output (all facts come from its own
                        # discovery JS instead). Side effect: data/debug_logs/*/pages/*.md snapshots come
                        # back empty while this is on - leave false during active debugging, true for
                        # a bulk/production run.
+# two_phase_crawl: false  # run the crawl as two separate site-wide sweeps - a fast scout sweep
+                       # (discover_page only, no clicking) that drains the whole frontier first, THEN
+                       # a second sweep that re-navigates each scouted page and does the real click/
+                       # fill interaction pass. Off by default: one fused scout+interact pass per page,
+                       # same as always. On, debug_logs will show every scouted page's own discover_page
+                       # navigation up front, in the FIRST sweep - not interleaved with interaction -
+                       # then a second discover_page + the actual clicking, per page, in the SECOND
+                       # sweep. See docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl
+                       # for what this does and doesn't save (it does NOT skip the second navigation -
+                       # only the sink bookkeeping/link-discovery work the scout sweep already did).
 # block_images: false   # abort image/media/font network requests outright - real bandwidth/time
                        # savings (unlike crawl4ai's own exclude_external_images, which only trims
                        # already-downloaded images from output this project doesn't read). A real

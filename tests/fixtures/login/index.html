@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>No login form</title></head>
+<body>
+  <h1>Public page</h1>
+  <p>
+    Nothing here requires signing in. This page exists purely so the
+    login-orchestration tests have somewhere to point a real crawl at
+    that has no password field anywhere in its markup, proving the
+    precheck correctly declines to trigger a capture when there is
+    nothing gating the content behind authentication.
+  </p>
+  <nav>
+    <a href="/about">About</a>
+    <a href="/contact">Contact</a>
+  </nav>
+</body>
+</html>

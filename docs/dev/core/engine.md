@@ -40,7 +40,24 @@ what each of these actually changes and their tradeoffs
 `prefetch` empties debug markdown snapshots; `block_images` is a real
 behavior change some sites may depend on). `interaction_timeout_seconds`
 is a third timeout phase, distinct from `page_timeout_seconds` - see
-`Crawl4AICrawlerConfig`'s own entry for it.
+`Crawl4AICrawlerConfig`'s own entry for it. `navigation_watchdog_seconds`
+is a fourth, independent of all three - an outer backstop around every
+`arun()` call rather than a bound on any one internal phase of it - see
+`docs/dev/core/config.md#navigation_watchdog_seconds`.
+`session_cleanup_timeout_seconds` is a fifth, guarding a distinct,
+separately-confirmed deadlock site (periodic session recycling via
+`close_session`, not navigation) - see
+`docs/dev/core/config.md#session_cleanup_timeout_seconds`.
+
+## __init__-two_phase_crawl
+
+Passed straight through to `MechanicalCrawlerConfig.two_phase_crawl` -
+see `PragmaConfig`'s own `two_phase_crawl` entry
+(`docs/dev/core/config.md#two_phase_crawl`) and
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for what it actually changes. `Engine` itself makes no decision about
+it - just wiring, same as every other `MechanicalCrawlerConfig` field
+threaded through here.
 
 ## __init__-allow_subdomains
 

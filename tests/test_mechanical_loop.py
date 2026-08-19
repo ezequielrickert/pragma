@@ -28,8 +28,9 @@ from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerCon
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
 from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.orchestration.mechanical_loop.frontier import UrlFrontier
 from database.ladybug.store import LadybugGraphStore
-from utils.urls import route_shape
+from utils.urls import clean_url, route_shape
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -83,6 +84,67 @@ def test_url_frontier_follows_links_and_dedups(fixture_server):
     assert len(results) < 15
 
 
+def test_requeue_absorbs_duplicate_calls_for_a_still_pending_url():
+    """Two independent interrupted passes landing on the same already-known
+    destination (e.g. a shared nav-menu link many pages route through) must
+    not duplicate it in the live queue - confirmed live on austral.edu.ar."""
+    frontier = UrlFrontier(InMemoryInteractionTracker(), MechanicalCrawlerConfig())
+    url = "http://fixture/shared-nav-destination"
+
+    assert frontier.requeue(url) is True
+    assert frontier.requeue(url) is True
+    assert frontier.requeue(url) is True
+    assert frontier.queued_count() == 1
+
+
+def test_requeue_absorbs_a_call_for_an_in_flight_url():
+    """A worker is already mid-visit on this exact destination (reached via
+    a different entry point) when another interrupted pass tries to requeue
+    it - absorbed rather than queued for a second, racy concurrent visit."""
+    frontier = UrlFrontier(InMemoryInteractionTracker(), MechanicalCrawlerConfig())
+    url = "http://fixture/in-flight-destination"
+    frontier.mark_in_flight(clean_url(url))
+
+    assert frontier.requeue(url) is True
+    assert frontier.queued_count() == 0
+
+
+def test_requeue_still_gives_up_after_real_repeated_failures():
+    """Real, non-duplicate requeue() calls (the url fully drained/popped
+    between each) still count toward max_requeue_attempts and still give up
+    once it's exceeded - the new duplicate short-circuit must not swallow
+    genuine repeated-failure bookkeeping."""
+    frontier = UrlFrontier(
+        InMemoryInteractionTracker(), MechanicalCrawlerConfig(max_requeue_attempts=2)
+    )
+    url = "http://fixture/reliably-blocked-page"
+
+    assert frontier.requeue(url) is True  # attempt 1
+    asyncio.run(frontier.get())
+    assert frontier.requeue(url) is True  # attempt 2
+    asyncio.run(frontier.get())
+    assert frontier.requeue(url) is False  # attempt 3 - past the cap, give up
+
+
+def test_duplicate_requeue_calls_do_not_count_toward_max_requeue_attempts():
+    """A requeue() call absorbed as a duplicate (the url is still pending)
+    must not consume one of max_requeue_attempts - only a call that actually
+    puts a fresh entry on the queue is a real attempt."""
+    frontier = UrlFrontier(
+        InMemoryInteractionTracker(), MechanicalCrawlerConfig(max_requeue_attempts=2)
+    )
+    url = "http://fixture/popular-redirect-target"
+
+    assert frontier.requeue(url) is True  # real attempt #1
+    assert frontier.requeue(url) is True  # duplicate - absorbed, not counted
+    assert frontier.requeue(url) is True  # duplicate - absorbed, not counted
+    asyncio.run(frontier.get())  # drains the one real entry, clears _pending
+
+    # If the two duplicates above had counted, this would already be
+    # attempt #4 against a cap of 2 and return False.
+    assert frontier.requeue(url) is True  # real attempt #2 - still within cap
+
+
 def test_same_page_reveal_chain_gets_interacted_within_available_passes(fixture_server):
     """A click that reveals a new same-URL element must get that new element
     interacted with too, not just the first-discovered layer - even if it
@@ -127,23 +189,34 @@ def test_click_to_a_known_destination_resumes_the_pass_instead_of_interrupting_i
     assert any("leafBtn" in p for p in clicked_paths)
 
 
-def test_click_to_a_genuinely_unknown_destination_still_interrupts_the_pass(fixture_server):
+def test_click_to_a_genuinely_unknown_destination_also_resumes_the_pass(fixture_server):
     """A click that navigates somewhere this crawl has no other route to
-    discovering (no plain <a href> anywhere points at it) must still stop
-    the pass and requeue the origin for a separate later visit - eager
-    resume-in-place is only safe for a destination the crawl already knows
-    about, not for genuinely new content it hasn't seen yet."""
+    discovering (no plain <a href> anywhere points at it) still resumes in
+    place via return_to_origin, exactly like a known destination - there's
+    nothing about the destination being new that makes a cheap
+    history-back less safe. The destination still gets its own separate
+    visit (still enqueued, still not followed inline - no depth-first
+    blowup), but the origin's own pass doesn't have to stop and wait for a
+    future full re-fetch just to pick up the rest of its frontier."""
     mech, results = _crawl(f"{fixture_server}/only_js_nav.html", max_pages=15)
     interactions = _all_interactions_for(results, "only_js_nav.html")
     js_nav = next(i for i in interactions if "jsNavOnly" in i.path)
     assert not js_nav.error
     assert js_nav.resulting_url.endswith("unknown_target.html")
+
+    # The destination still gets visited as its own page result.
     assert any(r.url.endswith("unknown_target.html") for r in results)
 
-    interrupted_passes = [
-        r for r in results if r.url.endswith("only_js_nav.html") and r.interrupted_by_navigation
-    ]
-    assert interrupted_passes
+    # One pass, not interrupted.
+    origin_results = [r for r in results if r.url.endswith("only_js_nav.html")]
+    assert len(origin_results) == 1
+    assert not origin_results[0].interrupted_by_navigation
+
+    # And the pass actually kept going past the navigating click - the
+    # next frontier item still got interacted with once the browser
+    # returned to only_js_nav.html.
+    clicked_paths = {i.path for i in interactions if i.action == "click" and not i.error}
+    assert any("otherOnJsOnly" in p for p in clicked_paths)
 
 
 def test_fillable_field_gets_placeholder_value_and_is_recorded_as_fill(fixture_server):
@@ -469,6 +542,172 @@ def test_page_concurrency_raised_visits_pages_in_parallel():
     assert len(results) == 6  # every page still visited, same as sequential
     assert {r.url for r in results} == {"fixture/hub"} | {f"fixture/leaf{i}" for i in range(5)}
     assert fake.max_in_flight > 1  # real concurrent overlap happened
+
+
+class _FakeTwoPhaseSiteCrawler:
+    """A hub page linking to `num_leaves` independent leaf pages, each with
+    one clickable button that reveals nothing further - the minimal shape
+    needed to prove: `scout()` discovers every page's links but clicks
+    nothing; `interact()` re-navigates into each leaf and clicks its button.
+    """
+
+    def __init__(self, num_leaves: int = 3) -> None:
+        self.start_url = "http://fixture/hub"
+        self.leaf_urls = [f"http://fixture/leaf{i}" for i in range(num_leaves)]
+        self.discover_calls: List[str] = []
+        self.click_calls: List[str] = []
+        self.fill_calls: List[str] = []
+
+    _BUTTON = {"path": "body > button#go", "tag": "button", "text": "Go", "visible": True}
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls.append(url)
+        # Phase 2 re-navigates using the graph store's route-shaped (thus
+        # schemeless) page key, not the literal start_url - see
+        # loop.py#_scouted_urls - so identity here can't be a strict `==`.
+        if route_shape(url) == route_shape(self.start_url):
+            links = [{"href": u, "scheme": "http"} for u in self.leaf_urls]
+            return PageState(url=url, components=[], links=links)
+        return PageState(url=url, components=[self._BUTTON])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.click_calls.append(url)
+        # Unchanged component set - a real no-op reveal, not a low-overlap
+        # state transition (which would legitimately re-record inventory).
+        return PageState(url=url, components=[self._BUTTON])
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        self.fill_calls.append(url)
+        return PageState(url=url, components=[])
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_scout_only_sweep_discovers_the_whole_site_without_clicking():
+    """A scout-only sweep (`_run_sweep(page_visitor.scout, ...)`) must
+    discover every reachable page via `enqueue_links`, exactly like a normal
+    fused crawl - but never build or drain an interaction frontier, so
+    `click`/`fill` are never called."""
+    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
+    mech._frontier.base_url = fake.start_url
+    mech._frontier.enqueue(fake.start_url)
+
+    asyncio.run(mech._run_sweep(mech._page_visitor.scout, count_as_finished=False))
+
+    assert fake.click_calls == []
+    assert fake.fill_calls == []
+    assert set(fake.discover_calls) == {fake.start_url, *fake.leaf_urls}
+
+
+class _FakeBareLeafCrawler:
+    """One page, zero interactable components - isolates the discovery-time
+    bookkeeping claim (`record_page_arrival`/`record_inventory`/
+    `record_text_content`/`record_page_network`/`record_page_metadata`/
+    `enqueue_links`, all done once by `scout()`) from the *separate*,
+    always-true fact that a real interaction loop re-records inventory
+    per-reveal regardless of phase - an empty frontier means that loop body
+    never runs at all, so any of those five calls firing a second time can
+    only be `interact()` redundantly repeating scout()'s own initial write.
+    """
+
+    def __init__(self) -> None:
+        self.url = "http://fixture/leaf"
+        self.discover_calls: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        self.discover_calls.append(url)
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        raise AssertionError("no components to click")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("no components to fill")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+
+def test_interact_re_navigates_but_skips_scouts_bookkeeping():
+    """The whole saving `interact()` exists to capture: `discover_page` must
+    run again (the tab moved on during phase 1), but none of the five sink
+    bookkeeping writes or `enqueue_links` may run a second time for a page
+    `scout()` already recorded."""
+    fake = _FakeBareLeafCrawler()
+    store = LadybugGraphStore("interact-reuse-test")
+    store.connect()
+    sink = GraphStoreSink(store, base_url=fake.url)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(sink=sink, base_url=fake.url))
+
+    asyncio.run(mech._page_visitor.scout(fake.url, "s"))
+    assert fake.discover_calls == [fake.url]
+
+    spy_names = [
+        "record_page_arrival", "record_inventory", "record_text_content",
+        "record_page_network", "record_page_metadata",
+    ]
+    call_counts = {name: 0 for name in spy_names}
+    for name in spy_names:
+        original = getattr(sink, name)
+
+        def spy(*args, _name=name, _original=original, **kwargs):
+            call_counts[_name] += 1
+            return _original(*args, **kwargs)
+
+        setattr(sink, name, spy)
+    enqueue_links_calls: List[Any] = []
+    mech._page_visitor._enqueue_links = lambda links: enqueue_links_calls.append(links)
+
+    asyncio.run(mech._page_visitor.interact(fake.url, "s"))
+
+    assert fake.discover_calls == [fake.url, fake.url]
+    assert all(count == 0 for count in call_counts.values())
+    assert enqueue_links_calls == []
+
+
+def test_two_phase_crawl_visits_and_interacts_the_same_pages_as_the_fused_pass():
+    """Equivalence: a two-phase run must discover and click exactly the same
+    pages/components a fused run does - the two-sweep restructuring changes
+    *when* work happens, never *what* gets done."""
+    fake_fused = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech_fused = MechanicalCrawler(fake_fused, config=MechanicalCrawlerConfig(base_url=fake_fused.start_url))
+    results_fused = asyncio.run(mech_fused.crawl_site(fake_fused.start_url))
+
+    fake_two_phase = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    store = LadybugGraphStore("two-phase-equivalence-test")
+    store.connect()
+    sink = GraphStoreSink(store, base_url=fake_two_phase.start_url)
+    mech_two_phase = MechanicalCrawler(
+        fake_two_phase,
+        config=MechanicalCrawlerConfig(sink=sink, base_url=fake_two_phase.start_url, two_phase_crawl=True),
+    )
+    results_two_phase = asyncio.run(mech_two_phase.crawl_site(fake_two_phase.start_url))
+
+    # Phase 2's frontier is seeded from the graph store's Scouted urls, which
+    # - like every other page key this store holds - are route-shaped, not
+    # literal (see _scouted_urls()/_resume_urls()'s shared doc note). Compare
+    # by route_shape, the level at which "same real page" is actually judged
+    # everywhere else in this codebase, not by raw string equality.
+    assert {r.url for r in results_fused} == {r.url for r in results_two_phase}
+    assert sorted(route_shape(u) for u in fake_fused.click_calls) == sorted(
+        route_shape(u) for u in fake_two_phase.click_calls
+    )
+
+
+def test_two_phase_crawl_defaults_to_off_and_never_double_navigates():
+    """Backward compatibility: `two_phase_crawl` defaults to `False`, and a
+    plain `crawl_site()` run must call `discover_page` exactly once per
+    page - no accidental double-navigation regression from this feature."""
+    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
+    assert mech._two_phase_crawl is False
+
+    asyncio.run(mech.crawl_site(fake.start_url))
+
+    assert len(fake.discover_calls) == len({fake.start_url, *fake.leaf_urls})  # exactly once each
+    assert set(fake.click_calls) == set(fake.leaf_urls)
 
 
 def test_effective_concurrency_is_full_below_the_taper_start_ratio():
@@ -950,7 +1189,7 @@ class _FakeExternalRedirectCrawler:
         self.away_path = "body > a#away"
         self.other_path = "body > button#other"
 
-    async def discover_page(self, url: str, session_id=None) -> PageState:
+    def _start_state(self) -> PageState:
         return PageState(
             url=self.start_url,
             components=[
@@ -959,16 +1198,13 @@ class _FakeExternalRedirectCrawler:
             ],
         )
 
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        return self._start_state()
+
     async def click(self, url: str, session_id: str, selector: str) -> PageState:
         if selector == self.away_path:
             return PageState(url="http://evil.example/landed", components=[])
-        return PageState(
-            url=self.start_url,
-            components=[
-                _component(self.away_path, "Away", tag="a"),
-                _component(self.other_path, "Other"),
-            ],
-        )
+        return self._start_state()
 
     async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
         raise AssertionError("fixture has no fillable components")
@@ -976,28 +1212,120 @@ class _FakeExternalRedirectCrawler:
     async def resync(self, url: str, session_id: str) -> PageState:
         raise AssertionError("not exercised by this fixture")
 
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        return self._start_state()
 
-def test_redirect_to_external_domain_stops_the_pass_but_never_gets_crawled():
+
+def test_redirect_to_external_domain_resumes_the_pass_but_never_gets_crawled():
     """A click-triggered redirect that lands outside the crawl's own site
-    must still stop the interrupted pass (it's a real navigation - the live
-    session did leave the page, per crawl4ai-integration-pitfalls.md's
-    "must stop that page's work immediately" entry) and requeue the
-    *originating* page to finish its own frontier, exactly like an ordinary
-    same-site navigation interruption - but the external destination itself
-    must never be enqueued/visited."""
+    resumes in place via return_to_origin - same as any other physical
+    navigation, external or not - but the external destination itself must
+    never be enqueued/visited: is_known()/enqueue()'s own scope gate is
+    what guarantees that, entirely independent of whether the pass resumes
+    or interrupts."""
     fake = _FakeExternalRedirectCrawler()
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10))
     results = asyncio.run(mech.crawl_site(fake.start_url))
 
     assert not any("evil.example" in r.url for r in results)
-    assert any(r.interrupted_by_navigation for r in results)
 
-    # The originating page's frontier still gets fully drained across its
-    # (same-host) follow-up passes - the "away" link that caused the
-    # redirect, and the other, unrelated component.
+    # One pass, not interrupted - resumed in place via go_back instead of
+    # requeuing the origin for a future full re-fetch.
+    origin_results = [r for r in results if r.url.endswith("fixture.example/index")]
+    assert len(origin_results) == 1
+    assert not origin_results[0].interrupted_by_navigation
+
+    # The pass kept going past the redirect - both the "away" link that
+    # caused it and the other, unrelated component got interacted with.
     all_paths = {i.path for r in results for i in r.interactions if not i.error}
     assert fake.away_path in all_paths
     assert fake.other_path in all_paths
+
+
+class _FakeSiteWideNavCrawler:
+    """A persistent nav link present on two different pages, under two
+    different paths but the identical content identity (tag/text) - once
+    page A's copy proves it navigates away, page B's copy must be excluded
+    from page B's own frontier too, never clicked a second time."""
+
+    def __init__(self) -> None:
+        self.page_a_url = "http://fixture/pageA"
+        self.page_b_url = "http://fixture/pageB"
+        self.nav_target_url = "http://fixture/navTarget"
+        self.nav_path_a = "body > nav > a#navA"
+        self.nav_path_b = "body > nav > a#navB"
+        self.other_path_b = "body > button#otherB"
+
+    def _page_a_state(self) -> PageState:
+        return PageState(
+            url=self.page_a_url,
+            components=[_component(self.nav_path_a, "Inicio", tag="a")],
+            links=[{"href": self.page_b_url, "scheme": "http"}],
+        )
+
+    def _page_b_state(self) -> PageState:
+        return PageState(
+            url=self.page_b_url,
+            components=[
+                _component(self.nav_path_b, "Inicio", tag="a"),
+                _component(self.other_path_b, "Other"),
+            ],
+        )
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url == self.page_a_url:
+            return self._page_a_state()
+        if url == self.page_b_url:
+            return self._page_b_state()
+        return PageState(url=url, components=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        if selector == self.nav_path_a:
+            return PageState(url=self.nav_target_url, components=[])
+        if selector == self.nav_path_b:
+            raise AssertionError(
+                "page B's nav link must never be clicked - already proven "
+                "a site-wide navigation trigger on page A"
+            )
+        if selector == self.other_path_b:
+            return self._page_b_state()
+        raise AssertionError(f"unexpected selector {selector!r}")
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("fixture has no fillable components")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised by this fixture")
+
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        return self._page_a_state()
+
+
+def test_navigation_trigger_identity_is_excluded_site_wide_not_just_per_page():
+    """A component proven to navigate away on one page must be excluded
+    from every other page's frontier too, not just re-learned from scratch
+    on each one - confirmed live on austral.edu.ar: a persistent nav menu
+    present on every page was being fully re-explored per page, dominating
+    real crawl time on a site whose nav items number in the hundreds.
+    page_concurrency=1 makes page A's pass (which proves the identity)
+    deterministically finish before page B (only discovered via a link on
+    page A) is ever dequeued."""
+    fake = _FakeSiteWideNavCrawler()
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=10, page_concurrency=1))
+    results = asyncio.run(mech.crawl_site(fake.page_a_url))
+
+    # Page A's nav click happened for real and resumed in place.
+    page_a_results = [r for r in results if r.url.endswith("pageA")]
+    assert any(i.path == fake.nav_path_a and not i.error for r in page_a_results for i in r.interactions)
+
+    # Page B was visited, its own distinct component was interacted with,
+    # and no error was ever recorded for its nav link - proving it was
+    # skipped (excluded from the frontier), not attempted and swallowed.
+    page_b_results = [r for r in results if r.url.endswith("pageB")]
+    assert page_b_results
+    all_interactions = [i for r in results for i in r.interactions]
+    assert any(i.path == fake.other_path_b and not i.error for i in all_interactions)
+    assert not any(i.path == fake.nav_path_b for i in all_interactions)
 
 
 def test_allow_subdomains_wiring_through_mechanical_crawler():
@@ -1498,6 +1826,32 @@ def test_session_recycled_every_configured_number_of_visits():
     # 1 root + 8 leaves = 9 visits, recycled every 3rd -> exactly 3 closes.
     assert len(fake.closed_session_ids) == 3
     assert fake.closed_session_ids == ["worker-0"] * 3
+
+
+class _FakeSessionRecycleFailsCrawler(_FakeSessionRecordingCrawler):
+    """Same fan-out, but `close_session` always raises - simulating
+    `Crawl4AICrawler.close_session`'s own watchdog
+    (`session_cleanup_timeout_seconds`) firing during periodic recycling.
+    Confirmed live on austral.edu.ar as a real, previously-unguarded
+    deadlock site: `_recycle_session_if_due`'s existing broad `except`
+    must recover from this and keep the crawl going, not let a hung/failed
+    recycle attempt take the whole worker down with it."""
+
+    async def close_session(self, session_id: str) -> None:
+        raise RuntimeError(f"close_session watchdog: {session_id!r} did not close within 10s")
+
+
+def test_recycle_session_failure_does_not_stop_the_crawl():
+    fake = _FakeSessionRecycleFailsCrawler(n_pages=8)
+    mech = MechanicalCrawler(
+        fake, config=MechanicalCrawlerConfig(page_concurrency=1, session_recycle_after=3)
+    )
+    results = asyncio.run(mech.crawl_site(fake.root_url))
+
+    # Every page still gets visited despite every single recycle attempt
+    # failing - a hung/failed close_session() must never hang or crash the
+    # worker that happened to trigger it.
+    assert len(results) == 9  # 1 root + 8 leaves
 
 
 def test_session_never_recycled_when_disabled():

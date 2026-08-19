@@ -13,6 +13,7 @@ hook fires or how a page gets navigated.
 ## Crawl4AICrawlerConfig
 
 - `headless`: Run the browser without a visible UI.
+- `storage_state_path`: see `#storage_state_path` below.
 - `wait_seconds`: **Ceiling** on how long to let the page settle before
   running discovery on a plain navigation (`before_retrieve_html`, see
   `docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#before_retrieve_html`) -
@@ -124,6 +125,17 @@ hook fires or how a page gets navigated.
   `viewport`/`backoff_ceiling_seconds`/`circuit_breaker_cooldown_seconds`
   sections below.
 
+## storage_state_path
+
+Playwright `storage_state` JSON path to restore cookies/localStorage
+from - `None` (crawl4ai's own default) launches a fresh, anonymous
+browser context. Set by a caller's own login-resolution step
+(`spiders/browser/login.py::ensure_login_session`/`force_login_session`)
+before the real crawl starts; wired straight into `BrowserConfig`'s own
+`storage_state` in `Crawl4AICrawler.__aenter__` - a browser-context-level
+setting, not a per-`arun()` one, since the whole point is every
+navigation in this crawl sharing the one authenticated context.
+
 ## viewport
 
 Small (800x600) on purpose - less render cost per navigation. Nothing in
@@ -145,3 +157,63 @@ it).
 How long every worker pauses once `TargetLoadThrottle`'s circuit breaker
 trips - a navigation `_SEVERE_SLOWDOWN_MULTIPLIER` times the crawl's own
 fastest. See `docs/dev/spiders/browser/target_load_throttle.md#_trip_circuit_breaker`.
+
+## navigation_watchdog_seconds
+
+Outer backstop `Crawl4AICrawler._run_with_watchdog` wraps around every
+`arun()` call, independent of `page_timeout_seconds` above -
+`page_timeout_seconds` only bounds crawl4ai's own internal navigation
+clock once a navigation has actually started, so anything stuck *before*
+that (a browser/session-management lock inside crawl4ai itself, for
+example) is invisible to it entirely.
+
+Confirmed live on austral.edu.ar: a `two_phase_crawl` scout sweep
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+deadlocked for 12+ minutes with `page_timeout_seconds` in effect the
+whole time. A `py-spy dump` of the live process proved none of the
+workers had even reached a graph-store write yet - the `ladybug-writer`
+thread sat idle with nothing queued, and every `asyncio.to_thread` pool
+worker showed only its bare dispatch-loop frame, nothing deeper into
+`sink.py`. So the stall was somewhere inside crawl4ai/Playwright itself,
+most plausibly a lock contested at a much higher rate under the scout
+sweep - which removes the interaction pacing (click waits, extraction
+delays) that had kept this from ever surfacing under the ordinary fused
+`visit()` pass.
+
+Default `60.0` - four times the default `page_timeout_seconds` (15.0),
+mirroring the same "4x = something is wrong" ratio
+`TargetLoadThrottle._SEVERE_SLOWDOWN_MULTIPLIER` already uses elsewhere
+in this codebase - generous enough that a legitimately slow-but-alive
+page (which crawl4ai's own `page_timeout_seconds` should already have
+caught and converted to an ordinary failure well before this fires)
+never trips it, but bounded enough that a genuine hang costs minutes,
+not an unbounded wait.
+
+Explicitly a partial fix, not a root-cause one: this codebase doesn't
+control crawl4ai's own internals, so this can only bound *this
+codebase's own* wait and recover the crawl - it can't fix whatever
+actually wedged inside crawl4ai. See `_run_with_watchdog` below for the
+best-effort session-cleanup attempt that goes with it.
+
+## session_cleanup_timeout_seconds
+
+Bounds `Crawl4AICrawler.close_session`'s own call into crawl4ai's
+`kill_session` - a **second, distinct** deadlock site from the one
+`navigation_watchdog_seconds` above guards, found the same way: a
+`two_phase_crawl` scout sweep froze again, for 5+ minutes, well past
+`navigation_watchdog_seconds`'s own 60s bound with no recovery. A live
+`py-spy dump` proved the stall wasn't in `arun()` or the graph-store
+writer - both were completely idle. The remaining, previously-unguarded
+candidate: `MechanicalCrawler._recycle_session_if_due`
+(`docs/dev/spiders/orchestration/mechanical_loop/loop.md#_recycle_session_if_due`)
+calls `close_session` every `session_recycle_after` visits, reaching the
+exact same class of crawl4ai session/browser-management internals
+`navigation_watchdog_seconds` already guards elsewhere - just through a
+call path that bound never touched.
+
+Default `10.0` - short, since closing an already-idle tab is normally
+near-instant; no need for anything close to `navigation_watchdog_seconds`'s
+own 60s scale here. See
+`docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#close_session`
+for the full reasoning and why this is bound once, at `close_session`
+itself, rather than wrapped separately at each of its two callers.

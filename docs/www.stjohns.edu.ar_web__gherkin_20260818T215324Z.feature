@@ -1,0 +1,1 @@
+# No ordered interaction traces were recorded. Scenarios are built from interactions stamped with their position in a visit; a crawl predating that stamping has the interactions but not the order, and an unordered scenario is not a scenario.

@@ -1,0 +1,163 @@
+openapi: 3.0.3
+info:
+  title: www.stjohns.edu.ar - inferred API contract
+  version: 0.1.0
+  description: 'Inferred from traffic observed during an automated crawl, not from
+    server source. Security schemes are named from request header names only - never
+    from a credential - so this says which scheme an endpoint uses and never what
+    the token was. Examples and field constraints (enum, pattern, minimum) are absent
+    by design: the crawler records the shape of every request and response and never
+    their values, so there is nothing to derive them from. Endpoints the crawl never
+    reached are absent too - see the crawl coverage document.'
+paths:
+  /cdn-cgi/rum:
+    post:
+      operationId: createRum
+      summary: Create rum
+      responses:
+        '204':
+          description: Observed response (HTTP 204).
+      description: 'Fired on page load of: stjohns.edu.ar/Web/Admision/Calendario,
+        stjohns.edu.ar/Web/Admision/Entrevista, stjohns.edu.ar/Web/Admision/Iniciar-proceso,
+        stjohns.edu.ar/Web/Admision/calendario, stjohns.edu.ar/Web/Admissions/Admissions/calendar.
+        Observed latency: 8-134 ms (measured through the crawl''s own browser; relative
+        signal, not a performance figure).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RumRequest'
+      security:
+      - sessionCookie: []
+servers:
+- url: https://www.stjohns.edu.ar
+components:
+  schemas:
+    RumRequest:
+      type: object
+      properties:
+        memory:
+          type: object
+          properties:
+            totalJSHeapSize:
+              type: number
+            usedJSHeapSize:
+              type: number
+            jsHeapSizeLimit:
+              type: number
+          required:
+          - totalJSHeapSize
+          - usedJSHeapSize
+          - jsHeapSizeLimit
+        resources:
+          type: array
+          items: {}
+        referrer:
+          type: string
+        eventType:
+          type: number
+        firstPaint:
+          type: number
+        firstContentfulPaint:
+          type: number
+        startTime:
+          type: number
+        versions:
+          type: object
+          properties:
+            fl:
+              type: string
+            js:
+              type: string
+            timings:
+              type: number
+          required:
+          - fl
+          - js
+          - timings
+        pageloadId:
+          type: string
+        location:
+          type: string
+        nt:
+          type: string
+        timingsV2:
+          type: object
+          properties:
+            nextHopProtocol:
+              type: string
+            domainLookupStart:
+              type: number
+            domainLookupEnd:
+              type: number
+            connectStart:
+              type: number
+            connectEnd:
+              type: number
+            requestStart:
+              type: number
+            responseStart:
+              type: number
+            responseEnd:
+              type: number
+            domInteractive:
+              type: number
+            domComplete:
+              type: number
+            loadEventStart:
+              type: number
+            loadEventEnd:
+              type: number
+            finalResponseHeadersStart:
+              type: number
+            firstInterimResponseStart:
+              type: number
+            transferSize:
+              type: number
+            decodedBodySize:
+              type: number
+          required:
+          - nextHopProtocol
+          - domainLookupStart
+          - domainLookupEnd
+          - connectStart
+          - connectEnd
+          - requestStart
+          - responseStart
+          - responseEnd
+          - domInteractive
+          - domComplete
+          - loadEventStart
+          - loadEventEnd
+          - finalResponseHeadersStart
+          - firstInterimResponseStart
+          - transferSize
+          - decodedBodySize
+        dt:
+          type: string
+        siteToken:
+          type: string
+        st:
+          type: number
+      required:
+      - memory
+      - resources
+      - referrer
+      - eventType
+      - firstPaint
+      - firstContentfulPaint
+      - startTime
+      - versions
+      - pageloadId
+      - location
+      - nt
+      - timingsV2
+      - dt
+      - siteToken
+      - st
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session

@@ -121,9 +121,22 @@ class HookHandlers:
         return retried if found else data
 
     async def before_retrieve_html(self, page, context, config, **kwargs):
-        """Discovery point for a plain navigation pass (no `js_code` this call).
+        """Discovery point for a plain navigation pass - crawl4ai fires this
+        hook on every `arun()` call, `js_only` or not, so `config.js_only`
+        (never set by `discover_page`, always set by `_interact`) is what
+        actually distinguishes the two, not the hook's own firing.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#before_retrieve_html
         """
+        if config.js_only:
+            # An interaction call - on_execution_ended does the correct
+            # settle-wait + extraction for this case, after js_code has
+            # actually run. Doing it again here, before js_code runs, can
+            # never detect a DOM change (nothing has happened yet), so
+            # _wait_for_new_content would always burn its full ceiling for
+            # nothing - a real, measured ~wait_seconds tax on every single
+            # click/fill/resync/go_back call across the whole crawl.
+            # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#before_retrieve_html-js-only-skip
+            return page
         await _wait_for_new_content(page, self.wait_seconds)
         session_id = config.session_id or "default"
         data = await run_extraction(page)
