@@ -183,9 +183,10 @@ class _LadybugPageMixin:
         return self._call(op)
 
     def get_scouted(self, limit: Optional[int] = None) -> List[str]:
-        """Up to `limit` Scouted page urls, sorted ascending - phase 2 of a
-        `two_phase_crawl` run builds its fresh frontier from exactly this
-        list. Unbounded if limit is None, same contract as `get_pending`.
+        """Up to `limit` Scouted page urls, sorted ascending - `pragma
+        dynamic`'s own resume mode (`interact_only`) builds its fresh
+        frontier from exactly this list. Unbounded if limit is None, same
+        contract as `get_pending`.
         Details: docs/dev/database/ladybug/page.md#get_scouted
         """
         def op(conn) -> List[str]:

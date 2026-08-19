@@ -43,22 +43,3 @@ def test_scout_only_visits_every_page_but_marks_them_scouted_not_finished():
     assert any("cart" in url for url in scouted)
     finished, _ = store.count_visited()
     assert finished == 0
-
-
-def test_scout_only_takes_priority_over_two_phase_crawl():
-    """Both set at once is a contradiction - `scout_only` (the stronger,
-    "stop after scouting" request) must win, proven the same way: a fake
-    crawler with no click/fill would raise if an interact phase ran."""
-    store = LadybugGraphStore(SITE)
-    store.connect()
-    sink = GraphStoreSink(store, base_url=START)
-    mech = MechanicalCrawler(
-        _ScoutOnlyCrawler(),
-        config=MechanicalCrawlerConfig(sink=sink, base_url=START, scout_only=True, two_phase_crawl=True),
-    )
-
-    asyncio.run(mech.crawl_site(START))
-
-    finished, total = store.count_visited()
-    assert finished == 0
-    assert total > 0

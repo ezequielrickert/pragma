@@ -35,9 +35,8 @@ class MechanicalCrawler:
         self.max_pages = config.max_pages
         self.session_recycle_after = config.session_recycle_after
         self.sink = config.sink
-        # See MechanicalCrawlerConfig.two_phase_crawl for the full rationale.
-        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_two_phase_crawl
-        self._two_phase_crawl = config.two_phase_crawl
+        # See MechanicalCrawlerConfig.scout_only for the full rationale.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_scout_only
         self._scout_only = config.scout_only
         # See MechanicalCrawlerConfig.interact_only for the full rationale.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_interact_only
@@ -124,13 +123,14 @@ class MechanicalCrawler:
         ]
 
     def _scouted_urls(self) -> List[str]:
-        """Pages phase 1 finished scouting - what phase 2's frontier is
-        built from. Same `{token}` filter and `restore_scheme` restoration
-        as `_resume_urls`: a shaped URL carrying a placeholder is a
-        canonical storage key, not a navigable address, and every other key
-        `get_scouted` returns is a storage key too - not yet navigable
-        until `restore_scheme` puts its scheme back. Empty (not an error)
-        without a sink - no store, no way `"Scouted"` was ever written.
+        """Pages a previous `scout_only` run finished scouting - what
+        `interact_only`'s own frontier is built from. Same `{token}` filter
+        and `restore_scheme` restoration as `_resume_urls`: a shaped URL
+        carrying a placeholder is a canonical storage key, not a navigable
+        address, and every other key `get_scouted` returns is a storage
+        key too - not yet navigable until `restore_scheme` puts its scheme
+        back. Empty (not an error) without a sink - no store, no way
+        `"Scouted"` was ever written.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_scouted_urls
         """
         if self.sink is None:
@@ -148,8 +148,9 @@ class MechanicalCrawler:
     ) -> None:
         """Spin up `page_concurrency` workers draining the frontier with
         `visit_fn` until empty, then tear them down - one full site-wide
-        pass. Called once (`PageVisitor.visit`) for the default fused crawl,
-        or twice (`scout` then `interact`) under `two_phase_crawl`.
+        pass. Called once per `crawl_site()` invocation - `PageVisitor.visit`
+        for the default fused crawl, `scout`/`interact` under `scout_only`/
+        `interact_only`.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_run_sweep
         """
         workers = [
@@ -165,14 +166,12 @@ class MechanicalCrawler:
         """Crawl every page reachable from `start_url`, `page_concurrency` at
         a time. Under `scout_only`, runs a single scout sweep and returns,
         leaving every page `"Scouted"` for a later, separate crawl to pick
-        up. Under `two_phase_crawl`, runs that same scout sweep to
-        completion first, then rebuilds the frontier from every page it
-        left `"Scouted"` and runs a full interact sweep in this same
-        process - see `MechanicalCrawlerConfig.two_phase_crawl` for why.
-        Under `interact_only`, skips discovery in this process entirely and
-        runs only the interact sweep, over whatever an earlier, separate
-        `scout_only` run already left `"Scouted"` - see
-        `MechanicalCrawlerConfig.interact_only`.
+        up - `pragma static`'s own mode. Under `interact_only`, skips
+        discovery in this process entirely and runs only the interact
+        sweep, over whatever an earlier, separate `scout_only` run already
+        left `"Scouted"` - `pragma dynamic`'s own resume mode, see
+        `MechanicalCrawlerConfig.interact_only`. Otherwise runs the default
+        fused scout+interact pass per page.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
         """
         if self._frontier.base_url is None:
@@ -202,11 +201,6 @@ class MechanicalCrawler:
                 self._frontier.enqueue(url)
         if self._scout_only:
             await self._run_sweep(self._page_visitor.scout, count_as_finished=False)
-        elif self._two_phase_crawl:
-            await self._run_sweep(self._page_visitor.scout, count_as_finished=False)
-            for url in self._scouted_urls():
-                self._frontier.enqueue_scouted(url)
-            await self._run_sweep(self._page_visitor.interact, count_as_finished=True)
         else:
             await self._run_sweep(self._page_visitor.visit, count_as_finished=True)
         return self.page_results

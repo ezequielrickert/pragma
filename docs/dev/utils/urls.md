@@ -112,10 +112,10 @@ Confirmed live: `pragma dynamic` resuming a real `pragma static` run
 failed every page with crawl4ai's own "URL must start with 'http://',
 'https://', 'file://', or 'raw:'" - `_scouted_urls()` was handing back
 bare keys like `"example.com/path"` straight through to `discover_page`.
-Every test covering `_resume_urls`/`_scouted_urls`/`interact_only`/
-`two_phase_crawl` before this fix used a fake crawler that echoed
-whatever URL it was given back unvalidated, so none of them could have
-caught it - `tests/test_interact_only.py`'s fake now rejects a
+Every test covering `_resume_urls`/`_scouted_urls`/`interact_only`
+before this fix used a fake crawler that echoed whatever URL it was
+given back unvalidated, so none of them could have caught it -
+`tests/test_interact_only.py`'s fake now rejects a
 schemeless URL explicitly, the same way crawl4ai does, so this class of
 regression fails loudly again.
 

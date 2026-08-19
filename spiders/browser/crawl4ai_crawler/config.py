@@ -49,7 +49,7 @@ class Crawl4AICrawlerConfig:
     # the live process proved none of the workers had even reached a graph-
     # store write yet, so the stall was somewhere inside crawl4ai/Playwright
     # itself (most likely a browser/session-management lock, contested at a
-    # much higher rate under two_phase_crawl's scout sweep, which removes the
+    # much higher rate under a scout-only sweep, which removes the
     # interaction pacing that kept this from ever surfacing before) - a class
     # of hang page_timeout_seconds structurally cannot bound, since it never
     # gets the chance to start its own internal clock.

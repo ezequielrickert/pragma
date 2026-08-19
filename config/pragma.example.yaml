@@ -115,8 +115,8 @@ export_json: false    # also write data/output/{slug}_export_{timestamp}.json - 
 # navigation_watchdog_seconds: 60.0  # a FOURTH timeout phase - an outer backstop around every
                        # crawl4ai arun() call, independent of page_timeout_seconds (which only
                        # bounds crawl4ai's own internal navigation clock, once a navigation has
-                       # actually started). Confirmed live on austral.edu.ar: a two_phase_crawl scout
-                       # sweep deadlocked for 12+ minutes with page_timeout_seconds in effect the
+                       # actually started). Confirmed live on austral.edu.ar: a scout-only sweep
+                       # deadlocked for 12+ minutes with page_timeout_seconds in effect the
                        # whole time - a py-spy dump proved nothing had even reached a graph-store
                        # write yet, so the stall was inside crawl4ai/Playwright itself (most likely a
                        # browser/session-management lock), somewhere page_timeout_seconds's own clock
@@ -138,16 +138,6 @@ export_json: false    # also write data/output/{slug}_export_{timestamp}.json - 
                        # discovery JS instead). Side effect: data/debug_logs/*/pages/*.md snapshots come
                        # back empty while this is on - leave false during active debugging, true for
                        # a bulk/production run.
-# two_phase_crawl: false  # run the crawl as two separate site-wide sweeps - a fast scout sweep
-                       # (discover_page only, no clicking) that drains the whole frontier first, THEN
-                       # a second sweep that re-navigates each scouted page and does the real click/
-                       # fill interaction pass. Off by default: one fused scout+interact pass per page,
-                       # same as always. On, debug_logs will show every scouted page's own discover_page
-                       # navigation up front, in the FIRST sweep - not interleaved with interaction -
-                       # then a second discover_page + the actual clicking, per page, in the SECOND
-                       # sweep. See docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl
-                       # for what this does and doesn't save (it does NOT skip the second navigation -
-                       # only the sink bookkeeping/link-discovery work the scout sweep already did).
 # block_images: false   # abort image/media/font network requests outright - real bandwidth/time
                        # savings (unlike crawl4ai's own exclude_external_images, which only trims
                        # already-downloaded images from output this project doesn't read). A real

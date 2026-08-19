@@ -379,7 +379,7 @@ deadlock site distinct from `arun()`'s own**: `navigation_watchdog_seconds`
 `arun()` call, but this method's call into `kill_session` was a
 completely separate, still-unguarded path into the same category of
 crawl4ai-internal code - confirmed live on austral.edu.ar as a genuine,
-reproduced-twice deadlock: a `two_phase_crawl` scout sweep froze for 5+
+reproduced-twice deadlock: a scout-only sweep froze for 5+
 minutes with `navigation_watchdog_seconds` (60s) long since elapsed and
 no recovery, which live process forensics (`py-spy dump`) showed was
 *not* stuck inside `arun()` or the graph-store writer - both sat

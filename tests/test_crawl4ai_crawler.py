@@ -344,7 +344,7 @@ def test_page_timeout_seconds_generous_enough_still_succeeds(tracking_fixture_se
 def test_navigation_watchdog_aborts_a_hang_page_timeout_never_sees(fixture_server):
     """navigation_watchdog_seconds is a backstop independent of
     page_timeout_seconds - confirmed live on austral.edu.ar, a
-    two_phase_crawl scout sweep deadlocked for 12+ minutes with a
+    scout-only sweep deadlocked for 12+ minutes with a
     page_timeout_seconds of 15 in effect the whole time; a py-spy dump of
     the live process proved nothing had even reached a graph-store write,
     so the stall was inside crawl4ai/Playwright itself, somewhere

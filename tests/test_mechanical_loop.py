@@ -544,7 +544,7 @@ def test_page_concurrency_raised_visits_pages_in_parallel():
     assert fake.max_in_flight > 1  # real concurrent overlap happened
 
 
-class _FakeTwoPhaseSiteCrawler:
+class _FakeHubAndLeavesCrawler:
     """A hub page linking to `num_leaves` independent leaf pages, each with
     one clickable button that reveals nothing further - the minimal shape
     needed to prove: `scout()` discovers every page's links but clicks
@@ -562,9 +562,10 @@ class _FakeTwoPhaseSiteCrawler:
 
     async def discover_page(self, url: str, session_id=None) -> PageState:
         self.discover_calls.append(url)
-        # Phase 2 re-navigates using the graph store's route-shaped (thus
-        # schemeless) page key, not the literal start_url - see
-        # loop.py#_scouted_urls - so identity here can't be a strict `==`.
+        # An interact_only pass re-navigates using the graph store's
+        # route-shaped (thus schemeless) page key, not the literal
+        # start_url - see loop.py#_scouted_urls - so identity here can't
+        # be a strict `==`.
         if route_shape(url) == route_shape(self.start_url):
             links = [{"href": u, "scheme": "http"} for u in self.leaf_urls]
             return PageState(url=url, components=[], links=links)
@@ -589,7 +590,7 @@ def test_scout_only_sweep_discovers_the_whole_site_without_clicking():
     discover every reachable page via `enqueue_links`, exactly like a normal
     fused crawl - but never build or drain an interaction frontier, so
     `click`/`fill` are never called."""
-    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+    fake = _FakeHubAndLeavesCrawler(num_leaves=3)
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
     mech._frontier.base_url = fake.start_url
     mech._frontier.enqueue(fake.start_url)
@@ -632,9 +633,9 @@ class _FakeBareLeafCrawler:
 
 def test_interact_re_navigates_but_skips_scouts_bookkeeping():
     """The whole saving `interact()` exists to capture: `discover_page` must
-    run again (the tab moved on during phase 1), but none of the five sink
-    bookkeeping writes or `enqueue_links` may run a second time for a page
-    `scout()` already recorded."""
+    run again (the tab moved on during the earlier `scout()` pass), but none
+    of the five sink bookkeeping writes or `enqueue_links` may run a second
+    time for a page `scout()` already recorded."""
     fake = _FakeBareLeafCrawler()
     store = LadybugGraphStore("interact-reuse-test")
     store.connect()
@@ -667,42 +668,52 @@ def test_interact_re_navigates_but_skips_scouts_bookkeeping():
     assert enqueue_links_calls == []
 
 
-def test_two_phase_crawl_visits_and_interacts_the_same_pages_as_the_fused_pass():
-    """Equivalence: a two-phase run must discover and click exactly the same
-    pages/components a fused run does - the two-sweep restructuring changes
-    *when* work happens, never *what* gets done."""
-    fake_fused = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+def test_separate_scout_only_then_interact_only_runs_visit_and_click_the_same_pages_as_the_fused_pass():
+    """Equivalence: `pragma static` (`scout_only=True`) followed by a
+    separate `pragma dynamic` resume (`interact_only=True`) - two distinct
+    `MechanicalCrawler` instances sharing one graph store, exactly like two
+    separate CLI invocations would - must discover and click exactly the
+    same pages/components a single fused run does. This is the same
+    equivalence the retired `two_phase_crawl` flag used to guarantee within
+    one process; splitting it across two commands changes *when* and *in
+    which process* the work happens, never *what* gets done."""
+    fake_fused = _FakeHubAndLeavesCrawler(num_leaves=3)
     mech_fused = MechanicalCrawler(fake_fused, config=MechanicalCrawlerConfig(base_url=fake_fused.start_url))
     results_fused = asyncio.run(mech_fused.crawl_site(fake_fused.start_url))
 
-    fake_two_phase = _FakeTwoPhaseSiteCrawler(num_leaves=3)
-    store = LadybugGraphStore("two-phase-equivalence-test")
+    fake_split = _FakeHubAndLeavesCrawler(num_leaves=3)
+    store = LadybugGraphStore("scout-then-interact-equivalence-test")
     store.connect()
-    sink = GraphStoreSink(store, base_url=fake_two_phase.start_url)
-    mech_two_phase = MechanicalCrawler(
-        fake_two_phase,
-        config=MechanicalCrawlerConfig(sink=sink, base_url=fake_two_phase.start_url, two_phase_crawl=True),
-    )
-    results_two_phase = asyncio.run(mech_two_phase.crawl_site(fake_two_phase.start_url))
+    sink = GraphStoreSink(store, base_url=fake_split.start_url)
 
-    # Phase 2's frontier is seeded from the graph store's Scouted urls, which
-    # - like every other page key this store holds - are route-shaped, not
-    # literal (see _scouted_urls()/_resume_urls()'s shared doc note). Compare
-    # by route_shape, the level at which "same real page" is actually judged
-    # everywhere else in this codebase, not by raw string equality.
-    assert {r.url for r in results_fused} == {r.url for r in results_two_phase}
+    scout_mech = MechanicalCrawler(
+        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, scout_only=True),
+    )
+    asyncio.run(scout_mech.crawl_site(fake_split.start_url))
+
+    interact_mech = MechanicalCrawler(
+        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, interact_only=True),
+    )
+    results_split = asyncio.run(interact_mech.crawl_site(fake_split.start_url))
+
+    # interact_only's frontier is seeded from the graph store's Scouted
+    # urls, which - like every other page key this store holds - are
+    # route-shaped, not literal (see _scouted_urls()/_resume_urls()'s
+    # shared doc note). Compare by route_shape, the level at which "same
+    # real page" is actually judged everywhere else in this codebase, not
+    # by raw string equality.
+    assert {r.url for r in results_fused} == {r.url for r in results_split}
     assert sorted(route_shape(u) for u in fake_fused.click_calls) == sorted(
-        route_shape(u) for u in fake_two_phase.click_calls
+        route_shape(u) for u in fake_split.click_calls
     )
 
 
-def test_two_phase_crawl_defaults_to_off_and_never_double_navigates():
-    """Backward compatibility: `two_phase_crawl` defaults to `False`, and a
-    plain `crawl_site()` run must call `discover_page` exactly once per
-    page - no accidental double-navigation regression from this feature."""
-    fake = _FakeTwoPhaseSiteCrawler(num_leaves=3)
+def test_the_default_fused_pass_never_double_navigates():
+    """A plain `crawl_site()` run (`scout_only`/`interact_only` both off,
+    the default) must call `discover_page` exactly once per page - no
+    accidental double-navigation."""
+    fake = _FakeHubAndLeavesCrawler(num_leaves=3)
     mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(base_url=fake.start_url))
-    assert mech._two_phase_crawl is False
 
     asyncio.run(mech.crawl_site(fake.start_url))
 

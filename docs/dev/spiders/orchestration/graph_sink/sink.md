@@ -202,13 +202,16 @@ concluding write for a page that gave up, the same role
 
 ## scouted_page_status
 
-`SCOUTED_PAGE_STATUS = "Scouted"` - phase 1 of a `two_phase_crawl` run
-(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+`SCOUTED_PAGE_STATUS = "Scouted"` - a `scout_only` run (`pragma static`'s
+own crawl mode,
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`)
 has finished discovery + sink bookkeeping for this page but not yet
 interaction. Distinct from `Pending` (still owed a first pass of any
 kind) and `Finished` (`interact()`'s own trailing `record_page_finished`
-call overwrites this once phase 2 actually runs the page's interaction
-frontier). `is_visited()` deliberately does not treat `Scouted` as
+call overwrites this once a later, separate `interact_only` pass -
+`pragma dynamic`'s own resume mode - actually runs the page's
+interaction frontier). `is_visited()` deliberately does not treat
+`Scouted` as
 concluded - unlike `Failed`/`Finished` above, a scouted page is real,
 unfinished work still owed to the crawl.
 

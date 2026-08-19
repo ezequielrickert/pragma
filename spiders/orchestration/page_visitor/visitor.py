@@ -175,11 +175,12 @@ class PageVisitor:
 
     async def visit(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
         """Visit `url`, record its discovery, and mechanically interact with
-        its frontier - the fused scout+interact pass every crawl used before
-        `two_phase_crawl` existed, and still the default. `session_id` is the
-        physical browser tab to reuse - a caller running several visits in
-        sequence should pass the same one each time so crawl4ai navigates an
-        existing tab instead of opening a new one.
+        its frontier - the fused scout+interact pass every crawl uses by
+        default, unless `scout_only`/`interact_only` split it into two
+        separate passes instead (`scout`/`interact` below). `session_id` is
+        the physical browser tab to reuse - a caller running several visits
+        in sequence should pass the same one each time so crawl4ai navigates
+        an existing tab instead of opening a new one.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit
         """
         session_id = session_id or url
@@ -199,12 +200,14 @@ class PageVisitor:
         )
 
     async def scout(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
-        """Phase 1 of a `two_phase_crawl` run: `discover_page()` + the six
-        sink writes + link discovery only - no interaction frontier is ever
-        built or drained here, so `click()`/`fill()` are never called. Ends
-        the page's graph-store status at `"Scouted"`
-        (`GraphStoreSink.record_page_scouted`), signaling phase 2 still owes
-        it a real interaction pass.
+        """`pragma static`'s own crawl mode (`MechanicalCrawlerConfig.
+        scout_only`): `discover_page()` + the six sink writes + link
+        discovery only - no interaction frontier is ever built or drained
+        here, so `click()`/`fill()` are never called. Ends the page's
+        graph-store status at `"Scouted"` (`GraphStoreSink.
+        record_page_scouted`), signaling a later, separate `interact()`
+        pass (`pragma dynamic`'s own resume mode) still owes it a real
+        interaction pass.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#scout
         """
         session_id = session_id or url
@@ -219,16 +222,16 @@ class PageVisitor:
         return self._new_result(state, page_key)
 
     async def interact(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
-        """Phase 2 of a `two_phase_crawl` run: re-navigates
-        (`discover_page()` again - the tab necessarily moved during phase
-        1's scout sweep, and per
+        """`pragma dynamic`'s own resume mode (`MechanicalCrawlerConfig.
+        interact_only`), run against a page an earlier, separate `scout()`
+        pass already left `"Scouted"`: re-navigates (`discover_page()`
+        again - the tab necessarily moved since that earlier pass, and per
         `frontier.md#_navigation_trigger_identities` a component's own
-        path/selector churns across separate `discover_page()` reloads, so a
-        phase-1-cached component can't drive a live click here) straight
-        into building and draining the interaction frontier. Deliberately
-        skips the six sink writes and `enqueue_links` - `scout()` already
-        did both for this page in phase 1, the whole saving this method
-        exists to capture.
+        path/selector churns across separate `discover_page()` reloads, so
+        a component cached from that pass can't drive a live click here)
+        straight into building and draining the interaction frontier.
+        Deliberately skips the six sink writes and `enqueue_links` -
+        `scout()` already did both for this page.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#interact
         """
         session_id = session_id or url

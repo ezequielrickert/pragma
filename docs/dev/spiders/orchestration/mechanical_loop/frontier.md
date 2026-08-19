@@ -91,17 +91,18 @@ idempotent.
 
 ## enqueue_scouted
 
-Re-add a URL phase 1 of a `two_phase_crawl` run
-(`config.md#two_phase_crawl`) already fully drained through this same
+Re-add a URL an earlier, separate `scout_only` run's own frontier
+(`config.md#scout_only`) already fully drained through this same
 frontier's `_queued` dedup set. A plain `enqueue()` call would silently
 refuse it - the whole point of `_queued` is "never queue the same key
-twice" - so phase 2 needs its own entry point past that one guard, while
-still keeping the scope gate (`enqueue-scope-gate` above).
+twice" - so `interact_only` needs its own entry point past that one
+guard, while still keeping the scope gate (`enqueue-scope-gate` above).
 
 Deliberately doesn't touch `_requeue_attempts` or `_route_shape_visits`,
 unlike `requeue()` just below: this isn't a failure retry, and the
-scouted set already respects `max_visits_per_route_shape` from phase 1's
-own `enqueue()` gate the first time each URL went through it.
+scouted set already respects `max_visits_per_route_shape` from that
+earlier run's own `enqueue()` gate the first time each URL went through
+it.
 
 ## requeue
 

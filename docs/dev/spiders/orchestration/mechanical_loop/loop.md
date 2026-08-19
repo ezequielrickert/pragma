@@ -70,26 +70,18 @@ What raising `page_concurrency` changes, precisely:
   single-page-at-a-time logic already, so concurrency at the *page*
   level doesn't change any of it.
 
-## _two_phase_crawl
-
-Stored on `self` (not read straight off `config` each time) purely so
-`crawl_site`'s own dispatch reads as `self._two_phase_crawl` next to
-`self._scout_only` - see `docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
-for the flag's own rationale.
-
 ## _scout_only
 
-Same storage pattern as `_two_phase_crawl` immediately above - see
+Stored on `self` (not read straight off `config` each time) purely so
+`crawl_site`'s own dispatch reads as `self._scout_only` - see
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`
-for what it changes and why it's a separate flag rather than a variant
-of `two_phase_crawl`.
+for the flag's own rationale.
 
 ## _interact_only
 
-Same storage pattern as `_two_phase_crawl`/`_scout_only` above - see
+Same storage pattern as `_scout_only` immediately above - see
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#interact_only`
-for what it changes and why it's `pragma dynamic`'s own flag rather than
-a reuse of `two_phase_crawl`'s phase 2.
+for what it changes and why it's `pragma dynamic`'s own flag.
 
 ## __init__-collaborators
 
@@ -122,19 +114,12 @@ persists across visits within one crawl).
 Crawl every page reachable from `start_url`, `WorkerPacing.page_concurrency`
 pages at a time.
 
-Under the default `two_phase_crawl=False` and `scout_only=False`
-(`config.md#two_phase_crawl`), runs one `_run_sweep` calling
-`PageVisitor.visit` - the original fused scout+interact behavior,
-unchanged. Under `scout_only=True` (`config.md#scout_only` - `pragma
-static`'s own crawl mode), runs a single `_run_sweep` calling
-`PageVisitor.scout` (`count_as_finished=False`) and returns - no interact
-phase, in this process or any later one. Under `two_phase_crawl=True`
-(and `scout_only=False`), runs `_run_sweep` twice instead: first with
-`PageVisitor.scout` (`count_as_finished=False`) to completion, then seeds
-a fresh frontier pass from `_scouted_urls()` via
-`UrlFrontier.enqueue_scouted` and runs a second `_run_sweep` with
-`PageVisitor.interact` (`count_as_finished=True`). `scout_only` takes
-priority when both it and `two_phase_crawl` are set.
+Under the default `scout_only=False` and `interact_only=False`, runs one
+`_run_sweep` calling `PageVisitor.visit` - the fused scout+interact pass.
+Under `scout_only=True` (`config.md#scout_only` - `pragma static`'s own
+crawl mode), runs a single `_run_sweep` calling `PageVisitor.scout`
+(`count_as_finished=False`) and returns - no interact phase, in this
+process or any later one.
 
 ## crawl_site-interact_only
 
@@ -144,14 +129,14 @@ resume mode), `crawl_site` seeds the frontier only from `_scouted_urls()`
 via `UrlFrontier.enqueue_scouted` and runs a single `_run_sweep` with
 `PageVisitor.interact` (`count_as_finished=True`), then returns early -
 no scout phase, and no discovery of `start_url` itself in this process.
-Unlike `two_phase_crawl`, whose phase 2 only runs after this same
-process's own phase 1 just finished, `interact_only`'s scouted pages
-always come from an earlier, separate `scout_only` run.
+`interact_only`'s scouted pages always come from an earlier, separate
+`scout_only` run - never from anything in this same process.
 
 ## _scouted_urls
 
-Pages phase 1 finished scouting - what phase 2's frontier is built from,
-read via `self.sink.graph_store.get_scouted()`
+Pages a previous `scout_only` run finished scouting - what
+`interact_only`'s own frontier is built from, read via
+`self.sink.graph_store.get_scouted()`
 (`docs/dev/database/ladybug/page.md#get_scouted`). Mirrors
 `_resume_urls`'s own `{token}`-placeholder filter: a shaped URL carrying
 one is a canonical storage key, not a navigable address. Empty (not an
@@ -169,11 +154,11 @@ for the one place a shape/literal distinction genuinely bites.
 
 Spin up `page_concurrency` workers draining the frontier with one
 `visit_fn` until empty, then tear them down - one full site-wide pass.
-Called once (`PageVisitor.visit`) for the default fused crawl, or twice
-(`scout` then `interact`) under `two_phase_crawl` - see
-`config.md#two_phase_crawl`. Factored out of what used to be
-`crawl_site`'s own inline worker-spinup so both call shapes share the
-identical spin-up/join/teardown sequence.
+Called once per `crawl_site()` invocation - `PageVisitor.visit` for the
+default fused crawl, `scout`/`interact` under `scout_only`/
+`interact_only`. Factored out of what used to be `crawl_site`'s own
+inline worker-spinup so both call shapes share the identical
+spin-up/join/teardown sequence.
 
 Runs that many `_worker()` tasks pulling from the shared `UrlFrontier`,
 then waits on `self._frontier.join()` - which only returns once every
