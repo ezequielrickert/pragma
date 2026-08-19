@@ -1,6 +1,6 @@
 ---
 name: dev-trunk-flow
-description: This repo's git workflow for implementing one ticket - pull dev, branch, implement, merge straight back to dev with no PR, keep main untouched. Use whenever starting or finishing implementation work tracked by a GitHub issue/ticket in this repo (wayfinder tickets included), or when asked to "start a ticket", "merge to dev", or "promote dev to main".
+description: This repo's mandatory git workflow around any ticket/issue implementation - pull dev, branch, implement, merge straight back to dev with no PR, keep main untouched. Trigger automatically and silently (no need for the user to name this skill) on ANY request to implement, start, work on, resolve, pick up, tackle, continue, or finish a ticket/issue in this repo - including a wayfinder ticket, a bare issue number ("do #49", "let's do 49"), or "next ticket"/"keep going" once a map is already in play. Also covers "merge to dev" and "promote dev to main".
 ---
 
 # Dev trunk flow

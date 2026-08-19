@@ -3,8 +3,17 @@
 `dev` is trunk: short-lived branch per ticket, implement, merge straight back to `dev` with no
 PR. `main` is the stable snapshot, only updated by deliberate promotion. See
 `.claude/skills/dev-trunk-flow/SKILL.md` (locally authored, not upstream-tracked) for the exact
-steps — invoke it with the `Skill` tool (`dev-trunk-flow`) whenever starting or finishing a
-ticket's implementation, rather than re-deriving the git commands from memory.
+steps.
+
+**This is not optional and does not need to be asked for by name.** Any request to implement,
+start, work on, resolve, pick up, or continue a ticket/issue in this repo — a wayfinder ticket,
+a bare issue number, or "next ticket"/"keep going" — invokes `dev-trunk-flow` with the `Skill`
+tool automatically, before touching any code, the same way the code-quality pipeline below runs
+without being asked for by name. Never implement ticket work directly on `main`, `dev`, or
+whatever branch happens to be checked out — always cut this ticket's own branch first. When the
+ticket is a wayfinder ticket, run `dev-trunk-flow` and `wayfinder` together: `dev-trunk-flow`
+owns the git mechanics (sync, branch, merge, promote), `wayfinder` owns claiming the ticket and
+recording its resolution — do not substitute one for the other.
 
 # Code Quality Pipeline
 
