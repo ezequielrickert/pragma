@@ -38,20 +38,26 @@ async def ensure_login_session(
 
     A valid cached session for `site` is used directly - no browser
     opened, no extra navigation. Otherwise a throwaway `Crawl4AICrawler`
-    visits `url` once to check for a login form. Many sites (React/Vue
-    SPAs especially) mount their password field only after a "Log in"/
-    "Iniciar Sesión"-style button is clicked - nothing resembling a form
-    exists on the page as first loaded - so a page with no login form
-    yet gets one more chance: if `find_login_trigger` spots such a
-    button/link, the precheck clicks it and checks again before giving
-    up. A form found either way triggers the headed capture flow before
-    the caller's own crawl ever starts. A page with no login form and no
-    trigger costs nothing beyond that one precheck visit. A trigger that
-    was clicked but still didn't surface a password field (a multi-step
-    flow this precheck isn't meant to chase) prints a pointer at
-    `pragma login` instead of silently crawling anonymous - that failure
-    mode is otherwise indistinguishable from "this site has no login at
-    all".
+    (governed by `headless` - this precheck is a background, non-
+    interactive DOM check, nobody needs to see it) visits `url` once to
+    check for a login form. Many sites (React/Vue SPAs especially) mount
+    their password field only after a "Log in"/"Iniciar Sesión"-style
+    button is clicked - nothing resembling a form exists on the page as
+    first loaded - so a page with no login form yet gets one more
+    chance: if `find_login_trigger` spots such a button/link, the
+    precheck clicks it and checks again before giving up.
+
+    Either a confirmed login form or a merely-plausible trigger opens
+    the real, always-visible capture browser (`capture_login_session`,
+    unconditionally `headless=False` regardless of this function's own
+    `headless` argument - a headless window is useless to the human who
+    has to actually click through it): a confirmed form is signed into
+    directly; a trigger that led nowhere automatically still gets
+    opened, on the working assumption that a human looking at the real
+    page can finish a multi-step flow (an OAuth/email choice screen, a
+    second click) this precheck was never meant to chase on its own. A
+    page with no login form and no trigger at all costs nothing beyond
+    that one precheck visit.
     Details: docs/dev/spiders/browser/login.md#ensure_login_session
     """
     candidate = session_path(site, sessions_dir)
@@ -65,22 +71,22 @@ async def ensure_login_session(
         page_state = await precheck.discover_page(url, session_id=url)
         if not has_login_form(page_state.components):
             page_state, clicked_a_trigger = await _click_login_trigger_if_any(precheck, url, page_state)
-    if has_login_form(page_state.components):
-        await capture_login_session(url, candidate, headless=headless)
-        return candidate
 
-    if clicked_a_trigger:
+    if not has_login_form(page_state.components) and not clicked_a_trigger:
+        return None
+
+    if clicked_a_trigger and not has_login_form(page_state.components):
         # Found and clicked something that read like a login trigger, but
-        # still no password field - most likely a multi-step flow (an
-        # OAuth/email choice screen, a second click) this precheck isn't
-        # meant to chase. Silently crawling anonymous here would look
-        # identical to "this site genuinely has no login", which it isn't.
-        print(
-            f"Found a login trigger on {url}, but no password field appeared after clicking it - "
-            f"this site's login flow needs more than one step. Run `pragma login {url}` to sign in "
-            "by hand once; every later run will reuse the cached session."
-        )
-    return None
+        # the precheck alone couldn't confirm a password field - most
+        # likely a multi-step flow (an OAuth/email choice screen, a
+        # second click). Open the browser anyway rather than guessing
+        # this site has no login at all: a human looking at it can
+        # finish whatever the precheck couldn't.
+        print(f"Found a login trigger on {url} but couldn't confirm a password field automatically "
+              "- opening a browser for you to sign in.")
+
+    await capture_login_session(url, candidate, headless=False)
+    return candidate
 
 
 async def _click_login_trigger_if_any(precheck: Crawl4AICrawler, url: str, page_state):
@@ -105,20 +111,16 @@ async def _click_login_trigger_if_any(precheck: Crawl4AICrawler, url: str, page_
         return page_state, False
 
 
-async def force_login_session(
-    url: str,
-    site: str,
-    *,
-    sessions_dir: str = "data/sessions",
-    headless: bool = False,
-) -> str:
+async def force_login_session(url: str, site: str, *, sessions_dir: str = "data/sessions") -> str:
     """Always captures a fresh session, regardless of a still-valid cached
     one - the standalone `pragma login` command's entry point. A human
     running that command by hand is explicitly asking to sign in, so it
     skips both the reuse check and the login-form precheck that
-    `ensure_login_session` uses to stay quiet on pages that don't need it.
+    `ensure_login_session` uses to stay quiet on pages that don't need
+    it, and - like every capture - always opens a real, visible browser:
+    there is no such thing as a headless interactive sign-in.
     Details: docs/dev/spiders/browser/login.md#force_login_session
     """
     candidate = session_path(site, sessions_dir)
-    await capture_login_session(url, candidate, headless=headless)
+    await capture_login_session(url, candidate, headless=False)
     return candidate

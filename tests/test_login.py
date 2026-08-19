@@ -127,26 +127,57 @@ def test_ensure_login_session_clicks_a_login_trigger_when_no_form_is_visible_yet
     assert captured.get("called")
 
 
-def test_ensure_login_session_points_at_pragma_login_when_a_trigger_leads_nowhere(
+def test_ensure_login_session_still_opens_the_browser_when_a_trigger_leads_nowhere(
     fixture_server, monkeypatch, capsys
 ):
     """A trigger that gets clicked but still surfaces no password field
-    (a multi-step flow, e.g. an OAuth/email choice screen) must not look
-    identical to "this site has no login" - it should say so and point
-    at the manual command instead of silently crawling anonymous."""
+    (a multi-step flow, e.g. an OAuth/email choice screen) must not
+    silently fall back to an anonymous crawl - a human looking at the
+    real page can finish what the precheck couldn't, so the capture
+    browser still opens, with a message explaining why."""
+    captured = {}
 
-    async def _fail_if_called(*args, **kwargs):
-        raise AssertionError("capture_login_session should not run when no form ever appears")
+    async def _fake_capture(url, save_path, *, headless=False):
+        captured["called"] = True
+        captured["headless"] = headless
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("{}")
 
-    monkeypatch.setattr("spiders.browser.login.capture_login_session", _fail_if_called)
+    monkeypatch.setattr("spiders.browser.login.capture_login_session", _fake_capture)
 
     sessions_dir = _sessions_dir()
     site = urlparse(fixture_server).netloc
     url = f"{fixture_server}/trigger_leads_nowhere.html"
-    result = asyncio.run(ensure_login_session(url, site, sessions_dir=sessions_dir))
+    result = asyncio.run(ensure_login_session(url, site, sessions_dir=sessions_dir, headless=True))
 
-    assert result is None
-    assert "pragma login" in capsys.readouterr().out
+    assert result == session_path(site, sessions_dir)
+    assert captured.get("called")
+    assert captured.get("headless") is False
+    assert "couldn't confirm a password field" in capsys.readouterr().out
+
+
+def test_ensure_login_session_never_opens_the_capture_browser_headless(fixture_server, monkeypatch):
+    """The precheck may run headless (nobody needs to see an automated DOM
+    check), but the capture step is inherently interactive - it must
+    always get headless=False regardless of what the caller passed in
+    for the precheck."""
+    captured = {}
+
+    async def _fake_capture(url, save_path, *, headless=False):
+        captured["headless"] = headless
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("{}")
+
+    monkeypatch.setattr("spiders.browser.login.capture_login_session", _fake_capture)
+
+    sessions_dir = _sessions_dir()
+    site = urlparse(fixture_server).netloc
+    url = f"{fixture_server}/gated.html"
+    asyncio.run(ensure_login_session(url, site, sessions_dir=sessions_dir, headless=True))
+
+    assert captured.get("headless") is False
 
 
 def test_force_login_session_recaptures_even_with_a_valid_cached_session(fixture_server, monkeypatch):
