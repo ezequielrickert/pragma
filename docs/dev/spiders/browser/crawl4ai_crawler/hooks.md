@@ -67,6 +67,28 @@ unlike crawl4ai's own `exclude_external_images` - see
 `docs/dev/spiders/browser/crawl4ai_crawler/config.md`'s `block_images`
 entry for why that flag doesn't touch the network layer at all.
 
+## _mutating_methods
+
+`{"POST", "PUT", "PATCH", "DELETE"}` - the HTTP methods `immutable` mode
+intercepts. `GET` is deliberately excluded: a GET that turns out to mutate
+despite the safe verb is a separate heuristic decision (see [Implement
+GET-mutation heuristic detection](https://github.com/ezequielrickert/pragma/issues/61)),
+not something this blanket-by-method gate can or should catch.
+
+## _mode_gate_fulfill_body
+
+`"{}"` - the synthetic response body every intercepted mutating request
+gets back in `immutable` mode, paired with `status=200`. Decided by
+[Prototype the synthetic fulfill() response](https://github.com/ezequielrickert/pragma/issues/57):
+empirically, against real client-side response-handling patterns, `{}`
+is still valid JSON (so a caller's `response.json()` never throws) and
+`200` reads as an ordinary success (so `response.ok` checks pass) -
+whatever field a caller reads back out of the body just comes back
+`undefined`, an accepted v1 trade-off rather than a bug. `204 No Content`
+was tried and rejected as the generic shape in that same ticket: an empty
+body makes `response.json()` throw, tripping exactly the visible-error-
+state outcome the mode-gate exists to avoid.
+
 ## HookHandlers
 
 Owns the `session_id -> extraction dict` stash and every crawl4ai hook
@@ -107,10 +129,18 @@ awaiting of its own, just formatting + a synchronous file write via
 
 Registered unconditionally by `Crawl4AICrawler.__aenter__` (see
 `docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#__aenter__-single-slot-hooks`)
-- installs `block_images`'s route handler when enabled, and folds in the
+- installs `_route_gate` (see below) as the page's single `page.route`
+handler, always, regardless of `block_images`/`mode`, and folds in the
 same log-only behavior `log_only_hook` would otherwise provide for this
 hook when `debug_log` is set (crawl4ai allows only one callback per hook
 name).
+
+Always installing the same one handler - rather than installing (or not)
+per-feature handlers depending on which of `block_images`/`mode` happen to
+be set - is deliberate: Playwright only reliably chains one active router
+per pattern scope, so media blocking and the mode-gate can never be two
+competing `page.route("**/*", ...)` calls, even though only one of them
+might actually be doing anything on a given run.
 
 Fires on *every* `arun()` call for a session, not just when a new page is
 actually created (confirmed by reading `async_crawler_strategy.py`: this
@@ -121,6 +151,25 @@ the same "don't double-inject" pattern crawl4ai's own
 navigator-overrider/shadow-DOM hooks already use on `context`, to avoid
 stacking a duplicate `page.route()` handler on every single interaction
 against an already-routed, reused page.
+
+## _route_gate
+
+The one `page.route("**/*", ...)` handler this crawler installs, composing
+every per-request policy in priority order: media blocking first (`_is_blocked_media_request`
+- an outright network-cost cut, independent of `mode`), then the
+`immutable`-mode mutation gate (`_is_blocked_mutation`). A blocked mutation
+gets `route.fulfill(status=200, ...)` with `_mode_gate_fulfill_body`
+(above) instead of `route.abort()` - the request must read as a normal
+*success* to the page's own JS, not a network failure, so the crawl keeps
+interacting with the rest of the page instead of the page falling into
+whatever error-handling path a failed fetch triggers.
+
+The two checks stay separate methods (`_is_blocked_media_request`/
+`_is_blocked_mutation`) rather than one combined boolean expression inside
+`_route_gate` itself - they serve genuinely different purposes (bandwidth
+vs. safety) and were decided by different tickets, so keeping them
+independently readable and independently testable outweighs the couple of
+lines saved by inlining.
 
 ## on_page_context_created-timeout
 

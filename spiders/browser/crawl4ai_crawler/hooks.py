@@ -17,6 +17,22 @@ from .config import Crawl4AICrawlerConfig
 # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_blocked_resource_types
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
+# HTTP methods immutable mode intercepts and fulfills synthetically instead
+# of letting reach the server. GET is deliberately excluded here - a GET
+# that turns out to mutate despite the safe verb is a separate, heuristic
+# decision (issue #61), not a blanket-method one.
+# Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_mutating_methods
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# The synthetic response an intercepted mutating request gets back in
+# immutable mode - decided by "Prototype the synthetic fulfill() response"
+# (issue #57): `{}` is valid JSON (so a caller's `response.json()` never
+# throws) and `200` reads as an ordinary success (so `response.ok` checks
+# pass), at the cost of any field a caller reads back from the body coming
+# back `undefined` - an accepted v1 trade-off, not a bug.
+# Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_mode_gate_fulfill_body
+_MODE_GATE_FULFILL_BODY = "{}"
+
 # Hands a click/fill's own success/failure back to Python.
 # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_action_mark
 _ACTION_MARK = "window.__pragma_last_action__"
@@ -37,6 +53,7 @@ class HookHandlers:
         )
         self.debug_log = config.debug_log
         self.block_images = config.block_images
+        self.mode = config.mode
         self.interaction_timeout_seconds = config.interaction_timeout_seconds
         # session_id -> extraction dict, populated by whichever hook last ran.
         # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_stash
@@ -61,14 +78,17 @@ class HookHandlers:
         return hook
 
     async def on_page_context_created(self, page, context, config, **kwargs):
-        """Installs block_images's route handler; fires on every `arun()` call.
+        """Installs the combined per-request route handler; fires on every
+        `arun()` call. Always installed, regardless of `block_images`/`mode`
+        - `_route_gate` is a no-op pass-through when both are off, but it's
+        one handler either way: Playwright only reliably chains one active
+        router per pattern scope, so media-blocking and the mode-gate can't
+        be two competing `page.route("**/*", ...)` calls.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#on_page_context_created
         """
-        if self.block_images and not getattr(
-            page, "_pragma_image_block_installed", False
-        ):
-            await page.route("**/*", self._maybe_abort_media_request)
-            page._pragma_image_block_installed = True
+        if not getattr(page, "_pragma_route_gate_installed", False):
+            await page.route("**/*", self._route_gate)
+            page._pragma_route_gate_installed = True
         if self.interaction_timeout_seconds is not None:
             # Changes Playwright's own no-explicit-timeout fallback.
             # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#on_page_context_created-timeout
@@ -81,11 +101,27 @@ class HookHandlers:
             )
         return page
 
-    async def _maybe_abort_media_request(self, route) -> None:
-        if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+    async def _route_gate(self, route) -> None:
+        """The one `page.route("**/*", ...)` handler this crawler installs,
+        composing every per-request policy in priority order: media
+        blocking first (an outright network-cost cut, independent of
+        mode), then the immutable-mode mutation gate.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_route_gate
+        """
+        if self._is_blocked_media_request(route):
             await route.abort()
+        elif self._is_blocked_mutation(route):
+            await route.fulfill(
+                status=200, content_type="application/json", body=_MODE_GATE_FULFILL_BODY
+            )
         else:
             await route.continue_()
+
+    def _is_blocked_media_request(self, route) -> bool:
+        return self.block_images and route.request.resource_type in _BLOCKED_RESOURCE_TYPES
+
+    def _is_blocked_mutation(self, route) -> bool:
+        return self.mode == "immutable" and route.request.method in _MUTATING_METHODS
 
     async def _retry_empty_extraction(self, page, data: Dict[str, Any]) -> Dict[str, Any]:
         """Look again when discovery found nothing on a page that clearly has something.
