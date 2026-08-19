@@ -77,6 +77,8 @@ aimed at onboarding rather than a specific line of code.
 | `database/memory_graph_store.py` | [memory_graph_store.md](database/memory_graph_store.md) |
 | `generators/architecture_map.py` | [architecture_map.md](generators/architecture_map.md) |
 | `generators/component_classifier.py` | [component_classifier.md](generators/component_classifier.md) |
+| `generators/color_space.py` | [color_space.md](generators/color_space.md) |
+| `generators/design_tokens.py` | [design_tokens.md](generators/design_tokens.md) |
 | `generators/component_tree.py` | [component_tree.md](generators/component_tree.md) |
 | `generators/graph_export.py` | [graph_export.md](generators/graph_export.md) |
 | `generators/graph_prd_synthesizer.py` | [graph_prd_synthesizer.md](generators/graph_prd_synthesizer.md) |
