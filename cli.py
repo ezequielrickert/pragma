@@ -4,8 +4,10 @@ Command-line interface for Pragma.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import pathlib
 import sys
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -21,6 +23,7 @@ from core import prompts
 from core.app import run_app
 from core.config import PragmaConfig
 from core.engine import Engine, EngineRunResult
+from spiders.browser.login import force_login_session
 
 
 def _print_documents(result: EngineRunResult) -> None:
@@ -190,13 +193,48 @@ def _apply_budget_flags(config: PragmaConfig, args: argparse.Namespace) -> None:
         config.crawl_budget["minutes"] = args.budget_minutes
 
 
+def _parse_login_args(argv: list) -> argparse.Namespace:
+    """Parse `pragma login <url>` - its own small parser rather than a case
+    in `parse_args`, since it takes none of a crawl run's flags (budgets,
+    output dir, agent/graph-store wiring) and adding it there would make
+    every one of those look like it applies here too.
+    Details: docs/dev/cli.md#_parse_login_args
+    """
+    parser = argparse.ArgumentParser(
+        prog="cli.py login",
+        description="Open a headed browser, sign in by hand, and cache the session for reuse.",
+    )
+    parser.add_argument("url", help="URL of the site to log into")
+    parser.add_argument("--headless", action="store_true", help="Run the login browser headless")
+    return parser.parse_args(argv)
+
+
+def run_login_command(argv: list) -> None:
+    """`pragma login <url>`: always captures a fresh session, since running
+    this command by hand is itself the explicit request to sign in.
+    Details: docs/dev/cli.md#run_login_command
+    """
+    args = _parse_login_args(argv)
+    site = urlparse(args.url).netloc
+    try:
+        path = asyncio.run(force_login_session(args.url, site, headless=args.headless))
+        print(f"Session for {site} saved to {path}")
+    except Exception as exc:
+        print(f"Critical error during login: {exc}")
+        sys.exit(1)
+
+
 def main() -> None:
-    """Bare invocation launches the menu app; `config` jumps to the wizard; flags run directly.
+    """Bare invocation launches the menu app; `config` jumps to the wizard;
+    `login` captures a session; flags run directly.
     Details: docs/dev/cli.md#main
     """
     argv = sys.argv[1:]
     if argv and argv[0] == "config":
         run_config_wizard()
+        return
+    if argv and argv[0] == "login":
+        run_login_command(argv[1:])
         return
 
     if not argv:

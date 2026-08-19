@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Gated page</title></head>
+<body>
+  <h1>Sign in</h1>
+  <p>
+    This area is only available to members. Enter your email and
+    password below to continue - the password field here is what the
+    login-orchestration tests expect the precheck to detect and react to
+    by triggering a session capture before any further crawling happens.
+  </p>
+  <form method="post" action="/login" onsubmit="return false;">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="text">
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password">
+    <button type="submit">Log in</button>
+  </form>
+</body>
+</html>
