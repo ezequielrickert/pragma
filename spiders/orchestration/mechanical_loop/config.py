@@ -84,3 +84,20 @@ class MechanicalCrawlerConfig:
     # stronger request than "scout then interact in one process".
     # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only
     scout_only: bool = False
+    # When True, crawl_site() skips discovery entirely and runs only
+    # PageVisitor.interact() over whatever a previous, separate run already
+    # left "Scouted" (`get_scouted()`) - the mode `pragma dynamic` runs
+    # under when it's resuming a prior `pragma static` run instead of
+    # rediscovering the site itself. Unlike `two_phase_crawl`, `start_url`
+    # itself is never enqueued for scouting here - there is nothing to
+    # scout in this process, only to interact with.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#interact_only
+    interact_only: bool = False
+    # `analysis/family_sampling.py::FamilySampler`, or `None` to interact
+    # with every eligible component as usual. Consulted by `PageVisitor`
+    # once per component, before any click/fill - the mechanism
+    # `pragma dynamic` uses to skip components already known (via
+    # `pragma cluster`'s output) to belong to a repeating family once
+    # enough instances of that family have already been sampled.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#family_sampler
+    family_sampler: Optional[Any] = None

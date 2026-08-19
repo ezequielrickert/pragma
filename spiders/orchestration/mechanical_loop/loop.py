@@ -39,6 +39,9 @@ class MechanicalCrawler:
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_two_phase_crawl
         self._two_phase_crawl = config.two_phase_crawl
         self._scout_only = config.scout_only
+        # See MechanicalCrawlerConfig.interact_only for the full rationale.
+        # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_interact_only
+        self._interact_only = config.interact_only
         # A sink almost always implies its matching GraphStore tracker.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#tracker-default
         if tracker is not None:
@@ -155,6 +158,10 @@ class MechanicalCrawler:
         completion first, then rebuilds the frontier from every page it
         left `"Scouted"` and runs a full interact sweep in this same
         process - see `MechanicalCrawlerConfig.two_phase_crawl` for why.
+        Under `interact_only`, skips discovery in this process entirely and
+        runs only the interact sweep, over whatever an earlier, separate
+        `scout_only` run already left `"Scouted"` - see
+        `MechanicalCrawlerConfig.interact_only`.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
         """
         if self._frontier.base_url is None:
@@ -163,6 +170,15 @@ class MechanicalCrawler:
         # priming afterwards would let already-sampled shapes back in.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-prime
         self._frontier.prime_route_shape_visits(self._finished_route_shapes())
+        if self._interact_only:
+            # No discovery in this process at all: `start_url` itself is
+            # never enqueued, only whatever a previous, separate run left
+            # "Scouted" - see MechanicalCrawlerConfig.interact_only.
+            # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site-interact_only
+            for url in self._scouted_urls():
+                self._frontier.enqueue_scouted(url)
+            await self._run_sweep(self._page_visitor.interact, count_as_finished=True)
+            return self.page_results
         self._frontier.enqueue(start_url)
         # After start_url, so the entry point is always visited first.
         # `enqueue` re-applies scope, dedup and the route-shape cap, so a

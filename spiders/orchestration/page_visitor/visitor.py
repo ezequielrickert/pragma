@@ -60,6 +60,11 @@ class PageVisitor:
         self.sink: Optional["GraphStoreSink"] = config.sink
         self.fill_value_fn = config.fill_value_fn
         self.state_transition_overlap_threshold = config.state_transition_overlap_threshold
+        # `analysis/family_sampling.py::FamilySampler`, or `None` to
+        # interact with every eligible component as usual - see
+        # MechanicalCrawlerConfig.family_sampler.
+        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_family_sampler
+        self._family_sampler = config.family_sampler
         self.errors: List[ComponentInteraction] = []
         # Collaborators - see each module's own docstring for why it's
         # split out. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#__init__-collaborators
@@ -284,6 +289,16 @@ class PageVisitor:
                 continue  # revealed again by an earlier interaction this pass, already handled
 
             fillable = is_fillable(component)
+
+            if self._family_sampler and not self._family_sampler.should_interact(page_key, component):
+                # Already sampled enough of this repeating family - see
+                # FamilySampler.should_interact, which does its own logging.
+                # Marked interacted the same as a real click/fill so this
+                # pass never reconsiders it.
+                # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-family-sampling-skip
+                self.tracker.mark_interacted(page_key, path)
+                self._frontier.mark_interacted_identity(page_key, component)
+                continue
 
             if not fillable:
                 # A real <a href> whose destination is already knowable
