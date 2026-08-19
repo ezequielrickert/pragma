@@ -113,3 +113,19 @@ def test_immutable_mode_still_serves_ordinary_get_requests(mutation_tracking_fix
 
     assert any(method == "GET" and path.endswith("mutation_response_handling.html")
                for method, path in requests_seen)
+
+
+def test_immutable_mode_blocks_mutating_get_requests(mutation_tracking_fixture_server):
+    base_url, requests_seen = mutation_tracking_fixture_server
+
+    async def _fetch_mutating_get(mode: str) -> None:
+        url = f"{base_url}/mutation_response_handling.html"
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, mode=mode)) as crawler:
+            await crawler.discover_page(url, session_id="s")
+            await crawler.discover_page(f"{base_url}/api/items/42/delete", session_id="s")
+
+    asyncio.run(_fetch_mutating_get("immutable"))
+
+    get_mutations = [path for method, path in requests_seen if method == "GET" and "delete" in path]
+    assert get_mutations == []
+
