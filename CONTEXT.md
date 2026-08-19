@@ -81,6 +81,12 @@ has no instrumentation for it yet (e.g. `coverage.roles`, `coverage.blockers`). 
 dropped field: reserved means "the shape is locked so later documents can reference it now," dropped
 means "no plan exists yet, don't pretend otherwise." See `docs/adr/0001-coverage-schema-scope.md`.
 
+**The graph**:
+The live property-graph store (`database/ladybug/`, backed by Kùzu) that every crawl writes into
+and every generator reads from. Distinct from `export`: the graph is queried directly (e.g. for
+FU-3 module-exclusion logic); `export` is a JSON-LD snapshot of it, generated once per run for
+portability, not a second query engine.
+
 **New-document wave**:
 The 15 documents proposed by the format audit that don't exist in the
 pipeline at all yet (`evidence-log`, `asyncapi`, `change-log`, `glossary`,
