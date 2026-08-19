@@ -18,8 +18,8 @@ their own collaborators, see
 **Update - split into `visit`/`scout`/`interact`, sharing internals**:
 originally one method (`visit`) did discovery, sink bookkeeping, and the
 interaction drain in a single fused pass - the only shape a crawl ever
-needed. `MechanicalCrawlerConfig.two_phase_crawl`
-(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+needed. `MechanicalCrawlerConfig.scout_only`/`interact_only`
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`)
 added two more: `scout()` (discovery + bookkeeping only, never
 interacts) and `interact()` (re-navigates, then interacts, skipping the
 bookkeeping `scout()` already did for that page). All three now compose
@@ -143,14 +143,14 @@ split, just usable from three call sites instead of one inlined
 
 The six sink writes a fresh `discover_page()` pass owes the graph store
 (page arrival, inventory, text content, state styles, network, metadata)
-- shared by `visit()` (fused path) and `scout()` (phase 1 of
-`two_phase_crawl`).
-`interact()` (phase 2) deliberately never calls this: `scout()` already
-wrote it for every page `interact()` runs against, and re-writing it
-would repeat real work (`record_inventory`'s component-family/choice-set
-grouping is not cheap) for no new information - the destination-specific
-part of a `two_phase_crawl` run's savings, see
-`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`.
+- shared by `visit()` (fused path) and `scout()` (`pragma static`'s own
+`scout_only` mode). `interact()` deliberately never calls this: `scout()`
+already wrote it for every page `interact()` runs against, and
+re-writing it would repeat real work (`record_inventory`'s
+component-family/choice-set grouping is not cheap) for no new
+information - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#interact_only`
+for the full accounting of what `interact_only` saves.
 
 ## _new_result
 
@@ -182,7 +182,7 @@ invisible to it.
 
 ## scout
 
-Phase 1 of a `two_phase_crawl` run (or the whole of a `scout_only` run -
+`pragma static`'s own crawl mode (`MechanicalCrawlerConfig.scout_only` -
 see `docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`):
 `discover_page()` + the six sink writes (`_record_discovery`) + link
 discovery (`enqueue_links`) only -
@@ -195,34 +195,36 @@ distinct from `"Pending"` (not yet touched at all) and `"Finished"`
 
 ## interact
 
-Phase 2 of a `two_phase_crawl` run: re-navigates (`discover_page()`
-again) straight into `_drain_interaction_frontier` - deliberately skips
+`pragma dynamic`'s own resume mode (`MechanicalCrawlerConfig.
+interact_only`), run against a page an earlier, separate `scout()` pass
+already left `"Scouted"`: re-navigates (`discover_page()` again) straight
+into `_drain_interaction_frontier` - deliberately skips
 `_record_discovery` and `enqueue_links`, since `scout()` already did
 both for this page.
 
 The re-navigation itself is not optional, even though it's the literal
-cost this whole feature exists to reduce elsewhere: the browser tab
-necessarily moved on to other pages during phase 1's scout sweep, and
-per
+cost this whole mode exists to reduce elsewhere: the browser tab
+necessarily moved on to other pages since that earlier `scout()` pass,
+and per
 `docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
 a component's own path/selector churns across separate `discover_page()`
-reloads on real sites - a phase-1-cached component snapshot cannot
-reliably drive a live click in phase 2. What `interact()` actually saves
-is everything *besides* the navigation itself - see `_record_discovery`
-above and
-`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+reloads on real sites - a component snapshot cached from that earlier
+pass cannot reliably drive a live click here. What `interact()` actually
+saves is everything *besides* the navigation itself - see
+`_record_discovery` above and
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#interact_only`
 for the full accounting.
 
 ## visit
 
 Visit `url`, record its discovery, and mechanically interact with its
-frontier - the fused scout+interact pass every crawl used before
-`two_phase_crawl` existed, and still the default
-(`MechanicalCrawlerConfig.two_phase_crawl` defaults to `False`). Now a
-thin composition of `_discover_or_fail`, `_derive_page_identity`,
-`_record_discovery`, and `_drain_interaction_frontier`, in that order -
-see `## module` above for why the split happened and why this call
-sequence is unchanged from before it.
+frontier - the fused scout+interact pass every crawl uses by default,
+unless `scout_only`/`interact_only` split it into two separate passes
+instead. Now a thin composition of `_discover_or_fail`,
+`_derive_page_identity`, `_record_discovery`, and
+`_drain_interaction_frontier`, in that order - see `## module` above for
+why the split happened and why this call sequence is unchanged from
+before it.
 
 `session_id` names the physical browser tab crawl4ai should navigate;
 defaults to `url` (a throwaway tab, one per call) so a bare `visit(url)`

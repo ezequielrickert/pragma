@@ -107,7 +107,6 @@ class Engine:
         navigation_watchdog_seconds: float = 60.0,
         session_cleanup_timeout_seconds: float = 10.0,
         prefetch: bool = False,
-        two_phase_crawl: bool = False,
         block_images: bool = True,
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
@@ -132,8 +131,6 @@ class Engine:
         self.navigation_watchdog_seconds = navigation_watchdog_seconds
         self.session_cleanup_timeout_seconds = session_cleanup_timeout_seconds
         self.prefetch = prefetch
-        # See MechanicalCrawlerConfig.two_phase_crawl for what this changes.
-        self.two_phase_crawl = two_phase_crawl
         self.block_images = block_images
         self.interaction_timeout_seconds = interaction_timeout_seconds
         # Scope boundary for MechanicalCrawler's URL frontier.
@@ -198,7 +195,6 @@ class Engine:
             navigation_watchdog_seconds=config.navigation_watchdog_seconds,
             session_cleanup_timeout_seconds=config.session_cleanup_timeout_seconds,
             prefetch=config.prefetch,
-            two_phase_crawl=config.two_phase_crawl,
             block_images=config.block_images,
             allow_subdomains=config.allow_subdomains,
             debug_logs_keep_last=config.debug_logs_keep_last,
@@ -263,7 +259,6 @@ class Engine:
                     page_concurrency=self.page_concurrency,
                     base_url=url,
                     allow_subdomains=self.allow_subdomains,
-                    two_phase_crawl=self.two_phase_crawl,
                 ),
             )
             await mechanical.crawl_site(url)

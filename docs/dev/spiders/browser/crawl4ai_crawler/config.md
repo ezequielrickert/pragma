@@ -167,8 +167,8 @@ clock once a navigation has actually started, so anything stuck *before*
 that (a browser/session-management lock inside crawl4ai itself, for
 example) is invisible to it entirely.
 
-Confirmed live on austral.edu.ar: a `two_phase_crawl` scout sweep
-(`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`)
+Confirmed live on austral.edu.ar: a scout-only sweep
+(`docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`)
 deadlocked for 12+ minutes with `page_timeout_seconds` in effect the
 whole time. A `py-spy dump` of the live process proved none of the
 workers had even reached a graph-store write yet - the `ladybug-writer`
@@ -200,7 +200,7 @@ best-effort session-cleanup attempt that goes with it.
 Bounds `Crawl4AICrawler.close_session`'s own call into crawl4ai's
 `kill_session` - a **second, distinct** deadlock site from the one
 `navigation_watchdog_seconds` above guards, found the same way: a
-`two_phase_crawl` scout sweep froze again, for 5+ minutes, well past
+scout-only sweep froze again, for 5+ minutes, well past
 `navigation_watchdog_seconds`'s own 60s bound with no recovery. A live
 `py-spy dump` proved the stall wasn't in `arun()` or the graph-store
 writer - both were completely idle. The remaining, previously-unguarded

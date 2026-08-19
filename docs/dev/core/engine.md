@@ -49,15 +49,6 @@ separately-confirmed deadlock site (periodic session recycling via
 `close_session`, not navigation) - see
 `docs/dev/core/config.md#session_cleanup_timeout_seconds`.
 
-## __init__-two_phase_crawl
-
-Passed straight through to `MechanicalCrawlerConfig.two_phase_crawl` -
-see `PragmaConfig`'s own `two_phase_crawl` entry
-(`docs/dev/core/config.md#two_phase_crawl`) and
-`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
-for what it actually changes. `Engine` itself makes no decision about
-it - just wiring, same as every other `MechanicalCrawlerConfig` field
-threaded through here.
 
 ## __init__-allow_subdomains
 

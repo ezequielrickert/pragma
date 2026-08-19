@@ -34,12 +34,14 @@ EXTERNAL_PAGE_STATUS = "External"
 # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status
 FAILED_PAGE_STATUS = "Failed"
 
-# Status for a page whose scout()-only pass (phase 1 of a two_phase_crawl
-# run) has finished discovery + sink bookkeeping but not yet interaction.
-# Distinct from "Pending" (still owed a first pass of any kind) and
-# "Finished" (interact()'s own trailing record_page_finished call
-# overwrites this once phase 2 actually runs the page's interaction
-# frontier). is_visited() deliberately does not treat this as concluded.
+# Status for a page whose scout()-only pass (pragma static's own
+# scout_only mode) has finished discovery + sink bookkeeping but not yet
+# interaction. Distinct from "Pending" (still owed a first pass of any
+# kind) and "Finished" (interact()'s own trailing record_page_finished
+# call overwrites this once a later, separate interact_only pass -
+# pragma dynamic's own resume mode - actually runs the page's
+# interaction frontier). is_visited() deliberately does not treat this
+# as concluded.
 # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#scouted_page_status
 SCOUTED_PAGE_STATUS = "Scouted"
 

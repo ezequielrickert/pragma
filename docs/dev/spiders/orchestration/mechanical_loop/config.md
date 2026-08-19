@@ -47,17 +47,15 @@ graph-store module uses) instead of a long constructor argument list.
 - `session_recycle_after`/`memory_ceiling_percent`/`min_page_concurrency`/
   `concurrency_taper_start_ratio`/`concurrency_taper_end_ratio`: see their
   own sections below.
-- `two_phase_crawl`: see its own section below.
+- `scout_only`/`interact_only`: see their own sections below.
 
-## two_phase_crawl
+## scout_only
 
-When `True`, `crawl_site()` runs two fully separate site-wide sweeps
-instead of `PageVisitor.visit()`'s usual fused scout+interact pass per
-page: first drains the whole frontier calling only `PageVisitor.scout()`
-(`discover_page()` + the sink bookkeeping + link discovery, never a
-click/fill), then queries the graph store for every page `scout()` left
-`"Scouted"` and drains a fresh pass over exactly those pages calling
-`PageVisitor.interact()`.
+When `True`, `crawl_site()` runs the scout sweep alone and returns - no
+interact phase, in this process or any later one triggered by it. Pages
+land in the graph store `"Scouted"`, so a later, separate `pragma
+dynamic` invocation can pick them up via `get_scouted()`. This is
+`pragma static`'s own crawl mode (`core/static_engine.py::StaticEngine`).
 
 Motivated by a user request to scout a site cheaply first (full
 component/link/text extraction, zero clicking) before committing to the
@@ -69,49 +67,10 @@ markdown-generation pipeline - this project's actual component/link/text
 extraction runs earlier, in `before_retrieve_html`/`on_execution_ended`
 (`docs/dev/spiders/browser/crawl4ai_crawler/hooks.md`), unaffected by
 that flag either way. `discover_page()` was already exactly the cheap
-scout fetch wanted; it just wasn't exposed as its own phase.
-
-`interact()` still has to call `discover_page()` a second time - the
-browser tab necessarily moved off every page during the scout sweep, and
-per `docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
-a component's own path/selector churns across separate `discover_page()`
-reloads, so a phase-1-cached component can't drive a live click in phase
-2. The real saving `interact()` captures instead: it skips the six sink
-bookkeeping writes (`record_page_arrival`/`record_inventory`/
-`record_text_content`/`record_state_styles`/`record_page_network`/
-`record_page_metadata` - the last of which does real work, component-
-family/choice-set grouping) and the `enqueue_links` walk, since
-`scout()` already did both for every page `interact()` runs against.
-
-`False` (the default) reproduces today's single fused-pass behavior
-exactly, unchanged - `PageVisitor.visit()`'s own call sequence never
-differs based on this flag.
-
-Not named `prefetch` - that name is already
-`Crawl4AICrawlerConfig.prefetch`, the unrelated crawl4ai
-markdown-pipeline flag discussed above, and reusing it here for a wholly
+scout fetch wanted; it just wasn't exposed as its own mode. Not named
+`prefetch` itself - that name is already `Crawl4AICrawlerConfig.prefetch`,
+the unrelated flag discussed above, and reusing it here for a wholly
 different mechanism would be actively misleading.
-
-Known, accepted limitation: a `two_phase_crawl=True` run interrupted
-mid-sweep does not resume cleanly today - `loop.md#_resume_urls`/
-`_finished_route_shapes` only read `Pending`/`Finished` status, so a
-resumed run won't re-prime route-shape counts for `Scouted`-but-not-yet-
-interacted pages, and has no "pick up phase 2 where it left off" path.
-
-## scout_only
-
-When `True`, `crawl_site()` runs the scout sweep alone and returns - no
-interact phase, in this process or any later one triggered by it. Pages
-land in the graph store `"Scouted"`, the exact status `two_phase_crawl`'s
-own phase 1 leaves them in, so a later, separate `pragma dynamic`
-invocation can pick them up via `get_scouted()` the same way
-`two_phase_crawl`'s phase 2 does today. This is `pragma static`'s own
-crawl mode (`core/static_engine.py::StaticEngine`) - a standalone
-CLI command's crawl, not a phase of a fused in-process run, which is
-what makes it a different flag from `two_phase_crawl` rather than a
-reuse of it. Takes priority over `two_phase_crawl` if both are set,
-since "stop after scouting" is a stronger request than "scout then
-interact in one process".
 
 ## interact_only
 
@@ -122,13 +81,27 @@ previous, separate `scout_only` run already left `"Scouted"`
 This is `pragma dynamic`'s own resume mode
 (`core/dynamic_engine.py::DynamicEngine`) when a prior `pragma static`
 run exists for the site; `DynamicEngine` falls back to leaving this
-`False` (the ordinary fused `visit()` pass) when it doesn't. The
-counterpart to `scout_only` above, split into its own flag rather than
-reused as `two_phase_crawl`'s phase 2 for the same reason `scout_only`
-is its own flag rather than `two_phase_crawl`'s phase 1: this is a
-standalone CLI command's own crawl, run in a different process (and
-often a different session) than whatever `scout_only` run produced the
-`"Scouted"` pages it resumes.
+`False` (the ordinary fused `visit()` pass) when it doesn't.
+
+`interact()` still has to call `discover_page()` a second time - the
+browser tab necessarily moved off every page since the earlier
+`scout_only` run, and per
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
+a component's own path/selector churns across separate `discover_page()`
+reloads, so a `scout()`-cached component can't drive a live click here.
+The real saving `interact()` captures instead: it skips the six sink
+bookkeeping writes (`record_page_arrival`/`record_inventory`/
+`record_text_content`/`record_state_styles`/`record_page_network`/
+`record_page_metadata` - the last of which does real work, component-
+family/choice-set grouping) and the `enqueue_links` walk, since
+`scout()` already did both for every page `interact()` runs against.
+
+Known, accepted limitation: an `interact_only=True` run interrupted
+mid-sweep does not resume cleanly today - `loop.md#_resume_urls`/
+`_finished_route_shapes` only read `Pending`/`Finished` status, so a
+resumed run won't re-prime route-shape counts for `Scouted`-but-not-yet-
+interacted pages, and has no "pick up where interact_only left off" path
+of its own.
 
 ## family_sampler
 

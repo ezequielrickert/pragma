@@ -78,15 +78,16 @@ class UrlFrontier:
                 self.enqueue(href)
 
     def enqueue_scouted(self, url: str) -> None:
-        """Re-add a page phase 1's scout sweep already fully drained through
-        this same frontier's `_queued` dedup set - `enqueue()`'s own dedup
-        guard would silently refuse it (the whole point of `_queued` is
-        "never queue the same key twice"), so phase 2 needs its own entry
-        point that skips only that guard while keeping the scope gate.
-        Deliberately does not touch `_requeue_attempts` or
-        `_route_shape_visits` - unlike `requeue()`, this isn't a failure
-        retry, and the scouted set already respects
-        `max_visits_per_route_shape` from phase 1's own `enqueue()` gate.
+        """Re-add a page an earlier, separate `scout_only` run's own
+        frontier already fully drained through this same frontier's
+        `_queued` dedup set - `enqueue()`'s own dedup guard would silently
+        refuse it (the whole point of `_queued` is "never queue the same
+        key twice"), so `interact_only` needs its own entry point that
+        skips only that guard while keeping the scope gate. Deliberately
+        does not touch `_requeue_attempts` or `_route_shape_visits` -
+        unlike `requeue()`, this isn't a failure retry, and the scouted set
+        already respects `max_visits_per_route_shape` from that earlier
+        run's own `enqueue()` gate.
         Details: docs/dev/spiders/orchestration/mechanical_loop/frontier.md#enqueue_scouted
         """
         key = clean_url(url)

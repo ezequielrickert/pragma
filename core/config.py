@@ -71,12 +71,6 @@ class PragmaConfig:
     # once the crawl is already underway.
     # Details: docs/dev/core/config.md#login_session_max_age_hours
     login_session_max_age_hours: float = 24.0
-    # Runs MechanicalCrawler's crawl as two separate site-wide sweeps - scout
-    # (discovery only, no clicking) then interact - instead of one fused pass
-    # per page. See MechanicalCrawlerConfig.two_phase_crawl for the full
-    # rationale; False (the default) is the original single-pass behavior.
-    # Details: docs/dev/core/config.md#two_phase_crawl
-    two_phase_crawl: bool = False
     # Aborts image/media/font network requests outright; a real behavior change.
     # Details: docs/dev/core/config.md#block_images
     block_images: bool = True

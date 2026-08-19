@@ -70,8 +70,8 @@ navigation has actually started, so anything stuck *before* that point
 is invisible to it entirely. Passed straight through to
 `Crawl4AICrawlerConfig.navigation_watchdog_seconds` - see
 `docs/dev/spiders/browser/crawl4ai_crawler/config.md#navigation_watchdog_seconds`
-for the live austral.edu.ar deadlock this exists for (a `two_phase_crawl`
-scout sweep frozen for 12+ minutes with `page_timeout_seconds` in effect
+for the live austral.edu.ar deadlock this exists for (a scout-only sweep
+frozen for 12+ minutes with `page_timeout_seconds` in effect
 the whole time) and the reasoning behind the default. Explicitly a
 partial fix, not a root-cause one - see that same entry's closing note.
 
@@ -116,18 +116,6 @@ How long a captured session file stays trusted before a run re-triggers
 the headed login flow instead of crawling with a possibly-expired
 cookie nothing downstream can detect as stale once the crawl is already
 underway - see `spiders/browser/login_session.py#is_session_valid`.
-
-## two_phase_crawl
-
-Passed straight through `Engine.__init__`/`from_config` to
-`MechanicalCrawlerConfig.two_phase_crawl` - see
-`docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
-for the full rationale (crawl4ai's own `prefetch` above is a dead end
-for this purpose; this is the actual scout-then-interact mechanism).
-`False` by default, same single fused scout+interact pass per page as
-always. No dedicated `cli.py` flag - set via YAML only, same as
-`prefetch` above; add `two_phase_crawl: true` to `pragma.yaml` to turn
-it on.
 
 ## block_images
 
