@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/export.schema.json",
+  "title": "Graph export",
+  "description": "A JSON-LD snapshot of the crawl's live Kùzu graph, for portability and interop (EARL, etc.) — Kùzu itself remains the query engine, this is not a second one. See docs/adr/0002-export-graph-vocabulary.md for the populated-vs-reserved node/edge split.",
+  "type": "object",
+  "required": ["@context", "run_id", "generated_at", "@graph"],
+  "properties": {
+    "@context": {
+      "const": "./export.context.jsonld"
+    },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "@graph": {
+      "type": "array",
+      "description": "Node types populated from real Kùzu queries today: Pantalla, Componente, Endpoint. Reserved (present in the vocabulary, absent from @graph until their source ticket resolves): Modulo (#72), Entidad (#73), Requisito (#74), Escenario (#77), Hallazgo (#75/#76), Token (#69), Flujo/Estado (#78).",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": {
+            "enum": ["Pantalla", "Componente", "Endpoint", "Modulo", "Entidad", "Requisito", "Escenario", "Hallazgo", "Token", "Flujo", "Estado"]
+          },
+          "label": { "type": "string" },
+          "contiene": { "type": "array", "items": { "type": "string" } },
+          "navega_a": { "type": "array", "items": { "type": "string" } },
+          "dispara": { "type": "array", "items": { "type": "string" } },
+          "consume": { "type": "array", "items": { "type": "string" } },
+          "implementa": { "type": "array", "items": { "type": "string" } },
+          "viola": { "type": "array", "items": { "type": "string" } },
+          "deriva_de": { "type": "array", "items": { "type": "string" } },
+          "depende_de": { "type": "array", "items": { "type": "string" } },
+          "usa_token": { "type": "array", "items": { "type": "string" } },
+          "cubre": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

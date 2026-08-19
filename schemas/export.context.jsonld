@@ -1,0 +1,33 @@
+{
+  "$version": "v1",
+  "@context": {
+    "@vocab": "https://pragma.local/vocab/v1#",
+    "id": "@id",
+    "type": "@type",
+
+    "Pantalla": "Pantalla",
+    "Componente": "Componente",
+    "Endpoint": "Endpoint",
+    "Modulo": "Modulo",
+    "Entidad": "Entidad",
+    "Requisito": "Requisito",
+    "Escenario": "Escenario",
+    "Hallazgo": "Hallazgo",
+    "Token": "Token",
+    "Flujo": "Flujo",
+    "Estado": "Estado",
+
+    "contiene": { "@id": "contiene", "@type": "@id" },
+    "navega_a": { "@id": "navega_a", "@type": "@id" },
+    "dispara": { "@id": "dispara", "@type": "@id" },
+    "consume": { "@id": "consume", "@type": "@id" },
+    "implementa": { "@id": "implementa", "@type": "@id" },
+    "viola": { "@id": "viola", "@type": "@id" },
+    "deriva_de": { "@id": "deriva_de", "@type": "@id" },
+    "depende_de": { "@id": "depende_de", "@type": "@id" },
+    "usa_token": { "@id": "usa_token", "@type": "@id" },
+    "cubre": { "@id": "cubre", "@type": "@id" },
+
+    "label": "http://www.w3.org/2000/01/rdf-schema#label"
+  }
+}
