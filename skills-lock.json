@@ -42,6 +42,12 @@
       "sourceType": "github",
       "skillPath": "skills/python/python-clean-code/SKILL.md",
       "computedHash": "4c8507421003a5eaf641095e007b9b172ceae173b1424f522e4c51c7bf0c9990"
+    },
+    "wayfinder": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/wayfinder/SKILL.md",
+      "computedHash": "f53b17850d8d4d68e8b861cfc7de69580335851d7fe7bc3acdf37505f46c9940"
     }
   }
 }
