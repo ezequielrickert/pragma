@@ -26,10 +26,12 @@ from .data_contracts import (  # noqa: F401 - re-exported, see module docstring 
     ComponentFamily,
     InferredRequest,
     PageState,
+    SemanticEntity,
+    SemanticField,
     VisitStep,
 )
 
-# PageState/ComponentFacts/ComponentFamily/InferredRequest are re-exported
+# Every name above is re-exported
 # (imported above, not redefined) for backward compatibility with every
 # existing `from core.interfaces import ComponentFacts` (etc.) import
 # site - the plain-data-contract split moved their real definitions to

@@ -22,6 +22,7 @@ from generators.graph_prd_synthesizer import (
     _MAX_SECTIONS_PER_REDUCE,
     GraphPRDSynthesizer,
     _build_page_facts,
+    group_pages_by_module,
     _render_fact_line,
     build_mermaid_graph,
 )
@@ -330,3 +331,92 @@ def test_reduce_under_the_cap_skips_chunking_entirely():
     system_instructions = [si for _, si in agent.calls]
     assert COMBINE_SYSTEM_INSTRUCTION not in system_instructions
     assert system_instructions == [REDUCE_SYSTEM_INSTRUCTION]
+
+
+# --- sections follow the site's modules, not the batch size ---
+
+def _row(url, status="Finished", components=1):
+    return {"url": url, "status": status, "components": components}
+
+
+def _metric(url, module_id=None, module_label="", click_depth=None, articulation=False):
+    return {
+        "url": url, "module_id": module_id, "module_label": module_label,
+        "click_depth": click_depth, "is_articulation_point": articulation,
+        "in_degree": 0, "out_degree": 0, "betweenness": 0.0, "pagerank": 0.0,
+    }
+
+
+def test_pages_are_grouped_by_module_and_ordered_by_depth():
+    """Two modules, and within one of them the shallower page reads first."""
+    sections = group_pages_by_module(
+        [_row("https://x/deep"), _row("https://x/shallow"), _row("https://x/other")],
+        [
+            _metric("https://x/deep", module_id=1, module_label="shop", click_depth=3),
+            _metric("https://x/shallow", module_id=1, module_label="shop", click_depth=1),
+            _metric("https://x/other", module_id=2, module_label="admin", click_depth=0),
+        ],
+    )
+
+    assert [label for label, _ in sections] == ["admin", "shop"]
+    assert [row["url"] for row in dict(sections)["shop"]] == ["https://x/shallow", "https://x/deep"]
+
+
+def test_a_module_with_no_shared_prefix_falls_back_to_its_id():
+    """An empty module_label is a real outcome of the prefix heuristic, not a
+    failure - so it must not become a blank heading."""
+    sections = group_pages_by_module(
+        [_row("https://x/a")], [_metric("https://x/a", module_id=4, module_label="")]
+    )
+
+    assert [label for label, _ in sections] == ["Module 4"]
+
+
+def test_unassigned_pages_come_last_under_their_own_heading():
+    sections = group_pages_by_module(
+        [_row("https://x/a"), _row("https://x/loner")],
+        [_metric("https://x/a", module_id=1, module_label="zzz-last-alphabetically"),
+         _metric("https://x/loner")],
+    )
+
+    assert [label for label, _ in sections][-1] == "Pages outside any module"
+
+
+def test_a_page_unreachable_from_the_root_sorts_after_the_reachable_ones():
+    sections = group_pages_by_module(
+        [_row("https://x/orphan"), _row("https://x/deep")],
+        [_metric("https://x/orphan", module_id=1, module_label="m", click_depth=None),
+         _metric("https://x/deep", module_id=1, module_label="m", click_depth=9)],
+    )
+
+    assert [row["url"] for _, rows in sections for row in rows] == ["https://x/deep", "https://x/orphan"]
+
+
+def test_grouping_never_mutates_the_caller_rows():
+    """The rows come from get_progress_table_rows; merging metrics into them
+    in place would change what every other reader sees."""
+    rows = [_row("https://x/a")]
+    group_pages_by_module(rows, [_metric("https://x/a", module_id=1, click_depth=2)])
+
+    assert rows[0] == {"url": "https://x/a", "status": "Finished", "components": 1}
+
+
+def test_a_page_with_no_metrics_row_at_all_still_gets_a_section():
+    """A crawl whose projection never ran must still produce a document."""
+    sections = group_pages_by_module([_row("https://x/a")], [])
+
+    assert sections == [("Pages outside any module", [
+        {"click_depth": None, "is_articulation_point": False,
+         "url": "https://x/a", "status": "Finished", "components": 1},
+    ])]
+
+
+def test_structural_facts_reach_the_page_line():
+    lines = GraphPRDSynthesizer._build_page_lines(
+        [{"url": "https://x/hub", "status": "Finished", "components": 2,
+          "click_depth": 1, "is_articulation_point": True}],
+        {}, {},
+    )
+
+    assert "Reached in 1 click(s)" in lines[0]
+    assert "no alternate route around it" in lines[0]

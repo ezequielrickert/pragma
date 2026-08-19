@@ -171,3 +171,15 @@ which satisfies the settle heuristic. That is why the redirect fix alone
 only halved the failures: with `wait_seconds: 1.0`, a restart at 0.9s
 gives a deadline of ~1.9s, and the 1.6s render plus 0.4s of required quiet
 lands at ~2.0s - just outside.
+
+## _dom_change_signal_js
+
+A cheap proxy for "did the DOM change", polled by `_wait_for_new_content`
+instead of the full discovery pass - that one forces a `getComputedStyle()` per
+element and is far too expensive to run ~20x per interaction just to ask whether
+anything moved.
+
+**Node count alone is not enough**, and this is live-verified rather than
+reasoned: on a site where an interaction toggles a class (an active filter chip)
+or updates text (a results count) without adding or removing any element, node
+count sees nothing. 35 of 39 interactions on one real site were that shape.

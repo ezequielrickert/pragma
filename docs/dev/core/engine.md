@@ -123,3 +123,55 @@ branch per document.
 Added when the CLI's end-of-run listing turned out to be the last place
 still carrying one hardcoded line per output file - `coverage` and
 `master` had landed in Fase 0 and simply never appeared on screen.
+
+## _apply_graph_projection
+
+Materializes the navigation graph into `networkx` and writes per-page metrics and
+module assignments back onto each `Page`.
+
+Independent of the other whole-site passes - it reads only `get_edges`, not the
+component ledger - so it can run in any order relative to them. What it produces
+was unreadable by any document until `get_page_metrics` existed; see
+`docs/dev/database/ladybug/analysis.md`.
+
+## _apply_data_model
+
+Deduces the semantic tier's `Entity`/`Field` set from the forms the crawl found
+and writes it back with its provenance.
+
+Whole-site rather than per-page for the same reason family clustering is: the
+derivation groups components by the form they sit in, and a live per-page write
+stream cannot see a form whose inputs arrived across two visits.
+
+**No error handling of its own, deliberately.** `record_entities` raises on a
+node with no provenance, and a raise here means the derivation produced an
+unsupported assertion - a bug to fix, not a document to degrade.
+
+## known-purposes
+
+Family purposes are read **before** `record_component_families` wipes them.
+
+A family whose members did not change keeps its existing sentence rather than
+buying it again from the model. That is what keeps a site crawled in short
+resumable passes from re-narrating everything on every pass, and it is why
+`family_signature` has to be content-based - see
+`docs/dev/generators/component_family_narrator.md#family_signature`.
+
+## sink-scope
+
+The sink is constructed with the same `base_url`/`allow_subdomains` the frontier
+gates on, so a link is judged in-scope identically whether it is being queued or
+being recorded.
+
+It also needs `run_id` before the crawl starts, since writes stamp it as they
+happen - which is why that id is generated separately from the `run_timestamp`
+used later for document filenames.
+
+## stopped_reason
+
+Read before the crawler goes out of scope, because every document has to be able
+to say whether it describes a whole site or one budgeted slice of it.
+
+It reaches the documents through `DocumentRequest.settings` and ends up in the
+coverage banner, which is what makes a partial document look partial instead of
+complete.

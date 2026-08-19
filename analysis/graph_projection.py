@@ -87,6 +87,21 @@ class GraphProjectionResult:
     cycles: Tuple[Tuple[str, ...], ...]
 
 
+def module_display_name(module_id: Optional[int], module_label: str) -> str:
+    """What to call a module in a document - its label, or its id when the
+    prefix heuristic produced nothing.
+
+    An empty `module_label` is a real outcome of `_module_label` (a module
+    whose pages share no URL prefix), not a failure, so the fallback is part
+    of the naming rule rather than each reader's own guess. Public and living
+    here because this module owns what a module label is; two generators
+    derived the same fallback independently before this existed, which is one
+    edit away from a document that names the same module two ways.
+    Details: docs/dev/analysis/graph_projection.md#module_display_name
+    """
+    return module_label or f"Module {module_id}"
+
+
 def _module_label(urls: Sequence[str]) -> str:
     """A human-readable label for a module, derived from its members'
     shared URL path prefix - deterministic, no LLM. Matches

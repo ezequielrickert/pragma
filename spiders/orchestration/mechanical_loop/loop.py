@@ -269,7 +269,7 @@ class MechanicalCrawler:
                 if self.tracker.is_visited(key):
                     continue
                 if self._frontier.is_in_flight(key):
-                    continue  # duplicate dequeue - see docs/dev/.../mechanical_loop/frontier.md#in_flight
+                    continue  # duplicate dequeue - see docs/dev/spiders/orchestration/mechanical_loop/frontier.md#in_flight
                 self._frontier.mark_in_flight(key)
                 try:
                     result = await visit_fn(url, browser_session_id)

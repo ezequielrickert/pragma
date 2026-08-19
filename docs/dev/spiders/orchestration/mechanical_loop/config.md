@@ -157,3 +157,11 @@ linearly tapers from `page_concurrency` down to `min_page_concurrency` -
 below `concurrency_taper_start_ratio`, full concurrency; at/above
 `concurrency_taper_end_ratio`, the floor. See
 `worker_pacing.md#effective_concurrency` for the actual taper math.
+
+## budget
+
+What this run is allowed to do before stopping and leaving the rest `Pending`.
+
+All-unset (the default) means "until the frontier drains", which is what every
+run did before budgets existed. See
+`docs/dev/spiders/orchestration/mechanical_loop/budget.md`.

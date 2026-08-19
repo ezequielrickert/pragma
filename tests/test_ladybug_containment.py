@@ -91,3 +91,57 @@ def test_container_descriptive_fields_are_captured(store) -> None:
 
     row = _rows(store, "MATCH (n:Container) RETURN n.tag, n.role, n.landmark, n.element_id, n.css_class")
     assert row == [["nav", "navigation", "navigation", "mainNav", "top"]]
+
+
+# --- the read path: which landmark region a component sits in ---
+
+_REGION_PAGE = "https://x/shop"
+
+
+def _page_with_regions(store: LadybugGraphStore) -> None:
+    """A button inside <form> inside <main>, a search box inside a <nav>
+    that is itself inside that <main>, and a link inside no landmark."""
+    store.upsert_page(_REGION_PAGE, status="Finished")
+    store.record_components(_REGION_PAGE, [
+        {"path": "button#buy", "tag": "button", "text": "Comprar"},
+        {"path": "input#q", "tag": "input", "text": ""},
+        {"path": "a#logo", "tag": "a", "text": "Inicio"},
+    ])
+    store.record_component_ancestors(_REGION_PAGE, [
+        {"path": "button#buy", "ancestors": [
+            _ancestor("form#cart", tag="form"),
+            _ancestor("main", tag="main", landmark="main"),
+        ]},
+        {"path": "input#q", "ancestors": [
+            _ancestor("nav", tag="nav", landmark="navigation"),
+            _ancestor("main", tag="main", landmark="main"),
+        ]},
+        {"path": "a#logo", "ancestors": [_ancestor("div#wrap")]},
+    ])
+
+
+def test_get_component_regions_reports_the_nearest_landmark(store) -> None:
+    """A nav nested inside main reports navigation, not main: the inner
+    region is the one a reader would name."""
+    _page_with_regions(store)
+
+    regions = store.get_component_regions()
+
+    assert regions[_REGION_PAGE]["button#buy"] == "main"
+    assert regions[_REGION_PAGE]["input#q"] == "navigation"
+
+
+def test_get_component_regions_omits_a_component_in_no_landmark(store) -> None:
+    """Absent, not present-with-empty-string: a missing key cannot be
+    mistaken for a region genuinely named ""."""
+    _page_with_regions(store)
+
+    assert "a#logo" not in store.get_component_regions()[_REGION_PAGE]
+
+
+def test_get_component_regions_is_empty_without_recorded_ancestry(store) -> None:
+    """What a crawl from before containment capture reads back as."""
+    store.upsert_page(_REGION_PAGE, status="Finished")
+    store.record_components(_REGION_PAGE, [{"path": "button#buy", "tag": "button", "text": "x"}])
+
+    assert store.get_component_regions() == {}

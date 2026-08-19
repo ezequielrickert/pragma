@@ -152,3 +152,9 @@ Called once a run finishes (see `Engine._run_async`), after
 `await CrawlDebugLog.close()` - pruning mid-run would risk deleting the
 very directory the current run is still writing into if `keep_last` were
 ever set to something small enough to include it.
+
+## _append_entry
+
+Writes one `debug.md` entry, and runs **inside the background writer thread** -
+never on the caller's. Debug logging must not add latency to the crawl loop or
+serialize concurrent page visits behind file I/O.

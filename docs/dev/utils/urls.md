@@ -155,3 +155,9 @@ An unparseable/empty host on either side fails *open* (returns `True`)
 block a crawl that would otherwise proceed - same "a weak/absent signal
 should never trigger the riskier branch" discipline as
 `component_matching.component_overlap_ratio`.
+
+## slugify
+
+Turns a URL into a filesystem-safe slug - the one function every per-site
+filename derives from (a debug-log run directory, a generated document, a
+`.lbdb` database file), so the same URL always resolves to the same path.

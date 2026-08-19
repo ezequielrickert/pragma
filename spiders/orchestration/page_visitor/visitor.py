@@ -120,11 +120,12 @@ class PageVisitor:
             return None, self._discovery_failed(url, exc)
 
     async def _record_discovery(self, page_key: str, state: PageState) -> None:
-        """The five sink writes a fresh `discover_page()` pass owes the graph
-        store (page arrival, inventory, text content, network, metadata) -
-        shared by `visit()` (fused path) and `scout()` (phase 1).
-        `interact()` (phase 2) deliberately never calls this - phase 1
-        already wrote it for every page `interact()` will run against.
+        """The six sink writes a fresh `discover_page()` pass owes the graph
+        store (page arrival, inventory, text content, state styles,
+        network, metadata) - shared by `visit()` (fused path) and
+        `scout()` (phase 1). `interact()` (phase 2) deliberately never
+        calls this - phase 1 already wrote it for every page `interact()`
+        will run against.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_record_discovery
         """
         if not self.sink:
@@ -132,6 +133,7 @@ class PageVisitor:
         await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
         await self.sink.record_inventory(page_key, state.components, state.links)
         await self.sink.record_text_content(page_key, state.text_content)
+        await self.sink.record_state_styles(page_key, state.pseudo_styles)
         # Only here, not on the post-interaction path: those requests already
         # belong to the component that fired them.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#record_page_network
@@ -192,7 +194,7 @@ class PageVisitor:
         )
 
     async def scout(self, url: str, session_id: Optional[str] = None) -> PageVisitResult:
-        """Phase 1 of a `two_phase_crawl` run: `discover_page()` + the five
+        """Phase 1 of a `two_phase_crawl` run: `discover_page()` + the six
         sink writes + link discovery only - no interaction frontier is ever
         built or drained here, so `click()`/`fill()` are never called. Ends
         the page's graph-store status at `"Scouted"`
@@ -219,7 +221,7 @@ class PageVisitor:
         path/selector churns across separate `discover_page()` reloads, so a
         phase-1-cached component can't drive a live click here) straight
         into building and draining the interaction frontier. Deliberately
-        skips the five sink writes and `enqueue_links` - `scout()` already
+        skips the six sink writes and `enqueue_links` - `scout()` already
         did both for this page in phase 1, the whole saving this method
         exists to capture.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#interact

@@ -74,13 +74,22 @@ nothing, since this is the lowest-severity rule here.
 
 ## flow_findings
 
-The two rules that read the state machine rather than a component - dead
-ends, and controls whose outcome the flow document could not attribute.
+One rule now, `dead-end-screen`: a state the crawl reached and never left.
+The recommendation points at the coverage document on purpose - a screen with
+no observed exit and a screen whose exits were never tried look identical
+here, and acting on the second would be wrong.
 
-The dead-end recommendation explicitly tells the reader to check the
-coverage document first: a screen with no way out is either a real
-usability defect or a screen whose exits the crawl never reached, and this
-rule cannot tell those apart.
+**`unattributable-outcome` was deleted, not disabled.** It fired on
+transitions whose outcome was `"mixed"`, meaning one control led to several
+screens whose requests disagreed and there was no way to tell which request
+belonged to which move. That was true when requests were pooled onto the
+`Component`. A `Request` now hangs off its own `Interaction` with
+`visit_id`/`step_seq`, so `user_flows._request_outcome` returns only
+`OK`/`ERROR`/`UNKNOWN` and each click of one control keeps its own result.
+
+The rule described a limitation of the storage layer; the storage layer
+stopped having it. A branch that can never be taken is worse than no rule at
+all - it reads like coverage.
 
 ## build_findings
 

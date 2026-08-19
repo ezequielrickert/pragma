@@ -35,7 +35,16 @@ _CACHED_READS = (
     "get_component_families",
     "get_inferred_requests",
     "get_page_network_ledger",
+    "get_state_styles",
 )
+# Deliberately absent: `get_page_metrics`. It is a whole-site zero-argument
+# read with two callers, so it looks like it belongs here, but
+# `record_page_metrics`/`record_page_modules` write exactly what it reads -
+# the one thing this cache's own safety argument above depends on not
+# happening. It would work today purely because `_apply_graph_projection`
+# runs before any document reads it; that is an ordering accident, not an
+# invariant, and the read itself is one cheap MATCH over a page count in
+# the tens.
 
 
 class CachingGraphStore:

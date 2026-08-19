@@ -30,5 +30,6 @@ def build_page_state(result: Any, requested_url: str, data: Dict[str, Any]) -> P
         links=data.get("links", []),
         description=data.get("description", ""),
         text_content=data.get("text_content", []),
+        pseudo_styles=data.get("pseudo_styles", []),
         network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
     )

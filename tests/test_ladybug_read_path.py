@@ -305,3 +305,41 @@ def test_record_page_modules_writes_page_properties(store) -> None:
         "MATCH (p:Page {url: $url}) RETURN p.module_id, p.module_label", {"url": "https://x/a"},
     )))
     assert row == [[2, "Shop"]]
+
+
+def test_get_page_metrics_reads_metrics_and_module_in_one_row(store) -> None:
+    """Both writers put their values on the same Page row, so one read
+    returns them together - no join, no second query."""
+    store.upsert_page("https://x/a", status="Finished")
+    store.record_page_metrics([
+        {"url": "https://x/a", "in_degree": 1, "out_degree": 2, "click_depth": 0,
+         "betweenness": 0.5, "pagerank": 0.3, "is_articulation_point": True},
+    ])
+    store.record_page_modules([{"url": "https://x/a", "module_id": 7, "module_label": "checkout"}])
+
+    assert store.get_page_metrics() == [{
+        "url": "https://x/a", "in_degree": 1, "out_degree": 2, "click_depth": 0,
+        "betweenness": 0.5, "pagerank": 0.3, "is_articulation_point": True,
+        "module_id": 7, "module_label": "checkout",
+    }]
+
+
+def test_get_page_metrics_keeps_a_page_the_projection_never_assigned(store) -> None:
+    """A page with no module is a real answer, not a missing row: D13 has to
+    be able to tell it apart from a page that was never crawled."""
+    store.upsert_page("https://x/orphan", status="Finished")
+
+    rows = store.get_page_metrics()
+
+    assert [r["url"] for r in rows] == ["https://x/orphan"]
+    assert rows[0]["module_id"] is None
+    assert rows[0]["module_label"] == ""
+    assert rows[0]["click_depth"] is None
+
+
+def test_get_page_metrics_orders_by_url_and_is_empty_without_pages(store) -> None:
+    assert store.get_page_metrics() == []
+    store.upsert_page("https://x/b", status="Finished")
+    store.upsert_page("https://x/a", status="Finished")
+
+    assert [row["url"] for row in store.get_page_metrics()] == ["https://x/a", "https://x/b"]

@@ -166,13 +166,20 @@ def test_single_host_needs_no_per_path_servers():
 
 
 def test_the_document_states_what_it_cannot_contain():
-    """Absent security schemes are a privacy decision, not an oversight -
-    a contract that looks complete but isn't would be worse than one that
-    says so."""
+    """A contract that looks complete but isn't would be worse than one that
+    says so.
+
+    Rewritten deliberately when examples arrived: this used to assert
+    "never their values", which encoded the design where nothing captured
+    reached the document. Bodies are captured and redacted now, so the
+    honest claim changed - what stays absent is field constraints, which
+    need many values per field and would be guesses from one.
+    """
     description = _document(_request())["info"]["description"]
 
     assert "Security schemes" in description
-    assert "never their values" in description
+    assert "never what the token was" in description
+    assert "Field constraints" in description
 
 
 def test_an_empty_crawl_still_produces_a_valid_document():
@@ -186,7 +193,7 @@ def test_output_is_parseable_yaml():
     from generators.openapi import OpenAPIDocument
 
     class _Store:
-        def get_inferred_requests(self, site):
+        def get_inferred_requests(self):
             return [_request(method="POST", status_codes=(201,))]
 
     class _Request:
@@ -276,3 +283,39 @@ def test_the_preamble_no_longer_claims_security_is_absent():
 
     assert "Security schemes are named from request header names only" in description
     assert "never from a credential" in description
+
+
+# --- examples: real bodies, redacted upstream ---
+
+def test_a_request_body_example_reaches_the_operation():
+    document = _document(_request(
+        method="POST",
+        body_shape='{"item": "string"}',
+        request_example='{"item": "empanada"}',
+        status_codes=(201,),
+    ))
+
+    body = document["paths"]["/orders"]["post"]["requestBody"]["content"]["application/json"]
+    assert body["example"] == '{"item": "empanada"}'
+
+
+def test_a_response_example_lands_on_the_successful_status_only():
+    document = _document(_request(
+        method="POST",
+        response_shape='{"id": "string"}',
+        response_example='{"id": "abc"}',
+        status_codes=(201, 422),
+    ))
+
+    responses = document["paths"]["/orders"]["post"]["responses"]
+    assert responses["201"]["content"]["application/json"]["example"] == '{"id": "abc"}'
+    assert "content" not in responses["422"]
+
+
+def test_an_endpoint_with_no_captured_body_carries_no_example_key():
+    """Absent, not empty-string: an example of "" would describe an endpoint
+    that accepts an empty body."""
+    document = _document(_request(method="POST", body_shape='{"item": "string"}', status_codes=(201,)))
+
+    body = document["paths"]["/orders"]["post"]["requestBody"]["content"]["application/json"]
+    assert "example" not in body

@@ -333,3 +333,48 @@ page past `max_requeue_attempts`
 key `is_visited`/`enqueue` check) and `sink.record_page_failed(result.url)`
 (so a resumed run doesn't either) - rather than looping `requeue()`
 forever on a page that keeps tripping the same block.
+
+## _budget_exhausted
+
+Whether this run is done taking new pages, announcing the reason the first time
+it trips so the terminal says why rather than just going quiet.
+
+## _finished_route_shapes
+
+Route shapes a previous run already sampled, read from the graph and handed to
+`prime_route_shape_visits` before any enqueue.
+
+## _report_visit
+
+One line per finished visit, naming the worker - with `page_concurrency` above 1,
+interleaved progress lines from several workers are otherwise unreadable.
+
+## _resume_urls
+
+The `Pending` pages a previous run left behind. These *are* the saved progress,
+which is why `PragmaConfig.fresh` defaults to off - purging deletes them before
+this can read them.
+
+## crawl_site-prime
+
+Priming happens **before any enqueue**, because the route-shape gate runs inside
+`enqueue`: priming afterwards would let already-sampled shapes back in through
+the very calls the gate is meant to filter.
+
+## crawl_site-resume
+
+Resumed URLs are enqueued **after** `start_url`, so the entry point is always
+visited first.
+
+They go through `enqueue` rather than straight into the queue, so scope, dedup
+and the route-shape cap are re-applied - a stale or now-out-of-scope pending URL
+is filtered here rather than trusted because a previous run recorded it.
+
+## stopped_reason
+
+Set once when a budget trips, then read by every other worker to stop taking new
+pages.
+
+It is also the "was this run partial" answer the document pipeline needs
+afterwards, which is why it is read before the crawler goes out of scope - see
+`docs/dev/core/engine.md#stopped_reason`.

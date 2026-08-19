@@ -1,4 +1,4 @@
-POC: Mechanical crawl4ai crawler + embedded DuckDB storage + AI-synthesized PRD generator (Python)
+POC: Mechanical crawl4ai crawler + embedded Ladybug graph storage + AI-synthesized document set (Python)
 
 Setup:
 - pip install -r requirements.txt
@@ -19,36 +19,52 @@ Everything else - which agent/model, which graph store, output folder, headless 
 budget - comes from what you configured. Any of it can still be overridden per run with flags,
 without touching your saved config:
 - `--agent <name>` / `--provider <name>` (`local`, `mock`)
-- `--graph-store <name>` (`memory`, `duckdb`)
-- `--out`, `--element-budget`, `--max-pages`, `--headed`, `--fresh`/`--no-fresh`,
+- `--graph-store <name>` (`ladybug` for a database on disk, `memory` for one that vanishes
+  with the process - both are the same implementation, see `database/ladybug/store.py`)
+- `--out`, `--max-pages`, `--page-concurrency`, `--headed`, `--fresh`/`--no-fresh`,
   `--config <path/to/other.yaml>`
+- `--max-pages-per-run`, `--max-minutes-per-run`, `--full` - how much one run does before it
+  stops and leaves the rest `Pending` for the next one, which resumes from exactly there.
+  `--full` clears every budget and crawls until the frontier drains
 
 Precedence for every setting: explicit CLI flag > `config/pragma.yaml` > environment variable (`.env`)
 > built-in default.
 
-Debugging a run: there are no more file-based logs (`research_logs/`/`progress_logs/`/
-`graph_logs/`) - the crawl's graph store *is* the live record. With `graph_store: duckdb`, open the
-database file directly with the `duckdb` CLI (or any DuckDB client) and query `site`-scoped tables
-(`pages`, `components`, `edges`, ...) with plain SQL; with the default `graph_store: memory`,
-inspect it in-process (nothing persists past one run).
+Debugging a run: there are no file-based logs (`research_logs/`/`progress_logs/`/`graph_logs/`) -
+the crawl's graph store *is* the live record. With `graph_store: ladybug` each site gets its own
+database directory (`data/sites/<slug>.lbdb`); query it in Cypher over the node and relationship
+tables `database/ladybug/schema.py` declares (`Page`, `Component`, `Interaction`, `Request`,
+`NAVIGATES_TO`, ...), either through the `ladybug` package directly or through the store's own
+`raw()` (guarded, reads only), `query(name, **params)` (the named-query library in
+`database/ladybug/named_queries.py`) and `search_text()` (full-text) methods. With
+`graph_store: memory` - the built-in default - inspect it in-process; nothing persists past one
+run. `ARCHITECTURE.md` has the full schema, including which tables are written today and which
+are staged but still empty.
 
 No iteration/prompt-size tuning is needed anymore - there's no per-step LLM decision consuming a
-token budget. `--element-budget` (default 200) is the only crawl-size knob: the per-page cap on
-how many components `MechanicalCrawler` mechanically interacts with in one visit-pass, a backstop
-against a pathological reveal-chain rather than a normal-case limit. `--max-pages` caps the total
-number of pages visited (default: unbounded, crawl until the URL frontier is exhausted).
+token budget. There is also no per-page element cap: a page's interaction frontier is drained
+exhaustively, since this project prioritizes a complete graph over a bounded worst-case runtime.
+What bounds a crawl instead is pages and time - `--max-pages` caps the pages visited overall
+(default: unbounded), while `--max-pages-per-run`/`--max-minutes-per-run` stop one run early and
+hand the remainder to the next. Keep a minutes budget alongside a pages budget: a page whose DOM
+keeps producing new components never finishes, so a page-only budget never trips.
 
-Design: a micro-kernel `Engine` (`core/engine.py`) wires an `Agent` ("the brain"/LLM,
-`agents/`) and a `GraphStore` ("the graph", `database/`), both resolved by name from plugin
-registries (`core/registry.py`), and drives them through two fixed steps: `MechanicalCrawler`
-(`spiders/orchestration/mechanical_loop.py`, backed by `Crawl4AICrawler`, "the hands" - crawl4ai-driven
-discovery and interaction) crawls the site and writes live to the graph store
-(`GraphStoreSink`, `spiders/orchestration/graph_sink.py`); `GraphPRDSynthesizer`
-(`generators/graph_prd_synthesizer.py`) then reads that graph back and produces the final
-Markdown PRD. See `ARCHITECTURE.md` for the full data flow. To add a new agent or graph-store
-plugin, implement the relevant interface in `core/interfaces.py`, decorate the class (or a
-builder function) with `@AGENT_REGISTRY.register("name")` / `@GRAPH_STORE_REGISTRY.register("name")`,
-and import the module from `core/bootstrap.py` so it registers itself at startup.
+Design: a micro-kernel `Engine` (`core/engine.py`) wires an `Agent` ("the brain"/LLM, `agents/`)
+and a graph store ("the graph", `database/ladybug/`), both resolved by name from plugin registries
+(`core/registry.py`), and drives them through three steps: `MechanicalCrawler`
+(`spiders/orchestration/mechanical_loop/loop.py`, backed by `Crawl4AICrawler`, "the hands" -
+crawl4ai-driven discovery and interaction) crawls the site and writes live to the graph store
+(`GraphStoreSink`, `spiders/orchestration/graph_sink/sink.py`); two whole-site passes then group
+components into families and project the navigation graph into modules and metrics
+(`analysis/graph_projection.py`); finally `generators/pipeline.py` runs every configured document
+generator over that graph - the AI-synthesized Digital Blueprint
+(`generators/graph_prd_synthesizer.py`) is one of nine, not the run's single output. See
+`ARCHITECTURE.md` for the full data flow. To add a new agent, subclass `Agent`
+(`core/interfaces.py`), decorate it with `@AGENT_REGISTRY.register("name")` and import the module
+from `core/bootstrap.py` so it registers itself at startup; a new document generator is the same
+three steps against `DocumentGenerator` (`core/documents.py`) and `@DOCUMENT_REGISTRY`. A second
+graph-store backend is a bigger job than it used to be: `GraphStore` is no longer an ABC, so
+there is an interface to reintroduce before there is a plugin to write.
 
 Provider config is encapsulated per agent, not piled into one growing `.env`: each agent module
 (e.g. `agents/local_agent.py`) owns a small `Config` dataclass with a `from_env()`
