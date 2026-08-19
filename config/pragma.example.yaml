@@ -75,11 +75,11 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
                        # real concern for a site crawled repeatedly. See spiders/browser/debug_log.py.
 # documents:            # which output documents to generate, by name, in order. Unset uses the
 #   - coverage           # default below. Every run also writes a "Start Here" master document last,
-#   - prd                # indexing whatever was produced - that one is not listed here and cannot be
-#   - tree               # turned off. See generators/pipeline.py.
-#   - openapi            # available names: coverage, prd, tree, openapi, catalog,
-#   - catalog            #                  catalog-data, flows, usability,
-#                        gherkin, sequences, export
+#   - architecture       # indexing whatever was produced - that one is not listed here and cannot be
+#   - prd                # turned off. See generators/pipeline.py.
+#   - tree               # available names: coverage, architecture, prd, tree, openapi,
+#   - openapi            #                  catalog, catalog-data, flows, usability,
+#   - catalog            #                  gherkin, sequences, export
 #   - flows
 #   - usability
 #   - gherkin
