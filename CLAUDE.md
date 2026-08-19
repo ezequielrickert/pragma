@@ -54,3 +54,14 @@ thresholds to cite in findings.
 
 Skip the pipeline only for changes that touch no source code or generated prose (e.g. a pure
 data file, a `.gitignore` entry).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `ezequielrickert/pragma`, via the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
