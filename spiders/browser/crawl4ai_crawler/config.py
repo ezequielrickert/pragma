@@ -65,3 +65,9 @@ class Crawl4AICrawlerConfig:
     # completely unguarded before this existed.
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#session_cleanup_timeout_seconds
     session_cleanup_timeout_seconds: float = 10.0
+    # "stateful" (default) or "immutable" - see PragmaConfig.mode for what
+    # each means. Carried here so the mode-gate route handler a later ticket
+    # adds to HookHandlers has it available; unused by this crawler itself
+    # until that handler lands.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#mode
+    mode: str = "stateful"

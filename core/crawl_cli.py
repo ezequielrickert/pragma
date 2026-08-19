@@ -62,6 +62,13 @@ def parse_crawl_args(argv: list) -> argparse.Namespace:
         "--fresh", dest="fresh", action=argparse.BooleanOptionalAction, default=None,
         help="Purge this site's previously recorded graph_store state before the static phase",
     )
+    parser.add_argument(
+        "--mode", dest="mode", choices=["stateful", "immutable"],
+        help="'stateful' (default) sends every request unchanged. 'immutable' still clicks/fills "
+        "every component but blocks POST/PUT/PATCH/DELETE (and mutation-heuristic GETs) before "
+        "they reach the server - for a sensitive site where no real operation should happen. "
+        "Reaches the dynamic phase unchanged; static/cluster ignore it.",
+    )
     return parser.parse_args(argv)
 
 

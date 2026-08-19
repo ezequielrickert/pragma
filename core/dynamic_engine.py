@@ -80,6 +80,7 @@ class DynamicEngine:
         login_enabled: bool = True,
         login_session_max_age_hours: float = 24.0,
         max_samples_per_family: int = DEFAULT_MAX_SAMPLES_PER_FAMILY,
+        mode: str = "stateful",
     ) -> None:
         self.agent = agent
         self.graph_store = graph_store
@@ -100,6 +101,7 @@ class DynamicEngine:
         self.login_enabled = login_enabled
         self.login_session_max_age_hours = login_session_max_age_hours
         self.max_samples_per_family = max_samples_per_family
+        self.mode = mode
 
     @classmethod
     def from_config(cls, config: PragmaConfig) -> "DynamicEngine":
@@ -139,6 +141,7 @@ class DynamicEngine:
             ai_fill_values=config.ai_fill_values,
             login_enabled=config.login_enabled,
             login_session_max_age_hours=config.login_session_max_age_hours,
+            mode=config.mode,
         )
 
     def _build_family_sampler(self) -> tuple[Optional[FamilySampler], int]:
@@ -191,6 +194,7 @@ class DynamicEngine:
             navigation_watchdog_seconds=self.navigation_watchdog_seconds,
             session_cleanup_timeout_seconds=self.session_cleanup_timeout_seconds,
             interaction_timeout_seconds=self.interaction_timeout_seconds,
+            mode=self.mode,
         )
         async with Crawl4AICrawler(crawler_config) as crawler:
             mechanical = MechanicalCrawler(

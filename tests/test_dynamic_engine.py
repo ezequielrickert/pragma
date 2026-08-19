@@ -58,6 +58,15 @@ def test_dynamic_engine_from_config_derives_site_from_the_url():
     assert engine.site == "dynamic-site.example"
 
 
+def test_dynamic_engine_from_config_carries_mode_through():
+    config = PragmaConfig(
+        url="http://dynamic-site.example/", graph_store="memory", login_enabled=False, mode="immutable",
+    )
+    engine = DynamicEngine.from_config(config)
+
+    assert engine.mode == "immutable"
+
+
 def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_already_ran(tmp_path, monkeypatch):
     site = "resumable.example"
     graph_store = LadybugGraphStore(site, directory=str(tmp_path))
@@ -79,7 +88,12 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
 
     captured_configs = []
 
+    captured_crawler_configs = []
+
     class _FakeCrawler:
+        def __init__(self, config):
+            captured_crawler_configs.append(config)
+
         async def __aenter__(self):
             return self
 
@@ -93,13 +107,16 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
         async def crawl_site(self, start_url):
             return []
 
-    monkeypatch.setattr("core.dynamic_engine.Crawl4AICrawler", lambda config: _FakeCrawler())
+    monkeypatch.setattr("core.dynamic_engine.Crawl4AICrawler", _FakeCrawler)
     monkeypatch.setattr("core.dynamic_engine.MechanicalCrawler", _FakeMechanicalCrawler)
 
-    engine = DynamicEngine(AGENT_REGISTRY.create("mock"), graph_store, site=site, login_enabled=False)
+    engine = DynamicEngine(
+        AGENT_REGISTRY.create("mock"), graph_store, site=site, login_enabled=False, mode="immutable",
+    )
     result = asyncio.run(engine.run(start_url))
 
     assert result.resumed_from_static is True
     assert result.families_sampled == 1
     assert captured_configs[0].interact_only is True
     assert captured_configs[0].family_sampler is not None
+    assert captured_crawler_configs[0].mode == "immutable"

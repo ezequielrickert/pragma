@@ -243,6 +243,21 @@ mode - Unicode box-drawing characters (`tree` command style) by default;
 `True` falls back to plain ASCII for terminals/environments that mangle
 Unicode. See `generators/component_tree.py::render_ascii_tree`.
 
+## mode
+
+`stateful` (default) or `immutable`. Dynamic-phase only: read by
+`DynamicEngine.from_config` and threaded into `Crawl4AICrawlerConfig`;
+`pragma static`/`pragma cluster` never look at it. `stateful` sends every
+request a `pragma dynamic` interaction triggers, unchanged - today's only
+behavior. `immutable` is the opt-in for a sensitive site: the crawler still
+clicks/fills every component, but a mode-gate `page.route` handler in
+`spiders/browser/crawl4ai_crawler/hooks.py` intercepts and fulfills a
+mutating request (POST/PUT/PATCH/DELETE, or a GET a heuristic flags as
+mutating) before it reaches the server, so no real side effect happens.
+`load()` raises `ValueError` for any other value rather than letting a typo
+silently run as `stateful` while the user believes mutations are blocked.
+See `core/dynamic_engine.py` and `docs/dev/spiders/browser/crawl4ai_crawler/config.md#mode`.
+
 ## load
 
 Build a `PragmaConfig` by merging env vars, an optional YAML file, and
