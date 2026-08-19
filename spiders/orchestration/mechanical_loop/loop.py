@@ -38,6 +38,7 @@ class MechanicalCrawler:
         # See MechanicalCrawlerConfig.two_phase_crawl for the full rationale.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_two_phase_crawl
         self._two_phase_crawl = config.two_phase_crawl
+        self._scout_only = config.scout_only
         # A sink almost always implies its matching GraphStore tracker.
         # Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#tracker-default
         if tracker is not None:
@@ -148,10 +149,12 @@ class MechanicalCrawler:
 
     async def crawl_site(self, start_url: str) -> List[PageVisitResult]:
         """Crawl every page reachable from `start_url`, `page_concurrency` at
-        a time. Under `two_phase_crawl`, runs a full scout sweep (discovery
-        only) to completion first, then rebuilds the frontier from every
-        page it left `"Scouted"` and runs a full interact sweep - see
-        `MechanicalCrawlerConfig.two_phase_crawl` for why.
+        a time. Under `scout_only`, runs a single scout sweep and returns,
+        leaving every page `"Scouted"` for a later, separate crawl to pick
+        up. Under `two_phase_crawl`, runs that same scout sweep to
+        completion first, then rebuilds the frontier from every page it
+        left `"Scouted"` and runs a full interact sweep in this same
+        process - see `MechanicalCrawlerConfig.two_phase_crawl` for why.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#crawl_site
         """
         if self._frontier.base_url is None:
@@ -170,7 +173,9 @@ class MechanicalCrawler:
             print(f"Resuming: {len(resumed)} page(s) left pending by a previous run.")
             for url in resumed:
                 self._frontier.enqueue(url)
-        if self._two_phase_crawl:
+        if self._scout_only:
+            await self._run_sweep(self._page_visitor.scout, count_as_finished=False)
+        elif self._two_phase_crawl:
             await self._run_sweep(self._page_visitor.scout, count_as_finished=False)
             for url in self._scouted_urls():
                 self._frontier.enqueue_scouted(url)

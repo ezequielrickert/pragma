@@ -74,3 +74,13 @@ class MechanicalCrawlerConfig:
     # an unrelated crawl4ai markdown-pipeline skip.
     # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl
     two_phase_crawl: bool = False
+    # When True, crawl_site() runs the scout sweep only and returns - no
+    # interact phase, in this process or any later one triggered by it.
+    # Pages land in the graph store "Scouted", the exact status
+    # two_phase_crawl's own phase 1 leaves them in, so a later, separate
+    # `pragma dynamic` invocation can pick them up via `get_scouted()` the
+    # same way two_phase_crawl's phase 2 does today. Takes priority over
+    # `two_phase_crawl` if both are set, since "stop after scouting" is a
+    # stronger request than "scout then interact in one process".
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only
+    scout_only: bool = False

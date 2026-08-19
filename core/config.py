@@ -56,6 +56,21 @@ class PragmaConfig:
     # Skips crawl4ai's own markdown-generation pipeline; empties debug snapshots.
     # Details: docs/dev/core/config.md#prefetch
     prefetch: bool = False
+    # Auto-detect a login form on the crawl's start page and open a
+    # headed browser for a human to sign in before the real crawl
+    # starts, caching the resulting session for reuse
+    # (spiders/browser/login.py::ensure_login_session). Off skips the
+    # precheck entirely - a site with no login form pays only one extra
+    # navigation for it, so this only matters for a crawl that must
+    # never open an unexpected browser window.
+    # Details: docs/dev/core/config.md#login_enabled
+    login_enabled: bool = True
+    # How long a captured session file stays trusted before a run
+    # re-triggers the headed login flow instead of crawling with a
+    # possibly-expired cookie nothing downstream can detect as stale
+    # once the crawl is already underway.
+    # Details: docs/dev/core/config.md#login_session_max_age_hours
+    login_session_max_age_hours: float = 24.0
     # Runs MechanicalCrawler's crawl as two separate site-wide sweeps - scout
     # (discovery only, no clicking) then interact - instead of one fused pass
     # per page. See MechanicalCrawlerConfig.two_phase_crawl for the full

@@ -4,10 +4,8 @@ Command-line interface for Pragma.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import pathlib
 import sys
-from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -21,9 +19,13 @@ load_dotenv(override=True)
 from core import bootstrap  # noqa: F401  -- populates the plugin registries
 from core import prompts
 from core.app import run_app
+from core.cli_shared import apply_budget_flags
 from core.config import PragmaConfig
 from core.engine import Engine, EngineRunResult
-from spiders.browser.login import force_login_session
+from core.login_cli import run_login_command
+from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
+from core.static_cli import run_static_command
+from core.wizard import run_config_wizard
 
 
 def _print_documents(result: EngineRunResult) -> None:
@@ -53,8 +55,6 @@ def _print_documents(result: EngineRunResult) -> None:
             continue
         print(f"  {document.title:<{width}}  {document.path}")
     print()
-from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
-from core.wizard import run_config_wizard
 
 
 def parse_args(argv: list) -> argparse.Namespace:
@@ -174,59 +174,10 @@ def parse_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _apply_budget_flags(config: PragmaConfig, args: argparse.Namespace) -> None:
-    """Fold the run-budget flags into `config.crawl_budget`.
-
-    Kept out of the generic override dict because these three are not
-    `PragmaConfig` fields in their own right - they edit keys inside one
-    field, and `--full` clears rather than sets. `--full` wins outright: it is
-    the "ignore what the YAML says, run the whole thing" escape hatch, so
-    combining it with a limit is a contradiction resolved in its favor.
-    Details: docs/dev/cli.md#_apply_budget_flags
-    """
-    if args.full_run:
-        config.crawl_budget = {}
-        return
-    if args.budget_pages is not None:
-        config.crawl_budget["pages"] = args.budget_pages
-    if args.budget_minutes is not None:
-        config.crawl_budget["minutes"] = args.budget_minutes
-
-
-def _parse_login_args(argv: list) -> argparse.Namespace:
-    """Parse `pragma login <url>` - its own small parser rather than a case
-    in `parse_args`, since it takes none of a crawl run's flags (budgets,
-    output dir, agent/graph-store wiring) and adding it there would make
-    every one of those look like it applies here too.
-    Details: docs/dev/cli.md#_parse_login_args
-    """
-    parser = argparse.ArgumentParser(
-        prog="cli.py login",
-        description="Open a headed browser, sign in by hand, and cache the session for reuse.",
-    )
-    parser.add_argument("url", help="URL of the site to log into")
-    parser.add_argument("--headless", action="store_true", help="Run the login browser headless")
-    return parser.parse_args(argv)
-
-
-def run_login_command(argv: list) -> None:
-    """`pragma login <url>`: always captures a fresh session, since running
-    this command by hand is itself the explicit request to sign in.
-    Details: docs/dev/cli.md#run_login_command
-    """
-    args = _parse_login_args(argv)
-    site = urlparse(args.url).netloc
-    try:
-        path = asyncio.run(force_login_session(args.url, site, headless=args.headless))
-        print(f"Session for {site} saved to {path}")
-    except Exception as exc:
-        print(f"Critical error during login: {exc}")
-        sys.exit(1)
-
-
 def main() -> None:
     """Bare invocation launches the menu app; `config` jumps to the wizard;
-    `login` captures a session; flags run directly.
+    `login` captures a session; `static` runs a content-capture crawl;
+    flags run the full crawl+analysis pipeline directly.
     Details: docs/dev/cli.md#main
     """
     argv = sys.argv[1:]
@@ -235,6 +186,9 @@ def main() -> None:
         return
     if argv and argv[0] == "login":
         run_login_command(argv[1:])
+        return
+    if argv and argv[0] == "static":
+        run_static_command(argv[1:])
         return
 
     if not argv:
@@ -256,7 +210,7 @@ def main() -> None:
     overrides["url"] = url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
-    _apply_budget_flags(config, args)
+    apply_budget_flags(config, args)
 
     if not config.url:
         if sys.stdin.isatty():

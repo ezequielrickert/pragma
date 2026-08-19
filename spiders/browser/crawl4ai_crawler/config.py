@@ -14,6 +14,12 @@ class Crawl4AICrawlerConfig:
     """Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#crawl4aicrawlerconfig"""
 
     headless: bool = True
+    # Playwright storage_state JSON path to restore cookies/localStorage
+    # from - `None` (crawl4ai's own default) launches a fresh, anonymous
+    # browser context. Set by a caller's own login-resolution step
+    # (spiders/browser/login.py) before the real crawl starts.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#storage_state_path
+    storage_state_path: Optional[str] = None
     wait_seconds: float = 2.0
     interaction_wait_seconds: Optional[float] = None
     debug_log: Optional[CrawlDebugLog] = None

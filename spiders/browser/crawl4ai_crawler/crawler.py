@@ -28,6 +28,7 @@ class Crawl4AICrawler:
     def __init__(self, config: Optional[Crawl4AICrawlerConfig] = None) -> None:
         config = config or Crawl4AICrawlerConfig()
         self.headless = config.headless
+        self.storage_state_path = config.storage_state_path
         self.debug_log = config.debug_log
         self.page_timeout_seconds = config.page_timeout_seconds
         self.navigation_watchdog_seconds = config.navigation_watchdog_seconds
@@ -64,6 +65,7 @@ class Crawl4AICrawler:
             memory_saving_mode=True,
             viewport_width=self.viewport_width,
             viewport_height=self.viewport_height,
+            storage_state=self.storage_state_path,
         )
         # Own logger, not crawl4ai's default AsyncLogger - drops crawl4ai's
         # own noisy CAPTURE-tag warning without silencing anything else.
