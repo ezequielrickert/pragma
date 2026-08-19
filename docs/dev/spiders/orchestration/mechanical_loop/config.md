@@ -76,12 +76,12 @@ browser tab necessarily moved off every page during the scout sweep, and
 per `docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
 a component's own path/selector churns across separate `discover_page()`
 reloads, so a phase-1-cached component can't drive a live click in phase
-2. The real saving `interact()` captures instead: it skips the five sink
+2. The real saving `interact()` captures instead: it skips the six sink
 bookkeeping writes (`record_page_arrival`/`record_inventory`/
-`record_text_content`/`record_page_network`/`record_page_metadata` - the
-last of which does real work, component-family/choice-set grouping) and
-the `enqueue_links` walk, since `scout()` already did both for every page
-`interact()` runs against.
+`record_text_content`/`record_state_styles`/`record_page_network`/
+`record_page_metadata` - the last of which does real work, component-
+family/choice-set grouping) and the `enqueue_links` walk, since
+`scout()` already did both for every page `interact()` runs against.
 
 `False` (the default) reproduces today's single fused-pass behavior
 exactly, unchanged - `PageVisitor.visit()`'s own call sequence never
@@ -97,6 +97,21 @@ mid-sweep does not resume cleanly today - `loop.md#_resume_urls`/
 `_finished_route_shapes` only read `Pending`/`Finished` status, so a
 resumed run won't re-prime route-shape counts for `Scouted`-but-not-yet-
 interacted pages, and has no "pick up phase 2 where it left off" path.
+
+## scout_only
+
+When `True`, `crawl_site()` runs the scout sweep alone and returns - no
+interact phase, in this process or any later one triggered by it. Pages
+land in the graph store `"Scouted"`, the exact status `two_phase_crawl`'s
+own phase 1 leaves them in, so a later, separate `pragma dynamic`
+invocation can pick them up via `get_scouted()` the same way
+`two_phase_crawl`'s phase 2 does today. This is `pragma static`'s own
+crawl mode (`core/static_engine.py::StaticEngine`) - a standalone
+CLI command's crawl, not a phase of a fused in-process run, which is
+what makes it a different flag from `two_phase_crawl` rather than a
+reuse of it. Takes priority over `two_phase_crawl` if both are set,
+since "stop after scouting" is a stronger request than "scout then
+interact in one process".
 
 ## max_requeue_attempts
 

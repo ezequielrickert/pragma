@@ -70,6 +70,20 @@ What raising `page_concurrency` changes, precisely:
   single-page-at-a-time logic already, so concurrency at the *page*
   level doesn't change any of it.
 
+## _two_phase_crawl
+
+Stored on `self` (not read straight off `config` each time) purely so
+`crawl_site`'s own dispatch reads as `self._two_phase_crawl` next to
+`self._scout_only` - see `docs/dev/spiders/orchestration/mechanical_loop/config.md#two_phase_crawl`
+for the flag's own rationale.
+
+## _scout_only
+
+Same storage pattern as `_two_phase_crawl` immediately above - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`
+for what it changes and why it's a separate flag rather than a variant
+of `two_phase_crawl`.
+
 ## __init__-collaborators
 
 `UrlFrontier` and `WorkerPacing` are each constructed from `self.tracker`/
@@ -101,14 +115,19 @@ persists across visits within one crawl).
 Crawl every page reachable from `start_url`, `WorkerPacing.page_concurrency`
 pages at a time.
 
-Under the default `two_phase_crawl=False`
+Under the default `two_phase_crawl=False` and `scout_only=False`
 (`config.md#two_phase_crawl`), runs one `_run_sweep` calling
 `PageVisitor.visit` - the original fused scout+interact behavior,
-unchanged. Under `two_phase_crawl=True`, runs `_run_sweep` twice instead:
-first with `PageVisitor.scout` (`count_as_finished=False`) to completion,
-then seeds a fresh frontier pass from `_scouted_urls()` via
+unchanged. Under `scout_only=True` (`config.md#scout_only` - `pragma
+static`'s own crawl mode), runs a single `_run_sweep` calling
+`PageVisitor.scout` (`count_as_finished=False`) and returns - no interact
+phase, in this process or any later one. Under `two_phase_crawl=True`
+(and `scout_only=False`), runs `_run_sweep` twice instead: first with
+`PageVisitor.scout` (`count_as_finished=False`) to completion, then seeds
+a fresh frontier pass from `_scouted_urls()` via
 `UrlFrontier.enqueue_scouted` and runs a second `_run_sweep` with
-`PageVisitor.interact` (`count_as_finished=True`).
+`PageVisitor.interact` (`count_as_finished=True`). `scout_only` takes
+priority when both it and `two_phase_crawl` are set.
 
 ## _scouted_urls
 

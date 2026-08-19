@@ -13,6 +13,7 @@ hook fires or how a page gets navigated.
 ## Crawl4AICrawlerConfig
 
 - `headless`: Run the browser without a visible UI.
+- `storage_state_path`: see `#storage_state_path` below.
 - `wait_seconds`: **Ceiling** on how long to let the page settle before
   running discovery on a plain navigation (`before_retrieve_html`, see
   `docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#before_retrieve_html`) -
@@ -123,6 +124,17 @@ hook fires or how a page gets navigated.
 - `backoff_ceiling_seconds`/`circuit_breaker_cooldown_seconds`: see
   `viewport`/`backoff_ceiling_seconds`/`circuit_breaker_cooldown_seconds`
   sections below.
+
+## storage_state_path
+
+Playwright `storage_state` JSON path to restore cookies/localStorage
+from - `None` (crawl4ai's own default) launches a fresh, anonymous
+browser context. Set by a caller's own login-resolution step
+(`spiders/browser/login.py::ensure_login_session`/`force_login_session`)
+before the real crawl starts; wired straight into `BrowserConfig`'s own
+`storage_state` in `Crawl4AICrawler.__aenter__` - a browser-context-level
+setting, not a per-`arun()` one, since the whole point is every
+navigation in this crawl sharing the one authenticated context.
 
 ## viewport
 

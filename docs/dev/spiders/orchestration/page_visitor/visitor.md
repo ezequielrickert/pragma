@@ -133,9 +133,10 @@ split, just usable from three call sites instead of one inlined
 
 ## _record_discovery
 
-The five sink writes a fresh `discover_page()` pass owes the graph store
-(page arrival, inventory, text content, network, metadata) - shared by
-`visit()` (fused path) and `scout()` (phase 1 of `two_phase_crawl`).
+The six sink writes a fresh `discover_page()` pass owes the graph store
+(page arrival, inventory, text content, state styles, network, metadata)
+- shared by `visit()` (fused path) and `scout()` (phase 1 of
+`two_phase_crawl`).
 `interact()` (phase 2) deliberately never calls this: `scout()` already
 wrote it for every page `interact()` runs against, and re-writing it
 would repeat real work (`record_inventory`'s component-family/choice-set
@@ -173,8 +174,10 @@ invisible to it.
 
 ## scout
 
-Phase 1 of a `two_phase_crawl` run: `discover_page()` + the five sink
-writes (`_record_discovery`) + link discovery (`enqueue_links`) only -
+Phase 1 of a `two_phase_crawl` run (or the whole of a `scout_only` run -
+see `docs/dev/spiders/orchestration/mechanical_loop/config.md#scout_only`):
+`discover_page()` + the six sink writes (`_record_discovery`) + link
+discovery (`enqueue_links`) only -
 never builds or drains an interaction frontier, so `click()`/`fill()`
 are never called for a scouted page. Ends the page's graph-store status
 at `"Scouted"` via `GraphStoreSink.record_page_scouted`

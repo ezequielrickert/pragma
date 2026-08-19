@@ -97,6 +97,26 @@ while this is on - leave `False` during an active debugging session that
 still wants to read those; `True` for a bulk/production run. See
 `Crawl4AICrawlerConfig`'s own `prefetch` entry.
 
+## login_enabled
+
+Auto-detect a login form on the crawl's start page and open a headed
+browser for a human to sign in before the real crawl starts, caching the
+resulting session for reuse - `spiders/browser/login.py::
+ensure_login_session` is the actual mechanism; this is just the config
+knob that reaches it (`Engine.from_config`, `StaticEngine.from_config`).
+Off skips the precheck entirely - a site with no login form pays only
+one extra navigation for it either way, so this only matters for a
+crawl that must never open an unexpected browser window. No dedicated
+`cli.py` flag on the full-run command; `pragma static` exposes it as
+`--login`/`--no-login` (`docs/dev/core/static_cli.md#parse_static_args`).
+
+## login_session_max_age_hours
+
+How long a captured session file stays trusted before a run re-triggers
+the headed login flow instead of crawling with a possibly-expired
+cookie nothing downstream can detect as stale once the crawl is already
+underway - see `spiders/browser/login_session.py#is_session_valid`.
+
 ## two_phase_crawl
 
 Passed straight through `Engine.__init__`/`from_config` to
