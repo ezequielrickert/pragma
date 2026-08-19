@@ -39,6 +39,16 @@ connect-time error would leave the background thread dead with `_ready` never
 set for any other reason, so the constructor's `wait()` would hang forever
 instead of surfacing the error.
 
+### `_lock`
+
+Acquired before this thread ever opens `lb.Database` - a second process
+opening the same `.lbdb` at the same time is exactly what
+`database/ladybug/site_lock.py::SiteLock` exists to fail fast on
+(`SiteLockError`), instead of corrupting or hanging. Released
+unconditionally in `close()`, even when the writer thread had already
+died, so a lock this instance holds never outlives it. A no-op
+throughout for the in-memory sentinel path (`""`).
+
 ### Missing parent directories
 
 Ladybug creates the database itself but not the directories above it - the same

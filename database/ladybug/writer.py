@@ -23,6 +23,8 @@ from typing import Any, Callable, Optional
 
 import ladybug as lb
 
+from .site_lock import SiteLock
+
 # Ladybug's own docstring for `buffer_pool_size` names this: left at its
 # default (0), a `Database` reserves ~8TB of virtual address space via
 # mmap, "to get around... the default 8TB mmap address space limit some
@@ -56,6 +58,13 @@ class LadybugWriter:
         if directory:
             os.makedirs(directory, exist_ok=True)
 
+        # Cross-process guard, acquired before this thread ever opens
+        # `lb.Database` - a second process opening the same `.lbdb` at the
+        # same time is exactly what this exists to fail fast on, instead
+        # of corrupting or hanging. Details: docs/dev/database/ladybug/writer.md#_lock
+        self._lock = SiteLock(path)
+        self._lock.acquire()
+
         self._queue: "queue.Queue" = queue.Queue()
         self._ready = threading.Event()
         self._connect_error: Optional[BaseException] = None
@@ -68,6 +77,7 @@ class LadybugWriter:
             # Without this, a connect-time failure leaves the background
             # thread dead and _ready never set for any other reason,
             # hanging this wait() forever instead of surfacing the error.
+            self._lock.release()
             raise self._connect_error
 
     def _run(self, path: str) -> None:
@@ -109,10 +119,13 @@ class LadybugWriter:
         return future.result()
 
     def close(self) -> None:
-        if not self._thread.is_alive():
-            return
-        self._queue.put(None)
-        self._thread.join(timeout=10)
+        if self._thread.is_alive():
+            self._queue.put(None)
+            self._thread.join(timeout=10)
+        # Released after the thread has (best-effort) shut the database
+        # down - unconditionally, even if the thread was already dead,
+        # so a lock this instance holds never outlives it.
+        self._lock.release()
 
     def __del__(self) -> None:
         """Best-effort safety net, not the primary shutdown path - every
