@@ -23,6 +23,7 @@ from core.app import run_app
 from core.cli_shared import apply_budget_flags
 from core.cluster_cli import run_cluster_command
 from core.config import PragmaConfig
+from core.docs_cli import run_docs_command
 from core.dynamic_cli import run_dynamic_command
 from core.engine import Engine, EngineRunResult
 from core.login_cli import run_login_command
@@ -182,7 +183,8 @@ def main() -> None:
     `login` captures a session; `static` runs a content-capture crawl;
     `cluster` groups an already-crawled site's components into families;
     `dynamic` interacts with a site's frontier, resuming from `static`/
-    `cluster` output when there is any; flags run the full crawl+analysis
+    `cluster` output when there is any; `docs` generates documents from an
+    existing site DB with no crawl; flags run the full crawl+analysis
     pipeline directly.
     Details: docs/dev/cli.md#main
     """
@@ -201,6 +203,9 @@ def main() -> None:
         return
     if argv and argv[0] == "dynamic":
         run_dynamic_command(argv[1:])
+        return
+    if argv and argv[0] == "docs":
+        run_docs_command(argv[1:])
         return
 
     if not argv:
