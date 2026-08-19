@@ -52,4 +52,6 @@ Decided, resolving the ticket's four open points:
 
 **4. Source / View Document Split & ER Rendering.** `data-model.json` is the machine-checkable **Source Document** (Capa 2). `data-model.md` is a mechanically generated **View Document** (Capa 3) rendering native Markdown **Mermaid `erDiagram`** blocks for visual entity-relationship navigation without external compilation tools.
 
+**5. Export Population** (amendment). `data-model.json` entities populate `export.json`'s reserved `Entidad` nodes (ADR-0002). Each entity's `observed_in.api_endpoints` citations become `depende_de` edges, from the citing `Endpoint` to its `Entidad`.
+
 Wayfinder ticket: [data-model: lock schema (JSON Schema + DBML/ER + DPV)](https://github.com/ezequielrickert/pragma/issues/73), part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).
