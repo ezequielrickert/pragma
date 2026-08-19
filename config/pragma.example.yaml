@@ -38,6 +38,11 @@ fresh: false          # purge this site's previously recorded graph_store state 
 out_dir: data/output
 headless: true         # run without a visible browser window - real, measured speedup; leave this on
                        # unless you specifically need to watch the crawl happen
+mode: stateful         # stateful | immutable - dynamic-phase only (pragma dynamic / the dynamic
+                       # step of pragma crawl; static/cluster ignore it). "immutable" still clicks/
+                       # fills every component but blocks POST/PUT/PATCH/DELETE (and GETs a
+                       # heuristic flags as mutating) before they reach the server - opt in for a
+                       # sensitive site where no real operation should happen.
 # wait_seconds: 2.0    # settle time before reading a freshly-*navigated* page - raise for slow/
                        # JS-heavy sites, lower for fast static ones
 # interaction_wait_seconds: 2.0  # settle time after a click/fill's own re-discovery - unset falls

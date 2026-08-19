@@ -16,6 +16,14 @@ import yaml
 # Details: docs/dev/core/config.md#default_config_paths
 DEFAULT_CONFIG_PATHS = ("pragma.yaml", "config/pragma.yaml")
 
+# The only two values PragmaConfig.mode accepts. Checked eagerly in load()
+# rather than left to fail wherever a later ticket's hook first reads it -
+# a mistyped "immutable" silently running as an unrecognized string would
+# mean a sensitive-site crawl performs real mutations while the user
+# believes they're blocked, which is the one failure mode this whole
+# feature exists to prevent.
+VALID_MODES = ("stateful", "immutable")
+
 
 @dataclass
 class PragmaConfig:
@@ -131,6 +139,16 @@ class PragmaConfig:
     # Component-tree rendering mode: Unicode box-drawing by default.
     # Details: docs/dev/core/config.md#tree_ascii
     tree_ascii: bool = False
+    # `stateful` (default) sends every request a `pragma dynamic` interaction
+    # triggers, unchanged. `immutable` is the opt-in for a sensitive site: the
+    # crawler still clicks/fills every component, but a later ticket's
+    # mode-gate hook intercepts and fulfills mutating requests before they
+    # reach the server, so no real POST/PUT/PATCH/DELETE (or GET that turns
+    # out to mutate) is ever performed. This ticket only carries the value
+    # from config/CLI through to Crawl4AICrawlerConfig - see
+    # spiders/browser/crawl4ai_crawler/hooks.py for the handler that will
+    # read it. Details: docs/dev/core/config.md#mode
+    mode: str = "stateful"
     agents: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     graph_stores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
@@ -195,4 +213,11 @@ class PragmaConfig:
         cfg._apply_env()
         cfg._apply_yaml(yaml_path)
         cfg._apply_overrides(cli_overrides)
+        cfg._validate_mode()
         return cfg
+
+    def _validate_mode(self) -> None:
+        if self.mode not in VALID_MODES:
+            raise ValueError(
+                f"Invalid mode {self.mode!r}: must be one of {', '.join(VALID_MODES)}"
+            )
