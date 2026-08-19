@@ -238,3 +238,70 @@ class InferredRequest:
     media_types: Tuple[str, ...] = ()
     request_example: str = ""
     response_example: str = ""
+
+
+@dataclass(frozen=True)
+class SemanticField:
+    """One field of a `SemanticEntity` - the semantic tier's view of an
+    input the application asks a user to fill.
+
+    Fields:
+        name: what the application calls it - the input's `name`, falling
+            back to its label and then its placeholder. `""` never
+            happens: a field with nothing to name it is dropped rather
+            than emitted anonymously.
+        data_type: `"string"`, `"number"`, `"boolean"`, `"date"`,
+            `"email"`, `"tel"`, `"url"`. Read from the input's declared
+            `type`, never guessed from its name - `missing_semantic_input_type`
+            (D7) is the document that reports the gap between the two, and
+            this one silently correcting it would hide that finding.
+        required: whether the markup says so (`facts.required`). A field
+            the server requires and the markup does not is invisible here.
+        validation: what the markup declares about acceptable values, in
+            prose, or `""`. Never inferred from the values observed.
+        observed_values: the values a crawl actually filled in, deduplicated
+            and sorted. Mostly the deterministic placeholder
+            (`fill_values.default_placeholder_fill_value`) unless the run
+            used the AI fill-value agent - useful as evidence of what was
+            accepted, not as example data.
+        derived_from: one `(page_url, path)` per `Component` this field was
+            derived from. **Never empty** - `semantic.py` refuses to write
+            a field without it, which is what makes the semantic tier
+            traceable rather than a pile of assertions.
+    """
+
+    name: str
+    data_type: str
+    required: bool
+    validation: str
+    observed_values: Tuple[str, ...]
+    derived_from: Tuple[Tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class SemanticEntity:
+    """One thing the application collects, as deduced from a form.
+
+    Derived from `Component`s only, and that is a schema constraint rather
+    than a modelling preference: `DERIVED_FROM` declares `FROM Entity TO
+    Component` and `FROM Field TO Component`, with no pair reaching a
+    `Request`. So an entity deduced from an API body shape could not record
+    where it came from, and the rule this tier exists to uphold is that
+    nothing enters without provenance. See
+    `docs/dev/generators/data_model.md#module`.
+
+    Fields:
+        name: the form's own identity where it has one (its `id`), else a
+            name built from the page it sits on. Approximate by nature -
+            a form is not labelled with the noun it collects.
+        description: one plain sentence on where it was found, so a reader
+            can judge the name rather than trust it.
+        fields: its `SemanticField`s, ordered by name.
+        derived_from: one `(page_url, path)` per contributing `Component`.
+            Never empty, same rule as `SemanticField`.
+    """
+
+    name: str
+    description: str
+    fields: Tuple[SemanticField, ...]
+    derived_from: Tuple[Tuple[str, str], ...]

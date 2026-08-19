@@ -79,8 +79,9 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - prd                # turned off. See generators/pipeline.py.
 #   - tree               # available names: coverage, architecture, prd, tree, openapi,
 #   - openapi            #                  catalog, catalog-data, tokens, tokens-data,
-#   - catalog            #                  flows, usability, gherkin, sequences, export
-#   - tokens
+#   - catalog            #                  data-model, flows, usability, gherkin,
+#   - tokens             #                  sequences, export
+#   - data-model
 #   - flows
 #   - usability
 #   - gherkin

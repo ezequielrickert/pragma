@@ -204,8 +204,10 @@ CREATE NODE TABLE IF NOT EXISTS Endpoint(
 # runs. See queries.py::endpoint_contract.
 
 # Semantic tier - what the application means, not just what it renders.
-# Every node here is written by semantic.py and must carry at least one
-# DERIVED_FROM edge back to the observations that support it.
+# Every node here must carry at least one DERIVED_FROM edge back to the
+# observations that support it - semantic.py::record_entities enforces that
+# by raising, rather than trusting this comment. Entity/Field have a writer
+# (generators/data_model.py, D14); Screen/Flow/Rule do not yet.
 _SEMANTIC_DDL = """
 CREATE NODE TABLE IF NOT EXISTS Screen(
     id SERIAL PRIMARY KEY,
