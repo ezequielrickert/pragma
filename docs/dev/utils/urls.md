@@ -97,6 +97,34 @@ failure mode this guards against - an unbounded frontier, or N
 duplicate nodes, on a session-token site - is far more costly than the
 rare over-collapse).
 
+## restore_scheme
+
+The counterpart to `route_shape`'s own "never use this value as the
+literal URL to navigate to" warning above - `GraphStore.get_pending`/
+`get_scouted` do exactly that anyway, by construction: every `Page.url`
+a graph store holds *is* a `route_shape`d key, since that's the only key
+`PageVisitor.visit`/`scout` ever write under. A caller that resumes a
+crawl from either of those methods (`MechanicalCrawler._resume_urls`/
+`_scouted_urls`) has no other source for "which pages to revisit" and
+has to turn the key back into something navigable first.
+
+Confirmed live: `pragma dynamic` resuming a real `pragma static` run
+failed every page with crawl4ai's own "URL must start with 'http://',
+'https://', 'file://', or 'raw:'" - `_scouted_urls()` was handing back
+bare keys like `"example.com/path"` straight through to `discover_page`.
+Every test covering `_resume_urls`/`_scouted_urls`/`interact_only`/
+`two_phase_crawl` before this fix used a fake crawler that echoed
+whatever URL it was given back unvalidated, so none of them could have
+caught it - `tests/test_interact_only.py`'s fake now rejects a
+schemeless URL explicitly, the same way crawl4ai does, so this class of
+regression fails loudly again.
+
+Restores `www.` only when the key's own host equals `base_url`'s *bare*
+host (its host with any `www.` stripped) - a key belonging to a
+different in-scope subdomain (`allow_subdomains=True`) never had `www.`
+to begin with, and grafting the base URL's own prefix onto it would be
+wrong.
+
 ## resolve_href
 
 Resolves a component's raw `href` attribute (`discover_components.js`'s

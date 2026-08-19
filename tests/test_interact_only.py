@@ -20,9 +20,17 @@ class _NoDiscoveryCrawler:
     """Answers discovery for whatever URL it's asked - an interact_only run
     that wrongly tried to discover start_url from scratch would still reach
     this fake, so the real assertion under test is which pages ended up
-    Finished, not whether discovery itself would fail."""
+    Finished, not whether discovery itself would fail. Also refuses a
+    schemeless URL, the same way crawl4ai's own `arun()` does ("URL must
+    start with 'http://', 'https://', 'file://', or 'raw:'") - `get_scouted()`
+    hands back a bare `route_shape` key, not a navigable URL, so a caller
+    that forgot to restore its scheme would be caught here rather than
+    silently passing against a fake that doesn't care.
+    """
 
     async def discover_page(self, url: str, session_id: str = "") -> PageState:
+        if not url.startswith(("http://", "https://")):
+            raise ValueError(f"URL must start with 'http://' or 'https://', got {url!r}")
         return PageState(url=url, components=[], links=[])
 
     async def close_session(self, session_id: str) -> None:
