@@ -211,6 +211,18 @@ class InferredRequest:
         latencies_ms: every measured request-to-response time, sorted.
             Relative signal only (see `network_filter._latency_ms`), and
             empty when no response was ever captured.
+        request_example: one real request body this endpoint was called
+            with, redacted (`spiders/content/redaction.py`) and truncated
+            at capture time, or `""` if no call ever carried a
+            JSON-parseable body. This is *an* observation, not a canonical
+            example - the shortest one seen, so the document stays
+            readable, which is a deterministic choice rather than a
+            claim that it is representative.
+        response_example: same, for the response body, and taken **only
+            from calls that answered 2xx**. A body from a 422 describes
+            the error shape, and publishing it as the endpoint's response
+            example would be a lie about the happy path. `""` when no
+            successful call ever carried a body.
     """
 
     method: str
@@ -224,3 +236,5 @@ class InferredRequest:
     latencies_ms: Tuple[int, ...] = ()
     auth_schemes: Tuple[str, ...] = ()
     media_types: Tuple[str, ...] = ()
+    request_example: str = ""
+    response_example: str = ""
