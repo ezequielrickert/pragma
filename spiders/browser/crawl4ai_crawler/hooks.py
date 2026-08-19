@@ -12,15 +12,14 @@ from typing import Any, Dict
 from ...content.page_extraction import run_extraction
 from ..dom_settle import _is_navigation_context_error, _wait_for_new_content
 from .config import Crawl4AICrawlerConfig
+from .mutation_heuristics import looks_like_mutating_get
 
 # Resource types safe to drop when Crawl4AICrawlerConfig.block_images is enabled.
 # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_blocked_resource_types
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 
 # HTTP methods immutable mode intercepts and fulfills synthetically instead
-# of letting reach the server. GET is deliberately excluded here - a GET
-# that turns out to mutate despite the safe verb is a separate, heuristic
-# decision (issue #61), not a blanket-method one.
+# of letting reach the server.
 # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_mutating_methods
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -121,7 +120,15 @@ class HookHandlers:
         return self.block_images and route.request.resource_type in _BLOCKED_RESOURCE_TYPES
 
     def _is_blocked_mutation(self, route) -> bool:
-        return self.mode == "immutable" and route.request.method in _MUTATING_METHODS
+        if self.mode != "immutable":
+            return False
+        method = route.request.method
+        if method in _MUTATING_METHODS:
+            return True
+        if method == "GET":
+            headers = getattr(route.request, "headers", None)
+            return looks_like_mutating_get(route.request.url, headers)
+        return False
 
     async def _retry_empty_extraction(self, page, data: Dict[str, Any]) -> Dict[str, Any]:
         """Look again when discovery found nothing on a page that clearly has something.
