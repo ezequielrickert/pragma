@@ -20,7 +20,7 @@ from spiders.browser.login import ensure_login_session
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from .config import PragmaConfig
-from .registry import GRAPH_STORE_REGISTRY
+from .graph_store_resolution import resolve_graph_store
 
 
 def _timestamp() -> str:
@@ -85,13 +85,7 @@ class StaticEngine:
         """
         site = urlparse(config.url).netloc if config.url else ""
         store_options = config.graph_stores.get(config.graph_store, {})
-        try:
-            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, site=site, **store_options)
-            graph_store.connect()
-        except Exception as exc:
-            print(f"Failed to initialize {config.graph_store} graph store: {exc}; falling back to memory")
-            graph_store = GRAPH_STORE_REGISTRY.create("memory", site=site)
-            graph_store.connect()
+        graph_store = resolve_graph_store(config.graph_store, site, store_options)
 
         if config.fresh and site:
             graph_store.reset()

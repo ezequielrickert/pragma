@@ -10,6 +10,7 @@ import os
 
 import pytest
 
+from database.ladybug.site_lock import SiteLockError
 from database.ladybug.store import LadybugGraphStore
 
 
@@ -111,6 +112,46 @@ def test_no_directory_uses_ladybugs_in_memory_database(site) -> None:
 def test_close_before_connect_is_a_safe_no_op(site) -> None:
     store = LadybugGraphStore(site)
     store.close()  # must not raise
+
+
+def test_connect_fails_fast_when_another_process_already_holds_the_site(tmp_path, site) -> None:
+    """The cross-process guard `site_lock.py` adds: two `LadybugGraphStore`
+    instances (standing in for two separate `pragma` invocations, e.g.
+    `static` and `dynamic` launched concurrently against the same site by
+    mistake) must not both open the same `.lbdb`."""
+    first = LadybugGraphStore(site, directory=str(tmp_path))
+    first.connect()
+    try:
+        second = LadybugGraphStore(site, directory=str(tmp_path))
+        with pytest.raises(SiteLockError, match="already locked"):
+            second.connect()
+    finally:
+        first.close()
+
+
+def test_connect_succeeds_again_once_the_first_store_closes(tmp_path, site) -> None:
+    first = LadybugGraphStore(site, directory=str(tmp_path))
+    first.connect()
+    first.close()
+
+    second = LadybugGraphStore(site, directory=str(tmp_path))
+    second.connect()  # must not raise - the lock was released with the first store
+    second.close()
+
+
+def test_reset_releases_and_reacquires_the_lock_around_its_own_delete(tmp_path, site) -> None:
+    """`reset()` closes, deletes the directory, then reconnects - if it
+    didn't release the lock before deleting, its own reconnect would
+    deadlock against itself."""
+    store = LadybugGraphStore(site, directory=str(tmp_path))
+    store.connect()
+    store.reset()  # must not hang or raise
+    try:
+        other = LadybugGraphStore(site, directory=str(tmp_path))
+        with pytest.raises(SiteLockError):
+            other.connect()  # still held by `store`, which reset() left connected
+    finally:
+        store.close()
 
 
 def test_each_site_gets_its_own_database_no_cross_contamination(tmp_path) -> None:

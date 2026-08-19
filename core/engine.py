@@ -25,8 +25,9 @@ from utils.urls import route_shape, slugify
 from .caching_graph_store import CachingGraphStore
 from .config import PragmaConfig
 from .documents import DocumentRequest, ProducedDocument
+from .graph_store_resolution import resolve_graph_store
 from .interfaces import Agent
-from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
+from .registry import AGENT_REGISTRY
 
 
 def _timestamp() -> str:
@@ -165,13 +166,7 @@ class Engine:
         # built with no site known yet.
         site = urlparse(config.url).netloc if config.url else ""
         store_options = config.graph_stores.get(config.graph_store, {})
-        try:
-            graph_store = GRAPH_STORE_REGISTRY.create(config.graph_store, site=site, **store_options)
-            graph_store.connect()
-        except Exception as exc:
-            print(f"Failed to initialize {config.graph_store} graph store: {exc}; falling back to memory")
-            graph_store = GRAPH_STORE_REGISTRY.create("memory", site=site)
-            graph_store.connect()
+        graph_store = resolve_graph_store(config.graph_store, site, store_options)
 
         if config.fresh and site:
             graph_store.reset()  # see PragmaConfig.fresh
