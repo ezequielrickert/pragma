@@ -20,6 +20,7 @@ from core import bootstrap  # noqa: F401  -- populates the plugin registries
 from core import prompts
 from core.app import run_app
 from core.cli_shared import apply_budget_flags
+from core.cluster_cli import run_cluster_command
 from core.config import PragmaConfig
 from core.engine import Engine, EngineRunResult
 from core.login_cli import run_login_command
@@ -177,6 +178,7 @@ def parse_args(argv: list) -> argparse.Namespace:
 def main() -> None:
     """Bare invocation launches the menu app; `config` jumps to the wizard;
     `login` captures a session; `static` runs a content-capture crawl;
+    `cluster` groups an already-crawled site's components into families;
     flags run the full crawl+analysis pipeline directly.
     Details: docs/dev/cli.md#main
     """
@@ -189,6 +191,9 @@ def main() -> None:
         return
     if argv and argv[0] == "static":
         run_static_command(argv[1:])
+        return
+    if argv and argv[0] == "cluster":
+        run_cluster_command(argv[1:])
         return
 
     if not argv:

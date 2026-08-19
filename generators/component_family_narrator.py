@@ -95,8 +95,8 @@ def narrate_family_purposes(
             own visible text - this lookup is how that text gets back in,
             without `component_family.py` itself needing to know about
             component text at all. The caller
-            (`Engine._apply_component_families`) already has this,
-            since it built it from the same `get_component_ledger` read
+            (`analysis/component_clustering.py::apply_component_families`)
+            already has this, since it built it from the same `get_component_ledger` read
             that supplied `build_component_families`'s own input.
 
     Returns:

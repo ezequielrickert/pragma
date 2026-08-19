@@ -1,5 +1,5 @@
 """Memoizes whole-site graph-store reads for the read-only "post-crawl"
-phase of one `Engine` run: whole-site passes (`_apply_component_families`,
+phase of one `Engine` run: whole-site passes (`apply_component_families`,
 `_apply_request_graph`, `_apply_graph_projection`) plus document
 generation all read the same handful of whole-site tables independently -
 `get_component_ledger` alone was called ~8 times per run (once per

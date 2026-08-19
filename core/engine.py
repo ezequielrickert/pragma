@@ -15,10 +15,8 @@ from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
-from generators.component_family import build_component_families
-from generators.component_family_narrator import family_signature, narrate_family_purposes
-from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
+from analysis.component_clustering import apply_component_families
 from analysis.graph_projection import project_graph
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape, slugify
@@ -32,59 +30,6 @@ from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 def _timestamp() -> str:
     """Generate a standard timestamp string."""
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _apply_component_families(graph_store: Any, agent: Agent) -> None:
-    """Post-hoc, whole-site pass: infer reusable component families, give
-    each a one-sentence LLM-narrated purpose, then write it back. Runs
-    once, after the crawl finishes - family clustering needs to see
-    every discovered component at once, not the live per-page write
-    stream `MechanicalCrawler` produces during the crawl.
-
-    Args:
-        graph_store: the same store the just-finished crawl wrote to -
-            read back from here (`get_component_ledger`), then written
-            back to (`record_component_families`). Site-scoped by
-            construction (one store per site), so no `site` argument
-            here or on any of the calls below.
-        agent: the same LLM backend used for PRD narration - passed
-            through to `narrate_family_purposes` for the one-sentence
-            "what is this pattern used for" description each family gets.
-
-    Returns:
-        None. Three steps, always in this order:
-        1. Read every discovered component via
-           `ledger.flat_component_ledger` - see that function for why the
-           ledger's per-page nesting has to be flattened for a whole-site
-           pass like this one.
-        2. `build_component_families` clusters that flat list into
-           `ComponentFamily` objects (see that function's own docstring
-           for the full algorithm) - `purpose` is still `""` on every one
-           at this point, since clustering itself never calls the model.
-        3. `narrate_family_purposes` fills in `purpose`, one
-           `agent.generate()` call per family that has any member text at
-           all - see that function's own docstring for its graceful-
-           degradation behavior on a single family's failure - and the
-           narrated families are written via `record_component_families`
-           (a full rebuild of the site's family structure every call, per
-           that method's own contract).
-    Details: docs/dev/core/engine.md#_apply_component_families
-    """
-    components = flat_component_ledger(graph_store)
-    families = build_component_families(components)
-    print(f"Grouped {len(components)} components into {len(families)} families.")
-    member_texts = {(c["page_url"], c["path"]): c.get("text", "") for c in components}
-    # Read before record_component_families wipes them: a family whose members
-    # did not change keeps its sentence rather than buying it again, which is
-    # what keeps a site crawled in short resumable passes from re-narrating
-    # everything every pass. Details: docs/dev/core/engine.md#known-purposes
-    known_purposes = {
-        family_signature(existing): existing.purpose
-        for existing in graph_store.get_component_families()
-        if existing.purpose
-    }
-    families = narrate_family_purposes(agent, families, member_texts, known_purposes)
-    graph_store.record_component_families(families)
 
 
 def _apply_graph_projection(graph_store: Any, root: str) -> None:
@@ -350,7 +295,7 @@ class Engine:
         # self.graph_store.close() below still closes the real connection.
         graph_store = CachingGraphStore(self.graph_store)
         print("\nCrawl finished. Grouping components into families...")
-        _apply_component_families(graph_store, self.agent)
+        apply_component_families(graph_store, self.agent)
         print("Projecting the navigation graph into modules and metrics...")
         _apply_graph_projection(graph_store, route_shape(url))
 
