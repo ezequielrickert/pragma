@@ -74,6 +74,7 @@ aimed at onboarding rather than a specific line of code.
 | `database/ladybug/search.py` | [search.md](database/ladybug/search.md) |
 | `database/ladybug/semantic.py` | [semantic.md](database/ladybug/semantic.md) |
 | `database/ladybug/store.py` | [store.md](database/ladybug/store.md) |
+| `database/ladybug/state_styles.py` | [state_styles.md](database/ladybug/state_styles.md) |
 | `database/ladybug/text_content.py` | [text_content.md](database/ladybug/text_content.md) |
 | `database/ladybug/writer.py` | [writer.md](database/ladybug/writer.md) |
 | `generators/accessibility.py` | [accessibility.md](generators/accessibility.md) |

@@ -242,3 +242,9 @@ Marked **after** `record_links`, never instead of it.
 The edge to an off-site page is real data - where this site sends you - and stays
 recorded. Only the target's status changes, so it stops posing as work the crawl
 still owes.
+
+## record_state_styles
+
+Called once per page visit, the same cadence as `record_text_content` and for
+the same reason: these come from the page's stylesheets, which a click cannot
+change, so recording them per reveal would write identical rows repeatedly.

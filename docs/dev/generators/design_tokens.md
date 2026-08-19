@@ -84,3 +84,28 @@ with the measurement pass and brought back from history minus
 `build_state_tokens` and its two `get_page_measurements` calls. That was the
 whole of their dependency on it. See
 `research/plan-segunda-ronda-de-documentos.md` B1.
+
+## statetoken
+
+One value a control takes on `:hover` or `:focus`, with how many controls
+declare it.
+
+The count is what separates a token from a one-off: eleven controls sharing a
+hover colour is a design decision, one control having its own is an exception.
+
+## build_state_tokens
+
+Counts `get_state_styles()` per `(state, property, value)`.
+
+Reads **declared** rules, not styles forced through a pseudo-state, and that is
+the right input rather than a limitation: a declared value *is* what a design
+token is. `#1a4f9c` as written in the stylesheet beats the same colour resolved
+through whatever the element happened to inherit.
+
+A row missing any of state, property or value is dropped - a declaration with no
+value is not a token.
+
+This came back separately from the rest of the document. It was deleted with the
+measurement pass on the assumption that it needed one; it does not, because
+`extract_pseudo_styles.js` only reads stylesheets. See
+`research/plan-segunda-ronda-de-documentos.md` nivel 2.

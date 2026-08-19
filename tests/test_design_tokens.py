@@ -144,6 +144,9 @@ def test_the_document_says_its_names_are_positional_not_semantic():
         def get_component_ledger(self):
             return {"shop/": {"a": _component()}}
 
+        def get_state_styles(self):
+            return []
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
@@ -162,11 +165,14 @@ def test_the_document_explains_why_spacing_is_absent():
         def get_component_ledger(self):
             return {"shop/": {"a": _component()}}
 
+        def get_state_styles(self):
+            return []
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
 
-    assert "**Spacing**" in text
+    assert "**Spacing is absent.**" in text
     assert "800x600" in text
 
 
@@ -178,19 +184,23 @@ def test_the_json_document_is_parseable():
         def get_component_ledger(self):
             return {"shop/": {"a": _component(color="rgb(45, 119, 55)")}}
 
+        def get_state_styles(self):
+            return []
+
     payload = json.loads(
         DesignTokensData().generate(DocumentRequest(graph_store=_Store(), site="shop.example", agent=None))
     )
 
-    assert payload["absent"] == {"spacing": True, "state": True, "reason": payload["absent"]["reason"]}
+    assert payload["absent"] == {"spacing": True, "reason": payload["absent"]["reason"]}
+    assert payload["state"] == []
     assert any(token["value"] == "#2d7737" for token in payload["color"])
 
 
-# --- what this document cannot show ---
+# --- the one remaining gap, and the states that stopped being one ---
 
-def test_the_document_names_both_gaps_and_why():
-    """Spacing and interaction states are absent for the same reason, and a
-    reader has to be able to tell "not captured" from "this site has none"."""
+def test_the_document_names_spacing_as_the_only_gap():
+    """Interaction states used to be listed here too. They are read from the
+    stylesheets now, so listing them as absent would be wrong."""
     from core.documents import DocumentRequest
     from generators.design_tokens import DesignTokensDocument
 
@@ -198,18 +208,51 @@ def test_the_document_names_both_gaps_and_why():
         def get_component_ledger(self):
             return {"shop/": {"a": _component()}}
 
+        def get_state_styles(self):
+            return []
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
 
-    assert "Spacing" in text
-    assert "Interaction states" in text
-    assert "no such pass" in text
+    assert "**Spacing is absent.**" in text
+    assert "viewport-independent" in text
 
 
-def test_the_palette_and_type_scale_are_not_hedged():
-    """The point of the honest note: colours and font sizes are computed CSS
-    values, so they are real and must not be caveated away with the rest."""
+def test_declared_hover_values_become_state_tokens():
+    from generators.design_tokens import build_state_tokens
+
+    tokens = build_state_tokens([
+        {"page_url": "p", "path": "a", "state": "hover", "property": "color", "value": "#1a4f9c"},
+        {"page_url": "p", "path": "b", "state": "hover", "property": "color", "value": "#1a4f9c"},
+    ])
+
+    assert len(tokens) == 1
+    assert (tokens[0].state, tokens[0].value, tokens[0].usage_count) == ("hover", "#1a4f9c", 2)
+
+
+def test_hover_and_focus_are_separate_tokens():
+    from generators.design_tokens import build_state_tokens
+
+    tokens = build_state_tokens([
+        {"page_url": "p", "path": "a", "state": "hover", "property": "color", "value": "#111"},
+        {"page_url": "p", "path": "a", "state": "focus", "property": "outline", "value": "2px solid"},
+    ])
+
+    assert {t.state for t in tokens} == {"focus", "hover"}
+
+
+def test_an_incomplete_state_row_is_dropped():
+    """A declaration with no value is not a token."""
+    from generators.design_tokens import build_state_tokens
+
+    assert build_state_tokens([
+        {"page_url": "p", "path": "a", "state": "hover", "property": "color", "value": ""}
+    ]) == []
+
+
+def test_the_states_section_explains_a_cross_origin_shortfall():
+    """Absent must not read as "this site declares no hover styles"."""
     from core.documents import DocumentRequest
     from generators.design_tokens import DesignTokensDocument
 
@@ -217,8 +260,31 @@ def test_the_palette_and_type_scale_are_not_hedged():
         def get_component_ledger(self):
             return {"shop/": {"a": _component()}}
 
+        def get_state_styles(self):
+            return []
+
     text = DesignTokensDocument().generate(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
 
-    assert "the palette and the type scale are real" in text
+    assert "## Interaction states" in text
+    assert "cross-origin" in text
+
+
+def test_recorded_states_reach_the_document():
+    from core.documents import DocumentRequest
+    from generators.design_tokens import DesignTokensDocument
+
+    class _Store:
+        def get_component_ledger(self):
+            return {"shop/": {"a": _component()}}
+
+        def get_state_styles(self):
+            return [{"page_url": "shop/", "path": "a", "state": "hover",
+                     "property": "background-color", "value": "#1a4f9c"}]
+
+    text = DesignTokensDocument().generate(
+        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
+    )
+
+    assert "| hover | `background-color` | `#1a4f9c` | 1 |" in text

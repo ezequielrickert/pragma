@@ -33,6 +33,11 @@ class PageState:
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
+    # Declared `:hover`/`:focus` styles per control - `[{"path", "states"}]`.
+    # Read from the stylesheets, so unlike geometry it does not depend on the
+    # viewport; `[]` for a site whose CSS is cross-origin.
+    # Details: docs/dev/core/data_contracts.md#pagestatepseudo_styles
+    pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

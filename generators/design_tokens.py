@@ -5,19 +5,18 @@ the rendered pages report - so an inconsistent legacy system produces
 inconsistent tokens, and that inconsistency is itself the finding (the
 usability audit reads the same data for its consistency rules).
 
-**What is accurate here and what is deliberately missing.** Colours and
-font sizes are computed CSS values, independent of viewport size and of the
-crawl's blocked images, so the palette and the type scale are real. Spacing
-would have to come from element geometry, which *is* viewport-dependent -
-the crawl measures at 800x600 - and interaction states would have to be read
-from the stylesheets by a pass that visits pages with a real viewport. That
-measurement pass was removed from this pipeline, so both are absent rather
-than published as numbers nobody should trust.
+**What is accurate here and what is deliberately missing.** Colours and font
+sizes are computed CSS values, and interaction states are *declared* rules read
+from the stylesheets - none of the three depend on viewport size or on whether
+images loaded. Spacing is the one gap: it would have to come from element
+geometry, which *is* viewport-dependent (the crawl measures at 800x600), so it
+is absent rather than published as a number nobody should trust.
 
-This document and `color_space.py` were themselves deleted along with that
-pass and restored without it: the two things it fed (spacing, `:hover`/
-`:focus`) are the two named above as absent, and everything else here never
-needed it. See `research/plan-segunda-ronda-de-documentos.md` B1.
+This document and `color_space.py` were deleted along with the measurement pass
+and restored without it. The interaction states came back separately, once it
+was clear that `extract_pseudo_styles.js` reads `document.styleSheets` and
+therefore never needed that pass at all - it now runs in the ordinary discovery
+pass. See `research/plan-segunda-ronda-de-documentos.md` B1 and nivel 2.
 
 Details: docs/dev/generators/design_tokens.md#module
 """
@@ -55,6 +54,18 @@ class ColorToken:
     value: str
     usage_count: int
     merged_from: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StateToken:
+    """One value a control takes on `:hover` or `:focus`.
+    Details: docs/dev/generators/design_tokens.md#statetoken
+    """
+
+    state: str
+    property: str
+    value: str
+    usage_count: int
 
 
 @dataclass(frozen=True)
@@ -152,14 +163,50 @@ _NAMING_NOTE = (
     "presented as a fact. Rename them when you adopt them."
 )
 
+def build_state_tokens(state_styles: Sequence[Dict[str, Any]]) -> List[StateToken]:
+    """The `:hover`/`:focus` values the site declares, grouped by what they are.
+
+    Read from `GraphStore.get_state_styles()` - the declared rules
+    `extract_pseudo_styles.js` matched against real controls, not styles forced
+    through a pseudo-state. A declared value *is* what a design token is:
+    `#1a4f9c` as written beats the same colour resolved through whatever the
+    element happened to inherit.
+
+    Counted per `(state, property, value)`, so "eleven controls declare this
+    hover colour" is the signal that separates a token from a one-off.
+
+    A site serving its CSS cross-origin reports fewer of these than it has -
+    `cssRules` throws for those stylesheets and there is no way around it, which
+    is why the document says so rather than presenting `[]` as "declares no
+    hover styles".
+    Details: docs/dev/generators/design_tokens.md#build_state_tokens
+    """
+    counts: Dict[Tuple[str, str, str], int] = {}
+    for entry in state_styles:
+        key = (entry.get("state", ""), entry.get("property", ""), entry.get("value", ""))
+        if all(key):
+            counts[key] = counts.get(key, 0) + 1
+    return [
+        StateToken(state=state, property=css_property, value=value, usage_count=count)
+        for (state, css_property, value), count in sorted(
+            counts.items(), key=lambda item: (item[0][0], -item[1], item[0][1], item[0][2])
+        )
+    ]
+
+
 _ABSENT_NOTE = (
-    "Two things are absent, both for the same reason. **Spacing** would come from element geometry, "
-    "which the crawl measures at an 800x600 viewport chosen for speed - a spacing scale derived from "
-    "that describes a layout nobody sees. **Interaction states** (`:hover`, `:focus`, `:active`) "
-    "would come from reading the stylesheets, which needs a pass that visits pages with a real "
-    "viewport and images enabled; this pipeline has no such pass. Colours and font sizes below have "
-    "neither problem: they are computed CSS values, independent of viewport size and of whether "
-    "images loaded, so the palette and the type scale are real."
+    "**Spacing is absent.** It would come from element geometry, which the crawl measures at an "
+    "800x600 viewport chosen for speed - a spacing scale derived from that describes a layout "
+    "nobody sees. Everything else here is viewport-independent: colours and font sizes are computed "
+    "CSS values, and the interaction states below are *declared* rules read from the stylesheets, "
+    "so none of them depend on how wide the window was or on whether images loaded."
+)
+
+_STATE_CAVEAT = (
+    "Declared `:hover` and `:focus` values, read from the site's own stylesheets. A site serving "
+    "its CSS cross-origin reports fewer than it has - the browser refuses to expose those rules, "
+    "and there is no way around it. Absent is not the same as \"this site declares no hover "
+    "styles\"."
 )
 
 
@@ -195,6 +242,17 @@ class DesignTokensDocument(DocumentGenerator):
             lines += [f"| `{t.name}` | {t.font_size} | {t.font_weight} | {t.usage_count} |" for t in types]
             lines.append("")
 
+        states = build_state_tokens(request.graph_store.get_state_styles())
+        lines += ["## Interaction states", "", _STATE_CAVEAT, ""]
+        if states:
+            lines += ["| State | Property | Value | Uses |", "|---|---|---|---|"]
+            lines += [
+                f"| {s.state} | `{s.property}` | `{s.value}` | {s.usage_count} |" for s in states
+            ]
+        else:
+            lines.append("None were recorded for this crawl.")
+        lines.append("")
+
         lines.append("")
         return "\n".join(lines)
 
@@ -215,8 +273,12 @@ class DesignTokensData(DocumentGenerator):
         payload = {
             "site": request.site,
             "note": _NAMING_NOTE,
-            "absent": {"spacing": True, "state": True, "reason": _ABSENT_NOTE},
+            "absent": {"spacing": True, "reason": _ABSENT_NOTE},
             "color": [asdict(token) for token in build_color_tokens(components)],
             "type": [asdict(token) for token in build_type_tokens(components)],
+            "state": [
+                asdict(token)
+                for token in build_state_tokens(request.graph_store.get_state_styles())
+            ],
         }
         return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"

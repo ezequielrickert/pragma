@@ -39,6 +39,7 @@ from .page import _LadybugPageMixin
 from .raw_query import _LadybugRawQueryMixin
 from .search import _LadybugSearchMixin
 from .semantic import _LadybugSemanticMixin
+from .state_styles import _LadybugStateStyleMixin
 from .schema import DDL
 from .text_content import _LadybugTextContentMixin
 from .writer import LadybugWriter
@@ -69,6 +70,7 @@ class LadybugGraphStore(
     _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugNetworkMixin,
     _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugRawQueryMixin,
     _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
+    _LadybugStateStyleMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -77,13 +79,14 @@ class LadybugGraphStore(
     write/refresh the `Site` header row and to resolve this store's own
     path; unlike every DuckDB method this replaces, it is never a query
     parameter, since every table already belongs to this site by
-    construction. The twelve mixins supply the full read+write path -
+    construction. The thirteen mixins supply the full read+write path -
     `page.py` (Page/link/edge, and the shared `_ensure_page` helper the
     others call through `self`), `component.py` (Component/Interaction),
     `text_content.py` (TextContent), `component_family.py`
     (ComponentFamily), `analysis.py` (derived graph metrics),
     `network.py` (Request/Endpoint/Payload - the API contract),
     `options.py` (Option), `containment.py` (Container),
+    `state_styles.py` (StateStyle - declared :hover/:focus values),
     `semantic.py` (Entity/Field - the semantic tier, provenance enforced
     at the write), and the retrieval surface split three ways by concern:
     `raw_query.py` (`raw()`, `schema_card()`), `named_queries.py` (the named query

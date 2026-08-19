@@ -24,8 +24,8 @@ Marcado contra lo que realmente entró, en la rama `claude/architecture-docs-rev
 | A5 — integraciones de terceros | **hecho** | Sección de D13, no de D4: el OpenAPI es YAML y no admite prosa |
 | Fase C — PRD por módulo | **hecho** | `group_pages_by_module`; además cita profundidad y puntos de articulación |
 | D13 — mapa de arquitectura | **hecho** | `generators/architecture_map.py`, registrado como `architecture` |
-| B1 — recuperar D10 (tokens) | **hecho** | Recuperado del historial sin `build_state_tokens` |
-| B2 — accesibilidad (D11) | **decidido: no ahora** | La opción (1) del plan. El documento maestro lo dice explícitamente |
+| B1 — recuperar D10 (tokens) | **hecho** | Recuperado del historial; los estados `:hover`/`:focus` volvieron después, en el nivel 2 |
+| B2 — accesibilidad (D11) | **hecho, parcial** | Nivel 1 abajo: sin axe, sólo lo que los datos prueban. Reemplaza la decisión original de no hacerlo |
 | B3 — limpiar D7 | **hecho** | Regla `unattributable-outcome` borrada; la referencia a tokens volvió a ser cierta con B1 |
 | Fase D — tier semántico + D14 | **hecho** | `semantic.py` con provenance obligatoria; D14 = `data-model` |
 | D15 — reglas de negocio | **sigue congelada** | Misma razón que la Fase 7 del plan anterior |
@@ -316,6 +316,99 @@ Orden sugerido, por rendimiento:
 Vale un chequeo automatizable, no una revisión a ojo: recorrer los `Details:` del código y fallar
 si alguno apunta a un archivo inexistente. Es la clase de regla que se rompe sola en la próxima
 migración.
+
+---
+
+## 6.5 Recuperar lo que se dejó de hacer: tres niveles
+
+De los 16 documentos que alguna vez estuvieron registrados, **uno solo había dejado de
+producirse**: `accessibility` (D11). `tokens` (D10) había caído en el mismo commit y volvió en
+B1. Aparte de eso, tres pérdidas *dentro* de documentos que sí se seguían haciendo: D10 sin
+escala de espaciado, D10 sin estados de interacción, y D13 sin ciclos de navegación.
+
+Ordenados por costo, no por importancia.
+
+### Nivel 1 — D11 determinista, sin axe y sin captura nueva — **hecho**
+
+Lo que lo hace posible ahora y no antes:
+
+- **`Container.landmark` + `get_page_landmarks()`** convierten la estructura de landmarks en
+  una propiedad consultable de la página. Antes eso sólo lo veía un navegador.
+- **La cadena de nombre accesible ya se resuelve en captura.**
+  `discover_components.js` calcula `text` como
+  `innerText || aria-label || aria-labelledby || title || img[alt] || svg>title`, y la
+  asociación con `<label>` aparte en `label`. Un control sin nada después de todo eso **es**
+  un hallazgo, no una heurística.
+
+Cuatro reglas: `missing-accessible-name` (4.1.2), `placeholder-as-only-label` (3.3.2),
+`no-main-landmark` (2.4.1), `duplicate-unique-landmark` (1.3.1).
+
+Lo que costó una decisión y no una línea de código:
+
+- El `innerText` de un `<input>` es siempre vacío, así que su nombre sale de `label` o de
+  `aria-label`. Una regla que mirara sólo `text` daría falso positivo en **todos** los campos
+  correctamente etiquetados del sitio.
+- Un elemento produce un solo hallazgo de nombre: la regla específica gana, porque el arreglo
+  difiere (promover el placeholder vs. inventar un nombre).
+- `navigation` no es un landmark único. Varios `<nav>` es markup correcto.
+- Las páginas sin ancestría registrada no se juzgan: "no tiene `main`" y "no se capturó
+  containment" son afirmaciones distintas.
+- La capa `cursor: pointer` se saltea **y se cuenta en el documento**. Un `div` clickeable sin
+  nombre es una falla real y un wrapper decorativo no lo es; el crawl no los distingue, así que
+  el punto ciego se declara en vez de aplicarse en silencio.
+- La nota de alcance se renderiza **siempre**, incluso sin hallazgos. La salida peligrosa acá es
+  la limpia: una auditoría parcial que no dice que es parcial se lee como "esta aplicación es
+  accesible", que es justo lo que no verificó.
+
+Los hallazgos no se guardan, igual que D7: se recalculan cada corrida, el documento es su único
+consumidor, y los nodos `Rule` con `DERIVED_FROM` están ahí para el día que aparezca un segundo.
+
+### Nivel 2 — los estados de interacción de D10 — **hecho, y más barato de lo estimado**
+
+La estimación era "captura modesta". Resultó **ningún pase nuevo**.
+
+`extract_pseudo_styles.js` lee `document.styleSheets` y matchea las reglas declaradas contra
+elementos en reposo. No hace hover, no necesita CDP, no lee geometría — así que **no depende del
+viewport ni de que carguen las imágenes**, exactamente como los colores y los tamaños de fuente.
+Vivía en el pase de medición por dónde lo pusieron, no por lo que necesitaba. Y el crawl no
+bloquea CSS (`_BLOCKED_RESOURCE_TYPES` es `{image, media, font}`), así que corre en el pase de
+descubrimiento normal.
+
+Almacenamiento: tabla `StateStyle` nueva + `HAS_STATE_STYLE`. Una tabla **nueva** es libre de
+migración porque `connect()` corre el DDL en cada apertura, a diferencia de extender la lista
+`FROM`/`TO` de una tabla existente — que es lo que bloquea derivar entidades desde `Request` en
+D14. Vale tenerlo presente: la asimetría decide qué cambios de esquema son baratos.
+
+Un bug que un test agarró: el read traversaba `HAS_COMPONENT`, y un componente que sólo existe
+por el `MERGE` defensivo del write no tiene esa arista — los estilos se guardaban y quedaban
+ilegibles, lo que volvía falso el motivo declarado del `MERGE`. Ahora la página sale de
+`split_component_id`.
+
+### Nivel 3 — lo que sigue necesitando el pase de medición — **pendiente, go/no-go**
+
+Acá la tecnología nueva no ayuda: el problema es de captura, no de almacenamiento. Nada de esto
+se puede derivar de lo que hay en el grafo.
+
+| Falta | Por qué no se puede hoy | Documento afectado |
+|---|---|---|
+| Ratios de contraste (WCAG 1.4.3) | `background_color` devuelve `rgba(0,0,0,0)` para casi todo elemento cuyo fondo pinta un ancestro. Es la razón por la que se eligió axe en lugar de reglas propias, y sigue valiendo | D11 |
+| Tamaño de objetivo táctil (2.5.8) | Umbral absoluto (24px) contra geometría medida a 800×600 con imágenes bloqueadas | D11 |
+| Foco visible y orden de tabulación (2.4.7, 2.4.3) | Requiere recorrer la página con `Tab` durante el crawl | D11 |
+| Escala de espaciado | Misma geometría a 800×600 | D10 |
+| El resto de WCAG (~90 reglas de axe) | Vendorizar axe-core son 540KB y un pase que visite cada página con viewport realista | D11 |
+
+**La regla transversal que gobierna todo esto y ya está escrita en el documento maestro: las
+comparaciones relativas sobreviven ese viewport, los umbrales absolutos no.** "Estos tres
+botones no coinciden entre sí" es cierto igual; "este botón mide menos de 24px" no.
+
+El diseño del pase, si algún día se hace, ya está especificado en
+`plan-generacion-de-documentos.md` §5.0: una página por `route_shape`, sin interacciones,
+viewport 1280×800, `block_images` desactivado. Es una fracción del crawl original, no su
+duplicación.
+
+**Aparte y mucho más barato: los ciclos de navegación de D13.** `project_graph` ya los enumera
+en cada corrida y se descartan. No necesita pase de medición, sólo una tabla o pasarlos por
+`DocumentRequest.settings`. Queda pendiente por proporción, no por dificultad.
 
 ---
 

@@ -46,3 +46,17 @@ nonsense sequence - a bug that would only appear under `page_concurrency
 
 `take()` returns a frozen snapshot rather than the live object, so a
 caller holding a step cannot see it advance underneath them.
+
+## pagestatepseudo_styles
+
+The declared `:hover`/`:focus` styles per control, as
+`[{"path", "states"}]` - `extract_pseudo_styles.js`'s own output shape.
+
+**Unlike geometry, this does not depend on the viewport.** It is read from
+`document.styleSheets`, so the crawl's 800x600 window and blocked images do not
+affect it, which is why it rides along in the ordinary discovery pass instead of
+needing the measurement pass it was originally written for.
+
+`[]` for a site serving its CSS cross-origin: `cssRules` throws for those
+stylesheets and there is no way around it. The design-token document says so
+rather than presenting an empty list as "this site declares no hover styles".
