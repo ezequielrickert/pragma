@@ -147,3 +147,13 @@ pass on an implementation that leaked.
 The response's `content-type`, charset stripped. Without it the API
 contract assumed `application/json` for everything, so an endpoint
 answering XML or a redirect was described wrongly rather than vaguely.
+
+## _split_url
+
+`(host, path, query_param_names)` - the redaction policy applied **at capture
+time**, not left for a later pass to enforce.
+
+A live query string is exactly the per-instance data this feature never
+persists: an order id, a share token. Only a parameter's *name* survives, sorted
+and deduplicated so the same endpoint reports the same list regardless of the
+original call's param order.

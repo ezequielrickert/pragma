@@ -202,3 +202,23 @@ module is what makes `"prd"` resolvable.
 It is a thin adapter on purpose - `GraphPRDSynthesizer` keeps its own
 constructor and its `synthesize(site)` entry point, so every existing test
 and any direct caller is untouched by the pipeline landing.
+
+## combine_system_instruction
+
+The combine stage's own instruction: the same shape as the reduce call, but its
+output feeds back into another reduce rather than being the final overview.
+
+Used only when there are more sections than one reduce call should take at once.
+A separate instruction rather than a reused one, per
+`wiki/prompt-engineering-for-llm-agents.md` Principle 1 - never share a
+system_instruction across semantically different calls.
+
+## _combine_chunk
+
+One intermediate combine call: fewer, larger summaries, never the final overview
+itself.
+
+This is the middle layer that keeps the final reduce's prompt bounded on a site
+with many modules. Without it a forty-section document would put all forty
+summaries in one prompt, which is the unbounded call this module was
+restructured to eliminate.

@@ -25,6 +25,59 @@ request's optional `Payload` attachment varies per row - 0, 1 or 2 bodies - in
 a way an `UNWIND` batch cannot express without an unverified
 conditional-`CREATE` construct.
 
+## _ladybugnetworkmixin
+
+Mixed into `LadybugGraphStore`, relies on `self._call(...)`.
+
+## _pattern_and_params
+
+`("/orders/{id}/items", ["id"])` for `/orders/8d206b72.../items` - the same
+opaque-segment heuristic `route_shape` applies to page URLs, applied here at
+**write** time rather than in a post-hoc rebuild pass, which is what lets
+`Endpoint` be the stored identity.
+
+Two dynamic segments both read `{id}` in the pattern, because an endpoint's
+shape does not need them told apart to be the same endpoint. `path_params`
+disambiguates positionally (`["id", "id_2"]`) for anything that wants the count
+without re-parsing the pattern string.
+
+## _request_params
+
+One request dict - `network_filter.filter_meaningful_requests`' shape plus
+`GraphStoreSink`'s `is_first_party` stamp - into every parameter the two write
+paths need. Built once so they cannot disagree about what an endpoint is.
+
+## _payload_clauses
+
+The `MERGE (:Payload) ... CREATE (req)-[:HAS_BODY]->` fragment for whichever of
+the two body hashes is non-empty.
+
+**This is the per-row variability that keeps this write path off `UNWIND`.** A
+request carries 0, 1 or 2 bodies, and an `UNWIND` batch cannot express a
+conditional `CREATE` without a construct nobody here has verified against the
+engine. At this volume - 148 first-party observations across a whole site crawl
+in the snapshot that shaped the plan - a per-row loop is not a real cost.
+
+## _merge_shape
+
+Union of two JSON-encoded shapes, marking keys absent from either `"?"`. Moved
+verbatim from the retired `request_family.py`, and this is now its only caller.
+
+Merging on read rather than storing a merged shape is what keeps an endpoint's
+contract from going stale: a new observation with an extra optional key widens
+the shape the next time it is asked for, with nothing to rebuild.
+
+## _merge_third_party_endpoint
+
+A tracker, ads or analytics call: bump `Endpoint.call_count` and create **no
+`Request` at all**.
+
+The asymmetry is deliberate and load-bearing for storage size - 96% of captured
+requests in the snapshot that shaped this plan were exactly this kind of call.
+Per-observation fidelity for traffic the application does not own is noise, and
+keeping the count means `named_queries.integrations()` can still rank vendors by
+volume.
+
 ## _shortest
 
 Picks one body out of every observation of it.

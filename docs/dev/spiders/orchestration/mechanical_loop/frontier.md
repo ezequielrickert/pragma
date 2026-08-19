@@ -126,3 +126,19 @@ it, not just one page's own retry count.
 past the cap, it marks the page `FAILED_PAGE_STATUS`
 (`docs/dev/spiders/orchestration/graph_sink/sink.md#failed_page_status`)
 instead of calling this again.
+
+## queued_count
+
+How many URLs are still waiting - the denominator a progress line needs to
+distinguish "working through a long list" from "stuck".
+
+## prime_route_shape_visits
+
+Carries a previous run's sampled route shapes into this one.
+
+Without it the counter starts at zero every run, so `max_visits_per_route_shape`
+was per-*run* rather than per-*site*: five short runs sampled up to five URLs of
+a shape where one long run sampled one, and **the same site crawled two
+different ways produced two different graphs**. Making short runs equivalent to
+one long run is the whole point of the resume path, and this was the piece of
+state silently breaking it.

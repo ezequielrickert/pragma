@@ -222,3 +222,37 @@ so an existing `pragma.yaml` that sets it keeps working unchanged -
 `Engine._document_names` appends `"export"` when the flag is on and the
 list did not already ask for it. Setting both is not an error; the name is
 added once.
+
+## _default_yaml_path
+
+The first existing path in `DEFAULT_CONFIG_PATHS`, or `None`.
+
+## default_config_paths
+
+Where `load()` looks when no `--config` is passed, in order.
+
+The first entry is what `core/wizard.py` writes, and the two disagreed for a
+stretch of this project's history: the wizard wrote `pragma.yaml` while this
+module read `config/pragma.yaml` only, so **a wizard-generated config was
+silently ignored on every run**. Both are honoured now so neither existing
+layout breaks.
+
+## crawl_budget
+
+What one run may do before stopping and leaving the rest `Pending`. Keys:
+`pages`, `nodes`, `minutes`.
+
+All-unset means "until the frontier drains", which is what every run did before
+this existed - **a long run is this dict empty, not a separate mode**. See
+`docs/dev/spiders/orchestration/mechanical_loop/budget.md` for why the minutes
+key is worth setting even when pages is what you mean.
+
+## _apply_yaml-unknown-keys
+
+Unrecognized keys are **named on startup, not just counted**.
+
+An ignored key is almost always a typo or a setting renamed out from under an
+existing file, and both are invisible otherwise. The concrete cost:
+`max_iterations: 40` sat in this repo's own `pragma.yaml` bounding nothing at
+all, reading like a 40-page cap - and the run it was meant to stop went 12
+hours.

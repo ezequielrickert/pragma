@@ -424,3 +424,15 @@ single `visit()` call. See
 `docs/dev/spiders/orchestration/mechanical_loop/loop.md#_recycle_session_if_due`
 for where that decision actually lives and why it's needed at all - the
 tab isn't merely reused now, it's reused-then-periodically-recycled.
+
+## _progress_every_n_interactions
+
+How many interactions between intra-visit progress lines. Silent below it, so an
+ordinary page says nothing.
+
+Above it, the loop has already done more work than any normal page needs - and
+since the per-page ceiling was removed there is nothing that stops it. A page
+whose DOM keeps minting new component paths grows `frontier` from inside the
+loop that reads it (`outcomes.py`'s `frontier.append`), so `while idx <
+len(frontier)` never ends. Printing both numbers side by side is what makes that
+visible instead of looking like a hang.
