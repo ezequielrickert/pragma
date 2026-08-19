@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/coverage.schema.json",
+  "title": "Crawl coverage",
+  "description": "How much of the site a crawl reached. The source document every other document's confidence/derived_from/coverage_ref claims point at. See docs/adr/0001-coverage-schema-scope.md for what ships with real data in v1 vs. reserved for later.",
+  "type": "object",
+  "required": ["run_id", "target", "crawler", "duration_s", "routes", "interactions", "endpoints", "roles", "blockers", "module_coverage"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Unique per crawl run; every coverage_ref in other documents cites this until module-level citation exists."
+    },
+    "target": {
+      "type": "string",
+      "format": "uri",
+      "description": "The crawled site's root URL."
+    },
+    "crawler": {
+      "type": "object",
+      "required": ["engine", "version"],
+      "properties": {
+        "engine": { "type": "string" },
+        "version": { "type": "string" },
+        "seed": { "type": "integer" }
+      }
+    },
+    "duration_s": { "type": "number", "minimum": 0 },
+    "stopped_reason": {
+      "type": "string",
+      "description": "Set when a budget cut the run short. Present iff generators/coverage.py's render_coverage_banner was given a stopped_reason."
+    },
+    "routes": {
+      "type": "object",
+      "required": ["discovered", "visited", "unvisited"],
+      "properties": {
+        "discovered": { "type": "integer", "minimum": 0 },
+        "visited": { "type": "integer", "minimum": 0 },
+        "unvisited": {
+          "type": "array",
+          "description": "Every discovered-but-unfinished URL, with why. Real data today (generators/coverage.py's unfinished_urls); 'reason' beyond \"unfinished\" (auth_wall, captcha, etc.) is reserved until blocker detection exists.",
+          "items": {
+            "type": "object",
+            "required": ["url", "reason"],
+            "properties": {
+              "url": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "interactions": {
+      "type": "object",
+      "required": ["detected", "triggered"],
+      "properties": {
+        "detected": { "type": "integer", "minimum": 0 },
+        "triggered": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "required": ["observed", "saturation_curve"],
+      "description": "No known denominator for total API surface (per the format audit's own diagnosis) — observed is an absolute count; saturation_curve is the honest substitute for a percentage.",
+      "properties": {
+        "observed": { "type": "integer", "minimum": 0 },
+        "saturation_curve": {
+          "type": "array",
+          "description": "New first-party endpoints per interaction bucket, computed from Interaction.step_seq joined to Endpoint via Request. A flattening curve signals high coverage even without a denominator.",
+          "items": {
+            "type": "object",
+            "required": ["interactions", "new_endpoints"],
+            "properties": {
+              "interactions": { "type": "integer", "minimum": 0 },
+              "new_endpoints": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "roles": {
+      "type": "array",
+      "description": "Reserved. Single anonymous role today (the crawler never signs in) — real multi-role data depends on issue #55 (stateful/immutable crawl modes) landing first.",
+      "default": ["anon"],
+      "items": { "type": "string" }
+    },
+    "blockers": {
+      "type": "array",
+      "description": "Reserved, empty today. No blocker-type detection (login/captcha/2FA/paywall/destructive-action-guard) exists anywhere in the crawler yet.",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["type", "url"],
+        "properties": {
+          "type": { "type": "string" },
+          "url": { "type": "string" },
+          "impact": { "type": "string" }
+        }
+      }
+    },
+    "module_coverage": {
+      "type": "array",
+      "description": "Reserved, empty today. module_id must line up with whatever architecture/export (issue #72, blocked on #66) eventually define as a module — not invented here.",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["module_id", "confidence"],
+        "properties": {
+          "module_id": { "type": "string" },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "routes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

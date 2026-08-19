@@ -64,6 +64,23 @@ The 13 documents the pipeline generates today (`coverage`, `architecture`,
 that exist but are off by default (`catalog-data`, `tokens-data`, `export`).
 Reworked to the source/view split first.
 
+**`coverage_ref`**:
+A pointer a document embeds to cite `coverage`'s numbers for the slice it covers, so a reader can
+tell "this requirement came from a 20%-covered module" without leaving the citing document. Points
+at a whole run (`run_id`) until per-module coverage exists — see `module_id`.
+
+**`module_id`**:
+The identifier a document uses to say "this belongs to module X." Undefined today: the crawler has
+no module-detection pass. Deciding what a module *is* (path-prefix clustering vs. detected graph
+community) belongs to `architecture`'s graph-metrics ticket; every document that references
+`module_id` before then reserves the field rather than inventing its own scheme.
+
+**Reserved field**:
+A schema field that's present and typed but not yet populated with real data, because the crawler
+has no instrumentation for it yet (e.g. `coverage.roles`, `coverage.blockers`). Distinct from a
+dropped field: reserved means "the shape is locked so later documents can reference it now," dropped
+means "no plan exists yet, don't pretend otherwise." See `docs/adr/0001-coverage-schema-scope.md`.
+
 **New-document wave**:
 The 15 documents proposed by the format audit that don't exist in the
 pipeline at all yet (`evidence-log`, `asyncapi`, `change-log`, `glossary`,
