@@ -124,16 +124,6 @@ Added when the CLI's end-of-run listing turned out to be the last place
 still carrying one hardcoded line per output file - `coverage` and
 `master` had landed in Fase 0 and simply never appeared on screen.
 
-## _apply_graph_projection
-
-Materializes the navigation graph into `networkx` and writes per-page metrics and
-module assignments back onto each `Page`.
-
-Independent of the other whole-site passes - it reads only `get_edges`, not the
-component ledger - so it can run in any order relative to them. What it produces
-was unreadable by any document until `get_page_metrics` existed; see
-`docs/dev/database/ladybug/analysis.md`.
-
 ## _apply_data_model
 
 Deduces the semantic tier's `Entity`/`Field` set from the forms the crawl found

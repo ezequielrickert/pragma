@@ -19,7 +19,7 @@ from generators.data_model import build_entities
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from analysis.component_clustering import apply_component_families
-from analysis.graph_projection import project_graph
+from analysis.graph_projection_apply import apply_graph_projection
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape, slugify
 from .caching_graph_store import CachingGraphStore
@@ -32,34 +32,6 @@ from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 def _timestamp() -> str:
     """Generate a standard timestamp string."""
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def _apply_graph_projection(graph_store: Any, root: str) -> None:
-    """Post-hoc, whole-site pass: materialize the navigation graph into
-    `networkx` and write back per-page metrics and module assignments -
-    Storage Phase 7. Independent of the two passes above (reads only
-    `get_edges`, not the component ledger), so it can run in any order
-    relative to them.
-
-    Args:
-        graph_store: same store the crawl wrote to.
-        root: the crawl's own start URL, `route_shape`d to match every
-            other page key in the graph - `project_graph`'s `click_depth`
-            is BFS distance from here.
-
-    Returns:
-        None. `project_graph` (`analysis/graph_projection.py`) computes
-        in/out degree, click depth, betweenness, PageRank, articulation
-        points, and Louvain module assignment; results are written via
-        `record_page_metrics`/`record_page_modules` - full rebuilds, same
-        contract as `record_component_families`.
-    Details: docs/dev/core/engine.md#_apply_graph_projection
-    """
-    result = project_graph(graph_store.get_edges(), root=root)
-    graph_store.record_page_metrics([m.as_dict() for m in result.metrics])
-    graph_store.record_page_modules([m.as_dict() for m in result.modules])
-    if result.cycles:
-        print(f"Graph projection: {len(result.cycles)} navigation cycle(s) found.")
 
 
 def _apply_data_model(graph_store: Any, run_id: str) -> None:
@@ -326,7 +298,7 @@ class Engine:
         print("\nCrawl finished. Grouping components into families...")
         apply_component_families(graph_store, self.agent)
         print("Projecting the navigation graph into modules and metrics...")
-        _apply_graph_projection(graph_store, route_shape(url))
+        apply_graph_projection(graph_store, route_shape(url))
         print("Deducing the data model from the forms found...")
         _apply_data_model(graph_store, run_id)
 
