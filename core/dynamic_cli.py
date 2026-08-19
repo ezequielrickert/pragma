@@ -58,6 +58,12 @@ def parse_dynamic_args(argv: list) -> argparse.Namespace:
         help="Auto-detect a login form and open a headed browser for sign-in before crawling "
         "(default: on). Pass --no-login to always crawl anonymously.",
     )
+    parser.add_argument(
+        "--mode", dest="mode", choices=["stateful", "immutable"],
+        help="'stateful' (default) sends every request unchanged. 'immutable' still clicks/fills "
+        "every component but blocks POST/PUT/PATCH/DELETE (and mutation-heuristic GETs) before "
+        "they reach the server - for a sensitive site where no real operation should happen.",
+    )
     return parser.parse_args(argv)
 
 

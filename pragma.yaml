@@ -10,6 +10,7 @@ agent: local
 graph_store: ladybug
 out_dir: docs
 headless: true
+mode: stateful
 wait_seconds: 5.0
 session_cleanup_timeout_seconds: 10.0
 

@@ -217,3 +217,13 @@ own 60s scale here. See
 `docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#close_session`
 for the full reasoning and why this is bound once, at `close_session`
 itself, rather than wrapped separately at each of its two callers.
+
+## mode
+
+`"stateful"` (default) or `"immutable"`, carried straight from
+`PragmaConfig.mode` - see `docs/dev/core/config.md#mode` for what each
+means. Pure passthrough for now: nothing in this module reads it yet.
+`HookHandlers` (`docs/dev/spiders/browser/crawl4ai_crawler/hooks.md`) is
+where a later ticket's mode-gate `page.route` handler will read it,
+alongside `block_images`'s existing handler - this field only exists so
+that handler has somewhere to get the value from once it's written.
