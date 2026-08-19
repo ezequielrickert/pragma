@@ -1,3 +1,11 @@
+# Git Workflow
+
+`dev` is trunk: short-lived branch per ticket, implement, merge straight back to `dev` with no
+PR. `main` is the stable snapshot, only updated by deliberate promotion. See
+`.claude/skills/dev-trunk-flow/SKILL.md` (locally authored, not upstream-tracked) for the exact
+steps — invoke it with the `Skill` tool (`dev-trunk-flow`) whenever starting or finishing a
+ticket's implementation, rather than re-deriving the git commands from memory.
+
 # Code Quality Pipeline
 
 Three quality skills are installed under `.claude/skills/` (mirrored from `.agents/skills/`,
