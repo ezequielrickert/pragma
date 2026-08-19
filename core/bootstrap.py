@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from agents import local_agent  # noqa: F401  (registers "local")
 from agents import mock_agent  # noqa: F401  (registers "mock")
+from generators import accessibility  # noqa: F401  (registers "accessibility")
 from generators import architecture_map  # noqa: F401  (registers "architecture")
 from generators import component_catalog  # noqa: F401  (registers "catalog", "catalog-data")
 from generators import component_tree  # noqa: F401  (registers "tree")

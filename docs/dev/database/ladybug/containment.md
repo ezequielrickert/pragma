@@ -65,3 +65,24 @@ from an empty string, and a missing key cannot be misread as a region
 genuinely named `""`. `{}` for a site with no recorded ancestry, which is
 also how a crawl from before containment capture reads back - the documents
 say so rather than rendering "no regions" as if it were a finding.
+
+## get_page_landmarks
+
+`{page_url: {landmark: count}}` - how many distinct landmark regions of each
+kind a page has.
+
+The question `get_component_regions` cannot answer. That one reports the region a
+*component* sits in, so a page with two separate `<header>`s looks identical to a
+page with one. Landmark structure is a property of the page, and
+`generators/accessibility.py` needs it that way to report a missing `main` or a
+duplicated `banner`.
+
+`count(DISTINCT region.id)`, not `count(region.id)` - confirmed against the real
+engine that the difference bites here: two banners holding three components
+between them count 3 naively and 2 distinctly, and 2 is the number WCAG cares
+about.
+
+Reached through components, because there is no `Page`-to-`Container` edge in the
+schema. A landmark holding no discovered component is invisible here - a floor on
+what this can report rather than a bug, since an empty region has nothing to be
+inaccessible about.

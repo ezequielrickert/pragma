@@ -76,6 +76,7 @@ aimed at onboarding rather than a specific line of code.
 | `database/ladybug/store.py` | [store.md](database/ladybug/store.md) |
 | `database/ladybug/text_content.py` | [text_content.md](database/ladybug/text_content.md) |
 | `database/ladybug/writer.py` | [writer.md](database/ladybug/writer.md) |
+| `generators/accessibility.py` | [accessibility.md](generators/accessibility.md) |
 | `generators/architecture_map.py` | [architecture_map.md](generators/architecture_map.md) |
 | `generators/color_space.py` | [color_space.md](generators/color_space.md) |
 | `generators/component_catalog.py` | [component_catalog.md](generators/component_catalog.md) |
