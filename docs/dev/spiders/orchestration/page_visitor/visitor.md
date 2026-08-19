@@ -68,6 +68,14 @@ only goes to `InteractionOutcomes`, not `NavigationRecovery` - it's a
 decision `handle_physical_navigation` makes, not something the recovery
 methods themselves need to know.
 
+## _family_sampler
+
+`config.family_sampler`, unset (`None`) for every caller except
+`pragma dynamic`'s own `DynamicEngine` when it built one - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#family_sampler`.
+Consulted once per component in `_drain_interaction_frontier`, before
+any click/fill.
+
 ## _fill_value_cache
 
 `(page_key, component_identity())` -> the value already generated for
@@ -299,6 +307,15 @@ are gone. Updated at the exact same two points `page_literal` is: once at
 `visit`'s own top (`state.url`), and again on a successful
 `return_to_origin` (`fresh_state.url`) - never on a state transition,
 since that branch doesn't change the literal URL by definition.
+
+## visit-family-sampling-skip
+
+Checked right after `fillable` is determined, before the static-href
+check or any click/fill - a skipped component never reaches either.
+Marks the component interacted the same way a real click/fill does
+(`tracker.mark_interacted`, `_frontier.mark_interacted_identity`) so
+this pass never reconsiders it; `FamilySampler.should_interact` does its
+own logging, so there's nothing further to report here.
 
 ## visit-static-href-check
 

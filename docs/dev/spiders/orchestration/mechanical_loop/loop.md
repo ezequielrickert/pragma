@@ -84,6 +84,13 @@ Same storage pattern as `_two_phase_crawl` immediately above - see
 for what it changes and why it's a separate flag rather than a variant
 of `two_phase_crawl`.
 
+## _interact_only
+
+Same storage pattern as `_two_phase_crawl`/`_scout_only` above - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#interact_only`
+for what it changes and why it's `pragma dynamic`'s own flag rather than
+a reuse of `two_phase_crawl`'s phase 2.
+
 ## __init__-collaborators
 
 `UrlFrontier` and `WorkerPacing` are each constructed from `self.tracker`/
@@ -128,6 +135,18 @@ a fresh frontier pass from `_scouted_urls()` via
 `UrlFrontier.enqueue_scouted` and runs a second `_run_sweep` with
 `PageVisitor.interact` (`count_as_finished=True`). `scout_only` takes
 priority when both it and `two_phase_crawl` are set.
+
+## crawl_site-interact_only
+
+Checked first, before `start_url` is ever enqueued: under
+`interact_only=True` (`config.md#interact_only` - `pragma dynamic`'s own
+resume mode), `crawl_site` seeds the frontier only from `_scouted_urls()`
+via `UrlFrontier.enqueue_scouted` and runs a single `_run_sweep` with
+`PageVisitor.interact` (`count_as_finished=True`), then returns early -
+no scout phase, and no discovery of `start_url` itself in this process.
+Unlike `two_phase_crawl`, whose phase 2 only runs after this same
+process's own phase 1 just finished, `interact_only`'s scouted pages
+always come from an earlier, separate `scout_only` run.
 
 ## _scouted_urls
 

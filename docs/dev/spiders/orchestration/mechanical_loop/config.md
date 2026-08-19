@@ -113,6 +113,34 @@ reuse of it. Takes priority over `two_phase_crawl` if both are set,
 since "stop after scouting" is a stronger request than "scout then
 interact in one process".
 
+## interact_only
+
+When `True`, `crawl_site()` skips discovery entirely: `start_url` is
+never enqueued, and the frontier is seeded only from whatever a
+previous, separate `scout_only` run already left `"Scouted"`
+(`get_scouted()`) - then a single interact sweep runs over exactly that.
+This is `pragma dynamic`'s own resume mode
+(`core/dynamic_engine.py::DynamicEngine`) when a prior `pragma static`
+run exists for the site; `DynamicEngine` falls back to leaving this
+`False` (the ordinary fused `visit()` pass) when it doesn't. The
+counterpart to `scout_only` above, split into its own flag rather than
+reused as `two_phase_crawl`'s phase 2 for the same reason `scout_only`
+is its own flag rather than `two_phase_crawl`'s phase 1: this is a
+standalone CLI command's own crawl, run in a different process (and
+often a different session) than whatever `scout_only` run produced the
+`"Scouted"` pages it resumes.
+
+## family_sampler
+
+`analysis/family_sampling.py::FamilySampler`, or `None` to interact with
+every eligible component as usual. Consulted by `PageVisitor` once per
+component, before any click/fill - the mechanism `pragma dynamic` uses
+to skip components already known (via `pragma cluster`'s output) to
+belong to a repeating family once enough instances of that family have
+already been sampled. `None` for every caller except `DynamicEngine`,
+which only builds one when `graph_store.get_component_families()` isn't
+empty - see `docs/dev/core/dynamic_engine.md#_build_family_sampler`.
+
 ## max_requeue_attempts
 
 Cap on how many times `UrlFrontier.requeue` will put the same clean_url

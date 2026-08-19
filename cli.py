@@ -23,6 +23,7 @@ from core.app import run_app
 from core.cli_shared import apply_budget_flags
 from core.cluster_cli import run_cluster_command
 from core.config import PragmaConfig
+from core.dynamic_cli import run_dynamic_command
 from core.engine import Engine, EngineRunResult
 from core.login_cli import run_login_command
 from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
@@ -180,7 +181,9 @@ def main() -> None:
     """Bare invocation launches the menu app; `config` jumps to the wizard;
     `login` captures a session; `static` runs a content-capture crawl;
     `cluster` groups an already-crawled site's components into families;
-    flags run the full crawl+analysis pipeline directly.
+    `dynamic` interacts with a site's frontier, resuming from `static`/
+    `cluster` output when there is any; flags run the full crawl+analysis
+    pipeline directly.
     Details: docs/dev/cli.md#main
     """
     argv = sys.argv[1:]
@@ -195,6 +198,9 @@ def main() -> None:
         return
     if argv and argv[0] == "cluster":
         run_cluster_command(argv[1:])
+        return
+    if argv and argv[0] == "dynamic":
+        run_dynamic_command(argv[1:])
         return
 
     if not argv:
