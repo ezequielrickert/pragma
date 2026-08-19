@@ -41,4 +41,6 @@ Decided, resolving the ticket's four open points:
 
 **4. Source / View Document Split.** `requirements.json` is the sole **Source Document** (Capa 2). `prd.md` is a mechanically generated **View Document** (Capa 3) organized by architectural modules (ADR-0007) and HITL review status.
 
+**5. Export Population** (amendment). `requirements.json` entries populate `export.json`'s reserved `Requisito` nodes (ADR-0002). `links.screens`/`links.endpoints` become `implementa` edges, from the citing `Pantalla`/`Endpoint` to the `Requisito`; `links.depends_on` becomes `depende_de` edges between `Requisito` nodes; `links.data_entities` becomes `cubre` edges, from the `Requisito` to its `Entidad` (ADR-0008). `links.scenarios` is left for `gherkin` (#77) to wire once `Escenario` is populated.
+
 Wayfinder ticket: [prd: lock requirements.json schema (EARS)](https://github.com/ezequielrickert/pragma/issues/74), part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).

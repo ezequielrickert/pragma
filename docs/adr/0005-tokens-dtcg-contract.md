@@ -53,4 +53,6 @@ Decided, resolving the ticket's four open points:
 
 **4. Source / View Document Split.** `tokens.json` is the sole, machine-checkable **Source Document** (Capa 2). `tokens.md` is a mechanically generated **View Document** (Capa 3) that renders visual swatch tables for candidates with `is_system_candidate: true`, relegating one-off styles to a secondary appendix. `tokens-data.json` is deprecated and absorbed into `tokens.json`.
 
+**5. Export Population** (amendment). `tokens.json` entries populate `export.json`'s reserved `Token` nodes (ADR-0002). `catalog`'s `x-tokens` links (ADR-0006) become the `usa_token` edge, from each `Componente` to the `Token` nodes it references.
+
 Wayfinder ticket: [tokens: lock DTCG contract](https://github.com/ezequielrickert/pragma/issues/69), part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).
