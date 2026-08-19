@@ -1,5 +1,5 @@
 """Regression tests for utils/urls.py's canonicalization functions."""
-from utils.urls import clean_url, is_in_scope, route_shape
+from utils.urls import clean_url, is_in_scope, restore_scheme, route_shape
 
 
 def test_clean_url_strips_scheme_trailing_slash_and_fragment():
@@ -66,3 +66,23 @@ def test_is_in_scope_fails_open_on_empty_host():
     would otherwise proceed."""
     assert is_in_scope("", "https://example.com")
     assert is_in_scope("https://example.com", "")
+
+
+def test_restore_scheme_puts_back_what_clean_url_stripped():
+    assert restore_scheme("example.com/path", "https://example.com/") == "https://example.com/path"
+    assert restore_scheme("example.com", "http://example.com/") == "http://example.com"
+
+
+def test_restore_scheme_restores_www_only_when_the_base_url_had_it():
+    assert restore_scheme("example.com/path", "https://www.example.com/") == "https://www.example.com/path"
+    # A key whose host doesn't match base_url's bare host (a different
+    # in-scope subdomain, say) never gets www. grafted onto it.
+    assert restore_scheme("blog.example.com/path", "https://www.example.com/") == "https://blog.example.com/path"
+
+
+def test_restore_scheme_leaves_an_already_navigable_url_untouched():
+    assert restore_scheme("https://example.com/path", "https://other.example/") == "https://example.com/path"
+
+
+def test_restore_scheme_falls_back_to_https_with_no_base_url():
+    assert restore_scheme("example.com/path", None) == "https://example.com/path"

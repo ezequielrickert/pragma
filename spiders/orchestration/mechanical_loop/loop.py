@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import Awaitable, Callable, List, Optional
 
-from utils.urls import clean_url
+from utils.urls import clean_url, restore_scheme
 from ...browser.crawl4ai_crawler import Crawl4AICrawler
 from ..graph_sink import GraphStoreInteractionTracker
 from ..interaction_tracker import InMemoryInteractionTracker, InteractionTracker
@@ -110,25 +110,36 @@ class MechanicalCrawler:
 
         A shaped URL carrying a `{token}` placeholder is skipped - it is a
         canonical storage key, not a navigable address, so there is nothing to
-        fetch. Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_resume_urls
+        fetch. What `get_pending` returns is itself a storage key too (no
+        scheme, no `www.` - see `restore_scheme`'s own docstring), restored
+        to a navigable URL before this returns.
+        Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_resume_urls
         """
         if self.sink is None:
             return []
         pending = self.sink.graph_store.get_pending()
-        return [url for url in pending if "{token}" not in url]
+        return [
+            restore_scheme(url, self._frontier.base_url)
+            for url in pending if "{token}" not in url
+        ]
 
     def _scouted_urls(self) -> List[str]:
         """Pages phase 1 finished scouting - what phase 2's frontier is
-        built from. Same `{token}` filter as `_resume_urls`: a shaped URL
-        carrying a placeholder is a canonical storage key, not a navigable
-        address. Empty (not an error) without a sink - no store, no way
-        `"Scouted"` was ever written.
+        built from. Same `{token}` filter and `restore_scheme` restoration
+        as `_resume_urls`: a shaped URL carrying a placeholder is a
+        canonical storage key, not a navigable address, and every other key
+        `get_scouted` returns is a storage key too - not yet navigable
+        until `restore_scheme` puts its scheme back. Empty (not an error)
+        without a sink - no store, no way `"Scouted"` was ever written.
         Details: docs/dev/spiders/orchestration/mechanical_loop/loop.md#_scouted_urls
         """
         if self.sink is None:
             return []
         scouted = self.sink.graph_store.get_scouted()
-        return [url for url in scouted if "{token}" not in url]
+        return [
+            restore_scheme(url, self._frontier.base_url)
+            for url in scouted if "{token}" not in url
+        ]
 
     async def _run_sweep(
         self,

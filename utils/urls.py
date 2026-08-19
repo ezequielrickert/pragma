@@ -71,6 +71,47 @@ def route_shape(url: str) -> str:
     return host + "/" + "/".join(shaped)
 
 
+def restore_scheme(key: str, base_url: Optional[str]) -> str:
+    """Undo enough of `clean_url` to make a stored page key navigable again.
+
+    Every `Page.url` a graph store holds is `route_shape`d - scheme and any
+    `www.` prefix already stripped, since neither carries dedup-relevant
+    information. That's fine as a graph/dedup key, but `GraphStore.get_pending`/
+    `get_scouted` hand that same key straight back to callers that resume a
+    crawl from it (`MechanicalCrawler._resume_urls`/`_scouted_urls`) - and a
+    schemeless string isn't a URL crawl4ai's own navigation will accept.
+    Confirmed live: `pragma dynamic` resuming a `pragma static` run failed
+    every page with "URL must start with 'http://', 'https://', 'file://',
+    or 'raw:'", since `_scouted_urls()` was returning bare keys like
+    `"example.com/path"` unchanged.
+
+    Args:
+        key: a page-store key, or an already-navigable URL - a `key` that
+            already starts with a scheme is returned unchanged, so a caller
+            unsure which it has can call this unconditionally.
+        base_url: this crawl's own entry URL, the one place its scheme and
+            `www.` convention are known - `None` (no crawl-scoped base,
+            e.g. a bare unit test) falls back to `https://` and no prefix.
+
+    Returns:
+        `key` with a scheme restored, and `www.` restored too when `key`'s
+        own host is `base_url`'s bare host (not, say, a different in-scope
+        subdomain that never had `www.` to begin with).
+    Details: docs/dev/utils/urls.md#restore_scheme
+    """
+    if key.startswith("http://") or key.startswith("https://"):
+        return key
+    if not base_url:
+        return f"https://{key}"
+    scheme = "http://" if base_url.startswith("http://") else "https://"
+    base_host = clean_url(base_url).partition("/")[0]
+    key_host = key.partition("/")[0]
+    original_host = base_url.split("://", 1)[-1].partition("/")[0]
+    if original_host.startswith("www.") and key_host == base_host:
+        return f"{scheme}www.{key}"
+    return f"{scheme}{key}"
+
+
 def _host(url: str) -> str:
     """`clean_url()`'s own host-extraction step, standalone."""
     return clean_url(url).partition("/")[0]
