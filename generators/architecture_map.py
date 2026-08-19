@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from analysis.graph_projection import module_display_name
 from core.documents import DocumentGenerator, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
 
@@ -63,7 +64,7 @@ def summarize_modules(metrics: Sequence[Dict[str, Any]]) -> List[ModuleSummary]:
     for page in metrics:
         if page.get("module_id") is None:
             continue
-        label = page.get("module_label") or f"Module {page['module_id']}"
+        label = module_display_name(page["module_id"], page.get("module_label", ""))
         grouped.setdefault(label, []).append(page)
 
     summaries = []

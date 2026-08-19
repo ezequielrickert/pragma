@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from analysis.graph_projection import module_display_name
 from core.documents import DocumentGenerator, DocumentRequest
 from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
@@ -196,7 +197,7 @@ def _section_label(module_id: Optional[int], module_label: str) -> str:
     """
     if module_id is None:
         return "Pages outside any module"
-    return module_label or f"Module {module_id}"
+    return module_display_name(module_id, module_label)
 
 
 def group_pages_by_module(

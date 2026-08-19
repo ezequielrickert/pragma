@@ -68,3 +68,15 @@ in D13's coverage rather than an oversight to fix quietly: storing them means a
 new table, and the alternative - a document recomputing the whole projection to
 get at them - would run betweenness twice per run to print one list. Recorded in
 `docs/dev/database/ladybug/analysis.md` and in D13's own closing section.
+
+## module_display_name
+
+What to call a module in a document: its label, or `Module <id>` when the
+shared-prefix heuristic produced nothing.
+
+An empty `module_label` is a real outcome of `_module_label`, not a failure, so
+the fallback is part of the naming rule. It is public and lives here because
+this module owns what a module label *is* - `generators/architecture_map.py` and
+`GraphPRDSynthesizer` each derived the same fallback independently before this
+existed, which is one edit away from two documents naming the same module two
+different ways.

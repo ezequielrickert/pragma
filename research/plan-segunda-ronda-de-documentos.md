@@ -11,6 +11,42 @@ Los generadores consumen los mismos diez métodos de lectura que consumían ante
 
 ---
 
+## 0. Estado: qué de este plan ya shippeó
+
+Marcado contra lo que realmente entró, en la rama `claude/architecture-docs-review-7a25cd`.
+
+| Ítem | Estado | Nota |
+|---|---|---|
+| A1 — regresión de `option_labels` en D5 | **hecho** | Se derivan con `describe_options_from_rows`; el fixture pasó a la forma real del ledger |
+| A2 — lectura de `Container`/`landmark` | **hecho** | `get_component_regions()`; D5 reporta regiones, D2 anida por región |
+| A3 — lectura de métricas de proyección | **hecho** | `get_page_metrics()`, una consulta para métricas y módulo |
+| A4 — bodies como ejemplos en D4 | **hecho** | `request_example`/`response_example`; el de respuesta sólo desde un 2xx |
+| A5 — integraciones de terceros | **hecho** | Sección de D13, no de D4: el OpenAPI es YAML y no admite prosa |
+| Fase C — PRD por módulo | **hecho** | `group_pages_by_module`; además cita profundidad y puntos de articulación |
+| D13 — mapa de arquitectura | **hecho** | `generators/architecture_map.py`, registrado como `architecture` |
+| B1 — recuperar D10 (tokens) | **hecho** | Recuperado del historial sin `build_state_tokens` |
+| B2 — accesibilidad (D11) | **decidido: no ahora** | La opción (1) del plan. El documento maestro lo dice explícitamente |
+| B3 — limpiar D7 | **hecho** | Regla `unattributable-outcome` borrada; la referencia a tokens volvió a ser cierta con B1 |
+| Fase D — tier semántico + D14 | **hecho** | `semantic.py` con provenance obligatoria; D14 = `data-model` |
+| D15 — reglas de negocio | **sigue congelada** | Misma razón que la Fase 7 del plan anterior |
+| Fase E — docs de desarrollo | **hecho** | 19 archivos escritos, 44 anclas rotas arregladas, 2 huérfanos borrados, `tests/test_dev_docs.py` lo sostiene |
+
+**Lo que se descubrió al ejecutarlo y no estaba en el plan:**
+
+- El motor Ladybug no corre en Windows sin bajar `lbug_shared.dll` del release del
+  proyecto; el wheel trae sólo la estática. Nada en el repo lo decía. Con eso resuelto, la
+  suite pasó de "no colecciona" a verde.
+- Ocho tests fallaban por *test doubles* con la firma previa a la migración (`site` como
+  argumento). El código de producción estaba bien.
+- `DERIVED_FROM` no declara ningún par que llegue a `Request`, así que D14 deriva sólo de
+  formularios. Agregar el par es una línea de DDL **más** una historia de migración:
+  `CREATE REL TABLE IF NOT EXISTS` no altera una tabla existente.
+- Los ciclos de navegación se calculan en cada corrida y no se persisten en ninguna parte.
+- La deuda de `docs/dev/` era peor de lo contado: 19 archivos faltantes **y** 44 punteros
+  apuntando a encabezados inexistentes en archivos que sí existen.
+
+---
+
 ## 1. Estado real de cada dato capturado
 
 Verificado contra el código, no contra los planes.
