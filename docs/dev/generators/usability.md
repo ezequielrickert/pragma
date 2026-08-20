@@ -93,13 +93,9 @@ all - it reads like coverage.
 
 ## build_findings
 
-## UsabilityDocument
-
-The empty case says the audit was *narrow*, not that the application is
-usable. Six deterministic rules finding nothing means six rules found
-nothing; a document reading "no findings" with no qualifier would be taken
-as a clean bill of health.
-
-The header also names what is not covered and why: loading indicators
-during a request, and whether a failed submit told the user, both need the
-DOM observed *during* an interaction, which the crawl does not do.
+Since ticket #105, this module holds detection logic only - the
+registered `DocumentGenerator` (`UsabilityDocument`) moved to
+`generators/usability_act.py`, which owns the ACT/EARL/SARIF
+serialization (docs/adr/0011) and the empty-case wording ("the audit was
+*narrow*, not that the application is usable" - six deterministic rules
+finding nothing means six rules found nothing).

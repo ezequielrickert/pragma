@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/usability-rules.schema.json",
+  "title": "Usability rule catalog",
+  "description": "docs/adr/0011 point 2/4: a hand-authored ACT Rules Format 1.1 catalog (CONTEXT.md's Rule catalog - fixed for a rule-set version, not derived from any crawl), RULE-<heuristic-slug>-<NN> ids, x-nielsen-heuristic grouping, and a SARIF-shaped default severity per rule.",
+  "type": "object",
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "x-nielsen-heuristic", "defaultConfiguration"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^RULE-[a-z-]+-[0-9]{2}$" },
+          "description": { "type": "string" },
+          "x-nielsen-heuristic": {
+            "enum": [
+              "visibility-of-system-status", "match-between-system-and-the-real-world",
+              "user-control-and-freedom", "consistency-and-standards", "error-prevention",
+              "recognition-rather-than-recall", "flexibility-and-efficiency-of-use",
+              "aesthetic-and-minimalist-design",
+              "help-users-recognize-diagnose-and-recover-from-errors", "help-and-documentation"
+            ]
+          },
+          "defaultConfiguration": {
+            "type": "object",
+            "required": ["level"],
+            "properties": { "level": { "enum": ["error", "warning", "note", "none"] } }
+          }
+        }
+      }
+    }
+  }
+}
