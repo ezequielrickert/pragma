@@ -1,0 +1,356 @@
+<!--
+  PROTOTYPE — throwaway, ticket #80 (dashboard: decide shell architecture and
+  rendering strategy). Three structurally different Phase-C shell layouts,
+  switchable via ?variant=A|B|C and the floating bar at the bottom. Static
+  HTML + vanilla JS only, matching the locked no-server/no-build-step
+  constraint. Sample data below is the real document set every ADR in this
+  session's map (#64) has locked so far, not placeholder text.
+
+  Run: open this file directly in a browser, or `python -m http.server` from
+  this directory. Not wired to any real document content - every "view"
+  click just shows a stub pane.
+
+  Sub-shape B (new page): no existing dashboard surface exists in this repo
+  to embed variants into (confirmed: no web/frontend directory anywhere).
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — dashboard shell (#80)</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161922; --panel-2: #1c2029; --border: #2a2f3a;
+    --text: #e4e7ee; --text-dim: #8b93a7; --accent: #5b8cff; --accent-dim: #2c3a5e;
+    --ok: #4ade80; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  .proto-banner { background: #7c2d12; color: #fed7aa; text-align: center; font-size: 12px; padding: 4px; font-weight: 600; letter-spacing: .03em; }
+  a { color: var(--accent); text-decoration: none; }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+  .badge.source { background: var(--accent-dim); color: #b9c9ff; }
+  .badge.view { background: #2c3a2e; color: var(--ok); }
+  .badge.projection { background: #3a2c1e; color: var(--warn); }
+  .variant { display: none; height: calc(100vh - 22px); }
+  .variant.active { display: flex; }
+
+  /* ---------- Variant A: persistent sidebar tree ---------- */
+  #A { }
+  #A .sidebar { width: 260px; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 0; flex-shrink: 0; }
+  #A .sidebar h1 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); padding: 0 16px; margin: 4px 0 10px; }
+  #A .concern { padding: 7px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  #A .concern:hover { background: var(--panel-2); }
+  #A .concern.open { background: var(--panel-2); }
+  #A .files { padding-left: 28px; display: none; }
+  #A .concern.open + .files { display: block; }
+  #A .files a { display: block; padding: 4px 0; color: var(--text-dim); font-size: 13px; }
+  #A .files a:hover { color: var(--text); }
+  #A .main { flex: 1; padding: 32px; overflow-y: auto; }
+
+  /* ---------- Variant B: top concern tabs + secondary source/view tabs ---------- */
+  #B { flex-direction: column; }
+  #B .topbar { display: flex; overflow-x: auto; background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #B .topbar .tab { padding: 12px 16px; white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-dim); font-size: 13px; }
+  #B .topbar .tab:hover { color: var(--text); }
+  #B .topbar .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  #B .subbar { display: flex; gap: 8px; padding: 10px 20px; background: var(--panel-2); border-bottom: 1px solid var(--border); }
+  #B .subbar .stab { padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; border: 1px solid var(--border); color: var(--text-dim); }
+  #B .subbar .stab.active { background: var(--accent-dim); color: #b9c9ff; border-color: var(--accent); }
+  #B .main { flex: 1; padding: 32px; overflow-y: auto; }
+
+  /* ---------- Variant C: landing card grid + drill-down ---------- */
+  #C { flex-direction: column; }
+  #C .landing { flex: 1; overflow-y: auto; padding: 32px; }
+  #C .landing h1 { margin-top: 0; }
+  #C .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 20px; }
+  #C .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; }
+  #C .card:hover { border-color: var(--accent); }
+  #C .card .name { font-weight: 600; font-size: 15px; }
+  #C .card .meta { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+  #C .card .score { margin-top: 10px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  #C .card .score .fill { height: 100%; background: var(--ok); }
+  #C .detail { display: none; flex: 1; padding: 32px; overflow-y: auto; flex-direction: column; }
+  #C .detail.showing { display: flex; }
+  #C .landing.hidden { display: none; }
+  #C .breadcrumb { color: var(--text-dim); font-size: 13px; margin-bottom: 16px; cursor: pointer; }
+  #C .breadcrumb:hover { color: var(--text); }
+
+  .stub { background: var(--panel-2); border: 1px dashed var(--border); border-radius: 8px; padding: 40px; text-align: center; color: var(--text-dim); margin-top: 16px; }
+
+  /* ---------- Home metrics (shared across variants) ---------- */
+  .home-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 20px 0 28px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .kpi .kpi-label { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .kpi-value { font-size: 28px; font-weight: 700; margin: 6px 0 2px; }
+  .kpi .kpi-sub { color: var(--text-dim); font-size: 12px; }
+  .kpi .score { margin-top: 10px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .kpi .score .fill { height: 100%; background: var(--accent); }
+  .kpi.saturation .kpi-sub { color: var(--warn); }
+  #A .home-nav-btn, #B .home-nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  #A .home-nav-btn:hover, #B .home-nav-btn:hover { border-color: var(--accent); }
+  #A .sidebar .home-item { padding: 7px 16px; cursor: pointer; font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  #A .sidebar .home-item:hover, #A .sidebar .home-item.active { background: var(--panel-2); color: var(--accent); }
+  #B .topbar .tab.home { font-weight: 600; border-right: 1px solid var(--border); }
+
+  /* ---------- Variant D: A's persistent sidebar + C's card/KPI visual language ---------- */
+  #D .sidebar { width: 220px; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 0; flex-shrink: 0; }
+  #D .sidebar h1 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); padding: 0 16px; margin: 4px 0 10px; }
+  #D .sidebar .item { padding: 7px 16px; cursor: pointer; font-size: 13px; color: var(--text-dim); }
+  #D .sidebar .item:hover { background: var(--panel-2); color: var(--text); }
+  #D .sidebar .item.active { background: var(--panel-2); color: var(--accent); font-weight: 600; }
+  #D .sidebar .item.home { color: var(--text); font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 8px; padding-bottom: 10px; }
+  #D .main { flex: 1; padding: 32px; overflow-y: auto; }
+
+  /* ---------- Floating switcher ---------- */
+  #switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #000; border: 1px solid #444; border-radius: 999px; padding: 6px 6px 6px 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 999; }
+  #switcher button { background: #222; border: none; color: #fff; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; font-size: 14px; }
+  #switcher button:hover { background: #333; }
+  #switcher .label { color: #fff; font-size: 12px; min-width: 190px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="proto-banner">PROTOTYPE — ticket #80 — throwaway, not real content</div>
+
+<!-- ================= VARIANT A: sidebar tree ================= -->
+<div class="variant" id="A">
+  <div class="sidebar" id="A-sidebar"></div>
+  <div class="main" id="A-main"></div>
+</div>
+
+<!-- ================= VARIANT B: top tabs + sub tabs ================= -->
+<div class="variant" id="B">
+  <div class="topbar" id="B-topbar"></div>
+  <div class="subbar" id="B-subbar" style="display:none"></div>
+  <div class="main" id="B-main"></div>
+</div>
+
+<!-- ================= VARIANT C: landing grid + drill-down ================= -->
+<div class="variant" id="C">
+  <div class="landing" id="C-landing">
+    <h1>Pragma Dashboard</h1>
+    <p style="color:var(--text-dim);max-width:640px">C — no persistent nav chrome. The entry point is a status board first: crawl-wide metrics at a glance, then every concern's own coverage/confidence, links last. Click a card to drill into that concern's own simple page.</p>
+    <div id="C-home-kpis"></div>
+    <h2 style="font-size:15px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-top:8px">Documents</h2>
+    <div class="grid" id="C-grid"></div>
+  </div>
+  <div class="detail" id="C-detail">
+    <div class="breadcrumb" onclick="cShowLanding()">&larr; back to dashboard</div>
+    <div id="C-detail-content"></div>
+  </div>
+</div>
+
+<!-- ================= VARIANT D: A's sidebar + C's card/KPI visuals ================= -->
+<div class="variant" id="D">
+  <div class="sidebar" id="D-sidebar"></div>
+  <div class="main" id="D-main"></div>
+</div>
+
+<div id="switcher">
+  <button onclick="cycle(-1)">&larr;</button>
+  <div class="label" id="switcher-label"></div>
+  <button onclick="cycle(1)">&rarr;</button>
+</div>
+
+<script>
+// Crawl-wide metrics for the Home screen. Pages get a real visited/found
+// fraction; endpoints deliberately don't — coverage's ADR-0001 locked
+// endpoints as a saturation curve with "no denominator needed" (the total
+// universe of API endpoints isn't knowable the way a sitemap-derived page
+// count is), so that tile shows a trend instead of forcing a fake ratio.
+const METRICS = [
+  { label: "Pages", value: "47 / 62", sub: "crawled / found", pct: 76 },
+  { label: "Components", value: "134 / 190", sub: "interacted / discovered", pct: 71 },
+  { label: "Requirements", value: "58", sub: "22 observed · 27 inferred · 9 assumed", pct: 38, subPct: true },
+  { label: "Endpoints", value: "28", sub: "observed — saturating, no fixed total (ADR-0001)", saturation: true },
+];
+function renderKpis() {
+  return `<div class="home-kpis">` + METRICS.map(m => `
+    <div class="kpi ${m.saturation ? 'saturation' : ''}">
+      <div class="kpi-label">${m.label}</div>
+      <div class="kpi-value">${m.value}</div>
+      <div class="kpi-sub">${m.sub}</div>
+      ${m.pct !== undefined ? `<div class="score"><div class="fill" style="width:${m.pct}%"></div></div>` : ""}
+    </div>
+  `).join("") + `</div>`;
+}
+
+// Real document set from every ADR locked in this session's map (#64).
+const DOCS = [
+  { concern: "coverage",      sources: ["coverage.json"], view: "coverage.md", coverage: 62 },
+  { concern: "export",        sources: ["export.json"], view: null, coverage: null },
+  { concern: "tree",          sources: ["tree.aria.yaml", "tree.axtree.json"], view: null, coverage: 88 },
+  { concern: "openapi",       sources: ["openapi.yaml"], view: "openapi.md (Redoc)", coverage: 71 },
+  { concern: "catalog",       sources: ["custom-elements.json"], view: "catalog.md", coverage: 54 },
+  { concern: "tokens",        sources: ["tokens.json"], view: "tokens.md", coverage: 93 },
+  { concern: "architecture",  sources: ["architecture.calm.json", "architecture.cyclonedx.json"], view: "architecture.md", coverage: 40 },
+  { concern: "data-model",    sources: ["data-model.json"], view: "data-model.md", coverage: 66 },
+  { concern: "prd",           sources: ["requirements.json"], view: "prd.md", coverage: 35 },
+  { concern: "usability",     sources: ["usability-rules.json", "usability.earl.jsonld"], view: "usability.md", projection: "usability.sarif.json", coverage: 48 },
+  { concern: "accessibility", sources: ["accessibility-rules.json", "accessibility.earl.jsonld"], view: "accessibility.md", projection: "accessibility.sarif.json", coverage: 29 },
+  { concern: "gherkin",       sources: ["*.feature"], view: null, coverage: 57 },
+  { concern: "flows",         sources: ["flows.xstate.json", "flows.arazzo.json"], view: "flows.md", coverage: 44 },
+  { concern: "master",        sources: ["llms.txt", "manifest.json"], view: "master.md", coverage: null },
+];
+
+// ---------- Variant A build ----------
+function buildA() {
+  const el = document.getElementById("A-sidebar");
+  el.innerHTML = `<div class="home-item active" onclick="showAHome()">&#8962; Home</div>` +
+    DOCS.map((d, i) => `
+    <div class="concern" onclick="toggleA(${i})">${d.concern}</div>
+    <div class="files">
+      ${d.sources.map(s => `<a href="#" onclick="event.stopPropagation();showA('${d.concern}: ${s}','source')">${s} <span class="badge source">source</span></a>`).join("")}
+      ${d.view ? `<a href="#" onclick="event.stopPropagation();showA('${d.concern}: ${d.view}','view')">${d.view} <span class="badge view">view</span></a>` : ""}
+      ${d.projection ? `<a href="#" onclick="event.stopPropagation();showA('${d.concern}: ${d.projection}','projection')">${d.projection} <span class="badge projection">projection</span></a>` : ""}
+    </div>
+  `).join("");
+  showAHome();
+}
+function toggleA(i) {
+  document.querySelectorAll("#A-sidebar .concern")[i].classList.toggle("open");
+}
+function showAHome() {
+  document.querySelector("#A-sidebar .home-item").classList.add("active");
+  document.getElementById("A-main").innerHTML = `<h1 style="margin-top:0">Pragma Dashboard</h1>` + renderKpis() +
+    `<p style="color:var(--text-dim)">A — persistent sidebar tree. Home is its own pinned entry above the concern list; picking a concern below expands its files, click one to view it here.</p>`;
+}
+function showA(name, kind) {
+  document.querySelector("#A-sidebar .home-item").classList.remove("active");
+  document.getElementById("A-main").innerHTML = `<h1>${name}</h1><span class="badge ${kind}">${kind}</span><div class="stub">(stub — real content renders here)</div>`;
+}
+
+// ---------- Variant B build ----------
+let bActiveConcern = -1, bActiveSub = "source"; // -1 = Home
+function buildB() {
+  const top = document.getElementById("B-topbar");
+  top.innerHTML = `<div class="tab home ${bActiveConcern===-1?'active':''}" onclick="bSelectConcern(-1)">&#8962; Home</div>` +
+    DOCS.map((d, i) => `<div class="tab ${i===bActiveConcern?'active':''}" onclick="bSelectConcern(${i})">${d.concern}</div>`).join("");
+  renderBSub();
+}
+function bSelectConcern(i) { bActiveConcern = i; bActiveSub = "source"; buildB(); }
+function renderBSub() {
+  const sub = document.getElementById("B-subbar");
+  const main = document.getElementById("B-main");
+  if (bActiveConcern === -1) {
+    sub.style.display = "none";
+    main.innerHTML = `<h1 style="margin-top:0">Pragma Dashboard</h1>` + renderKpis() +
+      `<p style="color:var(--text-dim)">B — Home sits as its own tab, left of every concern, visually separated by a divider. Concern selection (tabs) and source-vs-view (sub-tabs below, once a concern is picked) stay two separate axes.</p>`;
+    return;
+  }
+  sub.style.display = "flex";
+  const d = DOCS[bActiveConcern];
+  let tabs = d.sources.map((s, i) => `<div class="stab ${bActiveSub==='source'+i?'active':''}" onclick="bSelectSub('source${i}')">${s}</div>`).join("");
+  if (d.view) tabs += `<div class="stab ${bActiveSub==='view'?'active':''}" onclick="bSelectSub('view')">${d.view}</div>`;
+  if (d.projection) tabs += `<div class="stab ${bActiveSub==='projection'?'active':''}" onclick="bSelectSub('projection')">${d.projection}</div>`;
+  sub.innerHTML = tabs;
+  main.innerHTML = `<div class="stub">(stub) ${d.concern} — ${bActiveSub}</div>`;
+}
+function bSelectSub(key) { bActiveSub = key; renderBSub(); }
+
+// ---------- Variant C build ----------
+function buildC() {
+  document.getElementById("C-home-kpis").innerHTML = renderKpis();
+  const grid = document.getElementById("C-grid");
+  grid.innerHTML = DOCS.map((d, i) => `
+    <div class="card" onclick="cOpen(${i})">
+      <div class="name">${d.concern}</div>
+      <div class="meta">${d.sources.length} source${d.sources.length>1?'s':''}${d.view ? ' · 1 view' : ''}${d.projection ? ' · 1 projection' : ''}</div>
+      ${d.coverage !== null ? `<div class="score"><div class="fill" style="width:${d.coverage}%"></div></div>` : ""}
+    </div>
+  `).join("");
+}
+function cOpen(i) {
+  const d = DOCS[i];
+  document.getElementById("C-landing").classList.add("hidden");
+  document.getElementById("C-detail").classList.add("showing");
+  document.getElementById("C-detail-content").innerHTML = `
+    <h1 style="margin-top:0">${d.concern}</h1>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      ${d.sources.map(s => `<span class="badge source">${s}</span>`).join("")}
+      ${d.view ? `<span class="badge view">${d.view}</span>` : ""}
+      ${d.projection ? `<span class="badge projection">${d.projection}</span>` : ""}
+    </div>
+    <div class="stub">(stub — real content renders here)</div>
+  `;
+}
+function cShowLanding() {
+  document.getElementById("C-landing").classList.remove("hidden");
+  document.getElementById("C-detail").classList.remove("showing");
+}
+
+// ---------- Variant D build ----------
+let dActive = -1; // -1 = Home
+function buildD() {
+  const sb = document.getElementById("D-sidebar");
+  sb.innerHTML = `<h1>Pragma</h1>
+    <div class="item home ${dActive===-1?'active':''}" onclick="dSelect(-1)">&#8962; Home</div>` +
+    DOCS.map((d, i) => `<div class="item ${dActive===i?'active':''}" onclick="dSelect(${i})">${d.concern}</div>`).join("");
+  renderD();
+}
+function dSelect(i) { dActive = i; buildD(); }
+function renderD() {
+  const main = document.getElementById("D-main");
+  if (dActive === -1) {
+    main.innerHTML = `<h1 style="margin-top:0">Pragma Dashboard</h1>` + renderKpis() +
+      `<h2 style="font-size:15px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em">Documents</h2>
+       <div class="grid" id="D-grid"></div>`;
+    document.getElementById("D-grid").innerHTML = DOCS.map((d, i) => `
+      <div class="card" onclick="dSelect(${i})">
+        <div class="name">${d.concern}</div>
+        <div class="meta">${d.sources.length} source${d.sources.length>1?'s':''}${d.view ? ' · 1 view' : ''}${d.projection ? ' · 1 projection' : ''}</div>
+        ${d.coverage !== null ? `<div class="score"><div class="fill" style="width:${d.coverage}%"></div></div>` : ""}
+      </div>
+    `).join("");
+    return;
+  }
+  const d = DOCS[dActive];
+  main.innerHTML = `
+    <h1 style="margin-top:0">${d.concern}</h1>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      ${d.sources.map(s => `<span class="badge source">${s}</span>`).join("")}
+      ${d.view ? `<span class="badge view">${d.view}</span>` : ""}
+      ${d.projection ? `<span class="badge projection">${d.projection}</span>` : ""}
+    </div>
+    <div class="stub">(stub — real content renders here)</div>
+  `;
+}
+
+buildA(); buildB(); buildC(); buildD();
+
+// ---------- Switcher ----------
+const VARIANTS = [
+  { key: "A", name: "Sidebar tree" },
+  { key: "B", name: "Top tabs + source/view sub-tabs" },
+  { key: "C", name: "Landing grid + drill-down" },
+  { key: "D", name: "Sidebar + card/KPI visuals (A+C mix)" },
+];
+function currentIndex() {
+  const p = new URLSearchParams(location.search).get("variant") || "D";
+  const i = VARIANTS.findIndex(v => v.key === p);
+  return i === -1 ? 0 : i;
+}
+function setVariant(i) {
+  const v = VARIANTS[i];
+  document.querySelectorAll(".variant").forEach(el => el.classList.remove("active"));
+  document.getElementById(v.key).classList.add("active");
+  document.getElementById("switcher-label").textContent = `${v.key} (${v.name})`;
+  const url = new URL(location);
+  url.searchParams.set("variant", v.key);
+  history.replaceState(null, "", url);
+}
+function cycle(delta) {
+  let i = (currentIndex() + delta + VARIANTS.length) % VARIANTS.length;
+  setVariant(i);
+}
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+setVariant(currentIndex());
+</script>
+</body>
+</html>
