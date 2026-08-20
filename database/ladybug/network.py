@@ -354,3 +354,25 @@ class _LadybugNetworkMixin:
             ]
 
         return self._call(op)
+
+    def get_endpoint_discovery_sequence(self) -> List[Tuple[int, str]]:
+        """`(step_seq, endpoint_id)` for every interaction that triggered a
+        first-party call, in the order the crawl actually made them -
+        `generators/coverage.py`'s saturation curve (docs/adr/0001) walks
+        this to find where new endpoints stopped appearing. Third-party
+        endpoints excluded, same asymmetry `get_inferred_requests` applies:
+        this describes what the application's own API surface looked like
+        as the crawl progressed, not what it called out to.
+        Details: docs/dev/database/ladybug/network.md#get_endpoint_discovery_sequence
+        """
+        def op(conn) -> List[Tuple[int, str]]:
+            rows = conn.execute(
+                """
+                MATCH (i:Interaction)-[:TRIGGERED]->(r:Request)-[:CALLS]->(e:Endpoint {first_party: true})
+                RETURN i.step_seq, e.id
+                ORDER BY i.step_seq
+                """
+            )
+            return [(step_seq, endpoint_id) for step_seq, endpoint_id in rows]
+
+        return self._call(op)

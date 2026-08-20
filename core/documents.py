@@ -69,6 +69,15 @@ class DocumentRequest:
     # document, which runs last and describes what the others produced.
     # Details: docs/dev/core/documents.md#documentrequestproduced
     produced: Tuple[ProducedDocument, ...] = ()
+    # `generators.coverage.CrawlCoverage`, computed once per run by
+    # `run_document_pipeline` and shared by every generator - typed loosely
+    # here, same as `graph_store`, so this module (the abstract contract
+    # every generator builds on) never has to import from `generators/`.
+    # `coverage`'s own generator reads this instead of a second live query;
+    # every Markdown document's banner reads it instead of a live query per
+    # document, which is what "computed once per run" (docs/adr/0001)
+    # actually requires.
+    coverage: Any = None
 
 
 class DocumentGenerator(ABC):

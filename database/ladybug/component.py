@@ -252,6 +252,20 @@ class _LadybugComponentMixin:
 
         return self._call(op)
 
+    def count_interactions(self) -> int:
+        """How many interaction events the crawl actually performed - the
+        `triggered` half of `generators/coverage.py`'s `interactions`
+        counters (docs/adr/0001); `count_unexplored_components`'s total is
+        the `detected` half (how many interaction-capable components
+        exist, whether or not each was ever exercised).
+        Details: docs/dev/database/ladybug/component.md#count_interactions
+        """
+        def op(conn) -> int:
+            row = list(conn.execute("MATCH (i:Interaction) RETURN count(*)"))[0]
+            return int(row[0])
+
+        return self._call(op)
+
     def get_component_ledger(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component record for the whole site, `{page_url:
         {path: record}}`, each record carrying its own ordered
