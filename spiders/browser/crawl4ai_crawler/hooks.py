@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ...content.accessibility_snapshot import capture_accessibility_snapshot
 from ...content.page_extraction import run_extraction
 from ..dom_settle import _is_navigation_context_error, _wait_for_new_content
 from .config import Crawl4AICrawlerConfig
@@ -184,6 +185,10 @@ class HookHandlers:
         session_id = config.session_id or "default"
         data = await run_extraction(page)
         data = await self._retry_empty_extraction(page, data)
+        # Once per discovery, not per interaction - ADR-0003's snapshot
+        # policy (one snapshot per screen in v1). js_only calls return above
+        # before reaching here, so this never re-fires mid-visit.
+        data["aria_snapshot_yaml"], data["axtree_json"] = await capture_accessibility_snapshot(page)
         self._stash[session_id] = data
         if self.debug_log:
             self.debug_log.log_hook(

@@ -38,12 +38,40 @@ nowhere else. Two consequences worth stating:
 The coverage banner is prepended here rather than inside each generator so
 the rule exists once and a new document inherits it by existing.
 
-Skipped for any non-`md` extension, which is not a stylistic choice: a
-JSON or YAML file with a Markdown blockquote glued to the front no longer
-parses. The `export` document is the current case; an OpenAPI YAML will be
-the next one.
+Reads `request.coverage`, computed once by `run_document_pipeline` before
+any generator runs - not a fresh `build_coverage` query per document,
+which is what "computed once per run" (docs/adr/0001) actually asks for.
+
+Skipped for anything but a `kind="view"`, `extension="md"` output, which
+is not a stylistic choice: a JSON or YAML file with a Markdown blockquote
+glued to the front no longer parses, and a `kind="source"` Markdown file
+(hypothetically) reads as data, not as something a banner introduces. The
+gate is kind **and** extension, not extension alone.
+
+## _write_document
+
+Builds every file one generator's `outputs()` declares and writes each to
+disk - the one place `naming.path_for` is actually called, so every
+`ProducedDocument` in the run went through the identical path-building
+and checksum computation regardless of which generator produced it. A
+multi-output generator (`coverage`, `export`) produces more than one
+`ProducedDocument` from a single call here; a legacy single-string
+generator produces exactly one, via `outputs()`'s own auto-wrap
+(`core/documents.md#outputs`).
+
+`checksum` is `sha256` of the bytes actually written - after
+`_with_banner`, not before - so it verifies what a reader opening the
+file on disk actually gets, not what the generator returned before the
+pipeline modified it.
 
 ## run_document_pipeline
+
+Computes `CrawlCoverage` exactly once, here, before the generator loop -
+not per document. `coverage`'s own generator and every Markdown
+document's banner both read `request.coverage` instead of each running
+their own `build_coverage` query, which is what "computed once per run"
+(docs/adr/0001) requires and what an earlier version of this pipeline did
+not do.
 
 **Why a failing generator is caught, not raised.** A crawl can take
 twenty minutes. Losing every document because the ninth one hit an

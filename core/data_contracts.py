@@ -38,6 +38,12 @@ class PageState:
     # viewport; `[]` for a site whose CSS is cross-origin.
     # Details: docs/dev/core/data_contracts.md#pagestatepseudo_styles
     pseudo_styles: List[Dict[str, Any]] = field(default_factory=list)
+    # Playwright `ariaSnapshot()` YAML and CDP `Accessibility.getFullAXTree`
+    # JSON, captured once per discovery (docs/adr/0003) - both `""` if
+    # capture failed or this crawl predates the instrumentation.
+    # Details: docs/dev/core/data_contracts.md#pagestatearia_snapshot_yaml
+    aria_snapshot_yaml: str = ""
+    axtree_json: str = ""
 
 
 @dataclass

@@ -32,4 +32,6 @@ def build_page_state(result: Any, requested_url: str, data: Dict[str, Any]) -> P
         text_content=data.get("text_content", []),
         pseudo_styles=data.get("pseudo_styles", []),
         network_requests=filter_meaningful_requests(getattr(result, "network_requests", None) or []),
+        aria_snapshot_yaml=data.get("aria_snapshot_yaml", ""),
+        axtree_json=data.get("axtree_json", ""),
     )

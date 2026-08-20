@@ -37,6 +37,13 @@ Percentages are properties rather than stored fields so the record holds
 only measurements, and anything derived from them is computed at the point
 of display. Nothing can drift out of sync with its own numerator.
 
+`interactions_triggered` and `saturation_curve` (docs/adr/0001) joined the
+original fields when `coverage.json` became a real source document
+(ticket #96): how many interactions actually fired, and how many
+first-party endpoints were still new at each one - the ADR's own "honest
+substitute for a percentage" for API surface, which has no known
+denominator.
+
 ## _percent
 
 An empty crawl reports 0%, not `ZeroDivisionError`. A site where nothing
@@ -45,13 +52,33 @@ first navigation - and the coverage report is precisely the document that
 should still render in that case, since it is the one that explains why
 everything else is empty.
 
+## _saturation_curve
+
+One point per interaction, not a coarser bucket - the schema names the
+shape but not a bucket size, and inventing one here would be an
+aggregation choice this generator has no basis to make. Reads
+`get_endpoint_discovery_sequence`'s own crawl-order sequence, so "new
+endpoints" means new *at that point in the crawl*, not sorted by anything
+else.
+
 ## build_coverage
 
 Reads `count_visited`, `count_unexplored_components`,
-`get_progress_table_rows` and `get_inferred_requests` - four existing
-queries, no new store surface. `components_explored` is derived by
-subtraction because the store counts *unexplored*, which is what the crawl
-frontier needs; the document wants the complement.
+`get_progress_table_rows`, `get_inferred_requests`,
+`count_interactions`, and `get_endpoint_discovery_sequence` - the last
+two added for `interactions_triggered`/`saturation_curve` (ticket #96).
+`components_explored` is derived by subtraction because the store counts
+*unexplored*, which is what the crawl frontier needs; the document wants
+the complement.
+
+## _coverage_document
+
+`coverage.json`'s full payload (`schemas/coverage.schema.json`,
+docs/adr/0001): `coverage`'s graph-derived numbers plus the run-level
+facts (`run_id`/`target`/`duration_s`) `build_coverage` has no access to,
+threaded through `request.settings` by `core/engine.py`.
+`roles`/`blockers`/`module_coverage` are reserved per the ADR - minimal
+real defaults (`["anon"]`, `[]`, `[]`), not invented data.
 
 ## render_coverage_banner
 
@@ -59,10 +86,23 @@ A Markdown blockquote, so it renders as a visually distinct callout on
 GitHub and in any Markdown viewer rather than reading as the document's
 first paragraph.
 
+## _render_coverage_view
+
+`coverage.md` - the human-readable view `coverage.json` was split out of
+(ticket #96, docs/adr/0001's source/view distinction). Mechanically
+rendered from the same `CrawlCoverage` the JSON source uses, so the two
+files can never disagree with each other about the numbers, only about
+how they're presented.
+
 ## CoverageDocument
 
-Lists unfinished URLs explicitly rather than only counting them. A count
-tells you coverage is incomplete; the list tells you *what* is missing, so
-a reader who knows the application can immediately judge whether the gap
-matters - a forgotten `/legal` page and a missed checkout flow produce the
-same percentage.
+Two outputs since ticket #96: `coverage.json` (`kind="source"`, schema-
+validated) and `coverage.md` (`kind="view"`) - `generate()` returns both
+as a `Tuple[DocumentOutput, ...]`, the multi-file contract `core/documents.py`
+added (docs/adr/0030).
+
+`coverage.md` lists unfinished URLs explicitly rather than only counting
+them. A count tells you coverage is incomplete; the list tells you *what*
+is missing, so a reader who knows the application can immediately judge
+whether the gap matters - a forgotten `/legal` page and a missed checkout
+flow produce the same percentage.

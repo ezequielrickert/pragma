@@ -128,6 +128,17 @@ password, an api key, an email and a card number, with a JWT and an email in
 the response, comes out of `build_openapi_document` with all five redacted and
 the non-sensitive `username` preserved.
 
+## get_endpoint_discovery_sequence
+
+`(step_seq, endpoint_id)` for every interaction that triggered a
+first-party call, ordered by `step_seq` - the input
+`generators/coverage.py::_saturation_curve` walks to compute how many
+first-party endpoints were still new at each point in the crawl
+(docs/adr/0001's `endpoints.saturation_curve`). Deliberately the crawl's
+own discovery order, not sorted by endpoint - the curve's whole point is
+showing when new surface stopped appearing, which only means something
+against the order the crawl actually made the calls in.
+
 ## get_page_network_ledger
 
 Per-page request list for the documents that describe a page rather than an

@@ -161,6 +161,16 @@ class GraphStoreSink:
         if pseudo_styles:
             await self._write(self.graph_store.record_state_styles, page_key, pseudo_styles)
 
+    async def record_accessibility_snapshot(self, page_key: str, aria_snapshot_yaml: str, axtree_json: str) -> None:
+        """Playwright ARIA snapshot + CDP AXTree, called once per page visit
+        - same cadence as `record_state_styles`, docs/adr/0003.
+        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_accessibility_snapshot
+        """
+        if aria_snapshot_yaml or axtree_json:
+            await self._write(
+                self.graph_store.record_accessibility_snapshot, page_key, aria_snapshot_yaml, axtree_json
+            )
+
     async def record_inventory(
         self, page_key: str, components: List[Dict[str, Any]], links: List[Dict[str, str]]
     ) -> None:
