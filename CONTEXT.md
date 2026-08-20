@@ -84,6 +84,14 @@ which algorithm, until `master` (ADR-0015) pinned it as the one already used for
 purpose elsewhere in the codebase (`spiders/content/component_matching.py`). Every future
 deterministic ID reuses this, not a new one.
 
+Consequence worth stating once, not rediscovered per-document (first surfaced by `change-log`,
+ADR-0019): every Short hash is derived from an entity's *identity-defining* fields, so an entity
+whose identity-defining fields change doesn't keep its ID and show up as "changed" — it becomes a
+*different* ID, one no-longer-observed and one newly-discovered. Anything comparing one of these
+IDs across two points in time (a diff, a cache, a `first_seen`/`last_seen` pair) inherits this: a
+same-ID match already means "same identity," and a same-ID-different-field state means the entity's
+identity held but some other property moved.
+
 **`coverage_ref`**:
 A pointer a document embeds to cite `coverage`'s numbers for the slice it covers, so a reader can
 tell "this requirement came from a 20%-covered module" without leaving the citing document. Points
