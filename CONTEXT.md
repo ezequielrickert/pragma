@@ -42,7 +42,9 @@ Raw, immutable crawl output — HAR, WARC, screenshots, DOM/AXTree snapshots.
 Not a `Document`: it isn't produced by a `DocumentGenerator` and nothing
 renders it. Source documents may cite evidence (e.g. a requirement's
 `derived_from` pointing at a HAR entry), but evidence itself sits outside the
-document pipeline.
+document pipeline. `evidence-log` (ADR-0017) is a `Document` that indexes
+evidence so those citations resolve — same relationship `export.json` has to
+the graph (ADR-0002), not a second place evidence itself lives.
 
 **The dashboard**:
 The single interactive entry point for viewing every source document — static HTML generated at
