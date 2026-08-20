@@ -311,8 +311,10 @@ class _LadybugNetworkMixin:
                         "status_codes": set(), "latencies_ms": [],
                         "auth_schemes": set(), "media_types": set(),
                         "request_examples": set(), "response_examples": set(),
+                        "observation_count": 0,
                     },
                 )
+                bucket["observation_count"] += 1
                 bucket["query_params"].update(query_params or [])
                 bucket["request_schema"] = _merge_shape(bucket["request_schema"], request_schema or "")
                 bucket["response_schema"] = _merge_shape(bucket["response_schema"], response_schema or "")
@@ -349,6 +351,7 @@ class _LadybugNetworkMixin:
                     media_types=tuple(sorted(data["media_types"])),
                     request_example=_shortest(data["request_examples"]),
                     response_example=_shortest(data["response_examples"]),
+                    observation_count=data["observation_count"],
                 )
                 for _, data in sorted(buckets.items())
             ]

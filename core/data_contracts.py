@@ -234,6 +234,13 @@ class InferredRequest:
             the error shape, and publishing it as the endpoint's response
             example would be a lie about the happy path. `""` when no
             successful call ever carried a body.
+        observation_count: how many `Request` rows this group aggregates -
+            not `len(status_codes)` or any other derived count, which
+            dedupes; this is the raw number of times the crawl actually
+            called this endpoint. `openapi.py`'s `x-inference` extension
+            (docs/adr/0004) is the one reader so far - more observations
+            is the only real basis this pipeline has for saying it trusts
+            an inferred shape more.
     """
 
     method: str
@@ -249,6 +256,7 @@ class InferredRequest:
     media_types: Tuple[str, ...] = ()
     request_example: str = ""
     response_example: str = ""
+    observation_count: int = 0
 
 
 @dataclass(frozen=True)

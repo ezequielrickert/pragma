@@ -73,7 +73,7 @@ def test_a_path_with_no_parameters_is_untouched():
 
 # --- document assembly ---
 
-def test_generated_document_validates_against_openapi_30():
+def test_generated_document_validates_against_openapi_31():
     document = _document(
         _request(method="POST", endpoint="api.example.com/orders",
                  body_shape=json.dumps({"sku": "string"}), status_codes=(201, 422)),
@@ -189,7 +189,10 @@ def test_an_empty_crawl_still_produces_a_valid_document():
     assert document["paths"] == {}
 
 
-def test_output_is_parseable_yaml():
+def test_generate_produces_the_raw_overlay_and_public_triple():
+    """docs/adr/0004's three-file split: openapi.raw.yaml (source),
+    redaction.overlay.yaml (rule-catalog), openapi.yaml (public, also
+    source) - all three parseable YAML, all three valid OpenAPI 3.1."""
     from generators.openapi import OpenAPIDocument
 
     class _Store:
@@ -199,10 +202,57 @@ def test_output_is_parseable_yaml():
     class _Request:
         graph_store = _Store()
         site = "example.com"
+        settings: dict = {}
 
-    text = OpenAPIDocument().generate(_Request())
+    outputs = OpenAPIDocument().generate(_Request())
 
-    assert yaml.safe_load(text)["openapi"] == "3.0.3"
+    assert [o.filename for o in outputs] == ["openapi.raw", "redaction.overlay", "openapi"]
+    assert [o.kind for o in outputs] == ["source", "rule-catalog", "source"]
+    raw, overlay, public = (yaml.safe_load(o.content) for o in outputs)
+    assert raw["openapi"] == "3.1.0"
+    assert public["openapi"] == "3.1.0"
+    assert overlay["overlay"] == "1.0.0"
+    openapi_spec_validator.validate(raw)
+    openapi_spec_validator.validate(public)
+
+
+def test_every_operation_carries_x_inference():
+    document = _document(_request(method="GET", endpoint="api.example.com/orders/{id}", status_codes=(200,)))
+
+    inference = document["paths"]["/orders/{orderId}"]["get"]["x-inference"]
+
+    assert inference["methods_observed"] == ["GET"]
+    assert inference["methods_inferred"] == []
+    assert 0.0 <= inference["confidence"]["path_params"] <= 1.0
+
+
+def test_x_inference_confidence_scales_with_observation_count():
+    low = _document(_request(method="POST", body_shape='{"sku": "string"}', status_codes=(201,),
+                              observation_count=1))
+    high = _document(_request(method="POST", body_shape='{"sku": "string"}', status_codes=(201,),
+                               observation_count=10))
+
+    low_confidence = low["paths"]["/orders"]["post"]["x-inference"]["confidence"]["request_schema"]
+    high_confidence = high["paths"]["/orders"]["post"]["x-inference"]["confidence"]["request_schema"]
+
+    assert low_confidence < high_confidence == 1.0
+
+
+def test_x_inference_confidence_is_zero_without_any_captured_shape():
+    document = _document(_request(method="POST", status_codes=(201,), observation_count=5))
+
+    confidence = document["paths"]["/orders"]["post"]["x-inference"]["confidence"]
+
+    assert confidence["request_schema"] == 0.0
+    assert confidence["response_schema"] == 0.0
+
+
+def test_path_params_confidence_is_certain_when_there_are_none():
+    """No opaque segment was found - a verified structural fact, not a
+    guess, so it needs no observation count to back it."""
+    document = _document(_request(method="GET", endpoint="api.example.com/health", observation_count=0))
+
+    assert document["paths"]["/health"]["get"]["x-inference"]["confidence"]["path_params"] == 1.0
 
 
 def test_summary_is_a_phrase_not_a_restatement_of_the_operation_id():

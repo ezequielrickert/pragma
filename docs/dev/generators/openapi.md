@@ -2,23 +2,23 @@
 
 ## module
 
-D4 in `research/plan-generacion-de-documentos.md`: an OpenAPI 3.0 contract
-built from the traffic a crawl actually saw.
+D4 in `research/plan-generacion-de-documentos.md`: an OpenAPI 3.1 contract
+built from the traffic a crawl actually saw (docs/adr/0004, ticket #99 -
+upgraded from 3.0.3 for 1:1 compatibility with the JSON Schema draft
+2020-12 version `coverage.json` already locked).
 
 **No model call anywhere.** Every field is a rearrangement of what
 `request_family.build_inferred_requests` already grouped. That is what
 makes the output usable as a contract - something a client generator or a
 mock server consumes - rather than as a summary someone has to re-check.
 
-**What it cannot contain, by construction.** Security schemes, headers and
-examples are absent because the crawler records the *shape* of every
-request and response and never the values
-(`network_filter._json_shape`) - a deliberate privacy decision, not a
-missing feature. There is no captured Authorization header to describe.
-The document states this in its own `info.description` instead of looking
-complete, which matters: a reader who assumes an endpoint needs no auth
-because the spec says nothing would be wrong in a way that costs them a
-day.
+**What it cannot contain, by construction.** Field constraints (enum,
+pattern, minimum) are absent - they need many values per field to infer
+and would be guesses from one observation. Security schemes are named
+from request header names only (`_security_scheme`), never from a
+credential - this says which scheme an endpoint uses, never what the
+token was. The document states both limits in its own
+`info.description` instead of looking complete.
 
 ## _crud_verbs
 
@@ -97,11 +97,69 @@ three-line adapter. Same split as every other generator here.
 
 ## OpenAPIDocument
 
-The registry adapter. `extension = "yaml"` is what keeps
-`pipeline._with_banner` from prepending the coverage banner - a YAML file
-with a Markdown blockquote glued to the front no longer parses. The
+The registry adapter - since ticket #99, three outputs per docs/adr/0004:
+`openapi.raw` (`kind="source"`), `redaction.overlay` (`kind="rule-catalog"`,
+a copy of whatever `config/redaction.overlay.yaml` held this run - the
+same "fixed for a rule-set version" shape `CONTEXT.md`'s Rule catalog
+entry names, provenance rather than a re-derivation), and `openapi`
+(`kind="source"`, the public file - the overlay applied to the raw
+document). All three validated against the real OpenAPI 3.1 schema
+(`openapi_spec_validator.validate`) before being written; a document
+that isn't valid OpenAPI at all is a harder failure than anything
+`generators/openapi_lint.py` checks, so it isn't caught locally - it
+propagates the same way any other generator's exception does.
+
+`extension = "yaml"` on every output is what keeps
+`pipeline._with_banner` from prepending the coverage banner - a YAML
+file with a Markdown blockquote glued to the front no longer parses. The
 coverage caveat still reaches the reader, through the `info.description`
 preamble.
+
+## _confidence_ceiling
+
+Five independent observations of the same operation is treated as full
+confidence - a deliberately simple, stated v1 heuristic (docs/adr/0004's
+`x-inference.confidence`), not a statistical model. One named constant so
+the number is stated once, not repeated at each of the three fields it
+scales.
+
+## _confidence
+
+`0.0` when there is no data to be confident in at all (no body ever
+captured, say) - genuinely unknown, not "confidently absent." Otherwise
+scales toward `1.0` as `observation_count` approaches
+`_CONFIDENCE_CEILING_OBSERVATIONS`.
+
+## _inference
+
+The `x-inference` extension. `methods_inferred` is always `[]` in v1:
+this crawler infers a path's *shape* and a body's *structure* from
+observed samples, but never an HTTP method nobody actually called -
+"PUT is probably also supported" would be exactly the invention this
+document's own preamble disclaims.
+
+`path_params` confidence is `1.0` when the path carries no parameter at
+all - a verified structural fact (`path_template` found no opaque
+segment), not a guess, so it needs no observation count behind it.
+`request_schema`/`response_schema` are `0.0` under the same "no data"
+condition, since the absence of a captured body is not verified the same
+way - the endpoint might take one, the crawl just never triggered a call
+that carried it.
+
+`x-observed-roles` (docs/adr/0004's other named extension) is omitted
+from every operation in v1, deliberately, not defaulted to an empty
+`{allowed: [], denied: []}`: the crawl never authenticates as more than
+one role (`coverage.json`'s own `roles: ["anon"]`), so there is no real
+allowed/denied observation to report yet. Reserved rather than invented -
+activates once role-differentiated crawling exists (see map #94's Out of
+scope).
+
+## _load_overlay
+
+`config/redaction.overlay.yaml`, or the empty default when the file is
+missing - a maintainer who hasn't added a rule yet is a valid v1 state
+(capture-time redaction, `spiders/content/redaction.py`, already ran),
+not an error this generator should refuse to run without.
 
 ## _security_scheme
 
