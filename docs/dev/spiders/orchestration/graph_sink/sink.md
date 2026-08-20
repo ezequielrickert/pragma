@@ -274,3 +274,12 @@ still owes.
 Called once per page visit, the same cadence as `record_text_content` and for
 the same reason: these come from the page's stylesheets, which a click cannot
 change, so recording them per reveal would write identical rows repeatedly.
+
+## record_accessibility_snapshot
+
+Playwright `ariaSnapshot()` + CDP AXTree (docs/adr/0003), called once per
+page visit - the same cadence as `record_state_styles`, for the same
+reason: `spiders/content/accessibility_snapshot.py` captures once per
+discovery, not per interaction. A no-op when both strings are empty
+(capture failed, or the page predates this instrumentation), matching
+`record_state_styles`' own "nothing to write" guard.

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/tree.aria.schema.json",
+  "title": "ARIA tree",
+  "description": "One Playwright ariaSnapshot() per screen, parsed into an annotatable node tree - pragma's own x-namespaced facts (x-axtree-ref, the same convention catalog's x-observed-variants already uses) ride alongside the real ARIA role/name vocabulary. See docs/adr/0003-tree-aria-snapshot-contract.md.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["screen_id", "route", "state", "template_hash", "nodes"],
+    "properties": {
+      "screen_id": { "type": "string", "pattern": "^SCR-[0-9a-f]{10}$" },
+      "route": { "type": "string" },
+      "state": { "type": "string", "description": "Always 'default' until state detection lands - see ADR-0003's snapshot policy." },
+      "template_hash": { "type": "string", "pattern": "^t-[0-9a-f]{10}$" },
+      "nodes": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/node" }
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["role", "name", "children"],
+      "properties": {
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "x-axtree-ref": {
+          "type": "string",
+          "description": "JSON Pointer into this screen's own entry in tree.axtree.json's nodes array, e.g. '/nodes/42'. Absent when no matching AXTree node was found."
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" }
+        }
+      }
+    }
+  }
+}

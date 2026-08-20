@@ -77,6 +77,8 @@ CREATE NODE TABLE IF NOT EXISTS Page(
     caption STRING DEFAULT '',
     component_count INT64 DEFAULT 0,
     visited_at TIMESTAMP,
+    aria_snapshot_yaml STRING DEFAULT '',
+    axtree_json STRING DEFAULT '',
     metadata MAP(STRING, STRING),
     in_degree INT64 DEFAULT 0,
     out_degree INT64 DEFAULT 0,

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/tree.axtree.schema.json",
+  "title": "AXTree",
+  "description": "One CDP Accessibility.getFullAXTree response per screen, kept verbatim - the reference target every tree.aria.yaml leaf's x-axtree-ref JSON Pointer resolves into. See docs/adr/0003-tree-aria-snapshot-contract.md.",
+  "type": "object",
+  "required": ["run_id", "screens"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["screen_id", "route", "nodes"],
+        "properties": {
+          "screen_id": { "type": "string", "pattern": "^SCR-[0-9a-f]{10}$" },
+          "route": { "type": "string" },
+          "nodes": {
+            "type": "array",
+            "description": "CDP's own AXNode objects, unmodified - not pragma's schema to define beyond 'an array of nodes'.",
+            "items": {
+              "type": "object",
+              "required": ["nodeId"],
+              "properties": {
+                "nodeId": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -57,6 +57,18 @@ The declared `:hover`/`:focus` styles per control, as
 affect it, which is why it rides along in the ordinary discovery pass instead of
 needing the measurement pass it was originally written for.
 
+## pagestatearia_snapshot_yaml
+
+Playwright `ariaSnapshot()` YAML and CDP `Accessibility.getFullAXTree`
+JSON, captured once per discovery (docs/adr/0003) - the raw text pair
+`generators/aria_tree.py` parses into `tree.aria.yaml`/`tree.axtree.json`.
+Both `""` when capture failed
+(`spiders/content/accessibility_snapshot.py` degrades rather than raising)
+or the page predates this instrumentation - never a placeholder value, so
+`database/ladybug/accessibility_snapshot.py::record_accessibility_snapshot`
+can tell "nothing captured" from "captured an empty tree" and skip the
+write for the former.
+
 `[]` for a site serving its CSS cross-origin: `cssRules` throws for those
 stylesheets and there is no way around it. The design-token document says so
 rather than presenting an empty list as "this site declares no hover styles".

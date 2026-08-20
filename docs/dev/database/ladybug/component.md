@@ -74,6 +74,15 @@ number, so its `semantic_only` default matters: the `cursor: pointer`
 catch-all layer would otherwise inflate the denominator with elements no
 reader thinks of as components.
 
+## count_interactions
+
+Total `Interaction` nodes site-wide - the "triggered" half of
+`generators/coverage.py`'s `interactions` pair (docs/adr/0001).
+`count_unexplored_components`'s total is the "detected" half: how many
+components exist versus how many were actually clicked/filled, the two
+numbers a reader needs to judge how thorough the crawl's interaction pass
+was, not just its page coverage.
+
 ## get_component_ledger
 
 The whole-site per-component record: `{page_url: {path: record}}`, each record

@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from core.registry import GRAPH_STORE_REGISTRY
 from utils.urls import slugify
+from .accessibility_snapshot import _LadybugAccessibilitySnapshotMixin
 from .analysis import _LadybugAnalysisMixin
 from .clock import now
 from .component import _LadybugComponentMixin
@@ -70,7 +71,7 @@ class LadybugGraphStore(
     _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugNetworkMixin,
     _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugRawQueryMixin,
     _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
-    _LadybugStateStyleMixin,
+    _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 

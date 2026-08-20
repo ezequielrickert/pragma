@@ -2,44 +2,81 @@
 
 ## module
 
-Structured JSON export of a crawled site's graph - the machine-readable
-counterpart to `GraphPRDSynthesizer`'s prose PRD and `component_tree.py`'s
-ASCII tree, for a downstream tool (a dashboard, a diff script, another
-pipeline) that wants the crawl's facts as data rather than as documents
-meant for a person to read.
+`export.json`: a JSON-LD snapshot of the crawl's live graph, per
+docs/adr/0002 (ticket #97) - replaces this module's original flat JSON
+dump entirely, not just its serialization. `Pantalla`/`Componente`/
+`Endpoint` nodes populated from real graph-store queries, connected by
+`contiene`/`navega_a`/`dispara`/`consume` edges; `Modulo`/`Entidad`/
+`Requisito`/`Escenario`/`Hallazgo`/`Token`/`Flujo`/`Estado` stay reserved
+- present in `schemas/export.schema.json`'s `type` enum, absent from
+`@graph` until their own document's ticket populates them.
 
-Same "reads only from `GraphStore`, writes nothing back" shape as
-`component_tree.py` - pure, deterministic, no AI/LLM call anywhere in
-this module (nothing here should ever need one: every field is already
-structured fact sourced straight from `GraphStore`, not prose that needs
-narrating). Kept as its own file rather than folded into
-`graph_prd_synthesizer.py`/`component_tree.py` since its output audience
-(another program) and its shape requirements (stable, parseable JSON)
-are different enough from either that sharing a module would mean one
-file serving two unrelated contracts.
+Kùzu remains the query engine; this is a portable, git-diffable export
+for downstream interop (`usability`'s EARL findings cite this vocabulary
+by node id), not a second queryable store.
 
-## build_graph_export
+Same "reads only from `GraphStore`, writes nothing back" shape as every
+other generator here - pure, deterministic, no AI/LLM call anywhere in
+this module.
 
-Independently unit-testable without touching JSON serialization at all
-(mirrors `component_tree.py`'s own build/render split, for the same
-reason: assert on the structure, not on exact formatting).
+## _pantalla_nodes
 
-Field-for-field, this is the same information `GraphPRDSynthesizer` and
-`component_tree.py` already read to build their own documents - this
-function adds no new `GraphStore` query, it just returns the raw
-structures instead of turning them into prose or a tree.
+One `Pantalla` per crawled page, keyed by url. `External` pages (a link
+this crawl only discovered, never visited -
+`database/ladybug/page.py::count_visited` excludes them the same way)
+get no node: not a screen of the audited application.
 
-## generate_graph_export_document
+## _componente_nodes
 
-`sort_keys=True` so two exports of an identical graph state produce a
-byte-identical file (a real `git diff` against a re-run of the same,
-already-fully-crawled site shows nothing), same "deterministic
-rendering" discipline `component_tree.py`'s `render_ascii_tree`
-documents for the same reason.
+One `Componente` per `(page, path)` the component ledger already groups
+by - `database/ladybug/ids.py::component_id` keys it the same way every
+other component-scoped write/read in this codebase does.
+
+## _endpoint_nodes
+
+One `Endpoint` per distinct first-party call, keyed the same way
+`database/ladybug/ids.py::endpoint_id` keys the graph's own `Endpoint`
+nodes: `InferredRequest.endpoint` is already `host` plus the same
+path-pattern shape that function's `path_pattern` argument takes, so
+`f"{method} {endpoint}"` reconstructs the identical key without a second
+lookup.
+
+## _populate_contiene
+
+Pantalla `contiene` Componente - one edge per pair the component ledger
+already groups by, so this needs no query of its own.
+
+## _populate_navega_a
+
+Componente `navega_a` Pantalla when a specific component caused the
+navigation (`get_edges`' own `component` field); Pantalla `navega_a`
+Pantalla directly when it didn't - a whole-page redirect isn't
+attributable to one element. Never emitted toward a page absent from
+`@graph` (an `External` target): a dangling reference into `@graph` is
+worse than an edge this document is honest about not having.
+
+## _populate_dispara_and_consume
+
+Componente `dispara` Endpoint for every component whose interaction
+triggered a call; Pantalla `consume` Endpoint for a call the page's own
+load fired with no component involved - `InferredRequest`'s own
+`triggered_by`/`loaded_by` split (`core/data_contracts.md`), kept apart
+rather than conflated: "called when you open /orders" and "called when
+you click Save" are different facts.
+
+## build_export_graph
+
+Assembles the full `export.json` payload: populated nodes, then every
+edge-population pass over them, then a stable `sort_keys`-equivalent
+ordering (`(type, id)`) so two exports of an identical graph state
+produce a byte-identical file. `@context` stays the schema-locked literal
+`"./export.context.jsonld"` - `schemas/export.context.jsonld` in the
+repo, the same non-fetchable-identifier convention every schema's own
+`$id` already uses in this codebase, not a promise the file is copied
+next to every generated `export.json`.
 
 ## GraphExportDocument
 
-`DocumentGenerator` adapter, same placement reasoning as
-`graph_prd_synthesizer.md#prddocument`. The only one so far that declares
-`extension = "json"`, which is also what keeps `pipeline._with_banner`
-from prepending a Markdown blockquote to a JSON file.
+`DocumentGenerator` adapter. Single `kind="source"` output - ADR-0002
+names no view file for this document - schema-validated against
+`schemas/export.schema.json` before it's ever written to disk.

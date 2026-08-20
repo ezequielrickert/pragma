@@ -125,12 +125,12 @@ class PageVisitor:
             return None, self._discovery_failed(url, exc)
 
     async def _record_discovery(self, page_key: str, state: PageState) -> None:
-        """The six sink writes a fresh `discover_page()` pass owes the graph
+        """The seven sink writes a fresh `discover_page()` pass owes the graph
         store (page arrival, inventory, text content, state styles,
-        network, metadata) - shared by `visit()` (fused path) and
-        `scout()` (phase 1). `interact()` (phase 2) deliberately never
-        calls this - phase 1 already wrote it for every page `interact()`
-        will run against.
+        accessibility snapshot, network, metadata) - shared by `visit()`
+        (fused path) and `scout()` (phase 1). `interact()` (phase 2)
+        deliberately never calls this - phase 1 already wrote it for every
+        page `interact()` will run against.
         Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_record_discovery
         """
         if not self.sink:
@@ -139,6 +139,7 @@ class PageVisitor:
         await self.sink.record_inventory(page_key, state.components, state.links)
         await self.sink.record_text_content(page_key, state.text_content)
         await self.sink.record_state_styles(page_key, state.pseudo_styles)
+        await self.sink.record_accessibility_snapshot(page_key, state.aria_snapshot_yaml, state.axtree_json)
         # Only here, not on the post-interaction path: those requests already
         # belong to the component that fired them.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#record_page_network
