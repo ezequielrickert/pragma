@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/tokens.schema.json",
+  "title": "Design tokens",
+  "description": "DTCG v2025.10-shaped tokens.json (docs/adr/0005): core (raw primitives) and semantic (aliased intent) top-level groups, each a tree of further groups and tokens. Pragma's own facts ride as $extensions.pragma.* on each token, the DTCG spec's own vendor-extension mechanism.",
+  "type": "object",
+  "required": ["core", "semantic"],
+  "properties": {
+    "core": { "$ref": "#/$defs/group" },
+    "semantic": { "$ref": "#/$defs/group" }
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": { "oneOf": [{ "$ref": "#/$defs/token" }, { "$ref": "#/$defs/group" }] }
+    },
+    "token": {
+      "type": "object",
+      "required": ["$type", "$value"],
+      "properties": {
+        "$type": { "type": "string" },
+        "$value": {},
+        "$extensions": {
+          "type": "object",
+          "properties": {
+            "pragma": {
+              "type": "object",
+              "properties": {
+                "usage_frequency": {
+                  "type": "object",
+                  "required": ["count", "is_system_candidate"],
+                  "properties": {
+                    "count": { "type": "integer", "minimum": 0 },
+                    "is_system_candidate": { "type": "boolean" }
+                  }
+                },
+                "source": {
+                  "type": "object",
+                  "description": "Reserved (docs/adr/0001's reserved-field pattern) - no CSS stylesheet/selector provenance instrumentation exists yet, so every occurrence is empty until it does.",
+                  "properties": {
+                    "stylesheets": { "type": "array", "items": { "type": "string" } },
+                    "css_variables": { "type": "array", "items": { "type": "string" } },
+                    "selectors": { "type": "array", "items": { "type": "string" } },
+                    "inline_style_count": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

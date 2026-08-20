@@ -1,4 +1,5 @@
-"""D10: the palette and typographic scale a site actually uses.
+"""D10: the palette and typographic scale a site actually uses, as DTCG
+v2025.10 (docs/adr/0005).
 
 The input to rebuilding the look. Not what the design *intended* - what
 the rendered pages report - so an inconsistent legacy system produces
@@ -23,11 +24,12 @@ Details: docs/dev/generators/design_tokens.md#module
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
+from utils.schema_validation import validate_against_schema
 from .color_space import (
     JUST_NOTICEABLE_DIFFERENCE,
     parse_css_color,
@@ -35,6 +37,24 @@ from .color_space import (
     to_hex,
 )
 from .ledger import flat_component_ledger
+
+_SCHEMA_PATH = "schemas/tokens.schema.json"
+# ADR-0005's own stated threshold: three or more independent uses is what
+# separates a real design token from an incidental, one-off style.
+_SYSTEM_CANDIDATE_THRESHOLD = 3
+# $extensions.pragma.source is reserved (docs/adr/0001's reserved-field
+# pattern, applied here): CSS stylesheet URL, custom-property name, and
+# matching-selector provenance need instrumentation this crawler doesn't
+# have yet - discover_components.js resolves a computed style value per
+# element, and extract_pseudo_styles.js matches selectors internally but
+# never returns which one matched or which stylesheet it came from. A
+# real value here later, not an invented one now.
+_RESERVED_SOURCE = {"stylesheets": [], "css_variables": [], "selectors": [], "inline_style_count": 0}
+# CSS properties extract_pseudo_styles.js tracks that DTCG's own "color"
+# type already covers; everything else in TRACKED (box-shadow, outline,
+# opacity) has no matching core DTCG type, so its own property name is
+# used as $type instead - DTCG's type system is open-ended by design.
+_COLOR_PROPERTIES = {"color", "background-color", "border-color"}
 
 # Where each colour was found. Kept apart because a colour used for text
 # and the same colour used as a surface are different tokens in any design
@@ -210,75 +230,158 @@ _STATE_CAVEAT = (
 )
 
 
+def _dtcg_token(dtcg_type: str, value: Any, usage_count: int) -> Dict[str, Any]:
+    """One DTCG token: `$type`/`$value` plus pragma's own facts under
+    `$extensions.pragma` - the DTCG spec's own vendor-extension mechanism,
+    not a departure from it.
+    Details: docs/dev/generators/design_tokens.md#_dtcg_token
+    """
+    return {
+        "$type": dtcg_type,
+        "$value": value,
+        "$extensions": {
+            "pragma": {
+                "usage_frequency": {
+                    "count": usage_count,
+                    "is_system_candidate": usage_count >= _SYSTEM_CANDIDATE_THRESHOLD,
+                },
+                "source": dict(_RESERVED_SOURCE),
+            }
+        },
+    }
+
+
+def _state_dtcg_type(css_property: str) -> str:
+    return "color" if css_property in _COLOR_PROPERTIES else css_property
+
+
+def build_tokens_document(graph_store: Any) -> Dict[str, Any]:
+    """The full `tokens.json` payload: DTCG's `core`/`semantic` split
+    (docs/adr/0005). `semantic` stays empty in v1 - the crawl sees that a
+    colour is used, never what it means (see `_NAMING_NOTE`), so aliasing
+    a core token to a semantic name (`brand-primary`) would be a guess
+    presented as fact.
+    Details: docs/dev/generators/design_tokens.md#build_tokens_document
+    """
+    components = flat_component_ledger(graph_store)
+    colors = build_color_tokens(components)
+    types = build_type_tokens(components)
+    states = build_state_tokens(graph_store.get_state_styles())
+
+    core: Dict[str, Any] = {}
+    if colors:
+        core["color"] = {token.name: _dtcg_token("color", token.value, token.usage_count) for token in colors}
+    if types:
+        core["typography"] = {
+            token.name: _dtcg_token(
+                "typography", {"fontSize": token.font_size, "fontWeight": token.font_weight}, token.usage_count
+            )
+            for token in types
+        }
+    if states:
+        core["interaction-state"] = {
+            f"{token.state}-{token.property}-{index}": _dtcg_token(
+                _state_dtcg_type(token.property), token.value, token.usage_count
+            )
+            for index, token in enumerate(states, 1)
+        }
+    return {"core": core, "semantic": {}}
+
+
+def _is_system_candidate(token: Dict[str, Any]) -> bool:
+    return token["$extensions"]["pragma"]["usage_frequency"]["is_system_candidate"]
+
+
+def _usage_count(token: Dict[str, Any]) -> int:
+    return token["$extensions"]["pragma"]["usage_frequency"]["count"]
+
+
+def _swatch(value: str) -> str:
+    """An inline colour chip - GitHub-Flavored Markdown renders raw HTML
+    inside a table cell, and a hex code alone doesn't show what it looks
+    like."""
+    return f'<span style="display:inline-block;width:1em;height:1em;background:{value};border:1px solid #0003;vertical-align:middle;"></span> '
+
+
+def _render_token_rows(entries: List[Tuple[str, Dict[str, Any]]]) -> List[str]:
+    lines = ["| Token | Type | Value | Uses |", "|---|---|---|---|"]
+    for name, token in entries:
+        value = token["$value"]
+        rendered_value = value if isinstance(value, str) else json.dumps(value)
+        swatch = _swatch(value) if token["$type"] == "color" else ""
+        lines.append(f"| `{name}` | {token['$type']} | {swatch}`{rendered_value}` | {_usage_count(token)} |")
+    return lines
+
+
+def _render_group(group_name: str, group: Dict[str, Dict[str, Any]]) -> List[str]:
+    """One `core` group's swatch table, candidates first - ADR-0005's
+    Source/View split: candidates (`is_system_candidate`) get the visible
+    table, one-off styles are relegated to a collapsed appendix rather
+    than diluting it.
+    Details: docs/dev/generators/design_tokens.md#_render_group
+    """
+    candidates = sorted(
+        ((name, token) for name, token in group.items() if _is_system_candidate(token)),
+        key=lambda entry: -_usage_count(entry[1]),
+    )
+    one_offs = [(name, token) for name, token in group.items() if not _is_system_candidate(token)]
+
+    lines = [f"## {group_name.replace('-', ' ').title()}", ""]
+    if group_name == "interaction-state":
+        lines += [_STATE_CAVEAT, ""]
+    if candidates:
+        lines += _render_token_rows(candidates) + [""]
+    else:
+        lines += [f"No token in this group was used {_SYSTEM_CANDIDATE_THRESHOLD}+ times this crawl.", ""]
+    if one_offs:
+        lines += [
+            "<details><summary>One-off styles (used fewer times)</summary>", "",
+            *_render_token_rows(one_offs), "",
+            "</details>", "",
+        ]
+    return lines
+
+
+def _render_tokens_view(document: Dict[str, Any], site: str) -> str:
+    """`tokens.md` - mechanically rendered from `tokens.json`'s own `core`
+    group, never hand-authored in parallel with it.
+
+    `interaction-state` is always rendered, even with no tokens - its
+    caveat (a cross-origin stylesheet reports fewer than the site
+    declares) has to reach a reader whether or not any were captured, the
+    same reason `_STATE_CAVEAT` existed before this document had a JSON
+    source at all; an absent section would read as "no hover styles"
+    rather than "pragma couldn't see them." `color`/`typography` carry no
+    such caveat, so they're omitted entirely when empty instead.
+    Details: docs/dev/generators/design_tokens.md#_render_tokens_view
+    """
+    lines = [f"# Design Tokens: {site}", "", _NAMING_NOTE, "", _ABSENT_NOTE, ""]
+    core = document.get("core", {})
+    if "color" in core:
+        lines += _render_group("color", core["color"])
+    if "typography" in core:
+        lines += _render_group("typography", core["typography"])
+    lines += _render_group("interaction-state", core.get("interaction-state", {}))
+    return "\n".join(lines)
+
+
 @DOCUMENT_REGISTRY.register("tokens")
 class DesignTokensDocument(DocumentGenerator):
-    """Details: docs/dev/generators/design_tokens.md#designtokensdocument"""
+    """`tokens.json` (source, DTCG-validated) and `tokens.md` (view) -
+    folds in the retired `tokens-data.json`, docs/adr/0005.
+    Details: docs/dev/generators/design_tokens.md#designtokensdocument
+    """
 
     name = "tokens"
     title = "Design Tokens"
-    purpose = "The palette and type scale the site actually renders, ranked by use."
+    purpose = "The palette and type scale the site actually renders, ranked by use, as DTCG (docs/adr/0005)."
 
-    def generate(self, request: DocumentRequest) -> str:
-        components = flat_component_ledger(request.graph_store)
-        colors = build_color_tokens(components)
-        types = build_type_tokens(components)
-
-        lines = [f"# Design Tokens: {request.site}", "", _NAMING_NOTE, "", _ABSENT_NOTE, ""]
-        if not colors and not types:
-            lines.append("No computed styles were recorded for this crawl.")
-            return "\n".join(lines) + "\n"
-
-        if colors:
-            lines += ["## Colour", "", "| Token | Role | Value | Uses | Merged near-identical |",
-                      "|---|---|---|---|---|"]
-            lines += [
-                f"| `{c.name}` | {c.role} | `{c.value}` | {c.usage_count} | "
-                f"{', '.join(c.merged_from) if c.merged_from else '-'} |"
-                for c in colors
-            ]
-            lines.append("")
-        if types:
-            lines += ["## Type scale", "", "| Token | Size | Weight | Uses |", "|---|---|---|---|"]
-            lines += [f"| `{t.name}` | {t.font_size} | {t.font_weight} | {t.usage_count} |" for t in types]
-            lines.append("")
-
-        states = build_state_tokens(request.graph_store.get_state_styles())
-        lines += ["## Interaction states", "", _STATE_CAVEAT, ""]
-        if states:
-            lines += ["| State | Property | Value | Uses |", "|---|---|---|---|"]
-            lines += [
-                f"| {s.state} | `{s.property}` | `{s.value}` | {s.usage_count} |" for s in states
-            ]
-        else:
-            lines.append("None were recorded for this crawl.")
-        lines.append("")
-
-        lines.append("")
-        return "\n".join(lines)
-
-
-@DOCUMENT_REGISTRY.register("tokens-data")
-class DesignTokensData(DocumentGenerator):
-    """The same tokens as JSON, for a Tailwind or design-system config.
-    Details: docs/dev/generators/design_tokens.md#designtokensdata
-    """
-
-    name = "tokens-data"
-    title = "Design Tokens (data)"
-    purpose = "The palette and type scale as structured JSON, for a Tailwind or design-system config."
-    extension = "json"
-
-    def generate(self, request: DocumentRequest) -> str:
-        components = flat_component_ledger(request.graph_store)
-        payload = {
-            "site": request.site,
-            "note": _NAMING_NOTE,
-            "absent": {"spacing": True, "reason": _ABSENT_NOTE},
-            "color": [asdict(token) for token in build_color_tokens(components)],
-            "type": [asdict(token) for token in build_type_tokens(components)],
-            "state": [
-                asdict(token)
-                for token in build_state_tokens(request.graph_store.get_state_styles())
-            ],
-        }
-        return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
+        document = build_tokens_document(request.graph_store)
+        validate_against_schema(document, _SCHEMA_PATH)
+        source = json.dumps(document, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        view = _render_tokens_view(document, request.site)
+        return (
+            DocumentOutput(filename="tokens", kind="source", extension="json", content=source),
+            DocumentOutput(filename="tokens", kind="view", extension="md", content=view),
+        )
