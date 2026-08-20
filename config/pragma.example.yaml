@@ -83,7 +83,7 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - architecture       # indexing whatever was produced - that one is not listed here and cannot be
 #   - prd                # turned off. See generators/pipeline.py.
 #   - tree               # available names: coverage, architecture, prd, tree, openapi,
-#   - openapi            #                  catalog, catalog-data, tokens,
+#   - openapi            #                  catalog, tokens,
 #   - catalog            #                  data-model, flows, usability,
 #   - tokens             #                  accessibility, gherkin, sequences, export
 #   - data-model
@@ -92,7 +92,6 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - accessibility
 #   - gherkin
 #   - sequences
-#   - catalog-data
 #   - export
 export_json: false    # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the

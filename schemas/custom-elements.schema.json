@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/custom-elements.schema.json",
+  "title": "Custom Elements Manifest",
+  "description": "The subset of the Custom Elements Manifest 2.1.0 shape pragma actually emits (docs/adr/0006), plus its three x- extensions (x-observed-variants, x-region, x-tokens). Structural correctness for pragma's own fields, not the full official CEM schema.",
+  "type": "object",
+  "required": ["schemaVersion", "modules"],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "readme": { "type": "string" },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "declarations"],
+        "properties": {
+          "kind": { "const": "javascript-module" },
+          "path": { "type": "string" },
+          "declarations": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/declaration" }
+          },
+          "exports": { "type": "array" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "declaration": {
+      "type": "object",
+      "required": ["kind", "name", "customElement", "attributes"],
+      "properties": {
+        "kind": { "const": "class" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "tagName": { "type": "string" },
+        "customElement": { "type": "boolean" },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": {
+                "type": "object",
+                "required": ["text"],
+                "properties": { "text": { "type": "string" } }
+              },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "x-observed-variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["variant_id", "attributes", "screens", "triggers", "evidence"],
+            "properties": {
+              "variant_id": { "type": "string" },
+              "attributes": { "type": "object" },
+              "screens": { "type": "array", "items": { "type": "string", "pattern": "^SCR-[0-9a-f]{10}$" } },
+              "triggers": { "type": "array", "items": { "type": "string" } },
+              "evidence": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "x-region": {
+          "type": "object",
+          "required": ["screen_id"],
+          "properties": {
+            "screen_id": { "type": "string", "pattern": "^SCR-[0-9a-f]{10}$" },
+            "landmark_path": { "type": ["string", "null"] },
+            "aria_role": { "type": ["string", "null"] },
+            "axtree_ref": { "type": ["string", "null"] }
+          }
+        },
+        "x-tokens": {
+          "type": "object",
+          "properties": {
+            "color": { "type": "array", "items": { "type": "string" } },
+            "spacing": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}
