@@ -3,15 +3,18 @@
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
 by node id) - not a second queryable store. `Pantalla`/`Componente`/
-`Endpoint`/`Token` and the edges `contiene`/`navega_a`/`dispara`/`consume`
-are populated from real graph-store queries today (`Token` since ticket
-#100, ADR-0002 point 5's own "wire population edges as those tickets
-land"); `Modulo`/`Entidad`/`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/
+`Endpoint`/`Token`/`Modulo` and the edges `contiene`/`navega_a`/`dispara`/
+`consume` are populated from real graph-store queries today (`Token`
+since ticket #100, `Modulo` since ticket #102 via
+`core/graph_metrics.py`'s hybrid path-prefix/Leiden derivation,
+ADR-0007 - ADR-0002 point 5's own "wire population edges as those
+tickets land"); `Entidad`/`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/
 `Estado` and the `usa_token` edge stay reserved - present in
 `schemas/export.schema.json`'s `type` enum and
 `schemas/export.context.jsonld`, absent from `@graph` until their own
 document's ticket starts emitting them (`usa_token` needs `catalog`'s
-`x-tokens` links, ADR-0006, not yet implemented).
+`x-tokens` links, ADR-0006 - split into
+[ticket #126](https://github.com/ezequielrickert/pragma/issues/126)).
 
 `@context` is the schema-locked literal `"./export.context.jsonld"`
 (`schemas/export.context.jsonld` in the repo) - the same non-fetchable-
@@ -25,12 +28,14 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
+from core.graph_metrics import compute_graph_metrics
 from core.registry import DOCUMENT_REGISTRY
 from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
+from utils.urls import route_shape
 from .design_tokens import build_tokens_document
 
 _SCHEMA_PATH = "schemas/export.schema.json"
@@ -119,6 +124,24 @@ def _token_nodes(tokens_document: Dict[str, Any]) -> Dict[str, Node]:
     return nodes
 
 
+def _modulo_nodes(pantallas: Dict[str, Node], root: Optional[str]) -> Dict[str, Node]:
+    """`Modulo` nodes, each `contiene`-ing its member `Pantalla` nodes -
+    docs/adr/0007's hybrid path-prefix/Leiden derivation
+    (`core/graph_metrics.py`), populating `export.json`'s reserved
+    `Modulo` entities (ADR-0002) since ticket #102.
+    Details: docs/dev/generators/graph_export.md#_modulo_nodes
+    """
+    metrics = compute_graph_metrics(list(pantallas.values()), root=root)
+    modules: Dict[str, Node] = {}
+    for assignment in metrics.node_modules:
+        module = modules.setdefault(
+            assignment.module_id,
+            {"id": assignment.module_id, "type": "Modulo", "label": assignment.module_label or assignment.module_id},
+        )
+        _add_edge(module, "contiene", assignment.node_id)
+    return modules
+
+
 def _add_edge(node: Node, predicate: str, target_id: str) -> None:
     targets = node.setdefault(predicate, [])
     if target_id not in targets:
@@ -195,13 +218,15 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     componentes = _componente_nodes(component_ledger)
     endpoints = _endpoint_nodes(inferred_requests)
     tokens = _token_nodes(build_tokens_document(store))
+    root = route_shape(request.settings.get("target", "")) or None
+    modulos = _modulo_nodes(pantallas, root)
 
     _populate_contiene(pantallas, component_ledger)
     _populate_navega_a(pantallas, componentes, store.get_edges())
     _populate_dispara_and_consume(pantallas, componentes, inferred_requests)
 
     graph = sorted(
-        (*pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values()),
+        (*pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values(), *modulos.values()),
         key=lambda node: (node["type"], node["id"]),
     )
     return {

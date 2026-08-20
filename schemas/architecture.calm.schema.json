@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/architecture.calm.schema.json",
+  "title": "Architecture CALM",
+  "description": "The subset of FINOS CALM 1.2 pragma actually emits (docs/adr/0010 point 1/6/7): node-type as pragma's own literal vocabulary (screen/component/endpoint/module), composed-of and connects relationships, a free-form metadata.pragma extension point. Structural correctness for pragma's own fields, not the full official CALM schema.",
+  "type": "object",
+  "required": ["nodes", "relationships"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "relationships": { "type": "array", "items": { "$ref": "#/$defs/relationship" } }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["unique-id", "node-type", "name"],
+      "properties": {
+        "unique-id": { "type": "string" },
+        "node-type": { "type": "string" },
+        "name": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "required": ["unique-id", "relationship-type"],
+      "properties": {
+        "unique-id": { "type": "string" },
+        "relationship-type": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "composed-of": {
+              "type": "object",
+              "required": ["container", "nodes"],
+              "properties": {
+                "container": { "type": "string" },
+                "nodes": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "connects": {
+              "type": "object",
+              "required": ["source", "destination"],
+              "properties": {
+                "source": { "$ref": "#/$defs/node-interface" },
+                "destination": { "$ref": "#/$defs/node-interface" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "node-interface": {
+      "type": "object",
+      "required": ["node"],
+      "properties": { "node": { "type": "string" } }
+    }
+  }
+}
