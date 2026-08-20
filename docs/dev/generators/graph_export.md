@@ -32,6 +32,26 @@ One `Componente` per `(page, path)` the component ledger already groups
 by - `database/ladybug/ids.py::component_id` keys it the same way every
 other component-scoped write/read in this codebase does.
 
+## _walk_token_groups
+
+Recurses `tokens.json`'s `core`/`semantic` tree into `Token` nodes, keyed
+by dot-joined path (`core.color.text-1`) - a token's own position in the
+tree is already a short, stable, human-legible identity, unlike a
+`Page`/`Component`/`Endpoint`'s (a URL, a CSS selector, a host+path),
+which need `short_hash` because their natural identity is too long to
+use directly. A group is told apart from a token by whether it carries a
+`$value` key.
+
+## _token_nodes
+
+One `Token` per DTCG token, since ticket #100 (ADR-0002 point 5,
+ADR-0005). Built from the same `build_tokens_document` call `tokens.json`
+itself makes - not read back from that document's file (generators don't
+read each other's output, only `DocumentRequest.produced`, which only the
+master document gets) - so the export and `tokens.json` always agree
+within one run. The `usa_token` edge stays reserved: it needs `catalog`'s
+`x-tokens` links (ADR-0006), not yet implemented.
+
 ## _endpoint_nodes
 
 One `Endpoint` per distinct first-party call, keyed the same way

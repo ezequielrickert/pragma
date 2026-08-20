@@ -47,9 +47,53 @@ The per-step count is the useful part. Six steps used evenly is a scale;
 twenty-three steps with most used once is drift. The document reports
 counts so a reader can tell which they have rather than being told.
 
+## build_tokens_document
+
+`tokens.json`'s full payload since ticket #100 (docs/adr/0005) - DTCG's
+`core`/`semantic` split. `semantic` stays empty in v1: the crawl sees
+that a colour is used, never what it means (see the positional-naming
+note below), so aliasing a core token to a semantic name would be a
+guess presented as fact, and someone would build on it. `tokens-data.json`
+folded in here rather than surviving as its own registered document
+(`DesignTokensData` is gone) - one source, not a second name for the
+same content.
+
+## _dtcg_token
+
+One token: `$type`/`$value` plus pragma's own facts under
+`$extensions.pragma` - DTCG's own vendor-extension mechanism, not a
+departure from it. `usage_frequency` is real, computed from this run's
+own counts. `source` (stylesheet/selector/CSS-variable provenance) is
+reserved: `discover_components.js` resolves a computed style value per
+element and `extract_pseudo_styles.js` matches selectors internally but
+neither returns which stylesheet or selector produced a value, so there
+is no real data to report yet.
+
+## _render_group
+
+One `core` group's swatch table, candidates (`is_system_candidate`)
+first, one-offs in a collapsed `<details>` appendix - ADR-0005's own
+split, so a reader isn't handed forty near-identical one-off greys ahead
+of the three colours that are actually a palette.
+
+## _render_tokens_view
+
+`tokens.md` - mechanically rendered from `tokens.json`'s own `core`
+group, never hand-authored in parallel with it. `interaction-state`
+always renders, even with zero tokens: its caveat (a cross-origin
+stylesheet reports fewer than the site declares) has to reach a reader
+regardless, the same reason the old markdown-only document always showed
+an "Interaction states" section. `color`/`typography` carry no such
+caveat, so they're omitted when empty instead.
+
 ## DesignTokensDocument
 
-Two notes appear before any table, both load-bearing:
+Two outputs since ticket #100: `tokens.json` (source, DTCG-validated
+against `schemas/tokens.schema.json`) and `tokens.md` (view, mechanically
+rendered from it) - the multi-file contract `core/documents.py` added
+(docs/adr/0030).
+
+Two notes appear before any table on the view, both load-bearing:
 
 - **Names are positional.** `text-1` is the most-used text colour, not the
   brand primary. The crawl sees that a colour is used, never what it
@@ -57,14 +101,6 @@ Two notes appear before any table, both load-bearing:
   and someone would build on it.
 - **Spacing is absent, and why.** A reader has to be able to tell "nobody
   implemented this" from "this cannot be measured honestly yet".
-
-## DesignTokensData
-
-The same tokens as JSON for a Tailwind or design-system config, sharing
-the builders with the Markdown document so the two cannot disagree. The
-spacing note is carried as structured data (`{"absent": true, "reason":
-...}`) rather than dropped, so a generator consuming the JSON does not
-silently emit a config with no spacing scale and no explanation.
 
 
 ## absence

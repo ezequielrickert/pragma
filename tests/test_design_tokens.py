@@ -133,90 +133,105 @@ def test_components_with_no_font_size_are_skipped():
     assert build_type_tokens([_component(size="")]) == []
 
 
-# --- documents ---
+# --- the DTCG source document ---
 
-def test_the_document_says_its_names_are_positional_not_semantic():
-    """Naming a colour `brand-primary` would be a guess presented as fact."""
+def _request(component=None, state_styles=()):
     from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensDocument
 
     class _Store:
         def get_component_ledger(self):
-            return {"shop/": {"a": _component()}}
+            return {"shop/": {"a": component or _component()}}
 
         def get_state_styles(self):
-            return []
+            return list(state_styles)
 
-    text = DesignTokensDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
+    return DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
 
-    assert "positional" in text
-    assert "would be a guess" in text
+
+def _outputs(request):
+    from generators.design_tokens import DesignTokensDocument
+
+    return DesignTokensDocument().outputs(request)
+
+
+def test_generate_returns_a_json_source_and_a_markdown_view():
+    outputs = _outputs(_request())
+
+    assert [o.filename for o in outputs] == ["tokens", "tokens"]
+    assert [(o.kind, o.extension) for o in outputs] == [("source", "json"), ("view", "md")]
+
+
+def test_the_source_document_validates_as_dtcg_and_carries_pragma_extensions():
+    outputs = _outputs(_request(component=_component(color="rgb(45, 119, 55)")))
+
+    document = json.loads(outputs[0].content)
+
+    color_token = document["core"]["color"]["text-1"]
+    assert color_token["$type"] == "color"
+    assert color_token["$value"] == "#2d7737"
+    frequency = color_token["$extensions"]["pragma"]["usage_frequency"]
+    assert frequency == {"count": 1, "is_system_candidate": False}
+    assert document["semantic"] == {}
+
+
+def test_source_is_reserved_not_invented():
+    outputs = _outputs(_request())
+
+    document = json.loads(outputs[0].content)
+    token = document["core"]["color"]["text-1"]
+
+    assert token["$extensions"]["pragma"]["source"] == {
+        "stylesheets": [], "css_variables": [], "selectors": [], "inline_style_count": 0,
+    }
+
+
+def test_a_token_used_three_or_more_times_is_a_system_candidate():
+    components = [_component(color="rgb(45, 119, 55)")] * 3
+    from generators.design_tokens import build_tokens_document
+
+    document = build_tokens_document(_MultiComponentStore(components))
+    token = next(iter(document["core"]["color"].values()))
+
+    assert token["$extensions"]["pragma"]["usage_frequency"] == {"count": 3, "is_system_candidate": True}
+
+
+class _MultiComponentStore:
+    def __init__(self, components):
+        self._components = components
+
+    def get_component_ledger(self):
+        return {"shop/": {str(i): c for i, c in enumerate(self._components)}}
+
+    def get_state_styles(self):
+        return []
+
+
+def test_the_document_says_its_names_are_positional_not_semantic():
+    """Naming a colour `brand-primary` would be a guess presented as fact."""
+    view = _outputs(_request())[1].content
+
+    assert "positional" in view
+    assert "would be a guess" in view
 
 
 def test_the_document_explains_why_spacing_is_absent():
     """Absent because the crawl measures at 800x600, not because nobody
     thought of it - and a reader should be able to tell those apart."""
-    from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensDocument
+    view = _outputs(_request())[1].content
 
-    class _Store:
-        def get_component_ledger(self):
-            return {"shop/": {"a": _component()}}
-
-        def get_state_styles(self):
-            return []
-
-    text = DesignTokensDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
-
-    assert "**Spacing is absent.**" in text
-    assert "800x600" in text
+    assert "**Spacing is absent.**" in view
+    assert "800x600" in view
 
 
-def test_the_json_document_is_parseable():
-    from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensData
+def test_a_non_color_state_token_uses_its_own_css_property_as_the_dtcg_type():
+    outputs = _outputs(_request(state_styles=[
+        {"page_url": "shop/", "path": "a", "state": "focus", "property": "outline", "value": "2px solid #fc0"},
+    ]))
+    document = json.loads(outputs[0].content)
 
-    class _Store:
-        def get_component_ledger(self):
-            return {"shop/": {"a": _component(color="rgb(45, 119, 55)")}}
-
-        def get_state_styles(self):
-            return []
-
-    payload = json.loads(
-        DesignTokensData().generate(DocumentRequest(graph_store=_Store(), site="shop.example", agent=None))
-    )
-
-    assert payload["absent"] == {"spacing": True, "reason": payload["absent"]["reason"]}
-    assert payload["state"] == []
-    assert any(token["value"] == "#2d7737" for token in payload["color"])
-
-
-# --- the one remaining gap, and the states that stopped being one ---
-
-def test_the_document_names_spacing_as_the_only_gap():
-    """Interaction states used to be listed here too. They are read from the
-    stylesheets now, so listing them as absent would be wrong."""
-    from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensDocument
-
-    class _Store:
-        def get_component_ledger(self):
-            return {"shop/": {"a": _component()}}
-
-        def get_state_styles(self):
-            return []
-
-    text = DesignTokensDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
-
-    assert "**Spacing is absent.**" in text
-    assert "viewport-independent" in text
+    token = next(iter(document["core"]["interaction-state"].values()))
+    assert token["$type"] == "outline"
+    assert token["$value"] == "2px solid #fc0"
 
 
 def test_declared_hover_values_become_state_tokens():
@@ -252,39 +267,18 @@ def test_an_incomplete_state_row_is_dropped():
 
 
 def test_the_states_section_explains_a_cross_origin_shortfall():
-    """Absent must not read as "this site declares no hover styles"."""
-    from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensDocument
+    """Absent must not read as "this site declares no hover styles" -
+    the section (and its caveat) renders even with zero states captured."""
+    view = _outputs(_request())[1].content
 
-    class _Store:
-        def get_component_ledger(self):
-            return {"shop/": {"a": _component()}}
-
-        def get_state_styles(self):
-            return []
-
-    text = DesignTokensDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
-
-    assert "## Interaction states" in text
-    assert "cross-origin" in text
+    assert "## Interaction State" in view
+    assert "cross-origin" in view
 
 
-def test_recorded_states_reach_the_document():
-    from core.documents import DocumentRequest
-    from generators.design_tokens import DesignTokensDocument
+def test_recorded_states_reach_the_view_document():
+    view = _outputs(_request(state_styles=[
+        {"page_url": "shop/", "path": "a", "state": "hover", "property": "background-color", "value": "#1a4f9c"},
+    ]))[1].content
 
-    class _Store:
-        def get_component_ledger(self):
-            return {"shop/": {"a": _component()}}
-
-        def get_state_styles(self):
-            return [{"page_url": "shop/", "path": "a", "state": "hover",
-                     "property": "background-color", "value": "#1a4f9c"}]
-
-    text = DesignTokensDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
-
-    assert "| hover | `background-color` | `#1a4f9c` | 1 |" in text
+    assert "`#1a4f9c`" in view
+    assert "background-color" in view

@@ -6,7 +6,7 @@ import json
 
 from core.documents import DocumentRequest
 from database.ladybug.store import LadybugGraphStore
-from generators.graph_export import build_export_graph
+from generators.graph_export import _token_nodes, build_export_graph
 
 SITE = "export-test-site"
 
@@ -134,14 +134,40 @@ def test_the_document_carries_run_id_and_a_stable_context_reference():
 
 def test_reserved_node_types_never_appear_until_their_own_ticket_populates_them():
     """docs/adr/0002's reserved-vs-populated split, enforced: Modulo et al.
-    are in the vocabulary, not in this run's @graph."""
+    are in the vocabulary, not in this run's @graph. Token is populated
+    since ticket #100 (ADR-0005 point 5)."""
     store = _store()
     store.upsert_page("example.com/", status="Finished")
 
     document = build_export_graph(_request(store))
 
     types = {node["type"] for node in document["@graph"]}
-    assert types <= {"Pantalla", "Componente", "Endpoint"}
+    assert types <= {"Pantalla", "Componente", "Endpoint", "Token"}
+
+
+def test_token_nodes_are_keyed_by_their_own_dtcg_path():
+    """No short_hash needed - a token's position in the tree (core.color.
+    text-1) is already a short, stable identity, unlike a Page/Component/
+    Endpoint's."""
+    tokens_document = {
+        "core": {"color": {"text-1": {"$type": "color", "$value": "#111"}}},
+        "semantic": {},
+    }
+
+    nodes = _token_nodes(tokens_document)
+
+    assert nodes == {"core.color.text-1": {"id": "core.color.text-1", "type": "Token", "label": "core.color.text-1"}}
+
+
+def test_token_nodes_recurse_through_nested_groups():
+    tokens_document = {
+        "core": {"typography": {"type-1": {"$type": "typography", "$value": {"fontSize": "16px"}}}},
+        "semantic": {"color": {"brand": {"$type": "color", "$value": "{core.color.text-1}"}}},
+    }
+
+    nodes = _token_nodes(tokens_document)
+
+    assert set(nodes) == {"core.typography.type-1", "semantic.color.brand"}
 
 
 def test_generated_export_document_is_valid_json_ld_and_deterministic():

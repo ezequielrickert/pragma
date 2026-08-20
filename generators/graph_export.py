@@ -3,12 +3,15 @@
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
 by node id) - not a second queryable store. `Pantalla`/`Componente`/
-`Endpoint` and the edges `contiene`/`navega_a`/`dispara`/`consume` are
-populated from real graph-store queries today; `Modulo`/`Entidad`/
-`Requisito`/`Escenario`/`Hallazgo`/`Token`/`Flujo`/`Estado` are reserved
-- present in `schemas/export.schema.json`'s `type` enum and
+`Endpoint`/`Token` and the edges `contiene`/`navega_a`/`dispara`/`consume`
+are populated from real graph-store queries today (`Token` since ticket
+#100, ADR-0002 point 5's own "wire population edges as those tickets
+land"); `Modulo`/`Entidad`/`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/
+`Estado` and the `usa_token` edge stay reserved - present in
+`schemas/export.schema.json`'s `type` enum and
 `schemas/export.context.jsonld`, absent from `@graph` until their own
-document's ticket starts emitting them.
+document's ticket starts emitting them (`usa_token` needs `catalog`'s
+`x-tokens` links, ADR-0006, not yet implemented).
 
 `@context` is the schema-locked literal `"./export.context.jsonld"`
 (`schemas/export.context.jsonld` in the repo) - the same non-fetchable-
@@ -28,6 +31,7 @@ from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
 from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
+from .design_tokens import build_tokens_document
 
 _SCHEMA_PATH = "schemas/export.schema.json"
 
@@ -80,6 +84,38 @@ def _endpoint_nodes(inferred_requests: Iterable[Any]) -> Dict[str, Node]:
     for request in inferred_requests:
         node_id = f"{request.method} {request.endpoint}"
         nodes[node_id] = {"id": node_id, "type": "Endpoint", "label": node_id}
+    return nodes
+
+
+def _walk_token_groups(group: Dict[str, Any], path_prefix: str) -> Dict[str, Node]:
+    """Recurse `tokens.json`'s `core`/`semantic` tree into `Token` nodes,
+    keyed by dot-joined path (`core.color.text-1`) - a token's own
+    position in the tree is already a short, stable, human-legible
+    identity, unlike a `Page`/`Component`/`Endpoint`'s (a URL, a CSS
+    selector, a host+path), which need `short_hash` because their
+    natural identity is too long to use directly.
+    Details: docs/dev/generators/graph_export.md#_walk_token_groups
+    """
+    nodes: Dict[str, Node] = {}
+    for key, value in group.items():
+        node_id = f"{path_prefix}.{key}"
+        if "$value" in value:
+            nodes[node_id] = {"id": node_id, "type": "Token", "label": node_id}
+        else:
+            nodes.update(_walk_token_groups(value, node_id))
+    return nodes
+
+
+def _token_nodes(tokens_document: Dict[str, Any]) -> Dict[str, Node]:
+    """One `Token` per DTCG token in `tokens.json`'s `core`/`semantic`
+    groups (docs/adr/0005 point 5) - built from the same
+    `build_tokens_document` call `tokens.json` itself makes, not read back
+    from that document's file, so the two always agree within one run.
+    Details: docs/dev/generators/graph_export.md#_token_nodes
+    """
+    nodes: Dict[str, Node] = {}
+    for group_name in ("core", "semantic"):
+        nodes.update(_walk_token_groups(tokens_document.get(group_name, {}), group_name))
     return nodes
 
 
@@ -144,9 +180,10 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
 
 def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     """The full `export.json` payload: populated `Pantalla`/`Componente`/
-    `Endpoint` nodes plus the edges connecting them, read fresh from the
-    graph store every run - see `get_inferred_requests`' own docstring for
-    why there is nothing here that can go stale between crawl passes.
+    `Endpoint`/`Token` nodes plus the edges connecting them, read fresh
+    from the graph store every run - see `get_inferred_requests`' own
+    docstring for why there is nothing here that can go stale between
+    crawl passes.
     Details: docs/dev/generators/graph_export.md#build_export_graph
     """
     store = request.graph_store
@@ -157,13 +194,14 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     pantallas = _pantalla_nodes(pages, store.get_page_titles(), store.get_page_descriptions())
     componentes = _componente_nodes(component_ledger)
     endpoints = _endpoint_nodes(inferred_requests)
+    tokens = _token_nodes(build_tokens_document(store))
 
     _populate_contiene(pantallas, component_ledger)
     _populate_navega_a(pantallas, componentes, store.get_edges())
     _populate_dispara_and_consume(pantallas, componentes, inferred_requests)
 
     graph = sorted(
-        (*pantallas.values(), *componentes.values(), *endpoints.values()),
+        (*pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values()),
         key=lambda node: (node["type"], node["id"]),
     )
     return {
