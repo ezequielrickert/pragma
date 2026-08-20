@@ -78,7 +78,8 @@ into `flows` (ADR-0014).
 **Short hash**:
 The `sha1(...)[:10]` convention behind every deterministic ID this pipeline mints —
 `SCR-<hash>` (`tree`, ADR-0003), `template_hash` (`tree`, ADR-0003), `REQ-<hash>` (`prd`, ADR-0009),
-`EP-<hash>`/`MOD-<hash>` (`gherkin`, ADR-0013), `CH-<hash>`/`MSG-<hash>` (`asyncapi`, ADR-0018).
+`EP-<hash>`/`MOD-<hash>` (`gherkin`, ADR-0013), `CH-<hash>`/`MSG-<hash>` (`asyncapi`, ADR-0018),
+`TERM-<hash>` (`glossary`, ADR-0020).
 Never invented per-document: five separate tickets minted a `<hash>`-suffixed ID without saying
 which algorithm, until `master` (ADR-0015) pinned it as the one already used for exactly this
 purpose elsewhere in the codebase (`spiders/content/component_matching.py`). Every future
