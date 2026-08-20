@@ -1,4 +1,5 @@
-"""D14: what the application collects, deduced from the forms it shows.
+"""D14/`data-model.json`: what the application collects, deduced from the
+forms it shows, per docs/adr/0008.
 
 The semantic tier's first inhabitant. Everything above it in the schema -
 `observation`, `inferred` - records what the crawl saw or clustered; this
@@ -6,15 +7,19 @@ records what the application *means*, which is a different kind of claim and
 is why every node it writes carries `DERIVED_FROM` edges back to the
 components that support it.
 
-**Forms only, and that is a schema constraint rather than a preference.**
-`DERIVED_FROM` declares `FROM Entity TO Component` and `FROM Field TO
-Component`, with no pair reaching a `Request`. An entity deduced from an API
-body shape therefore could not record where it came from, and the rule this
-tier exists to uphold is that nothing enters without provenance. Deriving
-those too means adding a pair to that table, which existing `.lbdb` files
-would not pick up - `CREATE REL TABLE IF NOT EXISTS` does not alter an
-existing one - so it needs a migration story, not a line of DDL. Until then
-the API side of the model lives in D4, which describes it honestly as shapes.
+**Entities are still forms-only, and that is a schema constraint rather
+than a preference.** `DERIVED_FROM` declares `FROM Entity TO Component`
+and `FROM Field TO Component`, with no pair reaching a `Request` -
+naming a *new* entity purely from an API body shape (with no form
+`id`/context) is exactly the kind of guess this tier can't show its work
+for. Since ticket #103, an *existing* form-derived field's
+`observed_in.api_endpoints` (ADR-0008 point 2) is correlated against API
+traffic anyway - a document-generation-time computation, not a graph
+write, so it needs no `DERIVED_FROM` edge and no migration to the write
+path this docstring used to say API correlation was blocked on. This is
+what fixes the format audit's own complaint (ADR-0008's intro): a field
+present in API traffic but unexposed in the HTML form was undercounted
+before.
 
 Pure and deterministic, no model call: `build_entities` maps components to
 entities and nothing else. Naming a form's noun ("this is a Checkout") is
@@ -25,13 +30,18 @@ Details: docs/dev/generators/data_model.md#module
 """
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.interfaces import SemanticEntity, SemanticField
 from core.registry import DOCUMENT_REGISTRY
+from utils.schema_validation import validate_against_schema
+from utils.short_hash import short_hash
 from .ledger import flat_component_ledger
+
+_SCHEMA_PATH = "schemas/data-model.schema.json"
 
 # Declared input types mapped onto the vocabulary `SemanticField.data_type`
 # uses. Anything unlisted stays a string: the point is to report what the
@@ -115,6 +125,25 @@ def _entity_name(form_selector: str, page_url: str) -> str:
     return f"{segments[-1]} form" if segments else "form"
 
 
+def group_form_components(components: Sequence[Dict[str, Any]]) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    """`{(page_url, form_selector): [component, ...]}` - the grouping
+    `build_entities` turns into `SemanticEntity`/`SemanticField` objects
+    and `build_data_model_document` (docs/adr/0008) reads directly, since
+    the JSON assembly needs the raw `form_selector` a `SemanticEntity`'s
+    own `description` only carries as prose.
+    Details: docs/dev/generators/data_model.md#group_form_components
+    """
+    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for component in components:
+        form_selector = (component.get("form") or "").strip()
+        if not form_selector or not _is_field(component):
+            continue
+        if not _field_name(component):
+            continue
+        grouped.setdefault((component.get("page_url", ""), form_selector), []).append(component)
+    return grouped
+
+
 def build_entities(components: Sequence[Dict[str, Any]]) -> List[SemanticEntity]:
     """One `SemanticEntity` per form the crawl found inputs inside.
 
@@ -128,17 +157,8 @@ def build_entities(components: Sequence[Dict[str, Any]]) -> List[SemanticEntity]
     and treating every stray input as one produces a document of noise.
     Details: docs/dev/generators/data_model.md#build_entities
     """
-    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-    for component in components:
-        form_selector = (component.get("form") or "").strip()
-        if not form_selector or not _is_field(component):
-            continue
-        if not _field_name(component):
-            continue
-        grouped.setdefault((component.get("page_url", ""), form_selector), []).append(component)
-
     entities = []
-    for (page_url, form_selector), members in sorted(grouped.items()):
+    for (page_url, form_selector), members in sorted(group_form_components(components).items()):
         fields = tuple(sorted(
             (
                 SemanticField(
@@ -164,59 +184,278 @@ def build_entities(components: Sequence[Dict[str, Any]]) -> List[SemanticEntity]
     return entities
 
 
-def _entity_section(entity: SemanticEntity) -> List[str]:
-    lines = [
-        f"## {entity.name}",
-        "",
-        entity.description,
-        "",
-        "| Field | Type | Required | Declared validation | Values the crawl submitted |",
-        "|---|---|---|---|---|",
+# Field-name substrings mapped onto a W3C DPV category/type and a
+# sensitivity default - a small, stated heuristic (ADR-0008 point 1),
+# not an exhaustive privacy audit. False negatives (a PII field this
+# table misses) are the safe failure mode; the signal list stays narrow
+# and specific rather than broad, to avoid a false positive flagging an
+# unrelated field as personal data.
+# Details: docs/dev/generators/data_model.md#_pii_signals
+_PII_SIGNALS: Tuple[Tuple[Tuple[str, ...], str, str, str], ...] = (
+    (("email",), "dpv:PersonalData", "dpv:EmailAddress", "medium"),
+    (("password", "pwd", "passwd"), "dpv:PersonalData", "dpv:Credential", "high"),
+    (("phone", "tel", "mobile"), "dpv:PersonalData", "dpv:PersonalIdentifier", "medium"),
+    (("card", "cvv", "cvc", "creditcard"), "dpv:PersonalData", "dpv:FinancialData", "high"),
+    (("ssn", "dni", "passport", "nationalid", "taxid"), "dpv:PersonalData", "dpv:PersonalIdentifier", "high"),
+    (("address", "street", "zipcode", "postalcode"), "dpv:PersonalData", "dpv:Location", "medium"),
+    (("firstname", "lastname", "fullname", "surname"), "dpv:PersonalData", "dpv:Name", "low"),
+    (("dob", "birthdate", "dateofbirth"), "dpv:PersonalData", "dpv:Age", "medium"),
+)
+
+
+def _privacy_annotation(field_name: str) -> Optional[Dict[str, Any]]:
+    """`None` for a field this heuristic has no opinion about - absent
+    from the document entirely, never a false `is_pii: false` presented
+    as a real finding.
+    Details: docs/dev/generators/data_model.md#_privacy_annotation
+    """
+    normalized = re.sub(r"[^a-z]", "", field_name.lower())
+    for signals, category, dpv_type, sensitivity in _PII_SIGNALS:
+        if any(signal in normalized for signal in signals):
+            return {"is_pii": True, "category": category, "dpv_type": dpv_type, "sensitivity": sensitivity}
+    return None
+
+
+# SemanticField.data_type -> (JSON Schema type, format) - "" format means
+# the bare type carries the whole story.
+_JSON_SCHEMA_TYPE: Dict[str, Tuple[str, str]] = {
+    "string": ("string", ""), "number": ("number", ""), "boolean": ("boolean", ""),
+    "date": ("string", "date"), "email": ("string", "email"), "tel": ("string", "tel"),
+    "url": ("string", "uri"),
+}
+
+
+def _api_citations(field_name: str, inferred_requests: Sequence[Any]) -> Tuple[str, ...]:
+    """Every endpoint whose observed request or response body carries a
+    key matching `field_name` - the fix for the format audit's own
+    complaint (ADR-0008's intro): fields present in API traffic but
+    unexposed in HTML forms were undercounted before this. No graph
+    schema change needed for it - `DERIVED_FROM` still only reaches a
+    `Component` (see this module's own docstring), but this citation is
+    computed at document-generation time, entirely independent of that
+    write-path constraint.
+    Details: docs/dev/generators/data_model.md#_api_citations
+    """
+    normalized = field_name.strip().lower()
+    citations = []
+    for request in inferred_requests:
+        for shape in (request.body_shape, request.response_shape):
+            if not shape:
+                continue
+            try:
+                keys = json.loads(shape).keys()
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if any(key.lower() == normalized for key in keys):
+                citations.append(f"{request.method} {request.endpoint}")
+                break
+    return tuple(sorted(set(citations)))
+
+
+def _observed_in(
+    field: SemanticField, form_selector: str, inferred_requests: Sequence[Any]
+) -> Dict[str, List[str]]:
+    return {
+        "forms": [f"{form_selector} input[name='{field.name}']"],
+        "api_endpoints": list(_api_citations(field.name, inferred_requests)),
+        "ui_state": sorted({f"SCR-{short_hash(page_url)}" for page_url, _ in field.derived_from}),
+    }
+
+
+def _confidence(observed_in: Dict[str, List[str]]) -> float:
+    """A stated, deliberately simple v1 heuristic (matching `openapi.yaml`'s
+    own `x-inference.confidence`, docs/adr/0004): 0.7 for a form-declared
+    field alone, +0.2 when API traffic corroborates it, +0.1 when it
+    recurs across more than one screen.
+    Details: docs/dev/generators/data_model.md#_confidence
+    """
+    score = 0.7
+    if observed_in["api_endpoints"]:
+        score += 0.2
+    if len(observed_in["ui_state"]) > 1:
+        score += 0.1
+    return round(min(1.0, score), 2)
+
+
+def _field_document(field: SemanticField, form_selector: str, inferred_requests: Sequence[Any]) -> Dict[str, Any]:
+    json_type, json_format = _JSON_SCHEMA_TYPE.get(field.data_type, ("string", ""))
+    observed_in = _observed_in(field, form_selector, inferred_requests)
+    document: Dict[str, Any] = {
+        "type": json_type, "nullable": not field.required,
+        "confidence": _confidence(observed_in), "observed_in": observed_in,
+    }
+    if json_format:
+        document["format"] = json_format
+    privacy = _privacy_annotation(field.name)
+    if privacy:
+        document["privacy"] = privacy
+    return document
+
+
+def _gaps(coverage: Any, run_id: str) -> List[Dict[str, Any]]:
+    """One gap per unfinished page (docs/adr/0008 point 3) - `entity`
+    names the page itself, since no form-derived name exists for a page
+    the crawl never reached. `unvisited_endpoint` reuses `coverage.json`'s
+    own page-level gap data (`coverage.unfinished_urls`): pragma has no
+    way to detect a genuinely unvisited *API endpoint* it never observed
+    a link or reference to, unlike an unfinished page, which the crawl
+    frontier already tracks.
+    Details: docs/dev/generators/data_model.md#_gaps
+    """
+    if coverage is None:
+        return []
+    return [
+        {
+            "entity": url, "reason": "unvisited_route",
+            "coverage_ref": {"run_id": run_id, "unvisited_endpoint": url},
+        }
+        for url in coverage.unfinished_urls
     ]
-    for field in entity.fields:
-        values = ", ".join(f"`{value}`" for value in field.observed_values) or "-"
+
+
+def build_data_model_document(request: DocumentRequest) -> Dict[str, Any]:
+    """The full `data-model.json` payload: one entity per form
+    (`group_form_components`), each field annotated with multi-source
+    provenance and, where a naming heuristic matched, a DPV privacy
+    object - plus the coverage gaps this crawl left.
+    Details: docs/dev/generators/data_model.md#build_data_model_document
+    """
+    components = flat_component_ledger(request.graph_store)
+    inferred_requests = request.graph_store.get_inferred_requests()
+    run_id = request.settings.get("run_id", "")
+
+    entities: Dict[str, Any] = {}
+    for (page_url, form_selector), members in sorted(group_form_components(components).items()):
+        fields = sorted({_field_name(member) for member in members if _field_name(member)})
+        field_by_name = {_field_name(member): member for member in members}
+        semantic_fields = [
+            SemanticField(
+                name=name,
+                data_type=_DATA_TYPES.get((field_by_name[name].get("input_type") or "").lower(), "string"),
+                required=bool(field_by_name[name].get("required")),
+                validation=_validation(field_by_name[name]),
+                observed_values=_observed_values(field_by_name[name]),
+                derived_from=((page_url, field_by_name[name].get("path", "")),),
+            )
+            for name in fields
+        ]
+        entity_name = _entity_name(form_selector, page_url)
+        entities[entity_name] = {
+            "description": f"Deduced from the form `{form_selector}` on {page_url}.",
+            "fields": {
+                field.name: _field_document(field, form_selector, inferred_requests) for field in semantic_fields
+            },
+        }
+
+    return {"entities": entities, "gaps": _gaps(request.coverage, run_id)}
+
+
+def _mermaid_identifier(name: str) -> str:
+    """A Mermaid-safe identifier - alphanumeric and underscore only, since
+    `erDiagram` entity/attribute names don't tolerate the punctuation a
+    form `id` or a field `name` can carry.
+    Details: docs/dev/generators/data_model.md#_mermaid_identifier
+    """
+    return re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_") or "field"
+
+
+def _mermaid_er_diagram(document: Dict[str, Any]) -> str:
+    """A native Markdown Mermaid `erDiagram` block (docs/adr/0008 point 4)
+    - one entity block per form, no relationship lines: pragma's forms
+    are independent, unrelated by anything the crawl observed, and
+    drawing a connection between them would be a guess this document
+    doesn't make anywhere else.
+    Details: docs/dev/generators/data_model.md#_mermaid_er_diagram
+    """
+    lines = ["```mermaid", "erDiagram"]
+    for entity_name, entity in document["entities"].items():
+        lines.append(f"    {_mermaid_identifier(entity_name)} {{")
+        for field_name, field in entity["fields"].items():
+            lines.append(f"        {field['type']} {_mermaid_identifier(field_name)}")
+        lines.append("    }")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _entity_section(entity_name: str, entity: Dict[str, Any]) -> List[str]:
+    lines = [
+        f"## {entity_name}", "", entity["description"], "",
+        "| Field | Type | Nullable | Confidence | PII | Observed in |",
+        "|---|---|---|---|---|---|",
+    ]
+    for field_name, field in entity["fields"].items():
+        json_type = f"{field['type']} ({field['format']})" if field.get("format") else field["type"]
+        privacy = field.get("privacy")
+        pii = f"{privacy['dpv_type']} ({privacy['sensitivity']})" if privacy else "-"
+        sources = [
+            f"{len(field['observed_in'][key])} {label}"
+            for key, label in (("forms", "form(s)"), ("api_endpoints", "endpoint(s)"), ("ui_state", "screen(s)"))
+            if field["observed_in"][key]
+        ]
         lines.append(
-            f"| {field.name} | {field.data_type} | {'yes' if field.required else 'no'} "
-            f"| {field.validation or '-'} | {values} |"
+            f"| {field_name} | {json_type} | {'yes' if field['nullable'] else 'no'} "
+            f"| {field['confidence']} | {pii} | {', '.join(sources) or '-'} |"
         )
-    lines.append("")
-    lines.append(
-        "Derived from: " + ", ".join(f"`{path}` on {page}" for page, path in entity.derived_from) + "."
-    )
     lines.append("")
     return lines
 
 
+def _gaps_section(gaps: List[Dict[str, Any]]) -> List[str]:
+    if not gaps:
+        return []
+    lines = [
+        "## Coverage gaps", "",
+        f"{len(gaps)} page(s) the crawl never finished - any entity they would have revealed is "
+        "absent above, not confirmed absent.",
+        "", "| Page | Run |", "|---|---|",
+    ]
+    lines += [f"| {gap['entity']} | {gap['coverage_ref']['run_id']} |" for gap in gaps]
+    return lines + [""]
+
+
+def _render_data_model_view(document: Dict[str, Any], site: str) -> str:
+    """`data-model.md` - mechanically rendered from `data-model.json`,
+    never hand-authored in parallel with it.
+    Details: docs/dev/generators/data_model.md#_render_data_model_view
+    """
+    lines = [f"# Data Model: {site}", ""]
+    if not document["entities"]:
+        lines.append(
+            "No forms with named inputs were found. Either the crawl reached no form, or the "
+            "inputs it found carry no `name`, label or placeholder to identify them - the two "
+            "look the same here."
+        )
+        return "\n".join(lines) + "\n"
+    lines += [
+        f"{len(document['entities'])} form(s). Names are the form's own `id` where it has one, "
+        "never a noun guessed from the fields: a form asking for an email and a password could be "
+        "a login, a signup or an invite, and this document has no way to show its work for that "
+        "choice.",
+        "", _mermaid_er_diagram(document), "",
+    ]
+    for entity_name, entity in document["entities"].items():
+        lines += _entity_section(entity_name, entity)
+    lines += _gaps_section(document["gaps"])
+    return "\n".join(lines)
+
+
 @DOCUMENT_REGISTRY.register("data-model")
 class DataModelDocument(DocumentGenerator):
-    """Details: docs/dev/generators/data_model.md#datamodeldocument"""
+    """`data-model.json` (source, schema-validated) and `data-model.md`
+    (view, with a native Mermaid `erDiagram`) - docs/adr/0008.
+    Details: docs/dev/generators/data_model.md#datamodeldocument
+    """
 
     name = "data-model"
     title = "Data Model"
-    purpose = "What the application collects, deduced from its forms, with the elements each field came from."
+    purpose = "What the application collects, deduced from its forms, with DPV privacy annotations and multi-source provenance."
 
-    def generate(self, request: DocumentRequest) -> str:
-        entities = build_entities(flat_component_ledger(request.graph_store))
-        lines = [f"# Data Model: {request.site}", ""]
-        if not entities:
-            lines += [
-                "No forms with named inputs were found. Either the crawl reached no form, or the "
-                "inputs it found carry no `name`, label or placeholder to identify them - the two "
-                "look the same here.",
-                "",
-            ]
-            return "\n".join(lines)
-        lines += [
-            f"{len(entities)} form(s), each with the elements it was derived from. Names are the "
-            "form's own `id` where it has one, never a noun guessed from the fields: a form asking "
-            "for an email and a password could be a login, a signup or an invite, and this "
-            "document has no way to show its work for that choice.",
-            "",
-            "Types and validation are what the **markup declares**. A field named for an email but "
-            "declared as plain text reads as a string here, and the usability audit reports the "
-            "gap - correcting it silently would hide that finding.",
-            "",
-        ]
-        for entity in entities:
-            lines += _entity_section(entity)
-        return "\n".join(lines)
+    def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
+        document = build_data_model_document(request)
+        validate_against_schema(document, _SCHEMA_PATH)
+        source = json.dumps(document, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        view = _render_data_model_view(document, request.site)
+        return (
+            DocumentOutput(filename="data-model", kind="source", extension="json", content=source),
+            DocumentOutput(filename="data-model", kind="view", extension="md", content=view),
+        )

@@ -3,17 +3,17 @@
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
 by node id) - not a second queryable store. `Pantalla`/`Componente`/
-`Endpoint`/`Token`/`Modulo` and the edges `contiene`/`navega_a`/`dispara`/
-`consume` are populated from real graph-store queries today (`Token`
-since ticket #100, `Modulo` since ticket #102 via
+`Endpoint`/`Token`/`Modulo`/`Entidad` and the edges `contiene`/`navega_a`/
+`dispara`/`consume`/`depende_de` are populated from real graph-store
+queries today (`Token` since ticket #100; `Modulo` since ticket #102 via
 `core/graph_metrics.py`'s hybrid path-prefix/Leiden derivation,
-ADR-0007 - ADR-0002 point 5's own "wire population edges as those
-tickets land"); `Entidad`/`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/
-`Estado` and the `usa_token` edge stay reserved - present in
-`schemas/export.schema.json`'s `type` enum and
-`schemas/export.context.jsonld`, absent from `@graph` until their own
-document's ticket starts emitting them (`usa_token` needs `catalog`'s
-`x-tokens` links, ADR-0006 - split into
+ADR-0007; `Entidad`/`depende_de` since ticket #103, ADR-0008 point 5 -
+ADR-0002 point 5's own "wire population edges as those tickets land");
+`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/`Estado` and the `usa_token`
+edge stay reserved - present in `schemas/export.schema.json`'s `type`
+enum and `schemas/export.context.jsonld`, absent from `@graph` until
+their own document's ticket starts emitting them (`usa_token` needs
+`catalog`'s `x-tokens` links, ADR-0006 - split into
 [ticket #126](https://github.com/ezequielrickert/pragma/issues/126)).
 
 `@context` is the schema-locked literal `"./export.context.jsonld"`
@@ -36,6 +36,7 @@ from core.registry import DOCUMENT_REGISTRY
 from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
 from utils.urls import route_shape
+from .data_model import build_data_model_document
 from .design_tokens import build_tokens_document
 
 _SCHEMA_PATH = "schemas/export.schema.json"
@@ -142,6 +143,26 @@ def _modulo_nodes(pantallas: Dict[str, Node], root: Optional[str]) -> Dict[str, 
     return modules
 
 
+def _entidad_nodes(data_model_document: Dict[str, Any], endpoints: Dict[str, Node]) -> Dict[str, Node]:
+    """One `Entidad` per `data-model.json` entity, with `depende_de` added
+    onto the citing `Endpoint` node - ADR-0008 point 5's own edge
+    direction, from the citing Endpoint to its Entidad, populating
+    `export.json`'s reserved `Entidad` type since ticket #103. Built from
+    the same `build_data_model_document` call `data-model.json` itself
+    makes, not read back from its file.
+    Details: docs/dev/generators/graph_export.md#_entidad_nodes
+    """
+    entidades: Dict[str, Node] = {}
+    for entity_name, entity in data_model_document["entities"].items():
+        entidades[entity_name] = {"id": entity_name, "type": "Entidad", "label": entity_name}
+        for field in entity["fields"].values():
+            for endpoint_id in field["observed_in"]["api_endpoints"]:
+                endpoint = endpoints.get(endpoint_id)
+                if endpoint is not None:
+                    _add_edge(endpoint, "depende_de", entity_name)
+    return entidades
+
+
 def _add_edge(node: Node, predicate: str, target_id: str) -> None:
     targets = node.setdefault(predicate, [])
     if target_id not in targets:
@@ -203,10 +224,10 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
 
 def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     """The full `export.json` payload: populated `Pantalla`/`Componente`/
-    `Endpoint`/`Token` nodes plus the edges connecting them, read fresh
-    from the graph store every run - see `get_inferred_requests`' own
-    docstring for why there is nothing here that can go stale between
-    crawl passes.
+    `Endpoint`/`Token`/`Modulo`/`Entidad` nodes plus the edges connecting
+    them, read fresh from the graph store every run - see
+    `get_inferred_requests`' own docstring for why there is nothing here
+    that can go stale between crawl passes.
     Details: docs/dev/generators/graph_export.md#build_export_graph
     """
     store = request.graph_store
@@ -220,13 +241,17 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     tokens = _token_nodes(build_tokens_document(store))
     root = route_shape(request.settings.get("target", "")) or None
     modulos = _modulo_nodes(pantallas, root)
+    entidades = _entidad_nodes(build_data_model_document(request), endpoints)
 
     _populate_contiene(pantallas, component_ledger)
     _populate_navega_a(pantallas, componentes, store.get_edges())
     _populate_dispara_and_consume(pantallas, componentes, inferred_requests)
 
     graph = sorted(
-        (*pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values(), *modulos.values()),
+        (
+            *pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values(),
+            *modulos.values(), *entidades.values(),
+        ),
         key=lambda node: (node["type"], node["id"]),
     )
     return {

@@ -72,6 +72,17 @@ crawl's own entry screen (`route_shape`d `target` from
 also does internally, even though this function only reads its module
 assignments back out.
 
+## _entidad_nodes
+
+One `Entidad` per `data-model.json` entity, with `depende_de` added onto
+the citing `Endpoint` node - ADR-0008 point 5's own edge direction, from
+the citing Endpoint to its Entidad, populating `export.json`'s reserved
+`Entidad` type since ticket #103. Built from the same
+`build_data_model_document` call `data-model.json` itself makes, not
+read back from its file - the same "generators don't read each other's
+output, only recompute from the same store" discipline `_token_nodes`/
+`_modulo_nodes` already follow.
+
 ## _populate_contiene
 
 Pantalla `contiene` Componente - one edge per pair the component ledger

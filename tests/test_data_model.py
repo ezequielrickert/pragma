@@ -4,11 +4,22 @@ over hand-built ledger rows - plus the semantic tier's write path
 """
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from core.interfaces import SemanticEntity, SemanticField
 from database.ladybug.store import LadybugGraphStore
-from generators.data_model import DataModelDocument, build_entities
+from generators.data_model import (
+    DataModelDocument,
+    _api_citations,
+    _gaps,
+    _mermaid_er_diagram,
+    _privacy_annotation,
+    build_data_model_document,
+    build_entities,
+)
 
 PAGE = "https://shop.example/checkout"
 
@@ -191,32 +202,155 @@ def test_a_field_edits_the_control_it_was_derived_from(store) -> None:
 
 # --- the document ---
 
+class _StubStore:
+    def __init__(self, ledger):
+        self._ledger = ledger
+
+    def get_component_ledger(self):
+        return self._ledger
+
+    def get_inferred_requests(self):
+        return []
+
+
+def _stub_request(ledger, coverage=None):
+    from core.documents import DocumentRequest
+
+    return DocumentRequest(
+        graph_store=_StubStore(ledger), site="shop.example", agent=None,
+        settings={"run_id": "R1"}, coverage=coverage,
+    )
+
+
 def test_the_document_lists_each_form_with_its_evidence():
-    class _Store:
-        def get_component_ledger(self):
-            return {PAGE: {"input#a": _input("input#a", input_type="email", required=True)}}
+    ledger = {PAGE: {"input#a": _input("input#a", input_type="email", required=True)}}
 
-    class _Request:
-        graph_store = _Store()
-        site = "shop.example"
+    outputs = DataModelDocument().outputs(_stub_request(ledger))
+    view = outputs[1].content
 
-    text = DataModelDocument().generate(_Request())
-
-    assert "## checkout" in text
-    assert "type=email, required" in text
-    assert "Derived from: `input#a`" in text
+    assert "## checkout" in view
+    assert "string (email)" in view
 
 
 def test_a_crawl_with_no_forms_says_which_two_causes_are_open():
-    class _Store:
-        def get_component_ledger(self):
-            return {}
+    outputs = DataModelDocument().outputs(_stub_request({}))
+    view = outputs[1].content
 
-    class _Request:
-        graph_store = _Store()
-        site = "shop.example"
+    assert "No forms with named inputs were found" in view
+    assert "the two look the same here" in view
 
-    text = DataModelDocument().generate(_Request())
 
-    assert "No forms with named inputs were found" in text
-    assert "the two look the same here" in text
+# --- privacy heuristic (docs/adr/0008 point 1) ---
+
+def test_an_email_field_is_flagged_as_pii():
+    privacy = _privacy_annotation("email")
+
+    assert privacy == {"is_pii": True, "category": "dpv:PersonalData", "dpv_type": "dpv:EmailAddress", "sensitivity": "medium"}
+
+
+def test_a_password_field_is_flagged_high_sensitivity():
+    privacy = _privacy_annotation("password")
+
+    assert privacy["sensitivity"] == "high"
+
+
+def test_an_unrecognized_field_name_gets_no_privacy_object():
+    """Absent, not a false is_pii: false - this heuristic has no opinion
+    about a field named "quantity"."""
+    assert _privacy_annotation("quantity") is None
+
+
+def test_the_signal_match_is_a_substring_not_an_exact_name():
+    assert _privacy_annotation("billing_address") is not None
+    assert _privacy_annotation("user_email_confirm") is not None
+
+
+# --- API-traffic correlation (docs/adr/0008 point 2) ---
+
+def _inferred_request(method="POST", endpoint="api.example.com/checkout", body_shape="", response_shape=""):
+    return SimpleNamespace(method=method, endpoint=endpoint, body_shape=body_shape, response_shape=response_shape)
+
+
+def test_a_field_present_in_a_request_body_is_cited():
+    """The format audit's own complaint: a field the API carries but no
+    form exposes must not be undercounted."""
+    requests = [_inferred_request(body_shape='{"email": "string"}')]
+
+    citations = _api_citations("email", requests)
+
+    assert citations == ("POST api.example.com/checkout",)
+
+
+def test_a_field_present_only_in_a_response_body_is_also_cited():
+    requests = [_inferred_request(method="GET", response_shape='{"email": "string"}')]
+
+    assert _api_citations("email", requests) == ("GET api.example.com/checkout",)
+
+
+def test_field_name_matching_is_case_insensitive():
+    requests = [_inferred_request(body_shape='{"Email": "string"}')]
+
+    assert _api_citations("email", requests) == ("POST api.example.com/checkout",)
+
+
+def test_a_field_absent_from_every_shape_is_not_cited():
+    requests = [_inferred_request(body_shape='{"quantity": "number"}')]
+
+    assert _api_citations("email", requests) == ()
+
+
+def test_an_unparseable_shape_is_skipped_not_a_crash():
+    requests = [_inferred_request(body_shape="not json")]
+
+    assert _api_citations("email", requests) == ()
+
+
+# --- coverage gaps (docs/adr/0008 point 3) ---
+
+def test_a_gap_is_recorded_per_unfinished_page():
+    coverage = SimpleNamespace(unfinished_urls=["shop.example/checkout/payment"])
+
+    gaps = _gaps(coverage, run_id="RUN-1")
+
+    assert gaps == [{
+        "entity": "shop.example/checkout/payment", "reason": "unvisited_route",
+        "coverage_ref": {"run_id": "RUN-1", "unvisited_endpoint": "shop.example/checkout/payment"},
+    }]
+
+
+def test_no_coverage_means_no_gaps_not_a_crash():
+    assert _gaps(None, run_id="RUN-1") == []
+
+
+# --- Mermaid erDiagram (docs/adr/0008 point 4) ---
+
+def test_the_mermaid_block_declares_one_entity_per_form():
+    document = {"entities": {
+        "checkout": {"description": "", "fields": {"email": {"type": "string", "format": "", "nullable": False, "confidence": 0.7, "observed_in": {"forms": [], "api_endpoints": [], "ui_state": []}}}},
+    }}
+
+    block = _mermaid_er_diagram(document)
+
+    assert block.startswith("```mermaid\nerDiagram")
+    assert "checkout {" in block
+    assert "string email" in block
+    assert block.endswith("```")
+
+
+# --- full document assembly + schema validation ---
+
+def test_build_data_model_document_validates_against_its_schema():
+    ledger = {PAGE: {"input#a": _input("input#a", name="email", input_type="email")}}
+    outputs = DataModelDocument().outputs(_stub_request(ledger))
+
+    document = json.loads(outputs[0].content)  # generate() already schema-validated; confirm parseable
+    assert "checkout" in document["entities"]
+    assert document["entities"]["checkout"]["fields"]["email"]["privacy"]["dpv_type"] == "dpv:EmailAddress"
+
+
+def test_build_data_model_document_carries_coverage_gaps():
+    coverage = SimpleNamespace(unfinished_urls=["shop.example/other"])
+    outputs = DataModelDocument().outputs(_stub_request({}, coverage=coverage))
+
+    document = json.loads(outputs[0].content)
+    assert document["gaps"][0]["entity"] == "shop.example/other"
