@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/openapi.x-inference.schema.json",
+  "title": "x-inference",
+  "description": "One operation's x-inference vendor extension (docs/adr/0004): what was actually observed versus inferred, with a confidence per inferred aspect. Validated per-operation by generators/openapi_lint.py, not embedded in the OpenAPI document's own schema - x- extensions are free-form there by design.",
+  "type": "object",
+  "required": ["observation_count", "methods_observed", "methods_inferred", "confidence"],
+  "properties": {
+    "observation_count": { "type": "integer", "minimum": 0 },
+    "methods_observed": { "type": "array", "items": { "type": "string" } },
+    "methods_inferred": { "type": "array", "items": { "type": "string" } },
+    "confidence": {
+      "type": "object",
+      "required": ["path_params", "request_schema", "response_schema"],
+      "properties": {
+        "path_params": { "type": "number", "minimum": 0, "maximum": 1 },
+        "request_schema": { "type": "number", "minimum": 0, "maximum": 1 },
+        "response_schema": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

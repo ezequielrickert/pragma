@@ -9,3 +9,4 @@ ladybug==0.19.1
 networkx==3.6.1
 psutil==7.2.2
 jsonschema==4.23.0
+openapi-spec-validator==0.7.1

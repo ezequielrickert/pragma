@@ -1,0 +1,31 @@
+# Hand-authored redaction rules applied on top of the automated,
+# capture-time redaction spiders/content/redaction.py already ran -
+# docs/adr/0004's non-destructive overlay workflow (OpenAPI Overlay
+# Specification 1.0.0). `openapi.raw.yaml` already has secret-named
+# fields dropped and emails/card-like numbers/tokens scrubbed at capture
+# time; this file is where a maintainer adds a rule for anything that
+# slipped through (an internal id format the automated scan doesn't
+# recognize, a field name specific to this application) before the
+# public openapi.yaml is generated. Ships empty - add an action below
+# only once a real gap is found; nothing here is invented ahead of one.
+#
+# Copy to config/redaction.overlay.yaml (auto-loaded) or point
+# generators/openapi.py at another path. Each action:
+#   - target: a JSONPath-subset string (generators/openapi_overlay.py
+#     supports dotted keys, '[*]' wildcards, and bracket-quoted keys for
+#     a path template's own '/', '{', '}' - no filters, no indices)
+#     remove: true                 # delete the matched key(s)
+#     # or:
+#     update: "REDACTED"           # replace the matched value(s)
+#
+# Example (commented out - nothing is redacted by this file until a
+# maintainer adds a real rule):
+# actions:
+#   - target: "$.paths[*][*].parameters[*].example"
+#     remove: true
+
+overlay: 1.0.0
+info:
+  title: Pragma redaction overlay
+  version: 1.0.0
+actions: []

@@ -1,4 +1,5 @@
-"""D4: an OpenAPI 3.0 contract inferred from the traffic a crawl observed.
+"""D4: an OpenAPI 3.1 contract inferred from the traffic a crawl observed,
+per docs/adr/0004.
 
 Entirely deterministic - no model call anywhere. Everything here is a
 rearrangement of what `GraphStore.get_inferred_requests` already grouped
@@ -8,12 +9,19 @@ trusted as a contract rather than read as a summary.
 
 **Examples are real bodies, and that is the one place this document
 carries captured data rather than derived shapes.** They pass through two
-layers of redaction first (`spiders/content/redaction.py`: fields named
-like secrets dropped by name, every string pattern-scanned for emails,
-card-like digit runs and tokens, `Authorization`/`Cookie` dropped whole)
-and are truncated at capture. A response example is only ever taken from a
-call that answered 2xx - a 422's body describes the error shape, and
-publishing it as the endpoint's response would misdescribe the API.
+layers of redaction. The first runs at capture time and is not optional
+(`spiders/content/redaction.py`: fields named like secrets dropped by
+name, every string pattern-scanned for emails, card-like digit runs and
+tokens, `Authorization`/`Cookie` dropped whole) - `openapi.raw.yaml`
+already reflects it, "raw" here means "before the second, document-level
+pass," never "before any redaction at all." The second is the
+OpenAPI Overlay (`generators/openapi_overlay.py`,
+`config/redaction.overlay.yaml`, ADR-0004's non-destructive workflow): a
+hand-maintained rule set a maintainer extends for whatever the first pass
+missed, applied to produce the public `openapi.yaml`. A response example
+is only ever taken from a call that answered 2xx - a 422's body describes
+the error shape, and publishing it as the endpoint's response would
+misdescribe the API.
 
 What it still cannot contain, by construction rather than oversight: field
 constraints (enum, pattern, minimum), which need many values per field to
@@ -28,11 +36,22 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 import yaml
+from openapi_spec_validator import validate as validate_openapi
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.interfaces import InferredRequest
 from core.registry import DOCUMENT_REGISTRY
 from .json_schema import schema_from_shape
+from .openapi_lint import lint_openapi_document
+from .openapi_overlay import apply_overlay
+
+_OVERLAY_PATH = "config/redaction.overlay.yaml"
+_EMPTY_OVERLAY = {"overlay": "1.0.0", "info": {"title": "Pragma redaction overlay", "version": "1.0.0"}, "actions": []}
+# One observation is not enough to trust a generalization; five
+# independent calls to the same operation is - a deliberately simple,
+# stated v1 heuristic, not a statistical model.
+# Details: docs/dev/generators/openapi.md#_confidence_ceiling
+_CONFIDENCE_CEILING_OBSERVATIONS = 5
 
 # HTTP method -> the CRUD verb an operationId/summary is built from. GET is
 # absent on purpose: it means "list" or "get" depending on whether the call
@@ -246,12 +265,53 @@ def _responses(request: InferredRequest, schemas: _SchemaRegistry, resource: str
     return responses
 
 
+def _confidence(request: InferredRequest, has_data: bool) -> float:
+    """How much this operation's observation count backs one inferred
+    aspect (a path template, a body shape) - `0.0` when there is no data
+    to be confident in at all, otherwise scaling toward `1.0` as more
+    independent calls confirmed the same shape.
+    Details: docs/dev/generators/openapi.md#_confidence
+    """
+    if not has_data:
+        return 0.0
+    return round(min(1.0, request.observation_count / _CONFIDENCE_CEILING_OBSERVATIONS), 2)
+
+
+def _inference(request: InferredRequest, path_param_names: List[str]) -> Dict[str, Any]:
+    """The `x-inference` extension (docs/adr/0004): observed versus
+    inferred, with a confidence per inferred aspect.
+
+    `methods_inferred` is always `[]` in v1 - this crawler infers a
+    path's *shape* (opaque segments generalized to `{id}`) and a body's
+    *structure* from observed samples, but never an HTTP method nobody
+    ever actually called; inventing "PUT is probably also supported"
+    would be exactly the guess this document's own preamble disclaims.
+
+    `path_params` confidence is `1.0` when the path carries none - a
+    verified structural fact (zero opaque segments found), not a guess -
+    and observation-scaled otherwise, since a single hit generalizing an
+    id segment could in principle be a coincidence.
+    Details: docs/dev/generators/openapi.md#_inference
+    """
+    return {
+        "observation_count": request.observation_count,
+        "methods_observed": [request.method],
+        "methods_inferred": [],
+        "confidence": {
+            "path_params": 1.0 if not path_param_names else _confidence(request, True),
+            "request_schema": _confidence(request, bool(request.body_shape)),
+            "response_schema": _confidence(request, bool(request.response_shape)),
+        },
+    }
+
+
 def _operation(request: InferredRequest, names: List[str], schemas: _SchemaRegistry) -> Dict[str, Any]:
     resource = _resource_name(_host_and_path(request.endpoint)[1])
     operation: Dict[str, Any] = {
         "operationId": _operation_id(request, resource),
         "summary": _summary(request, resource),
         "responses": _responses(request, schemas, resource),
+        "x-inference": _inference(request, names),
     }
     description = _observed_description(request)
     if description:
@@ -278,7 +338,8 @@ def _operation(request: InferredRequest, names: List[str], schemas: _SchemaRegis
 
 
 def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[str, Any]:
-    """Assemble one OpenAPI 3.0 document from already-inferred endpoints.
+    """Assemble one OpenAPI 3.1 document from already-inferred endpoints -
+    `openapi.raw.yaml`'s content, before the redaction overlay.
     Details: docs/dev/generators/openapi.md#build_openapi_document
     """
     schemas = _SchemaRegistry()
@@ -303,7 +364,7 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
             item["servers"] = [{"url": f"https://{host}"}]
 
     document: Dict[str, Any] = {
-        "openapi": "3.0.3",
+        "openapi": "3.1.0",
         "info": {
             "title": f"{site} - inferred API contract",
             "version": "0.1.0",
@@ -323,16 +384,62 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
     return document
 
 
+def _load_overlay() -> Dict[str, Any]:
+    """`config/redaction.overlay.yaml`, or the empty default when nobody
+    has added one yet - a missing overlay file is a valid v1 state
+    (capture-time redaction alone), not an error.
+    Details: docs/dev/generators/openapi.md#_load_overlay
+    """
+    try:
+        with open(_OVERLAY_PATH, encoding="utf-8") as handle:
+            return yaml.safe_load(handle) or _EMPTY_OVERLAY
+    except FileNotFoundError:
+        return _EMPTY_OVERLAY
+
+
+def _as_yaml(document: Dict[str, Any]) -> str:
+    return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
 @DOCUMENT_REGISTRY.register("openapi")
 class OpenAPIDocument(DocumentGenerator):
-    """Details: docs/dev/generators/openapi.md#openapidocument"""
+    """Three files per docs/adr/0004's non-destructive redaction workflow:
+    `openapi.raw.yaml` (private - everything this generator inferred,
+    beyond the capture-time redaction that already ran), a copy of the
+    `redaction.overlay.yaml` rules actually applied this run (provenance:
+    which ruleset version produced the public file, without trusting a
+    maybe-since-edited config file to still match), and the public
+    `openapi.yaml` the overlay produces. All three are OpenAPI 3.1
+    documents, validated against the real OpenAPI 3.1 schema before
+    being written - the base `oas3-schema` rule ADR-0004 names. The rest
+    of its named ruleset runs as `generators/openapi_lint.py`, printed as
+    findings rather than a hard failure (see that module's own docstring
+    for why there's no vacuum/Spectral/CI here).
+    Details: docs/dev/generators/openapi.md#openapidocument
+    """
 
     name = "openapi"
     title = "API Contract"
-    purpose = "Every endpoint the crawl observed, as an OpenAPI 3.0 spec - feeds client generators and mock servers."
+    purpose = (
+        "Every endpoint the crawl observed, as an OpenAPI 3.1 spec (raw private, redaction overlay, "
+        "and public variants) - feeds client generators and mock servers."
+    )
     extension = "yaml"
 
-    def generate(self, request: DocumentRequest) -> str:
+    def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
         requests = request.graph_store.get_inferred_requests()
-        document = build_openapi_document(requests, request.site)
-        return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+        raw_document = build_openapi_document(requests, request.site)
+        validate_openapi(raw_document)
+
+        overlay = _load_overlay()
+        public_document = apply_overlay(raw_document, overlay)
+        validate_openapi(public_document)
+
+        for finding in lint_openapi_document(public_document):
+            print(f"openapi lint: {finding}")
+
+        return (
+            DocumentOutput(filename="openapi.raw", kind="source", extension="yaml", content=_as_yaml(raw_document)),
+            DocumentOutput(filename="redaction.overlay", kind="rule-catalog", extension="yaml", content=_as_yaml(overlay)),
+            DocumentOutput(filename="openapi", kind="source", extension="yaml", content=_as_yaml(public_document)),
+        )
