@@ -43,4 +43,6 @@ Decided, resolving the ticket's four open points:
 
 **5. Export Population** (amendment). `requirements.json` entries populate `export.json`'s reserved `Requisito` nodes (ADR-0002). `links.screens`/`links.endpoints` become `implementa` edges, from the citing `Pantalla`/`Endpoint` to the `Requisito`; `links.depends_on` becomes `depende_de` edges between `Requisito` nodes; `links.data_entities` becomes `cubre` edges, from the `Requisito` to its `Entidad` (ADR-0008). `links.scenarios` is left for `gherkin` (#77) to wire once `Escenario` is populated.
 
+**6. Short-Hash Algorithm** (amendment, ADR-0015). `REQ-<hash>` named "a deterministic short hash" without saying which algorithm. Pinned to `sha1(...)[:10]`, matching the algorithm already used for exactly this purpose elsewhere in the codebase (`spiders/content/component_matching.py`) — see `CONTEXT.md`'s **Short hash** entry.
+
 Wayfinder ticket: [prd: lock requirements.json schema (EARS)](https://github.com/ezequielrickert/pragma/issues/74), part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).
