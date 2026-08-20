@@ -47,7 +47,11 @@ screen — consistent with a dashboard whose primary read is "what's the state o
   (`observed`/`inferred`/`assumed`, `prd`'s ADR-0009 vocabulary), and endpoint count — shown as a
   saturating count, not a forced fraction, since `coverage`'s ADR-0001 deliberately gave endpoints no
   denominator ("a saturation curve, no denominator needed"). A metric locked elsewhere in this map
-  never gets reshaped into a shape that ADR didn't choose.
+  never gets reshaped into a shape that ADR didn't choose. *Amendment (ADR-0029): the requirement-
+  confidence tile now reads from `confidence-summary.json` instead of computing the split inline
+  from `prd`'s raw data — two places computing the same rollup was a duplicate-computation problem
+  once a dedicated aggregator existed. The tile's shape and meaning are unchanged; only its source
+  moved.*
 - **A card per concern**, each showing its own coverage/confidence at a glance and linking through to
   a dedicated page listing that concern's source(s), view, and projection (where it has one).
 
