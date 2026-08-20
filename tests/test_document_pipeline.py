@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from core import bootstrap  # noqa: F401  (registers the document generators)
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
 from generators.coverage import build_coverage, render_coverage_banner
 from generators.pipeline import DocumentNaming, run_document_pipeline
@@ -128,6 +128,76 @@ def test_unknown_document_name_is_reported_and_skipped(tmp_path, capsys):
 
     assert [document.name for document in produced] == ["coverage", "master"]
     assert "not-a-document" in capsys.readouterr().out
+
+
+# --- the multi-file, kind-tagged output contract (docs/adr/0030) ---
+
+def test_a_single_string_generator_is_wrapped_into_one_view_output():
+    """A generator that only overrides `generate()` keeps working through
+    `outputs()` without any change on its part."""
+    @DOCUMENT_REGISTRY.register("legacy-style")
+    class LegacyStyleDocument(DocumentGenerator):
+        name = "legacy-style"
+        title = "Legacy"
+        purpose = "Still returns a bare string."
+        extension = "json"
+
+        def generate(self, request):
+            return "{}"
+
+    outputs = DOCUMENT_REGISTRY.create("legacy-style").outputs(_request())
+
+    assert outputs == (DocumentOutput(filename="legacy-style", kind="view", extension="json", content="{}"),)
+
+
+def test_a_multi_output_generator_writes_every_file_it_declares(tmp_path):
+    """A source+view generator writes both files from one registry entry,
+    each with its own kind and checksum."""
+    @DOCUMENT_REGISTRY.register("multi-output")
+    class MultiOutputDocument(DocumentGenerator):
+        name = "multi-output"
+        title = "Multi"
+        purpose = "Emits a source and a view."
+
+        def generate(self, request):
+            return (
+                DocumentOutput(filename="multi-source", kind="source", extension="json", content="{}"),
+                DocumentOutput(filename="multi-view", kind="view", extension="md", content="# Multi"),
+            )
+
+    produced = run_document_pipeline(_request(), _naming(tmp_path), ["multi-output"])
+
+    written = {p.path: p for p in produced if p.name == "multi-output"}
+    assert len(written) == 2
+    for document in written.values():
+        assert document.checksum
+        assert Path(document.path).exists()
+
+
+def test_checksum_matches_the_bytes_actually_written(tmp_path):
+    import hashlib
+
+    produced = run_document_pipeline(_request(), _naming(tmp_path), ["export"])
+
+    written_bytes = Path(produced[0].path).read_bytes()
+    assert produced[0].checksum == hashlib.sha256(written_bytes).hexdigest()
+
+
+def test_only_view_kind_markdown_outputs_carry_the_banner(tmp_path):
+    """A source-kind Markdown output (hypothetically) must not get the
+    banner either - the gate is kind AND extension, not extension alone."""
+    @DOCUMENT_REGISTRY.register("source-flavored-md")
+    class SourceFlavoredMarkdown(DocumentGenerator):
+        name = "source-flavored-md"
+        title = "Source-flavored"
+        purpose = "A Markdown file that is a source, not a view."
+
+        def generate(self, request):
+            return (DocumentOutput(filename="raw", kind="source", extension="md", content="raw data"),)
+
+    produced = run_document_pipeline(_request(), _naming(tmp_path), ["source-flavored-md"])
+
+    assert Path(produced[0].path).read_text(encoding="utf-8") == "raw data"
 
 
 @pytest.mark.parametrize("name", ["coverage", "prd", "tree", "export"])
