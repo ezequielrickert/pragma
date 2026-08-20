@@ -102,12 +102,14 @@ _Avoid_: export (that name is reserved for the graph snapshot specifically); vie
 never hand-editable truth of its own, but its consumer is a tool, not a reader).
 
 **Rule catalog**:
-A source document that is hand-authored by whoever writes pragma's own checks, not derived from
-any crawl — e.g. `usability-rules.json`'s ACT rules. Every other source document assumes it's
-regenerated per crawl run from what that run found; a rule catalog breaks that assumption, changing
-only when a person adds or edits a rule, independent of any given run. Still machine-checkable and
-still cited by other documents (a run's findings cite a rule by ID) — the distinction is where its
-content originates, not its role in the pipeline.
+A source document whose content is fixed for a given rule-set version, not derived from any crawl —
+e.g. `usability-rules.json` (hand-authored by whoever writes pragma's own checks) and
+`accessibility-rules.json` (mechanically extracted from axe-core's own rule metadata, changing only
+when pragma bundles a new axe-core version). Every other source document assumes it's regenerated
+per crawl run from what that run found; a rule catalog breaks that assumption. Still
+machine-checkable and still cited by other documents (a run's findings cite a rule by ID) — what
+makes it a rule catalog is that its content tracks a rule set's own version, whether a person or a
+third-party engine owns that version, not who or what originates the content.
 
 **New-document wave**:
 The 15 documents proposed by the format audit that don't exist in the
