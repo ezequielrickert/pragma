@@ -38,5 +38,10 @@ pattern observed multiple times with only concrete values differing becomes one 
 (ADR-0003). `Background` is reserved for setup steps common to every scenario in one `Feature` file
 (e.g. an authentication precondition), never used to hide dedup that belongs in an `Outline`.
 
+**5. Short-Hash Algorithm** (amendment, ADR-0015). `EP-<hash>` and `MOD-<hash>` were both defined
+as "a deterministic hash" without saying which algorithm. Pinned to `sha1(...)[:10]`, matching the
+algorithm already used for exactly this purpose elsewhere in the codebase
+(`spiders/content/component_matching.py`) — see `CONTEXT.md`'s **Short hash** entry.
+
 Wayfinder ticket: [gherkin: design traceability-tag vocabulary](https://github.com/ezequielrickert/pragma/issues/77),
 part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).

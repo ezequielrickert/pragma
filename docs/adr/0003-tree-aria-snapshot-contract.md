@@ -44,5 +44,10 @@ positional correlation is implicit and breaks silently if either generator ever 
 traversal. A JSON Pointer costs one extra field per leaf and survives both generators evolving
 independently, which a same-run-position assumption does not.
 
+**Short-hash algorithm** (amendment, ADR-0015). `SCR-<hash>` and `template_hash` both named "a
+deterministic hash" without saying which algorithm. Pinned to `sha1(...)[:10]`, matching the
+algorithm already used for exactly this purpose elsewhere in the codebase
+(`spiders/content/component_matching.py`) — see `CONTEXT.md`'s **Short hash** entry.
+
 Wayfinder ticket: [tree: lock ARIA-snapshot/AXTree contract](https://github.com/ezequielrickert/pragma/issues/67),
 part of [Doc-generation pipeline overhaul](https://github.com/ezequielrickert/pragma/issues/64).
