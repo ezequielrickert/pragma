@@ -58,11 +58,13 @@ split. A proposal being negotiated, not a settled spec — its per-format
 verdicts get reopened where genuinely contested, accepted where not.
 
 **Existing-document wave**:
-The 13 documents the pipeline generates today (`coverage`, `architecture`,
+The 13 documents the pipeline generated before this overhaul (`coverage`, `architecture`,
 `prd`, `tree`, `openapi`, `catalog`, `tokens`, `data-model`, `flows`,
 `usability`, `accessibility`, `gherkin`, `sequences`) plus the 3 documents
-that exist but are off by default (`catalog-data`, `tokens-data`, `export`).
-Reworked to the source/view split first.
+that existed but were off by default (`catalog-data`, `tokens-data`, `export`).
+Reworked to the source/view split first. One of the 13 has since folded into
+its sibling rather than surviving as its own registered document: `sequences`
+into `flows` (ADR-0014).
 
 **`coverage_ref`**:
 A pointer a document embeds to cite `coverage`'s numbers for the slice it covers, so a reader can
