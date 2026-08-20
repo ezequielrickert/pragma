@@ -61,6 +61,17 @@ path-pattern shape that function's `path_pattern` argument takes, so
 `f"{method} {endpoint}"` reconstructs the identical key without a second
 lookup.
 
+## _modulo_nodes
+
+One `Modulo` per module `core/graph_metrics.py::compute_graph_metrics`
+derived (docs/adr/0007's hybrid path-prefix/Leiden pass), each
+`contiene`-ing its member `Pantalla` nodes - populates `export.json`'s
+reserved `Modulo` entities (ADR-0002) since ticket #102. `root` is the
+crawl's own entry screen (`route_shape`d `target` from
+`request.settings`), for the depth computation `compute_graph_metrics`
+also does internally, even though this function only reads its module
+assignments back out.
+
 ## _populate_contiene
 
 Pantalla `contiene` Componente - one edge per pair the component ledger

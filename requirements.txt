@@ -10,3 +10,5 @@ networkx==3.6.1
 psutil==7.2.2
 jsonschema==4.23.0
 openapi-spec-validator==0.7.1
+python-igraph==1.0.0
+leidenalg==0.12.0
