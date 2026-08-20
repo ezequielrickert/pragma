@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/data-model.schema.json",
+  "title": "Data model",
+  "description": "docs/adr/0008: entities deduced from forms, fields annotated with W3C DPV privacy categories and multi-source observation provenance, plus a gaps array citing coverage.json.",
+  "type": "object",
+  "required": ["entities", "gaps"],
+  "properties": {
+    "entities": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/entity" }
+    },
+    "gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    }
+  },
+  "$defs": {
+    "entity": {
+      "type": "object",
+      "required": ["description", "fields"],
+      "properties": {
+        "description": { "type": "string" },
+        "fields": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/field" }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": ["type", "nullable", "confidence", "observed_in"],
+      "properties": {
+        "type": { "type": "string" },
+        "format": { "type": "string" },
+        "nullable": { "type": "boolean" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "observed_in": {
+          "type": "object",
+          "required": ["forms", "api_endpoints", "ui_state"],
+          "properties": {
+            "forms": { "type": "array", "items": { "type": "string" } },
+            "api_endpoints": { "type": "array", "items": { "type": "string" } },
+            "ui_state": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "privacy": {
+          "type": "object",
+          "description": "Present only when this field matched a PII naming signal - absent, not a false is_pii:false, for a field this heuristic has no opinion about.",
+          "required": ["is_pii", "category", "dpv_type", "sensitivity"],
+          "properties": {
+            "is_pii": { "type": "boolean" },
+            "category": { "type": "string" },
+            "dpv_type": { "type": "string" },
+            "sensitivity": { "enum": ["low", "medium", "high"] }
+          }
+        }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "required": ["entity", "reason", "coverage_ref"],
+      "properties": {
+        "entity": { "type": "string" },
+        "reason": { "type": "string" },
+        "coverage_ref": {
+          "type": "object",
+          "required": ["run_id", "unvisited_endpoint"],
+          "properties": {
+            "run_id": { "type": "string" },
+            "unvisited_endpoint": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
