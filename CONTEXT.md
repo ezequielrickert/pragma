@@ -70,10 +70,13 @@ tell "this requirement came from a 20%-covered module" without leaving the citin
 at a whole run (`run_id`) until per-module coverage exists — see `module_id`.
 
 **`module_id`**:
-The identifier a document uses to say "this belongs to module X." Undefined today: the crawler has
-no module-detection pass. Deciding what a module *is* (path-prefix clustering vs. detected graph
-community) belongs to `architecture`'s graph-metrics ticket; every document that references
-`module_id` before then reserves the field rather than inventing its own scheme.
+The identifier a document uses to say "this belongs to module X." What a module *is* — path-prefix
+clustering, falling back to detected graph community — was locked by `architecture`'s graph-metrics
+ticket (ADR-0007); the literal ID string (`MOD-<slug>` for a path-prefix-derived module,
+`MOD-<hash>` for one with no natural name) was locked by `gherkin` (ADR-0013), the first document
+that needed a concrete format rather than just the derivation rule. A document written before either
+ticket resolved reserves the field rather than inventing its own scheme; every document since cites
+this one.
 
 **Reserved field**:
 A schema field that's present and typed but not yet populated with real data, because the crawler
