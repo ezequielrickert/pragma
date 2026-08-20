@@ -25,9 +25,8 @@ provenance (ADR-0003/ADR-0006).
 reusable domain vocabulary — the test is whether a term recurs across contexts as a meaningful
 business concept, not whether it's a one-off field name or literal string. A term cross-references
 `data-model` fields/enum values where one corresponds (e.g. `"factura tipo C"` citing `invoice.tipo`'s
-`"C"` enum value, ADR-0008) and, once `content-inventory` (#89) resolves, its copy occurrences — by
-pointer, the same way `catalog`'s `x-tokens` cites `tokens.json` rather than duplicating token data
-(ADR-0006). The same string can legitimately live in more than one document for different reasons;
+`"C"` enum value, ADR-0008) and `content-inventory`'s copy occurrences (ADR-0025) — by pointer, the
+same way `catalog`'s `x-tokens` cites `tokens.json` rather than duplicating token data (ADR-0006). The same string can legitimately live in more than one document for different reasons;
 forcing single ownership would just relocate the duplicate-view problem rather than solve it.
 
 Wayfinder ticket: [glossary: lock SKOS/JSON-LD domain-term contract](https://github.com/ezequielrickert/pragma/issues/84),
