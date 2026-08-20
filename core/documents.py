@@ -13,9 +13,32 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, Tuple
+from typing import Any, ClassVar, Dict, Literal, Tuple, Union
 
 from .interfaces import Agent
+
+# The taxonomy CONTEXT.md's glossary defines for the doc-generation pipeline:
+# a source document is machine-checkable ground truth; a view is rendered
+# from one for a human reader; a projection reshapes pragma's own data (the
+# graph, or another document) into an external standard's schema; a rule
+# catalog is fixed to a rule-set version rather than derived from a crawl.
+DocumentKind = Literal["source", "view", "projection", "rule-catalog"]
+
+
+@dataclass(frozen=True)
+class DocumentOutput:
+    """One physical file a `DocumentGenerator` produces.
+
+    `filename` is the stem only, no extension - `DocumentNaming.path_for`
+    (generators/pipeline.py) appends the run's slug/timestamp wrapper and
+    `extension` itself, the same way it already names every document today.
+    Details: docs/dev/core/documents.md#documentoutput
+    """
+
+    filename: str
+    kind: DocumentKind
+    extension: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -28,6 +51,8 @@ class ProducedDocument:
     title: str
     purpose: str
     path: str
+    kind: DocumentKind = "view"
+    checksum: str = ""
 
 
 @dataclass(frozen=True)
@@ -75,8 +100,27 @@ class DocumentGenerator(ABC):
     extension: ClassVar[str] = "md"
 
     @abstractmethod
-    def generate(self, request: DocumentRequest) -> str:
-        """Return this document's full text. Never writes to disk itself.
+    def generate(self, request: DocumentRequest) -> Union[str, Tuple[DocumentOutput, ...]]:
+        """Return this document's content. Never writes to disk itself.
+
+        A generator producing exactly one file returns a plain `str` - the
+        original contract, still fully supported unchanged. `outputs()`
+        wraps it into a single `DocumentOutput` automatically, so a
+        single-file generator needs no changes to keep working. A generator
+        producing several files (a source/view split, or more) returns a
+        tuple of `DocumentOutput` directly, owning each file's own
+        `filename`/`kind`.
         Details: docs/dev/core/documents.md#generate
         """
         raise NotImplementedError
+
+    def outputs(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
+        """Normalize `generate()`'s result to the multi-file shape every
+        caller actually wants - the one place this wrapping happens, so
+        `generate()`'s two accepted return shapes never leak past here.
+        Details: docs/dev/core/documents.md#outputs
+        """
+        result = self.generate(request)
+        if isinstance(result, str):
+            return (DocumentOutput(filename=self.name, kind="view", extension=self.extension, content=result),)
+        return result

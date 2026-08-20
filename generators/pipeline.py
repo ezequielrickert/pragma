@@ -8,10 +8,11 @@ Details: docs/dev/generators/pipeline.md#module
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from typing import List, Sequence
 
-from core.documents import DocumentGenerator, DocumentRequest, ProducedDocument
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest, ProducedDocument
 from core.registry import DOCUMENT_REGISTRY
 from utils.io import write_output
 from .coverage import build_coverage, render_coverage_banner
@@ -36,32 +37,46 @@ class DocumentNaming:
         return f"{self.out_dir}/{self.slug}_{name}_{self.timestamp}.{extension}"
 
 
-def _with_banner(content: str, generator: DocumentGenerator, request: DocumentRequest) -> str:
-    """Prepend the coverage banner to Markdown documents only.
+def _with_banner(output: DocumentOutput, request: DocumentRequest) -> str:
+    """Prepend the coverage banner to Markdown *view* outputs only.
 
     Done here rather than in each generator so the rule lives in one place
-    and a new document gets it by existing. Skipped for any other
+    and a new document gets it by existing. Skipped for any other kind or
     extension: a JSON or YAML file with a Markdown blockquote glued to the
-    front is not a JSON or YAML file.
+    front is not a JSON or YAML file, and a source/projection/rule-catalog
+    document reads as data, not as something a banner introduces.
     Details: docs/dev/generators/pipeline.md#_with_banner
     """
-    if generator.extension != "md":
-        return content
+    if output.kind != "view" or output.extension != "md":
+        return output.content
     banner = render_coverage_banner(
         build_coverage(request.graph_store),
         stopped_reason=request.settings.get("stopped_reason", ""),
     )
-    return f"{banner}\n{content}"
+    return f"{banner}\n{output.content}"
 
 
-def _write_document(generator: DocumentGenerator, request: DocumentRequest, path: str) -> ProducedDocument:
-    """Build one document and write it. Raises whatever the generator
-    raises - `run_document_pipeline` owns the decision to degrade rather
-    than abort."""
-    write_output(path, _with_banner(generator.generate(request), generator, request))
-    return ProducedDocument(
-        name=generator.name, title=generator.title, purpose=generator.purpose, path=path
-    )
+def _write_document(
+    generator: DocumentGenerator, request: DocumentRequest, naming: DocumentNaming
+) -> List[ProducedDocument]:
+    """Build every file one generator produces and write each to disk.
+    Raises whatever the generator raises - `run_document_pipeline` owns the
+    decision to degrade rather than abort.
+    Details: docs/dev/generators/pipeline.md#_write_document
+    """
+    produced = []
+    for output in generator.outputs(request):
+        path = naming.path_for(output.filename, output.extension)
+        content = _with_banner(output, request)
+        write_output(path, content)
+        checksum = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        produced.append(
+            ProducedDocument(
+                name=generator.name, title=generator.title, purpose=generator.purpose,
+                path=path, kind=output.kind, checksum=checksum,
+            )
+        )
+    return produced
 
 
 def run_document_pipeline(
@@ -77,12 +92,13 @@ def run_document_pipeline(
         names: registry names of the documents to generate, in order.
 
     Returns:
-        One `ProducedDocument` per document actually written, master
-        document last. A generator that fails is logged and skipped, not
-        raised - the same "degrade this one output, don't abort the run"
-        discipline `GraphPRDSynthesizer` already applies per page. A
-        document that failed is absent from the list, so the master
-        document never links to a file that isn't there.
+        One `ProducedDocument` per file actually written - one for a
+        single-output generator, several for one producing a source/view
+        split - master document's own output(s) last. A generator that
+        fails is logged and skipped, not raised - the same "degrade this
+        one output, don't abort the run" discipline `GraphPRDSynthesizer`
+        already applies per page. A document that failed is absent from the
+        list, so the master document never links to a file that isn't there.
     Details: docs/dev/generators/pipeline.md#run_document_pipeline
     """
     # Announced per document, not just as a batch: generator cost is wildly
@@ -96,15 +112,12 @@ def run_document_pipeline(
         print(f"[{position}/{len(names)}] {name}")
         try:
             generator: DocumentGenerator = DOCUMENT_REGISTRY.create(name)
-            path = naming.path_for(generator.name, generator.extension)
-            produced.append(_write_document(generator, request, path))
+            produced.extend(_write_document(generator, request, naming))
         except Exception as exc:  # noqa: BLE001 - one document failing must not lose the others
             print(f"Document '{name}' could not be generated: {exc}")
 
     print("[master] assembling Start Here")
     master = MasterDocument()
     master_request = replace(request, produced=tuple(produced))
-    produced.append(
-        _write_document(master, master_request, naming.path_for(master.name, master.extension))
-    )
+    produced.extend(_write_document(master, master_request, naming))
     return produced
