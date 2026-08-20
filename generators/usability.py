@@ -11,6 +11,11 @@ be planned from.
 past; the goal is to refactor the experience, not to reproduce it, so each
 finding says what the rebuild should do instead.
 
+Pure detection logic only - `generators/usability_act.py` owns the
+ACT/EARL/SARIF serialization (docs/adr/0011) and the registered
+`DocumentGenerator`, the same `build_X`/adapter split every other
+generator here uses.
+
 Details: docs/dev/generators/usability.md#module
 """
 from __future__ import annotations
@@ -20,8 +25,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
-from core.registry import DOCUMENT_REGISTRY
+from core.documents import DocumentRequest
 from .ledger import flat_component_ledger
 from .user_flows import build_flow_graph
 
@@ -252,38 +256,3 @@ def build_findings(request: DocumentRequest) -> List[Finding]:
     )
     order = {"high": 0, "medium": 1, "low": 2}
     return sorted(findings, key=lambda f: (order.get(f.severity, 3), f.rule, f.where))
-
-
-@DOCUMENT_REGISTRY.register("usability")
-class UsabilityDocument(DocumentGenerator):
-    """Details: docs/dev/generators/usability.md#usabilitydocument"""
-
-    name = "usability"
-    title = "Usability Audit"
-    purpose = "Deterministic Nielsen-heuristic findings, each with the page and element it came from."
-
-    def generate(self, request: DocumentRequest) -> str:
-        findings = build_findings(request)
-        lines = [f"# Usability Audit: {request.site}", ""]
-        if not findings:
-            lines.append("No findings from the deterministic rules. That is a narrow statement: these "
-                         "rules cover consistency, error prevention and flow structure, not whether the "
-                         "application is pleasant to use.")
-            return "\n".join(lines) + "\n"
-        lines += [
-            f"{len(findings)} findings. Each cites the page and element it came from - disagree and go "
-            "look. Recommendations describe what the rebuild should do, not what the current system does.",
-            "",
-            "Not covered here and waiting on richer capture: loading indicators during a request, and "
-            "whether a failed submit actually told the user. Both need the DOM observed *during* an "
-            "interaction, which the crawl does not do.",
-            "",
-            "| Severity | Rule | Heuristic | Where | Finding | Do instead |",
-            "|---|---|---|---|---|---|",
-        ]
-        lines += [
-            f"| {f.severity} | `{f.rule}` | {f.heuristic} | {f.where} | {f.detail} | {f.recommendation} |"
-            for f in findings
-        ]
-        lines.append("")
-        return "\n".join(lines)

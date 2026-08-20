@@ -188,10 +188,12 @@ def test_findings_are_ordered_by_severity():
     assert [f.severity for f in findings] == ["medium", "low"]
 
 
-def test_an_empty_audit_says_what_it_did_not_check():
-    """"No findings" from six rules must not read as "this app is usable"."""
+def test_an_empty_crawl_produces_no_findings_not_an_error():
+    """"No findings" from six rules must not read as "this app is usable" -
+    generators/usability_act.py's own test covers that the *document*
+    says so; this only checks build_findings itself degrades cleanly."""
     from core.documents import DocumentRequest
-    from generators.usability import UsabilityDocument
+    from generators.usability import build_findings
 
     class _Store:
         def get_component_ledger(self):
@@ -209,8 +211,6 @@ def test_an_empty_audit_says_what_it_did_not_check():
         def get_text_content_ledger(self):
             return {}
 
-    text = UsabilityDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
+    findings = build_findings(DocumentRequest(graph_store=_Store(), site="shop.example", agent=None))
 
-    assert "narrow statement" in text
+    assert findings == []

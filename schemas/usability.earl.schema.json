@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/usability.earl.schema.json",
+  "title": "Usability EARL findings",
+  "description": "docs/adr/0011 point 4: the subset of EARL 1.0/JSON-LD pragma actually emits - one Assertion per finding, plus pragma's own level/derived_from/coverage_ref/axtree_ref extensions. Structural correctness for pragma's own fields, not the full official EARL vocabulary.",
+  "type": "object",
+  "required": ["@context", "@graph"],
+  "properties": {
+    "@context": { "type": "string" },
+    "@graph": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "@type", "test", "subject", "result", "mode", "level",
+          "derived_from", "coverage_ref", "axtree_ref"
+        ],
+        "properties": {
+          "@type": { "const": "Assertion" },
+          "test": {
+            "type": "object", "required": ["@id"], "properties": { "@id": { "type": "string" } }
+          },
+          "subject": {
+            "type": "object", "required": ["@id"], "properties": { "@id": { "type": "string" } }
+          },
+          "result": {
+            "type": "object",
+            "required": ["@type", "outcome", "description"],
+            "properties": {
+              "@type": { "const": "TestResult" },
+              "outcome": { "const": "earl:failed" },
+              "description": { "type": "string" }
+            }
+          },
+          "mode": { "enum": ["earl:automatic", "earl:semiAuto", "earl:manual"] },
+          "level": { "enum": ["error", "warning", "note", "none"] },
+          "derived_from": { "type": "array", "items": { "type": "string" } },
+          "coverage_ref": {
+            "type": "object", "required": ["run_id"], "properties": { "run_id": { "type": "string" } }
+          },
+          "axtree_ref": {
+            "type": ["string", "null"],
+            "description": "Reserved: correlating one finding's component to one specific tree.axtree.json node needs a dedicated correlation pass this ticket doesn't build (the same gap catalog.json's x-region.axtree_ref left reserved, ticket #101)."
+          }
+        }
+      }
+    }
+  }
+}
