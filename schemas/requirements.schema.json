@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/requirements.schema.json",
+  "title": "Requirements",
+  "description": "docs/adr/0009: requirements extracted in EARS syntax, deterministic REQ-<hash> ids, categorical confidence, evidence and cross-document links, a coverage_ref, and HITL review status.",
+  "type": "object",
+  "required": ["requirements"],
+  "properties": {
+    "requirements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/requirement" }
+    }
+  },
+  "$defs": {
+    "requirement": {
+      "type": "object",
+      "required": [
+        "id", "ears_pattern", "syntax_text", "confidence", "derived_from",
+        "links", "coverage_ref", "hitl_status", "open_questions"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^REQ-[0-9a-f]{10}$" },
+        "ears_pattern": {
+          "enum": ["ubiquitous", "event_driven", "unwanted_behavior", "state_driven", "optional_feature"]
+        },
+        "syntax_text": { "type": "string" },
+        "confidence": { "enum": ["observed", "inferred", "assumed"] },
+        "derived_from": { "type": "array", "items": { "type": "string" } },
+        "links": {
+          "type": "object",
+          "required": ["screens", "endpoints", "scenarios", "data_entities", "depends_on"],
+          "properties": {
+            "screens": { "type": "array", "items": { "type": "string" } },
+            "endpoints": { "type": "array", "items": { "type": "string" } },
+            "scenarios": { "type": "array", "items": { "type": "string" } },
+            "data_entities": { "type": "array", "items": { "type": "string" } },
+            "depends_on": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "coverage_ref": {
+          "type": "object",
+          "required": ["run_id"],
+          "properties": { "run_id": { "type": "string" } }
+        },
+        "hitl_status": { "enum": ["unreviewed", "approved", "rejected"] },
+        "open_questions": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

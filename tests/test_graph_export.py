@@ -6,7 +6,13 @@ import json
 
 from core.documents import DocumentRequest
 from database.ladybug.store import LadybugGraphStore
-from generators.graph_export import _entidad_nodes, _modulo_nodes, _token_nodes, build_export_graph
+from generators.graph_export import (
+    _entidad_nodes,
+    _modulo_nodes,
+    _requisito_nodes,
+    _token_nodes,
+    build_export_graph,
+)
 
 SITE = "export-test-site"
 
@@ -133,17 +139,18 @@ def test_the_document_carries_run_id_and_a_stable_context_reference():
 
 
 def test_reserved_node_types_never_appear_until_their_own_ticket_populates_them():
-    """docs/adr/0002's reserved-vs-populated split, enforced: Requisito et
+    """docs/adr/0002's reserved-vs-populated split, enforced: Escenario et
     al. are in the vocabulary, not in this run's @graph. Token is
     populated since ticket #100 (ADR-0005 point 5); Modulo since ticket
-    #102 (ADR-0007); Entidad since ticket #103 (ADR-0008 point 5)."""
+    #102 (ADR-0007); Entidad since ticket #103 (ADR-0008 point 5);
+    Requisito since ticket #104 (ADR-0009 point 5)."""
     store = _store()
     store.upsert_page("example.com/", status="Finished")
 
     document = build_export_graph(_request(store))
 
     types = {node["type"] for node in document["@graph"]}
-    assert types <= {"Pantalla", "Componente", "Endpoint", "Token", "Modulo", "Entidad"}
+    assert types <= {"Pantalla", "Componente", "Endpoint", "Token", "Modulo", "Entidad", "Requisito"}
 
 
 def test_token_nodes_are_keyed_by_their_own_dtcg_path():
@@ -211,6 +218,46 @@ def test_entidad_nodes_with_no_citing_endpoint_is_still_a_node():
     entidades = _entidad_nodes(data_model_document, endpoints={})
 
     assert "checkout" in entidades
+
+
+def test_requisito_nodes_and_implementa_from_a_citing_pantalla_and_endpoint():
+    pantallas = {"example.com/": {"id": "example.com/", "type": "Pantalla"}}
+    endpoints = {"POST api.example.com/checkout": {"id": "POST api.example.com/checkout", "type": "Endpoint"}}
+    requirements_document = {"requirements": [{
+        "id": "REQ-abc", "syntax_text": "WHEN..., THE SYSTEM SHALL...",
+        "links": {
+            "screens": ["SCR-880970443b"],  # short_hash("example.com/")
+            "endpoints": ["POST api.example.com/checkout"], "data_entities": [], "depends_on": [],
+        },
+    }]}
+
+    requisitos = _requisito_nodes(requirements_document, pantallas, endpoints, entidades={})
+
+    assert requisitos["REQ-abc"]["type"] == "Requisito"
+    assert pantallas["example.com/"]["implementa"] == ["REQ-abc"]
+    assert endpoints["POST api.example.com/checkout"]["implementa"] == ["REQ-abc"]
+
+
+def test_requisito_cubre_a_cited_entidad():
+    requirements_document = {"requirements": [{
+        "id": "REQ-abc", "syntax_text": "...",
+        "links": {"screens": [], "endpoints": [], "data_entities": ["checkout"], "depends_on": []},
+    }]}
+
+    requisitos = _requisito_nodes(requirements_document, pantallas={}, endpoints={}, entidades={"checkout": {}})
+
+    assert requisitos["REQ-abc"]["cubre"] == ["checkout"]
+
+
+def test_a_citation_with_no_matching_node_is_silently_skipped():
+    requirements_document = {"requirements": [{
+        "id": "REQ-abc", "syntax_text": "...",
+        "links": {"screens": ["SCR-unknown"], "endpoints": [], "data_entities": [], "depends_on": []},
+    }]}
+
+    requisitos = _requisito_nodes(requirements_document, pantallas={}, endpoints={}, entidades={})
+
+    assert "REQ-abc" in requisitos
 
 
 def test_generated_export_document_is_valid_json_ld_and_deterministic():

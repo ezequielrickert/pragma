@@ -91,9 +91,6 @@ class PragmaConfig:
     # separate mode. Keys: pages, nodes, minutes.
     # Details: docs/dev/core/config.md#crawl_budget
     crawl_budget: Dict[str, Any] = field(default_factory=dict)
-    # Pages per GraphPRDSynthesizer batch-summarize call.
-    # Details: docs/dev/core/config.md#prd_synth_batch_size
-    prd_synth_batch_size: int = 5
     # Backstop against a site minting a fresh per-visit-token URL.
     # Details: docs/dev/core/config.md#max_visits_per_route_shape
     max_visits_per_route_shape: int = 1
