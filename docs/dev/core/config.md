@@ -136,18 +136,6 @@ re-queued after a navigation-interrupted pass (see
 `docs/dev/spiders/orchestration/visit_result.md#pagevisitresultinterrupted_by_navigation`)
 counts as its own visit here.
 
-## prd_synth_batch_size
-
-Max pages' worth of section content `GraphPRDSynthesizer.synthesize`
-batches into a single "batch summarize" `agent.generate()` call before a
-final, much smaller "reduce" call combines the per-batch summaries - the
-fix for a single unbounded synthesis prompt hitting a local model's
-`max_tokens` truncation on real sites (confirmed live on empanad.app,
-4/4 runs: see docs/explicativos/avance-corridas-gemma-empanadapp.md).
-Kept small deliberately - each page's block already includes a full
-narrated component catalog, not just a short label, so this is a
-heavier per-item budget than `max_pages` above.
-
 ## max_visits_per_route_shape
 
 Backstop against a site that mints a fresh, per-visit-token URL (e.g. a

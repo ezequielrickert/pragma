@@ -3,18 +3,23 @@
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
 by node id) - not a second queryable store. `Pantalla`/`Componente`/
-`Endpoint`/`Token`/`Modulo`/`Entidad` and the edges `contiene`/`navega_a`/
-`dispara`/`consume`/`depende_de` are populated from real graph-store
-queries today (`Token` since ticket #100; `Modulo` since ticket #102 via
-`core/graph_metrics.py`'s hybrid path-prefix/Leiden derivation,
-ADR-0007; `Entidad`/`depende_de` since ticket #103, ADR-0008 point 5 -
-ADR-0002 point 5's own "wire population edges as those tickets land");
-`Requisito`/`Escenario`/`Hallazgo`/`Flujo`/`Estado` and the `usa_token`
-edge stay reserved - present in `schemas/export.schema.json`'s `type`
-enum and `schemas/export.context.jsonld`, absent from `@graph` until
-their own document's ticket starts emitting them (`usa_token` needs
-`catalog`'s `x-tokens` links, ADR-0006 - split into
-[ticket #126](https://github.com/ezequielrickert/pragma/issues/126)).
+`Endpoint`/`Token`/`Modulo`/`Entidad`/`Requisito` and the edges
+`contiene`/`navega_a`/`dispara`/`consume`/`depende_de`/`implementa`/
+`cubre` are populated from real graph-store queries today (`Token` since
+ticket #100; `Modulo` since ticket #102 via `core/graph_metrics.py`'s
+hybrid path-prefix/Leiden derivation, ADR-0007; `Entidad`/`depende_de`
+since ticket #103, ADR-0008 point 5; `Requisito`/`implementa`/`cubre`
+since ticket #104, ADR-0009 point 5 - ADR-0002 point 5's own "wire
+population edges as those tickets land"); `Escenario`/`Hallazgo`/`Flujo`/
+`Estado` and the `usa_token` edge stay reserved - present in
+`schemas/export.schema.json`'s `type` enum and
+`schemas/export.context.jsonld`, absent from `@graph` until their own
+document's ticket starts emitting them (`usa_token` needs `catalog`'s
+`x-tokens` links, ADR-0006 - split into
+[ticket #126](https://github.com/ezequielrickert/pragma/issues/126);
+`Requisito`'s own `depende_de` edge between requirements stays empty
+too - `links.depends_on` is reserved in `requirements.json` itself,
+`generators/requirements.py` has no dependency-detection rule yet).
 
 `@context` is the schema-locked literal `"./export.context.jsonld"`
 (`schemas/export.context.jsonld` in the repo) - the same non-fetchable-
@@ -35,9 +40,11 @@ from core.graph_metrics import compute_graph_metrics
 from core.registry import DOCUMENT_REGISTRY
 from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
+from utils.short_hash import short_hash
 from utils.urls import route_shape
 from .data_model import build_data_model_document
 from .design_tokens import build_tokens_document
+from .requirements import build_requirements_document
 
 _SCHEMA_PATH = "schemas/export.schema.json"
 
@@ -163,6 +170,40 @@ def _entidad_nodes(data_model_document: Dict[str, Any], endpoints: Dict[str, Nod
     return entidades
 
 
+def _requisito_nodes(
+    requirements_document: Dict[str, Any], pantallas: Dict[str, Node],
+    endpoints: Dict[str, Node], entidades: Dict[str, Node],
+) -> Dict[str, Node]:
+    """One `Requisito` per `requirements.json` entry, with `implementa`
+    added onto the citing `Pantalla`/`Endpoint` node (from
+    `links.screens`/`.endpoints`) and `cubre` added onto the `Requisito`
+    itself (toward its `links.data_entities`) - ADR-0009 point 5.
+    `links.depends_on` stays empty in `requirements.json` itself (no
+    dependency-detection rule exists yet), so no `depende_de` edge
+    between `Requisito` nodes populates either - reserved, not invented.
+    Built from the same `build_requirements_document` call
+    `requirements.json` itself makes, not read back from its file.
+    Details: docs/dev/generators/graph_export.md#_requisito_nodes
+    """
+    pantallas_by_screen_id = {f"SCR-{short_hash(page_url)}": node for page_url, node in pantallas.items()}
+    requisitos: Dict[str, Node] = {}
+    for requirement in requirements_document["requirements"]:
+        requirement_id = requirement["id"]
+        requisitos[requirement_id] = {"id": requirement_id, "type": "Requisito", "label": requirement["syntax_text"]}
+        for screen_id in requirement["links"]["screens"]:
+            pantalla = pantallas_by_screen_id.get(screen_id)
+            if pantalla is not None:
+                _add_edge(pantalla, "implementa", requirement_id)
+        for endpoint_id in requirement["links"]["endpoints"]:
+            endpoint = endpoints.get(endpoint_id)
+            if endpoint is not None:
+                _add_edge(endpoint, "implementa", requirement_id)
+        for entity_name in requirement["links"]["data_entities"]:
+            if entity_name in entidades:
+                _add_edge(requisitos[requirement_id], "cubre", entity_name)
+    return requisitos
+
+
 def _add_edge(node: Node, predicate: str, target_id: str) -> None:
     targets = node.setdefault(predicate, [])
     if target_id not in targets:
@@ -224,10 +265,10 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
 
 def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     """The full `export.json` payload: populated `Pantalla`/`Componente`/
-    `Endpoint`/`Token`/`Modulo`/`Entidad` nodes plus the edges connecting
-    them, read fresh from the graph store every run - see
-    `get_inferred_requests`' own docstring for why there is nothing here
-    that can go stale between crawl passes.
+    `Endpoint`/`Token`/`Modulo`/`Entidad`/`Requisito` nodes plus the
+    edges connecting them, read fresh from the graph store every run -
+    see `get_inferred_requests`' own docstring for why there is nothing
+    here that can go stale between crawl passes.
     Details: docs/dev/generators/graph_export.md#build_export_graph
     """
     store = request.graph_store
@@ -242,6 +283,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     root = route_shape(request.settings.get("target", "")) or None
     modulos = _modulo_nodes(pantallas, root)
     entidades = _entidad_nodes(build_data_model_document(request), endpoints)
+    requisitos = _requisito_nodes(build_requirements_document(request), pantallas, endpoints, entidades)
 
     _populate_contiene(pantallas, component_ledger)
     _populate_navega_a(pantallas, componentes, store.get_edges())
@@ -250,7 +292,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     graph = sorted(
         (
             *pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values(),
-            *modulos.values(), *entidades.values(),
+            *modulos.values(), *entidades.values(), *requisitos.values(),
         ),
         key=lambda node: (node["type"], node["id"]),
     )

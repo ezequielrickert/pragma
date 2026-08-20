@@ -58,7 +58,6 @@ class DocsEngine:
         site: str,
         out_dir: str = "data/output",
         tree_ascii: bool = False,
-        prd_synth_batch_size: int = 5,
         export_json: bool = False,
         documents: Optional[List[str]] = None,
     ) -> None:
@@ -67,7 +66,6 @@ class DocsEngine:
         self.site = site
         self.out_dir = out_dir
         self.tree_ascii = tree_ascii
-        self.prd_synth_batch_size = prd_synth_batch_size
         self.export_json = export_json
         self.documents = documents if documents is not None else list(PragmaConfig().documents)
 
@@ -97,7 +95,6 @@ class DocsEngine:
             site,
             out_dir=config.out_dir,
             tree_ascii=config.tree_ascii,
-            prd_synth_batch_size=config.prd_synth_batch_size,
             export_json=config.export_json,
             documents=config.documents,
         )
@@ -131,7 +128,6 @@ class DocsEngine:
             site=self.site,
             agent=self.agent,
             settings={
-                "prd_synth_batch_size": self.prd_synth_batch_size,
                 "tree_ascii": self.tree_ascii,
                 # No crawl happened in this process, so there is no
                 # partial-run reason to report - unlike Engine's own

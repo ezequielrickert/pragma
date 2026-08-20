@@ -112,7 +112,6 @@ class Engine:
         allow_subdomains: bool = False,
         debug_logs_keep_last: Optional[int] = None,
         export_json: bool = False,
-        prd_synth_batch_size: int = 5,
         interaction_timeout_seconds: Optional[float] = 10.0,
         documents: Optional[List[str]] = None,
     ) -> None:
@@ -145,7 +144,6 @@ class Engine:
         self.page_concurrency = page_concurrency  # see MechanicalCrawler's own docstring
         self.debug_logs_keep_last = debug_logs_keep_last
         self.export_json = export_json
-        self.prd_synth_batch_size = prd_synth_batch_size
         # None keeps PragmaConfig's own default rather than duplicating the
         # list here - see docs/dev/core/config.md#documents.
         self.documents = documents if documents is not None else list(PragmaConfig().documents)
@@ -194,7 +192,6 @@ class Engine:
             allow_subdomains=config.allow_subdomains,
             debug_logs_keep_last=config.debug_logs_keep_last,
             export_json=config.export_json,
-            prd_synth_batch_size=config.prd_synth_batch_size,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
             documents=config.documents,
         )
@@ -307,7 +304,6 @@ class Engine:
             site=site,
             agent=self.agent,
             settings={
-                "prd_synth_batch_size": self.prd_synth_batch_size,
                 "tree_ascii": self.tree_ascii,
                 "stopped_reason": stopped_reason,
                 "run_id": run_id,

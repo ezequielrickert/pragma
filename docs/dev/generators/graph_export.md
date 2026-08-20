@@ -83,6 +83,19 @@ read back from its file - the same "generators don't read each other's
 output, only recompute from the same store" discipline `_token_nodes`/
 `_modulo_nodes` already follow.
 
+## _requisito_nodes
+
+One `Requisito` per `requirements.json` entry, with `implementa` added
+onto the citing `Pantalla`/`Endpoint` node (from `links.screens`/
+`.endpoints`) and `cubre` added onto the `Requisito` itself (toward its
+`links.data_entities`) - ADR-0009 point 5. `links.depends_on` stays
+empty in `requirements.json` itself, so no `depende_de` edge between
+`Requisito` nodes populates either - reserved, not invented. A screen
+citation (`SCR-<hash>`) is matched against `pantallas` by recomputing
+`short_hash` per known page url, since `pantallas` is keyed by the raw
+url, not the hash. Built from the same `build_requirements_document`
+call `requirements.json` itself makes.
+
 ## _populate_contiene
 
 Pantalla `contiene` Componente - one edge per pair the component ledger
