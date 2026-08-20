@@ -1,5 +1,6 @@
 """D5: a catalogue of the components a site is built from, with their
-props and variants.
+props and variants - the pure inference logic `generators/custom_elements.py`
+serializes as Custom Elements Manifest (docs/adr/0006).
 
 Deliberately **not** the Atomic Design pyramid. Atoms, molecules,
 organisms and templates draw a tidy diagram and feed nothing; what someone
@@ -12,18 +13,23 @@ Needs no new capture: families already exist
 (`component_family.build_component_families`), and every prop below is a
 `ComponentFacts` field the crawl has been persisting all along.
 
+Split from its own `DocumentGenerator` (moved to `custom_elements.py`,
+which owns `"catalog"`'s registration) since ticket #101: this module is
+pure inference over the graph, unaware of CEM's own shape, the same
+`build_X` / `DocumentGenerator`-adapter split every other generator here
+uses.
+
 Details: docs/dev/generators/component_catalog.md#module
 """
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentRequest
 from core.interfaces import ComponentFamily
-from core.registry import DOCUMENT_REGISTRY
 from .component_classifier import describe_options_from_rows, format_option_choices
 from .ledger import flat_component_ledger
 
@@ -271,40 +277,6 @@ def build_catalog(
     return entries
 
 
-def _render_entry(entry: CatalogEntry) -> List[str]:
-    lines = [f"## {entry.name}", ""]
-    if entry.purpose:
-        lines += [entry.purpose, ""]
-    plural = "instance" if entry.member_count == 1 else "instances"
-    facts = [f"`<{entry.tag}>`", entry.component_type, f"{entry.member_count} {plural}"]
-    if entry.atomic_level:
-        facts.append(entry.atomic_level)
-    lines += [" · ".join(facts), ""]
-
-    if entry.props:
-        lines += ["| Prop | Type | Varies | Example |", "|---|---|---|---|"]
-        lines += [
-            f"| `{p.name}` | {p.kind} | {'yes' if p.varies else 'no (same on every instance)'} | {p.example} |"
-            for p in entry.props
-        ]
-        lines.append("")
-
-    if len(entry.variants) > 1:
-        lines += ["**Variants**", "", "| Modifier classes | Background | Instances | Example |", "|---|---|---|---|"]
-        lines += [
-            f"| {', '.join(v.modifiers) or '(none)'} | {v.background_color or '-'} | {v.count} | {v.example_text} |"
-            for v in entry.variants
-        ]
-        lines.append("")
-
-    lines += [f"Used on: {', '.join(entry.used_on)}", ""]
-    if entry.regions:
-        lines += [f"Appears in: {', '.join(entry.regions)}.", ""]
-    if entry.states_observed:
-        lines += [f"States observed: {', '.join(entry.states_observed)}.", ""]
-    return lines
-
-
 def catalog_for(request: DocumentRequest) -> List[CatalogEntry]:
     """The catalogue both documents below render, read once in one place.
 
@@ -319,51 +291,3 @@ def catalog_for(request: DocumentRequest) -> List[CatalogEntry]:
         flat_component_ledger(store),
         store.get_component_regions(),
     )
-
-
-@DOCUMENT_REGISTRY.register("catalog")
-class ComponentCatalogDocument(DocumentGenerator):
-    """Details: docs/dev/generators/component_catalog.md#componentcatalogdocument"""
-
-    name = "catalog"
-    title = "Component Catalogue"
-    purpose = "Every reusable component with its props, variants and where it is used - the input for rebuilding the UI."
-
-    def generate(self, request: DocumentRequest) -> str:
-        entries = catalog_for(request)
-        lines = [f"# Component Catalogue: {request.site}", ""]
-        if not entries:
-            lines.append("No reusable component patterns were inferred from this crawl.")
-            return "\n".join(lines) + "\n"
-        lines += [
-            "Grouped by inferred pattern, largest first. `hover`, `focus` and `active` states are "
-            "absent: the crawl only ever observes components at rest.",
-            "",
-        ]
-        if not any(entry.regions for entry in entries):
-            lines += [
-                "No landmark regions are reported below. Either this crawl predates structural "
-                "containment capture, or nothing it found sits inside a `nav`/`main`/`footer` "
-                "region - the two look identical here.",
-                "",
-            ]
-        for entry in entries:
-            lines += _render_entry(entry)
-        return "\n".join(lines)
-
-
-@DOCUMENT_REGISTRY.register("catalog-data")
-class ComponentCatalogData(DocumentGenerator):
-    """The same catalogue as JSON, so a Storybook generator doesn't parse prose.
-    Details: docs/dev/generators/component_catalog.md#componentcatalogdata
-    """
-
-    name = "catalog-data"
-    title = "Component Catalogue (data)"
-    purpose = "The component catalogue as structured JSON, for a design-system or Storybook generator."
-    extension = "json"
-
-    def generate(self, request: DocumentRequest) -> str:
-        entries = catalog_for(request)
-        payload = {"site": request.site, "components": [asdict(entry) for entry in entries]}
-        return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"

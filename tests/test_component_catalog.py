@@ -1,7 +1,5 @@
 """Unit tests for the component catalogue (generators/component_catalog.py).
 Pure functions over hand-built families and ledger rows - no store, no model."""
-import json
-
 from core.interfaces import ComponentFamily
 from generators.component_catalog import build_catalog, component_name
 
@@ -210,51 +208,6 @@ def test_a_family_whose_members_are_missing_from_the_ledger_is_skipped():
     """A family node can outlive the components it clustered - emitting an
     entry with no props or variants would be worse than omitting it."""
     assert build_catalog([_family(["gone"])], []) == []
-
-
-def test_the_json_document_is_parseable_and_carries_the_same_entries():
-    from generators.component_catalog import ComponentCatalogData
-
-    class _Store:
-        def get_component_families(self):
-            return [_family(["a"], purpose="confirms an action")]
-
-        def get_component_ledger(self):
-            return {PAGE: {"a": _member("a")}}
-
-        def get_component_regions(self):
-            return {PAGE: {"a": "main"}}
-
-    class _Request:
-        graph_store = _Store()
-        site = "shop.example"
-
-    payload = json.loads(ComponentCatalogData().generate(_Request()))
-
-    assert payload["components"][0]["name"] == "Button"
-    assert payload["components"][0]["purpose"] == "confirms an action"
-
-
-def test_the_markdown_document_says_which_states_it_cannot_show():
-    from generators.component_catalog import ComponentCatalogDocument
-
-    class _Store:
-        def get_component_families(self):
-            return [_family(["a"])]
-
-        def get_component_ledger(self):
-            return {PAGE: {"a": _member("a")}}
-
-        def get_component_regions(self):
-            return {PAGE: {"a": "main"}}
-
-    class _Request:
-        graph_store = _Store()
-        site = "shop.example"
-
-    text = ComponentCatalogDocument().generate(_Request())
-
-    assert "hover" in text and "at rest" in text
 
 
 def test_instances_are_counted_from_members_the_ledger_actually_has():

@@ -124,11 +124,11 @@ changes the one after it.
 
 ## catalog_for
 
-The three store reads both documents need, in one place. `ComponentCatalogDocument`
-and `ComponentCatalogData` used to carry byte-identical copies of them, which
-is exactly how the prose catalogue and the JSON catalogue could drift into
-describing different things - and adding `get_component_regions` would have
-meant a third copy.
+The three store reads `generators/custom_elements.py::build_custom_elements_document`
+needs, in one place - `ComponentCatalogDocument`/`ComponentCatalogData` used
+to carry byte-identical copies of them before ticket #101 folded both into
+one CEM document, which is exactly how the prose catalogue and the JSON
+catalogue could drift into describing different things.
 
 ## build_catalog
 
@@ -143,20 +143,3 @@ stale membership. Reporting "3 instances" while describing two, with a
 variant table that sums to two, is the kind of quiet inconsistency that
 makes a reader stop trusting every other number in the document. `used_on`
 is derived the same way and for the same reason.
-
-## ComponentCatalogDocument
-
-States plainly that `hover`, `focus` and `active` are absent, because the
-crawl only ever observes components at rest. A component catalogue without
-interaction states is incomplete for Storybook, and a reader should learn
-that from the document rather than from a missing story.
-
-## ComponentCatalogData
-
-The same entries as JSON, so a design-system or Storybook generator
-consumes structure instead of parsing prose. Shares `build_catalog` with
-the Markdown document, so the two can never describe different components.
-
-Registered separately rather than emitted as a fenced block inside the
-Markdown: one generator writes one file, and a JSON payload buried in a
-`.md` is exactly the "parse the prose" problem it exists to avoid.

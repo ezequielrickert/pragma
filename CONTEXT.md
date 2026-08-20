@@ -73,9 +73,10 @@ The 13 documents the pipeline generated before this overhaul (`coverage`, `archi
 that existed but were off by default (`catalog-data`, `tokens-data`, `export`).
 Reworked to the source/view split first. One of the 13 has since folded into
 its sibling rather than surviving as its own registered document: `sequences`
-into `flows` (ADR-0014). Of the 3 off-by-default ones, `tokens-data` has
-folded the same way, into `tokens` itself (ADR-0005) - `tokens.json` is now
-`tokens`'s own Source document, `tokens.md` its View, and `tokens-data` is
+into `flows` (ADR-0014). Of the 3 off-by-default ones, `tokens-data` and
+`catalog-data` have folded the same way, into `tokens` (ADR-0005) and
+`catalog` (ADR-0006) respectively - each pair's `.json` is now the
+document's own Source, its `.md` the View, and the `-data` name is
 retired rather than becoming a fourth name for the same content.
 
 **Short hash**:
