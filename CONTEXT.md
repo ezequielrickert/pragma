@@ -45,11 +45,18 @@ renders it. Source documents may cite evidence (e.g. a requirement's
 document pipeline.
 
 **The dashboard**:
-The single interactive entry point planned for viewing every source
-document. Built in three phases: (A) migrate documents to typed sources,
-no viewer yet; (B) per-document best-fit renderer where one clearly wins
-(e.g. Redoc for `openapi.yaml`), else a shared generic template; (C) all of
-it stitched behind one dashboard shell as the single URL a reviewer opens.
+The single interactive entry point for viewing every source document — static HTML generated at
+doc-generation time, no running server, no build step, so both of its named audiences (a human
+reviewer and Claude Code itself, reading files directly) can consume it the same way. Built in three
+phases: (A) migrate documents to typed sources, no viewer yet; (B) per-document best-fit renderer
+where one clears a real bar — ships as a single vendorable static asset (Redoc's standalone bundle
+for `openapi.yaml` is the reference case), actively maintained, saves real effort over the
+alternative — else a shared generic template; (C) all of it stitched behind one shell (ADR-0016): a
+landing page leading with crawl-wide metrics (pages crawled vs. found, components interacted vs.
+discovered, requirement confidence split, endpoint saturation — no forced denominator where
+`coverage`'s ADR-0001 didn't give it one), then a card grid of every concern with its own
+coverage/confidence at a glance, each card drilling into that concern's own page. No persistent nav
+chrome — the landing page carries the navigation, not a sidebar or top bar shown everywhere.
 
 **The format audit**:
 Short name for `formatos-documentacion.docx`, the user-provided document
