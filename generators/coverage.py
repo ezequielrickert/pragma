@@ -8,15 +8,22 @@ that covered 40% of an application looks exactly like one built from full
 coverage. Stating the fraction on the document itself is the difference
 between an honest artifact and a misleading one.
 
+`coverage.json` (docs/adr/0001) is the source of truth `coverage.md` and
+every other document's banner render from - `CrawlCoverage` is computed
+exactly once per run (`generators/pipeline.py::run_document_pipeline`),
+never re-queried per document.
+
 Details: docs/dev/generators/coverage.md#module
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, Dict, List, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
+from utils.schema_validation import validate_against_schema
 
 # Stated on every document, not just this one. The crawl has no login
 # (see research/plan-generacion-de-documentos.md H3), so "100% of pages"
@@ -27,10 +34,12 @@ PUBLIC_SURFACE_CAVEAT = (
     "authentication is absent from this document and is not counted as missing below."
 )
 
+_SCHEMA_PATH = "schemas/coverage.schema.json"
+
 
 @dataclass(frozen=True)
 class CrawlCoverage:
-    """One crawl's reach, in the four numbers that bound every document.
+    """One crawl's reach, in the numbers that bound every document.
     Details: docs/dev/generators/coverage.md#crawlcoverage
     """
 
@@ -39,7 +48,9 @@ class CrawlCoverage:
     components_explored: int
     components_total: int
     endpoints_discovered: int
+    interactions_triggered: int
     unfinished_urls: List[str]
+    saturation_curve: Tuple[Dict[str, int], ...]
 
     @property
     def pages_percent(self) -> int:
@@ -57,6 +68,24 @@ def _percent(part: int, whole: int) -> int:
     return round(100 * part / whole) if whole else 0
 
 
+def _saturation_curve(discovery_sequence: List[Tuple[int, str]]) -> Tuple[Dict[str, int], ...]:
+    """One point per interaction: how many first-party endpoints had never
+    been seen before that interaction (docs/adr/0001's `endpoints.
+    saturation_curve` - "the honest substitute for a percentage" with no
+    known denominator for total API surface). One point per interaction,
+    not a coarser bucket: the schema names the shape but not a bucket
+    size, and inventing one here would be an aggregation choice this
+    generator has no basis to make.
+    """
+    seen: set = set()
+    curve = []
+    for interactions_so_far, (_, endpoint_id) in enumerate(discovery_sequence, 1):
+        is_new = endpoint_id not in seen
+        seen.add(endpoint_id)
+        curve.append({"interactions": interactions_so_far, "new_endpoints": 1 if is_new else 0})
+    return tuple(curve)
+
+
 def build_coverage(graph_store: Any) -> CrawlCoverage:
     """Read the site's reach from the store. Pure read, no LLM, no writes.
     Details: docs/dev/generators/coverage.md#build_coverage
@@ -72,8 +101,47 @@ def build_coverage(graph_store: Any) -> CrawlCoverage:
         components_explored=components_total - components_unexplored,
         components_total=components_total,
         endpoints_discovered=len(graph_store.get_inferred_requests()),
+        interactions_triggered=graph_store.count_interactions(),
         unfinished_urls=sorted(unfinished),
+        saturation_curve=_saturation_curve(graph_store.get_endpoint_discovery_sequence()),
     )
+
+
+def _coverage_document(coverage: CrawlCoverage, request: DocumentRequest) -> Dict[str, Any]:
+    """`coverage.json`'s full payload (`schemas/coverage.schema.json`,
+    docs/adr/0001) - `coverage`'s graph-derived numbers plus the run-level
+    facts (`run_id`/`target`/`duration_s`) `build_coverage` has no access
+    to, threaded through `request.settings` by `core/engine.py`.
+    `roles`/`blockers`/`module_coverage` are reserved per the ADR: minimal
+    real defaults, not invented data.
+    Details: docs/dev/generators/coverage.md#_coverage_document
+    """
+    settings = request.settings
+    document: Dict[str, Any] = {
+        "run_id": settings.get("run_id", ""),
+        "target": settings.get("target", request.site),
+        "crawler": {"engine": "pragma", "version": "dev"},
+        "duration_s": settings.get("duration_s", 0.0),
+        "routes": {
+            "discovered": coverage.pages_total,
+            "visited": coverage.pages_finished,
+            "unvisited": [{"url": url, "reason": "unfinished"} for url in coverage.unfinished_urls],
+        },
+        "interactions": {
+            "detected": coverage.components_total,
+            "triggered": coverage.interactions_triggered,
+        },
+        "endpoints": {
+            "observed": coverage.endpoints_discovered,
+            "saturation_curve": list(coverage.saturation_curve),
+        },
+        "roles": ["anon"],
+        "blockers": [],
+        "module_coverage": [],
+    }
+    if settings.get("stopped_reason"):
+        document["stopped_reason"] = settings["stopped_reason"]
+    return document
 
 
 def render_coverage_banner(coverage: CrawlCoverage, stopped_reason: str = "") -> str:
@@ -103,9 +171,43 @@ def render_coverage_banner(coverage: CrawlCoverage, stopped_reason: str = "") ->
     )
 
 
+def _render_coverage_view(coverage: CrawlCoverage, site: str) -> str:
+    """`coverage.md`, mechanically rendered from `coverage`'s numbers - the
+    view document ADR-0001 splits out from `coverage.json`.
+    Details: docs/dev/generators/coverage.md#_render_coverage_view
+    """
+    lines = [
+        f"# Crawl Coverage: {site}",
+        "",
+        PUBLIC_SURFACE_CAVEAT,
+        "",
+        "| Measure | Reached | Total | Coverage |",
+        "|---|---|---|---|",
+        f"| Pages visited | {coverage.pages_finished} | {coverage.pages_total} | {coverage.pages_percent}% |",
+        f"| Components interacted with | {coverage.components_explored} | {coverage.components_total} "
+        f"| {coverage.components_percent}% |",
+        f"| API endpoints discovered | {coverage.endpoints_discovered} | - | - |",
+        f"| Interactions triggered | {coverage.interactions_triggered} | {coverage.components_total} | - |",
+        "",
+    ]
+    if coverage.unfinished_urls:
+        lines.append("## Pages left unfinished")
+        lines.append("")
+        lines.append(
+            "These were discovered but never completed a full interaction pass. Anything they "
+            "contain is missing from every other document in this run."
+        )
+        lines.append("")
+        lines.extend(f"- {url}" for url in coverage.unfinished_urls)
+        lines.append("")
+    return "\n".join(lines)
+
+
 @DOCUMENT_REGISTRY.register("coverage")
 class CoverageDocument(DocumentGenerator):
-    """D9: the coverage report as a document of its own.
+    """D9: the coverage report as a document of its own - now a source
+    (`coverage.json`) plus a mechanically-rendered view (`coverage.md`),
+    per docs/adr/0001.
     Details: docs/dev/generators/coverage.md#coveragedocument
     """
 
@@ -113,29 +215,13 @@ class CoverageDocument(DocumentGenerator):
     title = "Crawl Coverage"
     purpose = "How much of the application this run actually reached - the ceiling on every other document."
 
-    def generate(self, request: DocumentRequest) -> str:
-        coverage = build_coverage(request.graph_store)
-        lines = [
-            f"# Crawl Coverage: {request.site}",
-            "",
-            PUBLIC_SURFACE_CAVEAT,
-            "",
-            "| Measure | Reached | Total | Coverage |",
-            "|---|---|---|---|",
-            f"| Pages visited | {coverage.pages_finished} | {coverage.pages_total} | {coverage.pages_percent}% |",
-            f"| Components interacted with | {coverage.components_explored} | {coverage.components_total} "
-            f"| {coverage.components_percent}% |",
-            f"| API endpoints discovered | {coverage.endpoints_discovered} | - | - |",
-            "",
-        ]
-        if coverage.unfinished_urls:
-            lines.append("## Pages left unfinished")
-            lines.append("")
-            lines.append(
-                "These were discovered but never completed a full interaction pass. Anything they "
-                "contain is missing from every other document in this run."
-            )
-            lines.append("")
-            lines.extend(f"- {url}" for url in coverage.unfinished_urls)
-            lines.append("")
-        return "\n".join(lines)
+    def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
+        coverage = request.coverage or build_coverage(request.graph_store)
+        document = _coverage_document(coverage, request)
+        validate_against_schema(document, _SCHEMA_PATH)
+        source = json.dumps(document, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+        view = _render_coverage_view(coverage, request.site)
+        return (
+            DocumentOutput(filename="coverage", kind="source", extension="json", content=source),
+            DocumentOutput(filename="coverage", kind="view", extension="md", content=view),
+        )

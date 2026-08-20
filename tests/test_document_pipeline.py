@@ -63,6 +63,38 @@ def test_build_coverage_reports_zero_percent_for_an_empty_site():
     assert coverage.components_percent == 0
 
 
+def test_build_coverage_tracks_interactions_and_the_saturation_curve():
+    """Two interactions hitting the same endpoint: the first discovers it,
+    the second contributes nothing new - the curve says so per interaction,
+    not just as a final total (docs/adr/0001's `endpoints.saturation_curve`)."""
+    from core.interfaces import VisitStep
+
+    store = LadybugGraphStore(SITE)
+    store.connect()
+    store.upsert_page("example.com/", status="Finished", components=1, title="Home")
+    store.record_component("example.com/", "div > button", tag="button", text="Buy")
+
+    step = VisitStep(visit_id="v1")
+    for _ in range(2):
+        current = step.take()
+        store.record_component_interaction(
+            "example.com/", "div > button", "click", step=current
+        )
+        store.record_component_network(
+            "example.com/", "div > button",
+            [{"method": "GET", "host": "example.com", "path": "/api/cart",
+              "visit_id": current.visit_id, "step_seq": current.seq}],
+        )
+
+    coverage = build_coverage(store)
+
+    assert coverage.interactions_triggered == 2
+    assert coverage.saturation_curve == (
+        {"interactions": 1, "new_endpoints": 1},
+        {"interactions": 2, "new_endpoints": 0},
+    )
+
+
 def test_coverage_banner_states_the_public_surface_scope():
     """The scope caveat is the whole point of the banner - a document that
     silently omits everything behind a login is worse than one that says so."""
@@ -73,9 +105,11 @@ def test_coverage_banner_states_the_public_surface_scope():
 
 
 def test_pipeline_writes_each_requested_document_plus_the_master(tmp_path):
+    """`coverage` writes two files (source + view, docs/adr/0001) - every
+    other name here still writes one, until its own ticket migrates it."""
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["coverage", "tree"])
 
-    assert [document.name for document in produced] == ["coverage", "tree", "master"]
+    assert [document.name for document in produced] == ["coverage", "coverage", "tree", "master"]
     for document in produced:
         assert Path(document.path).exists()
 
@@ -116,7 +150,7 @@ def test_a_failing_generator_is_skipped_without_losing_the_others(tmp_path, caps
 
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["exploding", "coverage"])
 
-    assert [document.name for document in produced] == ["coverage", "master"]
+    assert [document.name for document in produced] == ["coverage", "coverage", "master"]
     assert "boom" in capsys.readouterr().out
     # The master document must never link to a file that was never written.
     master_text = Path(produced[-1].path).read_text(encoding="utf-8")
@@ -126,7 +160,7 @@ def test_a_failing_generator_is_skipped_without_losing_the_others(tmp_path, caps
 def test_unknown_document_name_is_reported_and_skipped(tmp_path, capsys):
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["not-a-document", "coverage"])
 
-    assert [document.name for document in produced] == ["coverage", "master"]
+    assert [document.name for document in produced] == ["coverage", "coverage", "master"]
     assert "not-a-document" in capsys.readouterr().out
 
 

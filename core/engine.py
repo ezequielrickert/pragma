@@ -293,6 +293,15 @@ class Engine:
         _apply_data_model(graph_store, run_id)
 
         run_timestamp = _timestamp()
+        # `run_id`, not `run_timestamp`: coverage.json's own run_id (ADR-0001)
+        # should match the identifier already stamped onto the graph's own
+        # edges, not the separate, slightly-later timestamp used for
+        # filenames - a document citing "which run produced this" wants the
+        # same id the graph itself would answer with.
+        duration_s = (
+            datetime.now(timezone.utc)
+            - datetime.strptime(run_id, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        ).total_seconds()
         request = DocumentRequest(
             graph_store=graph_store,
             site=site,
@@ -301,6 +310,9 @@ class Engine:
                 "prd_synth_batch_size": self.prd_synth_batch_size,
                 "tree_ascii": self.tree_ascii,
                 "stopped_reason": stopped_reason,
+                "run_id": run_id,
+                "target": url,
+                "duration_s": duration_s,
             },
         )
         naming = DocumentNaming(out_dir=self.out_dir, slug=slugify(url), timestamp=run_timestamp)

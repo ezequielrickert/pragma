@@ -40,6 +40,11 @@ class DocumentNaming:
 def _with_banner(output: DocumentOutput, request: DocumentRequest) -> str:
     """Prepend the coverage banner to Markdown *view* outputs only.
 
+    Reads `request.coverage`, computed once by `run_document_pipeline`
+    before any generator runs - not a fresh `build_coverage` query per
+    document, which is what "computed once per run" (docs/adr/0001)
+    actually asks for.
+
     Done here rather than in each generator so the rule lives in one place
     and a new document gets it by existing. Skipped for any other kind or
     extension: a JSON or YAML file with a Markdown blockquote glued to the
@@ -50,8 +55,7 @@ def _with_banner(output: DocumentOutput, request: DocumentRequest) -> str:
     if output.kind != "view" or output.extension != "md":
         return output.content
     banner = render_coverage_banner(
-        build_coverage(request.graph_store),
-        stopped_reason=request.settings.get("stopped_reason", ""),
+        request.coverage, stopped_reason=request.settings.get("stopped_reason", "")
     )
     return f"{banner}\n{output.content}"
 
@@ -87,7 +91,9 @@ def run_document_pipeline(
     Args:
         request: the base request handed to each generator. Its `produced`
             must be empty - this function fills it in for the master
-            document's own request and for no one else.
+            document's own request and for no one else. Its `coverage` is
+            overwritten unconditionally, computed fresh here regardless of
+            whatever the caller passed.
         naming: where this run's files go and how they are named.
         names: registry names of the documents to generate, in order.
 
@@ -107,6 +113,10 @@ def run_document_pipeline(
     # documents" line would hide an hour inside one of them.
     # Details: research/plan-progreso-en-terminal.md
     print(f"\nGenerating {len(names)} documents, then the master document...")
+    # Computed once, here - not per document. `coverage`'s own generator
+    # and every Markdown document's banner both read `request.coverage`
+    # rather than each running their own `build_coverage` query.
+    request = replace(request, coverage=build_coverage(request.graph_store))
     produced: List[ProducedDocument] = []
     for position, name in enumerate(names, 1):
         print(f"[{position}/{len(names)}] {name}")
