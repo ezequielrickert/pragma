@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/i18n-inventory.schema.json",
+  "title": "i18n inventory",
+  "description": "docs/adr/0027: ICU MessageFormat's own shape - one message key (citing content-inventory's component_ref or glossary's TERM-<hash>, ADR-0027 point 2) mapping to {locale: translated_string} per observed locale (point 3). Entirely absent in v1 - no hreflang/URL-locale-segment detection instrumentation exists; this schema validates the shape build_i18n_inventory produces against synthetic fixtures only.",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "description": "{locale: translated_string} - a BCP 47 locale tag to the observed text in that locale.",
+    "additionalProperties": { "type": "string" }
+  }
+}
