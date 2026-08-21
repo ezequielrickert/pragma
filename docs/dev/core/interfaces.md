@@ -24,6 +24,13 @@ here unchanged (`from .data_contracts import PageState, ...`), so every
 existing import site elsewhere in the codebase needed no changes. See
 `data_contracts.md#module` for the full reasoning.
 
+## Agent.converse
+
+Multi-turn chat (ADR-0033, ticket #149) - concrete, not abstract, with a trivial default (no
+history, just the last user turn passed to `generate()`) every existing subclass inherits
+unchanged. `LocalAgent` (`agents/local_agent.py`) overrides it to send the full turn history,
+since its own backend already speaks a real `messages[]` array.
+
 ## PageState.description
 
 Short (~300 char) description of what this page is about - meta
