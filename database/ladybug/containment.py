@@ -1,6 +1,7 @@
 """Container/CONTAINS write path for `LadybugGraphStore` - storage-
-migration plan step 8. `_LadybugContainmentMixin` is combined into the
-public `LadybugGraphStore` class via multiple inheritance and relies on
+migration plan step 8, extended by the canonical-schema migration (issue
+#134). `_LadybugContainmentMixin` is combined into the public
+`LadybugGraphStore` class via multiple inheritance and relies on
 `self._call(...)` existing on whatever it ends up mixed into.
 
 Direct containment only, matching `Container`'s own schema comment - the
@@ -11,6 +12,13 @@ rows in the snapshot that shaped this plan, 2.1 per component). Here,
 (nearest ancestor first) becomes one direct edge per consecutive pair -
 `CONTAINS*1..n` recovers the full chain by traversal, which is what
 makes storing only the direct edges correct rather than a data loss.
+
+`Container.id` is content-derived and page-decoupled, same scheme as
+`Component.id` - two ancestors with identical `tag`/`role`/`landmark`/
+`css_class` `MERGE` onto one row regardless of which page discovered
+them. `path`/`element_id` moved off the node onto `HAS_CONTAINER`
+(new - #134's design gives every page an explicit edge to the composites
+it renders, which nothing wrote before this).
 
 No read method is ported: `get_containment_ledger` had zero production
 callers in the retired backend (confirmed in the storage-migration plan's
@@ -24,7 +32,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .ids import component_id
+from ._component_lookup import resolve_component_ids, stub_component_id
+from .ids import container_content_id
+
+
+def _container_fields(ancestor: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "tag": ancestor.get("tag", ""), "role": ancestor.get("role", ""),
+        "landmark": ancestor.get("landmark", ""), "css_class": ancestor.get("class", ""),
+    }
 
 
 class _LadybugContainmentMixin:
@@ -35,23 +51,25 @@ class _LadybugContainmentMixin:
         per component, `ancestors` ordered nearest-first
         (`structuralAncestorsOf`'s own contract) - exactly what
         `GraphStoreSink.record_inventory` already assembles, after its
-        own `record_components` batch, so the `Component` row this
-        `CONTAINS` chain terminates at normally exists already. The leaf
-        edge still `MERGE`s the `Component` (never a plain `MATCH`)
-        rather than depend on that ordering: confirmed against the real
-        engine, a `MATCH` that matches nothing drops the *entire* pattern
-        silently, not just that one clause - a batch running before the
-        component row exists would otherwise lose every containment edge
-        with no error at all. The stub also sets `path` on creation
-        (`ON CREATE SET`), not just `id` - the same ghost-node mistake
-        `options.py`'s own stub avoids; a component that only ever gets
-        this stub (containment ran first, nothing ever gave it its
-        descriptive fields) would otherwise report an empty `path`.
+        own `record_components` batch, so the leaf `Component` row this
+        `CONTAINS` chain terminates at normally already has a
+        `HAS_COMPONENT` edge to resolve through
+        (`_component_lookup.resolve_component_ids`). The leaf edge still
+        falls back to the shared blank-content id rather than depend on
+        that ordering: confirmed against the real engine, a `MATCH` that
+        matches nothing drops the *entire* pattern silently, not just
+        that one clause - a batch running before the component row exists
+        would otherwise lose every containment edge with no error at all.
         Details: docs/dev/database/ladybug/containment.md#record_component_ancestors
         """
         containers: Dict[str, Dict[str, Any]] = {}
+        # `HAS_CONTAINER`: one row per (container, ancestor) pair on this
+        # page - every ancestor of every component entry sits on this
+        # page, regardless of whether it directly contains a component or
+        # only another container.
+        page_container_edges: List[Dict[str, str]] = []
         container_edges: List[Dict[str, str]] = []
-        component_edges: List[Dict[str, str]] = []
+        leaf_edges: List[Dict[str, str]] = []
 
         for entry in entries:
             comp_path = entry.get("path")
@@ -63,12 +81,13 @@ class _LadybugContainmentMixin:
                 ancestor_path = ancestor.get("path")
                 if not ancestor_path:
                     continue
-                container_id = component_id(page_url, ancestor_path)
-                containers[container_id] = {
-                    "id": container_id, "path": ancestor_path, "tag": ancestor.get("tag", ""),
-                    "role": ancestor.get("role", ""), "landmark": ancestor.get("landmark", ""),
-                    "element_id": ancestor.get("id", ""), "css_class": ancestor.get("class", ""),
-                }
+                fields = _container_fields(ancestor)
+                container_id = container_content_id(fields)
+                containers[container_id] = {"id": container_id, **fields}
+                page_container_edges.append({
+                    "container_id": container_id, "path": ancestor_path,
+                    "element_id": ancestor.get("id", ""),
+                })
                 chain_ids.append(container_id)
             if not chain_ids:
                 continue
@@ -77,22 +96,30 @@ class _LadybugContainmentMixin:
             # order makes consecutive pairs exactly the direct edges.
             for nearer, further in zip(chain_ids, chain_ids[1:]):
                 container_edges.append({"from_id": further, "to_id": nearer})
-            component_edges.append(
-                {"container_id": chain_ids[0], "component_id": component_id(page_url, comp_path), "path": comp_path}
-            )
+            leaf_edges.append({"container_id": chain_ids[0], "leaf_path": comp_path})
 
         if not containers:
             return
 
         def op(conn) -> None:
+            self._ensure_page(conn, page_url)
             conn.execute(
                 """
                 UNWIND $containers AS c
                 MERGE (n:Container {id: c.id})
-                SET n.path = c.path, n.tag = c.tag, n.role = c.role, n.landmark = c.landmark,
-                    n.element_id = c.element_id, n.css_class = c.css_class
+                SET n.tag = c.tag, n.role = c.role, n.landmark = c.landmark, n.css_class = c.css_class
                 """,
                 {"containers": list(containers.values())},
+            )
+            conn.execute(
+                """
+                UNWIND $edges AS e
+                MATCH (page:Page {url: $page_url})
+                MATCH (n:Container {id: e.container_id})
+                MERGE (page)-[hc:HAS_CONTAINER {path: e.path}]->(n)
+                SET hc.element_id = e.element_id
+                """,
+                {"edges": page_container_edges, "page_url": page_url},
             )
             if container_edges:
                 conn.execute(
@@ -103,16 +130,26 @@ class _LadybugContainmentMixin:
                     """,
                     {"edges": container_edges},
                 )
-            if component_edges:
+            if leaf_edges:
+                resolved = resolve_component_ids(conn, page_url, (e["leaf_path"] for e in leaf_edges))
+                resolved_leaf_edges = [
+                    {
+                        "container_id": edge["container_id"], "leaf_path": edge["leaf_path"],
+                        "component_id": resolved.get(edge["leaf_path"])
+                            or stub_component_id(page_url, edge["leaf_path"]),
+                    }
+                    for edge in leaf_edges
+                ]
                 conn.execute(
                     """
                     UNWIND $edges AS e
                     MATCH (parent:Container {id: e.container_id})
+                    MATCH (page:Page {url: $page_url})
                     MERGE (child:Component {id: e.component_id})
-                    ON CREATE SET child.path = e.path
+                    MERGE (page)-[:HAS_COMPONENT {path: e.leaf_path}]->(child)
                     MERGE (parent)-[:CONTAINS]->(child)
                     """,
-                    {"edges": component_edges},
+                    {"edges": resolved_leaf_edges, "page_url": page_url},
                 )
 
         self._call(op)
@@ -151,11 +188,11 @@ class _LadybugContainmentMixin:
         def op(conn) -> Dict[str, Dict[str, str]]:
             rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(comp:Component)
+                MATCH (p:Page)-[e:HAS_COMPONENT]->(comp:Component)
                 MATCH (region:Container)-[chain:CONTAINS*1..8]->(comp)
                 WHERE region.landmark <> ''
-                RETURN p.url, comp.path, region.landmark, length(chain) AS distance
-                ORDER BY p.url, comp.path, distance
+                RETURN p.url, e.path, region.landmark, length(chain) AS distance
+                ORDER BY p.url, e.path, distance
                 """
             )
             regions: Dict[str, Dict[str, str]] = {}
@@ -182,10 +219,11 @@ class _LadybugContainmentMixin:
         holding three components between them count 3 naively and 2 distinctly,
         and 2 is the answer WCAG cares about.
 
-        Reached through components because there is no `Page`-to-`Container`
-        edge in the schema, so a landmark holding no discovered component is
-        invisible here. That is a floor on what this can report, not a bug:
-        an empty region has nothing to be inaccessible about.
+        Reached through components, not `HAS_CONTAINER` directly: a landmark
+        holding no discovered component is invisible here regardless, since
+        this still asks "how many regions does a component sit inside", not
+        "how many `Container` rows exist on this page" - an empty region has
+        nothing to be inaccessible about.
 
         Returns:
             One entry per page with at least one landmark region. `{}` for a

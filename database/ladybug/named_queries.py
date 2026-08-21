@@ -76,14 +76,22 @@ class _LadybugNamedQueriesMixin:
     def callers_of(self, endpoint_id: str) -> List[Dict[str, str]]:
         """Every `Component` whose interaction reached this endpoint -
         `[{"page_url", "path"}, ...]`, deduplicated, sorted.
+
+        Attributed through `OCCURRED_ON`, not a bare `HAS_COMPONENT` hop
+        off `Component`: a canonical component can carry many
+        `HAS_COMPONENT` edges (one per page rendering it), and only
+        `OCCURRED_ON` names the specific page the triggering interaction
+        actually happened on.
         Details: docs/dev/database/ladybug/named_queries.md#callers_of
         """
         def op(conn) -> List[Dict[str, str]]:
             rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->
-                      (:Interaction)-[:TRIGGERED]->(:Request)-[:CALLS]->(:Endpoint {id: $id})
-                RETURN DISTINCT p.url, c.path
+                MATCH (c:Component)-[:PERFORMED]->
+                      (i:Interaction)-[:TRIGGERED]->(:Request)-[:CALLS]->(:Endpoint {id: $id})
+                MATCH (i)-[:OCCURRED_ON]->(p:Page)
+                MATCH (p)-[e:HAS_COMPONENT]->(c)
+                RETURN DISTINCT p.url, e.path
                 """,
                 {"id": endpoint_id},
             )
@@ -141,12 +149,24 @@ class _LadybugNamedQueriesMixin:
         """Every `Component` a `Container` contains, direct or nested -
         `CONTAINS*` traversal recovering the full chain `Container`'s own
         direct-edges-only storage doesn't keep as a stored closure.
+
+        `path` is one representative rendering, not the only one - a
+        canonical component reached through a canonical container can
+        legitimately sit at a different selector on each page that renders
+        both. `min(e.path)` picks a deterministic one rather than fanning
+        this query out into one row per (component, page) pair, which
+        would break the one-row-per-component contract every caller here
+        already relies on.
         Details: docs/dev/database/ladybug/named_queries.md#components_in
         """
         def op(conn) -> List[Dict[str, str]]:
             rows = conn.execute(
-                "MATCH (:Container {id: $id})-[:CONTAINS*1..8]->(c:Component) "
-                "RETURN DISTINCT c.id, c.path",
+                """
+                MATCH (:Container {id: $id})-[:CONTAINS*1..8]->(c:Component)
+                OPTIONAL MATCH (:Page)-[e:HAS_COMPONENT]->(c)
+                WITH c, min(e.path) AS path
+                RETURN DISTINCT c.id, path
+                """,
                 {"id": container_id},
             )
             return sorted(

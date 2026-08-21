@@ -37,26 +37,46 @@ from core.interfaces import ComponentFacts
 # order from, so the two can't drift apart.
 FACTS_FIELDS: Tuple[str, ...] = tuple(ComponentFacts.__dataclass_fields__.keys())
 
+# `element_id` is the one ComponentFacts field that doesn't stay on
+# Component - per the canonical schema design (issue #134), a DOM id is
+# page-instance data (ids get reassigned across a remount, same reason
+# `component_matching.py::component_identity()` already excludes it), so
+# it lives on `HAS_COMPONENT` instead. Every other fact is identity, and
+# stays on the node.
+_NODE_FACTS_FIELDS: Tuple[str, ...] = tuple(f for f in FACTS_FIELDS if f != "element_id")
+
 # Descriptive fields a component rediscovery always refreshes identically
 # on both a first sighting and a later one - same set and same reasoning
 # as the retired DuckDB backend's `DESCRIPTIVE_COLUMNS`: the ledger fields
 # (`interacted`/`interaction_count`) are bootstrapped only by a MERGE's
 # own `ON CREATE` schema defaults, never touched again by the `ON MATCH`
-# clause a rediscovery runs. `observation.py` builds its `SET` fragment
+# clause a rediscovery runs. `component.py` builds its `SET` fragment
 # from this tuple so the same list can't drift between the two clauses.
+#
+# `x`/`y`/`width`/`height` are deliberately absent - page-instance
+# geometry, moved onto `HAS_COMPONENT` by the same schema design. This is
+# also, not incidentally, exactly the field set `ids.py::component_content_id`
+# hashes into Component's page-decoupled primary key: everything that
+# stays on the node is identity, by construction.
 DESCRIPTIVE_COMPONENT_FIELDS: Tuple[str, ...] = (
-    "tag", "text", "role", "input_type", "visible", "layer",
-    "x", "y", "width", "height", "component_type",
-) + FACTS_FIELDS
+    "tag", "text", "role", "input_type", "visible", "layer", "component_type",
+) + _NODE_FACTS_FIELDS
+
+# `Container`'s own descriptive/identity field set, same role for
+# `ids.py::container_content_id` - `path`/`element_id` are page-instance
+# data, moved onto `HAS_CONTAINER`.
+CONTAINER_DESCRIPTIVE_FIELDS: Tuple[str, ...] = ("tag", "role", "landmark", "css_class")
 
 # Every ComponentFacts column defaults exactly as blank as the retired
 # DuckDB backend's DDL made it - FALSE for a bool-typed fact, '' for a
 # string-typed one - so a bare component write with no facts supplied
 # gets the same blank ledger this table's other defaults give it.
+# `element_id` excluded - see `_NODE_FACTS_FIELDS` above.
 _FACTS_COLUMNS = ", ".join(
     f"{name} BOOLEAN DEFAULT false" if isinstance(field.default, bool)
     else f"{name} STRING DEFAULT ''"
     for name, field in ComponentFacts.__dataclass_fields__.items()
+    if name != "element_id"
 )
 
 # Observation tier - what the crawl saw. `Component`'s trailing columns
@@ -91,14 +111,12 @@ CREATE NODE TABLE IF NOT EXISTS Page(
 
 CREATE NODE TABLE IF NOT EXISTS Component(
     id STRING PRIMARY KEY,
-    path STRING DEFAULT '',
     tag STRING DEFAULT '',
     text STRING DEFAULT '',
     role STRING DEFAULT '',
     input_type STRING DEFAULT '',
     visible BOOLEAN DEFAULT true,
     layer STRING DEFAULT 'semantic',
-    x DOUBLE, y DOUBLE, width DOUBLE, height DOUBLE,
     component_type STRING DEFAULT '',
     interacted BOOLEAN DEFAULT false,
     interaction_count INT64 DEFAULT 0,
@@ -124,11 +142,9 @@ CREATE NODE TABLE IF NOT EXISTS TextContent(
 
 CREATE NODE TABLE IF NOT EXISTS Container(
     id STRING PRIMARY KEY,
-    path STRING DEFAULT '',
     tag STRING DEFAULT '',
     role STRING DEFAULT '',
     landmark STRING DEFAULT '',
-    element_id STRING DEFAULT '',
     css_class STRING DEFAULT '');
 
 CREATE NODE TABLE IF NOT EXISTS Option(
@@ -162,6 +178,8 @@ CREATE NODE TABLE IF NOT EXISTS Payload(
 
 CREATE NODE TABLE IF NOT EXISTS StateStyle(
     id STRING PRIMARY KEY,
+    page_url STRING DEFAULT '',
+    path STRING DEFAULT '',
     state STRING DEFAULT '',
     property STRING DEFAULT '',
     value STRING DEFAULT '');
@@ -204,8 +222,13 @@ CREATE NODE TABLE IF NOT EXISTS StateStyle(
 # reads `document.styleSheets`, so unlike geometry these values do not depend
 # on the viewport, on images loading, or on anything being hovered - which is
 # why this runs in the ordinary discovery pass and needs no measurement pass.
-# Keyed by (component, state, property) so a rediscovery overwrites a value
-# instead of appending a second one.
+# Keyed by (page_url, path, state, property) so a rediscovery overwrites a
+# value instead of appending a second one. `page_url`/`path` are carried
+# directly on this node rather than decoded from its owning `Component`'s id:
+# once that id is content-derived (page-decoupled, #134), it no longer
+# encodes them, and `get_state_styles` must keep reporting which literal
+# page/selector a declared value came from even for a component whose
+# descriptive write (and so its `HAS_COMPONENT` edge) hasn't landed yet.
 
 # Inferred tier - deterministic clustering over observations.
 _INFERRED_DDL = """
@@ -224,12 +247,23 @@ CREATE NODE TABLE IF NOT EXISTS Endpoint(
     path_params STRING[],
     first_party BOOLEAN DEFAULT true,
     call_count INT64 DEFAULT 0);
+
+CREATE NODE TABLE IF NOT EXISTS CompositeFamily(
+    id SERIAL PRIMARY KEY,
+    root_tag STRING DEFAULT '',
+    purpose STRING DEFAULT '');
 """
 # Endpoint: one row per distinct (method, path pattern) - the contract,
 # not the observation. Carries no aggregate columns (status/schema/auth
 # unions): those are computed on read from this endpoint's own Request
 # nodes via CALLS, so there is nothing here that can go stale between
 # runs. See queries.py::endpoint_contract.
+#
+# CompositeFamily: a `ComponentFamily` sized for one `Component`, not a
+# `Container` subtree - a navbar's family of variants across sites doesn't
+# fit `ComponentFamily`'s columns, so it gets its own minimal node rather
+# than stretching that one to cover both granularities. Written by the
+# composite/subtree matching pass (#132), not this ticket.
 
 # Semantic tier - what the application means, not just what it renders.
 # Every node here must carry at least one DERIVED_FROM edge back to the
@@ -282,18 +316,28 @@ CREATE REL TABLE IF NOT EXISTS NAVIGATES_TO(
     last_seen_run STRING DEFAULT '',
     created_at TIMESTAMP);
 
-CREATE REL TABLE IF NOT EXISTS HAS_COMPONENT(FROM Page TO Component);
+CREATE REL TABLE IF NOT EXISTS HAS_COMPONENT(
+    FROM Page TO Component,
+    path STRING DEFAULT '',
+    element_id STRING DEFAULT '',
+    x DOUBLE, y DOUBLE, width DOUBLE, height DOUBLE);
+CREATE REL TABLE IF NOT EXISTS HAS_CONTAINER(
+    FROM Page TO Container,
+    path STRING DEFAULT '',
+    element_id STRING DEFAULT '');
 CREATE REL TABLE IF NOT EXISTS HAS_TEXT(FROM Page TO TextContent);
 CREATE REL TABLE IF NOT EXISTS CONTAINS(FROM Container TO Component, FROM Container TO Container);
 CREATE REL TABLE IF NOT EXISTS HAS_OPTION(FROM Component TO Option, seq INT64 DEFAULT 0);
 CREATE REL TABLE IF NOT EXISTS HAS_STATE_STYLE(FROM Component TO StateStyle);
 CREATE REL TABLE IF NOT EXISTS PERFORMED(FROM Component TO Interaction);
 CREATE REL TABLE IF NOT EXISTS RESULTED_IN(FROM Interaction TO Page);
+CREATE REL TABLE IF NOT EXISTS OCCURRED_ON(FROM Interaction TO Page);
 CREATE REL TABLE IF NOT EXISTS TRIGGERED(FROM Interaction TO Request);
 CREATE REL TABLE IF NOT EXISTS LOADED(FROM Page TO Request);
 CREATE REL TABLE IF NOT EXISTS HAS_BODY(FROM Request TO Payload, direction STRING DEFAULT '');
 CREATE REL TABLE IF NOT EXISTS CALLS(FROM Request TO Endpoint);
 CREATE REL TABLE IF NOT EXISTS VARIANT_OF(FROM Component TO ComponentFamily);
+CREATE REL TABLE IF NOT EXISTS COMPOSITE_VARIANT_OF(FROM Container TO CompositeFamily);
 
 CREATE REL TABLE IF NOT EXISTS RENDERS(FROM Screen TO Page);
 CREATE REL TABLE IF NOT EXISTS HAS_FIELD(FROM Entity TO Field);
@@ -313,6 +357,7 @@ CREATE REL TABLE IF NOT EXISTS DERIVED_FROM(
     FROM Rule TO Request,
     FROM Endpoint TO Request,
     FROM ComponentFamily TO Component,
+    FROM CompositeFamily TO Container,
     method STRING DEFAULT '',
     confidence DOUBLE DEFAULT 0.0,
     run_id STRING DEFAULT '',
@@ -323,6 +368,22 @@ CREATE REL TABLE IF NOT EXISTS DERIVED_FROM(
 # than one per (kind, kind) pair, since "what derived this, how, and how
 # confidently" is the same question regardless of which two node types
 # are on either end.
+#
+# HAS_COMPONENT/HAS_CONTAINER: carry the page-instance data collapse takes
+# off `Component`/`Container` (#134) - `path` (the CSS selector), DOM
+# `element_id`, and (component only) rendered geometry. Once a `Component`/
+# `Container` is canonical, it can carry many of these edges, one per page
+# that renders it; identity-relevant fields never live here, only
+# per-rendering ones. `HAS_CONTAINER` is also new independent of collapse:
+# before this there was no `Page`-to-`Container` edge at all, so "which
+# composites are on this page" required walking `CONTAINS` from something
+# else already reachable.
+#
+# OCCURRED_ON: an `Interaction`'s own page, explicit now that its
+# performing `Component` no longer implies one - `PERFORMED` used to carry
+# that fact for free because the component's id embedded `page_url`.
+# `RESULTED_IN` keeps its separate meaning (the interaction's navigation
+# *destination*), unchanged.
 
 # Node tables before relationship tables - Ladybug requires every FROM/TO
 # table a REL TABLE references to already exist.

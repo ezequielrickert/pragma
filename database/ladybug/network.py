@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.interfaces import InferredRequest
 from utils.urls import is_opaque_token
+from ._component_lookup import resolve_component_ids, stub_component_id
 from ._cypher import set_clause
 from .clock import now
 from .ids import endpoint_id as _endpoint_id
@@ -222,9 +223,10 @@ class _LadybugNetworkMixin:
         """
         if not requests:
             return
-        component_id = f"{page_url}|{path}"
 
         def op(conn) -> None:
+            resolved = resolve_component_ids(conn, page_url, [path])
+            component_id = resolved.get(path) or stub_component_id(page_url, path)
             for item in requests:
                 if not item.get("is_first_party", True):
                     self._merge_third_party_endpoint(conn, item)
@@ -287,13 +289,14 @@ class _LadybugNetworkMixin:
                 OPTIONAL MATCH (page:Page)-[:LOADED]->(r)
                 OPTIONAL MATCH (i:Interaction)-[:TRIGGERED]->(r)
                 OPTIONAL MATCH (comp:Component)-[:PERFORMED]->(i)
-                OPTIONAL MATCH (comp_page:Page)-[:HAS_COMPONENT]->(comp)
+                OPTIONAL MATCH (i)-[:OCCURRED_ON]->(comp_page:Page)
+                OPTIONAL MATCH (comp_page)-[has_comp:HAS_COMPONENT]->(comp)
                 OPTIONAL MATCH (r)-[:HAS_BODY {direction: 'request'}]->(sent:Payload)
                 OPTIONAL MATCH (r)-[:HAS_BODY {direction: 'response'}]->(received:Payload)
                 RETURN e.id, e.method, e.host, e.path_pattern,
                        r.query_params, r.request_schema, r.response_schema, r.status,
                        r.latency_ms, r.auth_scheme, r.media_type,
-                       page.url, comp_page.url, comp.path,
+                       page.url, comp_page.url, has_comp.path,
                        sent.content, received.content
                 """
             )

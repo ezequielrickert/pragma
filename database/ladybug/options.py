@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .ids import component_id
+from ._component_lookup import resolve_component_ids, stub_component_id
 
 
 def _option_rows_and_group(options: Dict[str, Any]) -> Optional[Tuple[List[Dict[str, Any]], str]]:
@@ -93,9 +93,11 @@ class _LadybugOptionsMixin:
         Details: docs/dev/database/ladybug/options.md#record_component_options
         """
         parsed = _option_rows_and_group(options)
-        target_id = component_id(page_url, path)
 
         def op(conn) -> None:
+            self._ensure_page(conn, page_url)
+            resolved = resolve_component_ids(conn, page_url, [path])
+            target_id = resolved.get(path) or stub_component_id(page_url, path)
             conn.execute(
                 "MATCH (:Component {id: $id})-[:HAS_OPTION]->(o:Option) DETACH DELETE o",
                 {"id": target_id},
@@ -109,18 +111,23 @@ class _LadybugOptionsMixin:
             # ever creates the owning node - _record_choice_group writes
             # a representative's options before the batched
             # record_components call that gives it its descriptive
-            # fields, same stub-then-fill pattern
-            # record_component_interaction already established.
+            # fields, same fallback-then-fill pattern
+            # record_component_interaction already established. The
+            # HAS_COMPONENT edge is created alongside it (not just the
+            # bare node) so a component only ever reached through this
+            # path is still visible to get_component_ledger's page-to-
+            # component join.
             conn.execute(
                 """
+                MATCH (page:Page {url: $page_url})
                 MERGE (c:Component {id: $id})
-                ON CREATE SET c.path = $path
+                MERGE (page)-[e:HAS_COMPONENT {path: $path}]->(c)
                 WITH c
                 UNWIND $rows AS r
                 CREATE (o:Option {path: r.path, text: r.text, selected: r.selected, group_name: $group_name})
                 CREATE (c)-[:HAS_OPTION {seq: r.seq}]->(o)
                 """,
-                {"id": target_id, "path": path, "rows": rows, "group_name": group_name},
+                {"id": target_id, "path": path, "page_url": page_url, "rows": rows, "group_name": group_name},
             )
 
         self._call(op)
