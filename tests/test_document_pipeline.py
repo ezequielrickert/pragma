@@ -104,12 +104,22 @@ def test_coverage_banner_states_the_public_surface_scope():
     assert "1/2 pages" in banner
 
 
+def _master_md(produced):
+    """The `master.md` entry among a run's produced documents - `master`
+    now writes three files (docs/adr/0015: `master.md`/`llms.txt`/
+    `manifest.json`), so picking it out needs more than `produced[-1]`."""
+    return next(d for d in produced if d.name == "master" and d.path.endswith(".md"))
+
+
 def test_pipeline_writes_each_requested_document_plus_the_master(tmp_path):
-    """`coverage` writes two files (source + view, docs/adr/0001) - every
-    other name here still writes one, until its own ticket migrates it."""
+    """`coverage` writes two files (source + view, docs/adr/0001); `master`
+    writes three (`master.md`/`llms.txt`/`manifest.json`, docs/adr/0015) -
+    every other name here still writes one, until its own ticket migrates it."""
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["coverage", "tree"])
 
-    assert [document.name for document in produced] == ["coverage", "coverage", "tree", "master"]
+    assert [document.name for document in produced] == [
+        "coverage", "coverage", "tree", "master", "master", "master",
+    ]
     for document in produced:
         assert Path(document.path).exists()
 
@@ -117,7 +127,7 @@ def test_pipeline_writes_each_requested_document_plus_the_master(tmp_path):
 def test_master_document_links_every_document_that_was_written(tmp_path):
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["coverage", "tree"])
 
-    master_text = Path(produced[-1].path).read_text(encoding="utf-8")
+    master_text = Path(_master_md(produced).path).read_text(encoding="utf-8")
 
     assert f"(example.com_coverage_{TIMESTAMP}.md)" in master_text
     assert f"(example.com_tree_{TIMESTAMP}.md)" in master_text
@@ -150,17 +160,17 @@ def test_a_failing_generator_is_skipped_without_losing_the_others(tmp_path, caps
 
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["exploding", "coverage"])
 
-    assert [document.name for document in produced] == ["coverage", "coverage", "master"]
+    assert [document.name for document in produced] == ["coverage", "coverage", "master", "master", "master"]
     assert "boom" in capsys.readouterr().out
     # The master document must never link to a file that was never written.
-    master_text = Path(produced[-1].path).read_text(encoding="utf-8")
+    master_text = Path(_master_md(produced).path).read_text(encoding="utf-8")
     assert "exploding" not in master_text
 
 
 def test_unknown_document_name_is_reported_and_skipped(tmp_path, capsys):
     produced = run_document_pipeline(_request(), _naming(tmp_path), ["not-a-document", "coverage"])
 
-    assert [document.name for document in produced] == ["coverage", "coverage", "master"]
+    assert [document.name for document in produced] == ["coverage", "coverage", "master", "master", "master"]
     assert "not-a-document" in capsys.readouterr().out
 
 
@@ -255,10 +265,15 @@ def test_the_master_document_says_no_accessibility_audit_is_produced():
 
     request = DocumentRequest(
         graph_store=None, site="shop.example", agent=None,
-        produced=(ProducedDocument(name="prd", title="Blueprint", purpose="p", path="docs/a_prd_1.md"),),
+        produced=(
+            ProducedDocument(
+                name="prd", title="Blueprint", purpose="p", path="docs/a_prd_1.md",
+                kind="view", checksum="a" * 64, filename="prd",
+            ),
+        ),
     )
 
-    text = MasterDocument().generate(request)
+    text = MasterDocument().outputs(request)[0].content
 
     assert "No WCAG / accessibility audit" in text
     assert "must not be read as one" in text
@@ -273,8 +288,11 @@ def test_the_gap_note_disappears_once_an_accessibility_document_exists():
     request = DocumentRequest(
         graph_store=None, site="shop.example", agent=None,
         produced=(
-            ProducedDocument(name="accessibility", title="A11y", purpose="p", path="docs/a_a11y_1.md"),
+            ProducedDocument(
+                name="accessibility", title="A11y", purpose="p", path="docs/a_a11y_1.md",
+                kind="view", checksum="a" * 64, filename="accessibility",
+            ),
         ),
     )
 
-    assert "Not covered by this run" not in MasterDocument().generate(request)
+    assert "Not covered by this run" not in MasterDocument().outputs(request)[0].content

@@ -53,6 +53,14 @@ class ProducedDocument:
     path: str
     kind: DocumentKind = "view"
     checksum: str = ""
+    # The raw `DocumentOutput.filename` this was built from (e.g.
+    # `"architecture.calm"`) - `path` is `DocumentNaming.path_for`'s
+    # timestamped, slug-prefixed disk path, which a reader can't reliably
+    # reverse back into this stable identifier (the slug and the
+    # filename can both contain `_`/`.`). `manifest.json`/`llms.txt`
+    # (docs/adr/0015) key their own lookups on this, not on `path`.
+    # Details: docs/dev/core/documents.md#produceddocumentfilename
+    filename: str = ""
 
 
 @dataclass(frozen=True)
