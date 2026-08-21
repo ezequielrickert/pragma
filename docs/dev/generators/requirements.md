@@ -23,12 +23,17 @@ Retiring `graph_prd_synthesizer.py` also retired `prd_synth_batch_size`
 per-run-config knob for an LLM batch-summarize call that no longer
 exists, removed rather than left as dead configuration.
 
-## _requirement_id
+## requirement_id
 
 `REQ-<hash>` (ADR-0009 point 1, ADR-0015's `sha1(...)[:10]` algorithm) -
 deterministic across runs regardless of discovery order, unlike a
 sequential counter. `ears_pattern + trigger + target` is the identity-
 defining input, per the ADR's own formula.
+
+Public (not `_`-prefixed) since ticket #107: `generators/gherkin.py`
+recomputes the identical id for `@REQ-<hash>` tags by calling this
+function with the same trigger/target strings a trace's steps produce,
+rather than re-deriving the hash's input format independently.
 
 ## _RequirementFacts
 
@@ -71,19 +76,15 @@ deduplicated by `id` - the same deterministic hash collapses a genuinely
 repeated observation (two components triggering the identical call, or
 two runs) into one requirement rather than one per occurrence.
 
-## _screen_graph
-
-A minimal `Pantalla`-only `@graph`-shaped list - just enough for
-`core/graph_metrics.py`'s module derivation. Built directly here rather
-than through `generators/graph_export.py::build_export_graph` to avoid a
-circular import: `graph_export.py` itself imports this module's
-`build_requirements_document`, for `Requisito` population (ADR-0009
-point 5). Page-to-page `navega_a` only (no component-attributed edges) -
-module derivation only looks at `Pantalla` nodes regardless of which
-edges reach them, so the full richness `graph_export.py` builds isn't
-needed for this narrower purpose.
-
 ## _screen_module_labels
+
+The minimal `Pantalla`-only `@graph`-shaped list this reads moved to
+`core.graph_metrics.build_screen_graph` as of ticket #107, once
+`generators/gherkin.py` needed the identical builder for its own
+`@MOD-<x>` tags - see `docs/dev/core/graph_metrics.md#build_screen_graph`.
+Still avoids the same circular import (`graph_export.py` imports this
+module's `build_requirements_document` for `Requisito` population,
+ADR-0009 point 5) by living in `core/` instead of either generator.
 
 `{SCR-<hash>: module_label}` for every screen with a derived module -
 `prd.md`'s own grouping (ADR-0009 point 4), computed the same hybrid

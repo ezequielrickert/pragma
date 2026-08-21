@@ -15,6 +15,18 @@ in `core/` rather than `generators/`: the caller
 this together with `build_export_graph`, and `core/` never imports from
 `generators/`.
 
+## build_screen_graph
+
+Moved here from `generators/requirements.py` (its own private
+`_screen_graph`) as of ticket #107, once `generators/gherkin.py` needed
+the identical minimal `Pantalla`-only builder for its own `@MOD-<x>`
+tags. Living here rather than duplicating it a third time (or promoting
+one generator to import the other's private helper) keeps both callers
+pointed at one definition. Page-to-page `navega_a` only (no
+component-attributed edges) - module derivation only looks at `Pantalla`
+nodes regardless of which edges reach them, so the full richness
+`build_export_graph` assembles isn't needed for this narrower purpose.
+
 ## NodeMetrics
 
 One node's position in the unified screen/component/endpoint graph -

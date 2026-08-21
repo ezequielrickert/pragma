@@ -12,6 +12,12 @@ point 4). Lives in `core/` rather than `generators/`: the caller
 this together with `build_export_graph`, and `core/` never imports from
 `generators/`.
 
+`build_screen_graph` is the one exception to "takes the full export graph
+as input": a minimal `Pantalla`-only builder for callers (`prd.md`'s module
+grouping, `gherkin`'s `@MOD-<x>` tags) that need module derivation but
+can't import `graph_export.py` without a circular import - see its own
+docstring.
+
 Details: docs/dev/core/graph_metrics.md#module
 """
 from __future__ import annotations
@@ -41,6 +47,36 @@ _MIN_PATH_PREFIX_CLUSTER_SIZE = 2
 
 def _slug(segment: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", segment.lower()).strip("-") or "module"
+
+
+def build_screen_graph(store: Any, edges: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A minimal `Pantalla`-only `@graph`-shaped list - just enough for
+    `compute_graph_metrics`'s own module derivation, for any caller that
+    needs module boundaries without building the full export graph.
+
+    Shared by `generators/requirements.py` (`prd.md`'s module grouping,
+    ADR-0009) and `generators/gherkin.py` (`@MOD-<slug|hash>` tags,
+    ADR-0013) - both need exactly this shape and neither can import
+    `generators/graph_export.py::build_export_graph` directly without a
+    circular import (`graph_export.py` itself imports both of them for
+    `export.json`'s `Requisito`/traceability population). Living here
+    rather than in either generator avoids tripling this same small
+    function across a third module.
+    Details: docs/dev/core/graph_metrics.md#build_screen_graph
+    """
+    nodes: Dict[str, Dict[str, Any]] = {
+        row["url"]: {"id": row["url"], "type": "Pantalla"}
+        for row in store.get_progress_table_rows()
+        if row.get("status") != "External"
+    }
+    for edge in edges:
+        source, destination = edge["from"], edge["to"]
+        if source not in nodes or destination not in nodes:
+            continue
+        targets = nodes[source].setdefault("navega_a", [])
+        if destination not in targets:
+            targets.append(destination)
+    return list(nodes.values())
 
 
 @dataclass(frozen=True)

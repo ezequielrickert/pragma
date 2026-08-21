@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
-from core.graph_metrics import compute_graph_metrics
+from core.graph_metrics import build_screen_graph, compute_graph_metrics
 from core.registry import DOCUMENT_REGISTRY
 from utils.schema_validation import validate_against_schema
 from utils.short_hash import short_hash
@@ -38,11 +38,16 @@ _SCHEMA_PATH = "schemas/requirements.schema.json"
 _NO_LINKS: Dict[str, List[str]] = {"screens": [], "endpoints": [], "scenarios": [], "data_entities": [], "depends_on": []}
 
 
-def _requirement_id(ears_pattern: str, trigger: str, target: str) -> str:
+def requirement_id(ears_pattern: str, trigger: str, target: str) -> str:
     """`REQ-<hash>` (ADR-0009 point 1, ADR-0015's `sha1(...)[:10]`
     algorithm) - deterministic across runs regardless of discovery order,
     unlike a sequential counter.
-    Details: docs/dev/generators/requirements.md#_requirement_id
+
+    Public (not `_`-prefixed): `generators/gherkin.py` reuses this exact
+    function to recompute the same id for `@REQ-<hash>` tags, rather than
+    re-deriving the hash's input format independently and risking drift
+    (ADR-0013 point 3).
+    Details: docs/dev/generators/requirements.md#requirement_id
     """
     return f"REQ-{short_hash(f'{ears_pattern}|{trigger}|{target}')}"
 
@@ -72,7 +77,7 @@ class _RequirementFacts:
 
 def _requirement(facts: _RequirementFacts, run_id: str) -> Dict[str, Any]:
     return {
-        "id": _requirement_id(facts.ears_pattern, facts.trigger, facts.target),
+        "id": requirement_id(facts.ears_pattern, facts.trigger, facts.target),
         "ears_pattern": facts.ears_pattern,
         "syntax_text": facts.syntax_text,
         "confidence": facts.confidence,
@@ -200,40 +205,23 @@ def build_requirements_document(request: DocumentRequest) -> Dict[str, Any]:
     return {"requirements": [requirements[key] for key in sorted(requirements)]}
 
 
-def _screen_graph(store: Any, edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """A minimal `Pantalla`-only `@graph`-shaped list - just enough for
-    `core/graph_metrics.py`'s module derivation. Built directly here
-    rather than through `generators/graph_export.py::build_export_graph`
-    to avoid a circular import: `graph_export.py` itself imports this
-    module's `build_requirements_document` for `Requisito` population
-    (ADR-0009 point 5).
-    Details: docs/dev/generators/requirements.md#_screen_graph
-    """
-    nodes: Dict[str, Dict[str, Any]] = {
-        row["url"]: {"id": row["url"], "type": "Pantalla"}
-        for row in store.get_progress_table_rows()
-        if row.get("status") != "External"
-    }
-    for edge in edges:
-        source, destination = edge["from"], edge["to"]
-        if source not in nodes or destination not in nodes:
-            continue
-        targets = nodes[source].setdefault("navega_a", [])
-        if destination not in targets:
-            targets.append(destination)
-    return list(nodes.values())
-
-
 def _screen_module_labels(request: DocumentRequest) -> Dict[str, str]:
     """`{SCR-<hash>: module_label}` for every screen with a derived
     module - `prd.md`'s own grouping (ADR-0009 point 4), computed the
     same hybrid path-prefix/Leiden pass `architecture.calm.json` uses
     (docs/adr/0007), not a second, differently-derived module structure.
+
+    `core.graph_metrics.build_screen_graph` (not
+    `generators/graph_export.py::build_export_graph`) supplies the
+    minimal `Pantalla`-only input - avoids a circular import, since
+    `graph_export.py` itself imports this module's
+    `build_requirements_document` for `Requisito` population
+    (ADR-0009 point 5).
     Details: docs/dev/generators/requirements.md#_screen_module_labels
     """
     store = request.graph_store
     root = route_shape(request.settings.get("target", "")) or None
-    metrics = compute_graph_metrics(_screen_graph(store, store.get_edges()), root=root)
+    metrics = compute_graph_metrics(build_screen_graph(store, store.get_edges()), root=root)
     return {_screen_id(module.node_id): module.module_label or module.module_id for module in metrics.node_modules}
 
 
