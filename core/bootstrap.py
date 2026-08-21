@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from agents import local_agent  # noqa: F401  (registers "local")
 from agents import mock_agent  # noqa: F401  (registers "mock")
-from generators import accessibility  # noqa: F401  (registers "accessibility")
+from generators import accessibility_act  # noqa: F401  (registers "accessibility")
 from generators import architecture_calm  # noqa: F401  (registers "architecture")
 from generators import aria_tree  # noqa: F401  (registers "tree")
 from generators import coverage  # noqa: F401  (registers "coverage")

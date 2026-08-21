@@ -7,12 +7,7 @@ from __future__ import annotations
 import pytest
 
 from database.ladybug.store import LadybugGraphStore
-from generators.accessibility import (
-    AccessibilityDocument,
-    accessible_name,
-    landmark_findings,
-    name_findings,
-)
+from generators.accessibility import accessible_name, landmark_findings, name_findings
 
 PAGE = "https://shop.example/checkout"
 
@@ -159,53 +154,27 @@ def test_get_page_landmarks_is_empty_without_ancestry(store) -> None:
     assert store.get_page_landmarks() == {}
 
 
-# --- the document ---
+# --- build_findings degrades cleanly ---
+# The rendered document (AccessibilityDocument, the ACT/EARL/SARIF assembly,
+# and the scope-note/skip-count wording) moved to
+# generators/accessibility_act.py and its own tests, docs/adr/0012 - the same
+# split usability/usability_act established for docs/adr/0011.
 
-class _Store:
-    def __init__(self, ledger, landmarks):
-        self._ledger = ledger
-        self._landmarks = landmarks
+def test_an_empty_crawl_produces_no_findings_not_an_error():
+    class _Store:
+        def get_component_ledger(self):
+            return {}
 
-    def get_component_ledger(self):
-        return self._ledger
+        def get_page_landmarks(self):
+            return {}
 
-    def get_page_landmarks(self):
-        return self._landmarks
+    class _Request:
+        graph_store = _Store()
+        site = "shop.example"
 
+    from generators.accessibility import build_findings
 
-class _Request:
-    def __init__(self, store):
-        self.graph_store = store
-        self.site = "shop.example"
+    findings, skipped = build_findings(_Request())
 
-
-def test_the_document_always_states_that_it_is_partial():
-    """A clean accessibility report that looks complete is worse than none."""
-    text = AccessibilityDocument().generate(_Request(_Store({}, {})))
-
-    assert "partial audit, not a conformance check" in text
-    assert "does not mean the application is accessible" in text
-
-
-def test_the_document_reports_findings_with_their_criterion():
-    ledger = {PAGE: {"b#1": _control("b#1", text="")}}
-    text = AccessibilityDocument().generate(_Request(_Store(ledger, {PAGE: {"banner": 1}})))
-
-    assert "missing-accessible-name" in text
-    assert "WCAG 4.1.2" in text
-    assert "no-main-landmark" in text
-
-
-def test_the_document_counts_the_elements_it_skipped():
-    """The exclusion is this document's own blind spot, so it belongs in it."""
-    ledger = {PAGE: {"div#1": _control("div#1", component_type="custom control", layer="pointer")}}
-    text = AccessibilityDocument().generate(_Request(_Store(ledger, {})))
-
-    assert "1 element(s) found only by the `cursor: pointer` catch-all are excluded" in text
-
-
-def test_no_findings_is_stated_narrowly():
-    ledger = {PAGE: {"b#1": _control("b#1", text="Pagar")}}
-    text = AccessibilityDocument().generate(_Request(_Store(ledger, {PAGE: {"main": 1}})))
-
-    assert "Read that narrowly" in text
+    assert findings == []
+    assert skipped == 0
