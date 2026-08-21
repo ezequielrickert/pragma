@@ -6,9 +6,11 @@ import json
 
 from core.documents import DocumentRequest
 from database.ladybug.store import LadybugGraphStore
+from generators.component_catalog import CatalogEntry, CatalogVariant
 from generators.graph_export import (
     _entidad_nodes,
     _modulo_nodes,
+    _populate_usa_token,
     _requisito_nodes,
     _token_nodes,
     build_export_graph,
@@ -258,6 +260,45 @@ def test_a_citation_with_no_matching_node_is_silently_skipped():
     requisitos = _requisito_nodes(requirements_document, pantallas={}, endpoints={}, entidades={})
 
     assert "REQ-abc" in requisitos
+
+
+def _catalog_entry(member_paths, variants=()):
+    return CatalogEntry(
+        name="Button", tag="button", component_type="button", purpose="",
+        atomic_level="atom", member_count=len(member_paths),
+        used_on=tuple(sorted({page_url for page_url, _ in member_paths})),
+        props=(), variants=variants, states_observed=(), member_paths=member_paths,
+    )
+
+
+def test_usa_token_edges_one_per_real_component_instance():
+    """A pattern used twice on the same page gets two edges, one per
+    member_paths entry - not one edge per pattern (used_on would collapse
+    both instances into a single page)."""
+    componentes = {
+        "shop/|button.buy": {"id": "shop/|button.buy", "type": "Componente"},
+        "shop/|button.checkout": {"id": "shop/|button.checkout", "type": "Componente"},
+    }
+    tokens_document = {"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}
+    entry = _catalog_entry(
+        member_paths=(("shop/", "button.buy"), ("shop/", "button.checkout")),
+        variants=(CatalogVariant(modifiers=(), background_color="rgb(45, 119, 55)", count=2, example_text=""),),
+    )
+
+    _populate_usa_token(componentes, [entry], tokens_document)
+
+    assert componentes["shop/|button.buy"]["usa_token"] == ["core.color.surface-1"]
+    assert componentes["shop/|button.checkout"]["usa_token"] == ["core.color.surface-1"]
+
+
+def test_usa_token_stays_absent_when_no_variant_matches_a_color_token():
+    componentes = {"shop/|button.buy": {"id": "shop/|button.buy", "type": "Componente"}}
+    tokens_document = {"core": {"color": {}}, "semantic": {}}
+    entry = _catalog_entry(member_paths=(("shop/", "button.buy"),))
+
+    _populate_usa_token(componentes, [entry], tokens_document)
+
+    assert "usa_token" not in componentes["shop/|button.buy"]
 
 
 def test_generated_export_document_is_valid_json_ld_and_deterministic():

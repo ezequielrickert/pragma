@@ -79,10 +79,13 @@ def _x_region(entry: CatalogEntry) -> Optional[Dict[str, Any]]:
     }
 
 
-def _color_token_alias_by_value(tokens_document: Dict[str, Any]) -> Dict[str, str]:
+def color_token_alias_by_value(tokens_document: Dict[str, Any]) -> Dict[str, str]:
     """`{hex_value: "{core.color.name}"}` for every core color token -
-    what `_x_tokens` matches a variant's own `background_color` against.
-    Details: docs/dev/generators/custom_elements.md#_color_token_alias_by_value
+    what `x_tokens` matches a variant's own `background_color` against.
+    Public (not `_`-prefixed): `generators/graph_export.py` reuses this
+    exact function to derive `usa_token`'s own edges (ADR-0002/0005/0006,
+    ticket #126), never a second, independently-derived alias table.
+    Details: docs/dev/generators/custom_elements.md#color_token_alias_by_value
     """
     return {
         token["$value"]: f"{{core.color.{name}}}"
@@ -101,13 +104,16 @@ def _normalized_hex(css_color: str) -> Optional[str]:
     return to_hex(rgb) if rgb else None
 
 
-def _x_tokens(entry: CatalogEntry, alias_by_value: Dict[str, str]) -> Dict[str, List[str]]:
+def x_tokens(entry: CatalogEntry, alias_by_value: Dict[str, str]) -> Dict[str, List[str]]:
     """ADR-0006 point 4: DTCG alias citations, not copied values - a
     reader follows `{core.color.surface-1}` into `tokens.json` rather
     than trusting a second, possibly-stale copy of the hex code.
     `spacing` stays reserved: `tokens.json` mints no spacing tokens
     (docs/adr/0005's own absence, `design_tokens.py`'s `_ABSENT_NOTE`).
-    Details: docs/dev/generators/custom_elements.md#_x_tokens
+    Public (not `_`-prefixed): `generators/graph_export.py` reuses this
+    exact function for `usa_token`'s own edges (ticket #126) - the same
+    alias citations, never a second, independently-derived computation.
+    Details: docs/dev/generators/custom_elements.md#x_tokens
     """
     aliases = sorted({
         alias_by_value[hex_value]
@@ -142,7 +148,7 @@ def _declaration(entry: CatalogEntry, alias_by_value: Dict[str, str]) -> Dict[st
             _variant_declaration(index, variant, _screen_ids(entry))
             for index, variant in enumerate(entry.variants, 1)
         ],
-        "x-tokens": _x_tokens(entry, alias_by_value),
+        "x-tokens": x_tokens(entry, alias_by_value),
     }
     if is_custom_element:
         declaration["tagName"] = entry.tag
@@ -160,7 +166,7 @@ def build_custom_elements_document(request: DocumentRequest) -> Dict[str, Any]:
     Details: docs/dev/generators/custom_elements.md#build_custom_elements_document
     """
     entries = catalog_for(request)
-    alias_by_value = _color_token_alias_by_value(build_tokens_document(request.graph_store))
+    alias_by_value = color_token_alias_by_value(build_tokens_document(request.graph_store))
     modules = [
         {
             "kind": "javascript-module",

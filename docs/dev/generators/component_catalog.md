@@ -53,6 +53,16 @@ can plainly see are different.
 
 ## CatalogEntry
 
+## member_paths
+
+Every individual `(page_url, path)` component instance this entry
+groups, sorted - added ticket #126, deferred out of #101 rather than
+rushed into it. `used_on` already collapsed member instances to
+distinct pages; `graph_export.py::build_export_graph`'s own `usa_token`
+edge (ADR-0002/0005/0006) needs the instances themselves, since a
+`Componente` node in `export.json` is one per instance, not one per
+page.
+
 ## regions
 
 The landmark regions a pattern's instances actually sit in. A button used in

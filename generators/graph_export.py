@@ -5,21 +5,20 @@ for downstream interop (`usability`'s EARL findings cite this vocabulary
 by node id) - not a second queryable store. `Pantalla`/`Componente`/
 `Endpoint`/`Token`/`Modulo`/`Entidad`/`Requisito` and the edges
 `contiene`/`navega_a`/`dispara`/`consume`/`depende_de`/`implementa`/
-`cubre` are populated from real graph-store queries today (`Token` since
-ticket #100; `Modulo` since ticket #102 via `core/graph_metrics.py`'s
-hybrid path-prefix/Leiden derivation, ADR-0007; `Entidad`/`depende_de`
-since ticket #103, ADR-0008 point 5; `Requisito`/`implementa`/`cubre`
-since ticket #104, ADR-0009 point 5 - ADR-0002 point 5's own "wire
-population edges as those tickets land"); `Escenario`/`Hallazgo`/`Flujo`/
-`Estado` and the `usa_token` edge stay reserved - present in
-`schemas/export.schema.json`'s `type` enum and
-`schemas/export.context.jsonld`, absent from `@graph` until their own
-document's ticket starts emitting them (`usa_token` needs `catalog`'s
-`x-tokens` links, ADR-0006 - split into
-[ticket #126](https://github.com/ezequielrickert/pragma/issues/126);
-`Requisito`'s own `depende_de` edge between requirements stays empty
-too - `links.depends_on` is reserved in `requirements.json` itself,
-`generators/requirements.py` has no dependency-detection rule yet).
+`cubre`/`usa_token` are populated from real graph-store queries today
+(`Token` since ticket #100; `Modulo` since ticket #102 via
+`core/graph_metrics.py`'s hybrid path-prefix/Leiden derivation,
+ADR-0007; `Entidad`/`depende_de` since ticket #103, ADR-0008 point 5;
+`Requisito`/`implementa`/`cubre` since ticket #104, ADR-0009 point 5;
+`usa_token` since ticket #126, `catalog`'s own `x-tokens` DTCG alias
+citations reused directly - ADR-0002 point 5's own "wire population
+edges as those tickets land"); `Escenario`/`Hallazgo`/`Flujo`/`Estado`
+stay reserved - present in `schemas/export.schema.json`'s `type` enum
+and `schemas/export.context.jsonld`, absent from `@graph` until their
+own document's ticket starts emitting them. `Requisito`'s own
+`depende_de` edge between requirements stays empty too -
+`links.depends_on` is reserved in `requirements.json` itself,
+`generators/requirements.py` has no dependency-detection rule yet.
 
 `@context` is the schema-locked literal `"./export.context.jsonld"`
 (`schemas/export.context.jsonld` in the repo) - the same non-fetchable-
@@ -42,6 +41,8 @@ from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
 from utils.short_hash import short_hash
 from utils.urls import route_shape
+from .component_catalog import catalog_for
+from .custom_elements import color_token_alias_by_value, x_tokens
 from .data_model import build_data_model_document
 from .design_tokens import build_tokens_document
 from .requirements import build_requirements_document
@@ -263,6 +264,32 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
                 _add_edge(source, "consume", node_id)
 
 
+def _populate_usa_token(componentes: Dict[str, Node], catalog_entries: Iterable[Any], tokens_document: Dict[str, Any]) -> None:
+    """Componente usa_token Token, for every catalog entry with a real
+    `x-tokens.color` citation (ADR-0002/0005/0006 point 5, ticket #126) -
+    one edge per real component instance the entry groups
+    (`CatalogEntry.member_paths`), never once per pattern. `color_token_
+    alias_by_value`/`x_tokens` are `custom_elements.py`'s own real
+    functions, called directly rather than re-derived - the same
+    "one computation, never a second copy" discipline every cross-
+    generator call in this map already follows. An alias's own `{...}`
+    DTCG wrapper is stripped to recover the bare `Token` node id
+    (`_walk_token_groups`'s own dot-joined key, e.g. `core.color.surface-1`).
+    Details: docs/dev/generators/graph_export.md#_populate_usa_token
+    """
+    alias_by_value = color_token_alias_by_value(tokens_document)
+    for entry in catalog_entries:
+        token_ids = [alias.strip("{}") for alias in x_tokens(entry, alias_by_value).get("color", [])]
+        if not token_ids:
+            continue
+        for page_url, path in entry.member_paths:
+            componente = componentes.get(component_id(page_url, path))
+            if componente is None:
+                continue
+            for token_id in token_ids:
+                _add_edge(componente, "usa_token", token_id)
+
+
 def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     """The full `export.json` payload: populated `Pantalla`/`Componente`/
     `Endpoint`/`Token`/`Modulo`/`Entidad`/`Requisito` nodes plus the
@@ -279,7 +306,8 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     pantallas = _pantalla_nodes(pages, store.get_page_titles(), store.get_page_descriptions())
     componentes = _componente_nodes(component_ledger)
     endpoints = _endpoint_nodes(inferred_requests)
-    tokens = _token_nodes(build_tokens_document(store))
+    tokens_document = build_tokens_document(store)
+    tokens = _token_nodes(tokens_document)
     root = route_shape(request.settings.get("target", "")) or None
     modulos = _modulo_nodes(pantallas, root)
     entidades = _entidad_nodes(build_data_model_document(request), endpoints)
@@ -288,6 +316,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     _populate_contiene(pantallas, component_ledger)
     _populate_navega_a(pantallas, componentes, store.get_edges())
     _populate_dispara_and_consume(pantallas, componentes, inferred_requests)
+    _populate_usa_token(componentes, catalog_for(request), tokens_document)
 
     graph = sorted(
         (

@@ -32,11 +32,13 @@ one specific `tree.axtree.json` node needs a second, dedicated
 correlation pass this ticket doesn't build. Omitted entirely (not a
 reserved-but-present object) when the entry has no known screen at all.
 
-## _color_token_alias_by_value
+## color_token_alias_by_value
 
 `{hex_value: "{core.color.name}"}` for every core color token - what
-`_x_tokens` matches a variant's own `background_color` against, after
-`_normalized_hex` puts both sides in the same form.
+`x_tokens` matches a variant's own `background_color` against, after
+`_normalized_hex` puts both sides in the same form. Public since ticket
+#126: `graph_export.py` reuses this exact function for `usa_token`'s own
+edges rather than re-deriving the alias table a second time.
 
 ## _normalized_hex
 
@@ -47,13 +49,14 @@ the two requires putting them in the same form first. A real bug this
 module's own tests caught: the first version compared the raw string
 directly and never matched anything.
 
-## _x_tokens
+## x_tokens
 
 ADR-0006 point 4: DTCG alias citations, not copied values - a reader
 follows `{core.color.surface-1}` into `tokens.json` rather than trusting
 a second, possibly-stale copy of the hex code. `spacing` stays reserved:
 `tokens.json` mints no spacing tokens (docs/adr/0005's own absence,
-`design_tokens.py`'s `_ABSENT_NOTE`).
+`design_tokens.py`'s `_ABSENT_NOTE`). Public since ticket #126, same
+reason as `color_token_alias_by_value` above.
 
 ## _declaration
 

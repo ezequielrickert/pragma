@@ -99,6 +99,14 @@ class CatalogEntry:
     # which, rather than leaving a reader to guess from a blank line.
     # Details: docs/dev/generators/component_catalog.md#regions
     regions: Tuple[str, ...] = ()
+    # Every individual `(page_url, path)` component instance this entry
+    # groups, sorted - `used_on` collapses these to distinct pages;
+    # `graph_export.py::build_export_graph` needs the instances
+    # themselves to wire `usa_token` onto each real `Componente` node,
+    # not once per page. Added ticket #126, deferred out of #101 rather
+    # than rushed into it.
+    # Details: docs/dev/generators/component_catalog.md#member_paths
+    member_paths: Tuple[Tuple[str, str], ...] = ()
 
 
 def component_name(component_type: str) -> str:
@@ -272,6 +280,7 @@ def build_catalog(
                 variants=_variants(members, family.common_classes),
                 states_observed=("disabled",) if any(m.get("disabled") for m in members) else (),
                 regions=_regions_of(members, regions),
+                member_paths=tuple(sorted((member.get("page_url", ""), member.get("path", "")) for member in members)),
             )
         )
     return entries

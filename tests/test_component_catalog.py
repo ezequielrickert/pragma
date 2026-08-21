@@ -232,3 +232,16 @@ def test_used_on_lists_only_pages_whose_members_resolved():
     catalog = build_catalog([family], [_member("a")])
 
     assert catalog[0].used_on == (PAGE,)
+
+
+def test_member_paths_lists_every_instance_not_just_distinct_pages():
+    """used_on collapses to distinct pages; member_paths keeps one entry
+    per real (page, path) instance - what a per-instance edge
+    (graph_export's usa_token) needs and used_on can't provide."""
+    catalog = build_catalog(
+        [_family(["a", "b"])],
+        [_member("a"), _member("b")],
+    )
+
+    assert catalog[0].member_paths == ((PAGE, "a"), (PAGE, "b"))
+    assert catalog[0].used_on == (PAGE,)
