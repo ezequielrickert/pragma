@@ -19,6 +19,37 @@ instead of pooling them onto the component and losing which belonged to which.
 Mixed into `LadybugGraphStore`, relies on `self._call(...)` and
 `self._ensure_page(...)`.
 
+## _node_fields
+
+The descriptive fields that stay on `Component` after the canonical-schema
+migration (#134) - everything `DESCRIPTIVE_COMPONENT_FIELDS` names, computed
+from the same `item` dict `_component_params` builds from. Split out so both
+`_component_params` (write params) and `ids.py::component_content_id`
+(identity hash) derive the same field set from one place.
+
+## _component_lookup
+
+Shared component-id resolution for write paths that only have `(page_url,
+path)` in hand, not a component's full descriptive facts -
+`_component_lookup.py`, imported by `options.py`, `containment.py`,
+`state_styles.py`, `semantic.py`, and `network.py`.
+
+## resolve_component_ids
+
+`{path: component_id}` for every given path with a `HAS_COMPONENT` edge on
+that page already, resolved through the edge's own `path` property. A path
+missing from the result has none yet.
+
+## stub_component_id
+
+The id a `(page_url, path)` with no `HAS_COMPONENT` edge yet falls back to -
+deterministic and scoped to that one slot, not a shared blank-content hash
+(which let two different not-yet-discovered elements on the same page
+silently clobber each other's writes - caught live by a stepper-detection
+regression while building #136). Reconciled once `record_component(s)`'s own
+rediscovery-continuity rule finds this exact stub through its edge and
+updates it in place.
+
 ## _component_params
 
 The descriptive parameter set one component write needs, with `ComponentFacts`
