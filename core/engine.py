@@ -15,6 +15,7 @@ from spiders.content.fill_value_agent import make_ai_fill_value_fn
 from spiders.content.fill_values import default_placeholder_fill_value
 from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
+from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
 from generators.data_model import build_entities
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
@@ -83,6 +84,10 @@ class EngineRunResult:
     # Browsable Markdown index of every run, regenerated fresh every run.
     # Details: docs/dev/core/engine.md#enginerunresult-index_path
     index_path: str = ""
+    # Phase C's own entry point (ADR-0016 point 4, ticket #125) - the
+    # file to open in a browser, distinct from index_path's cross-run
+    # Markdown index. Details: docs/dev/core/engine.md#enginerunresult-dashboard_path
+    dashboard_path: str = ""
 
 
 class Engine:
@@ -343,6 +348,13 @@ class Engine:
         index_path = f"{self.out_dir}/index.md"
         write_output(index_path, index_doc)
 
+        kpi_context = KpiContext(
+            pages_finished=finished_pages, pages_total=total_pages,
+            components_explored=total_components - unexplored_components, components_total=total_components,
+        )
+        dashboard_context = DashboardRunContext(kpi_context=kpi_context, site=site, out_dir=self.out_dir)
+        dashboard_path = write_dashboard(produced, dashboard_context)
+
         self.graph_store.close()
         return EngineRunResult(
             prd_path=paths.get("prd", ""),
@@ -352,6 +364,7 @@ class Engine:
             documents=tuple(produced),
             manifest_path=manifest_path,
             index_path=index_path,
+            dashboard_path=dashboard_path,
         )
 
     def _document_names(self) -> List[str]:

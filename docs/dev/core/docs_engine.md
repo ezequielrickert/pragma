@@ -22,6 +22,14 @@ The output documents from one docs-only pass - same shape as
 (`export_path`/etc. aren't named fields here, just members of
 `documents` like everywhere else).
 
+## DocsRunResult.dashboard_path
+
+Added in ticket #125 (ADR-0016 Phase C): the dashboard's own entry
+point, `dashboard/index.html` under `out_dir` - distinct from
+`index_path`, which is `generate_docs_index`'s cross-run Markdown index
+built from `runs.json`, a different concern (which past runs exist)
+than the dashboard's own (what does *this* run's crawl look like).
+
 ## docsengine
 
 Wires an agent and a graph store, then generates documents from
@@ -44,6 +52,13 @@ module and its tests), so `pragma cluster`/`pragma dynamic` having run
 is a richer input, not a requirement. `stopped_reason` is always `""` -
 unlike `Engine`, no crawl happened in this process, so there is no
 partial-run reason to report.
+
+Once every document is written, builds the dashboard
+(`dashboard.shell.write_dashboard`, ticket #125) from the same
+`produced` list and the same `finished_pages`/`total_pages`/
+`unexplored_components`/`total_components` this method already computed
+for `record_run_manifest` - passed straight through as `KpiContext`
+rather than a second, independently-derived count.
 
 ## _document_names
 
