@@ -129,12 +129,13 @@ CONTEXT_BY_NAME: Dict[str, DocumentContext] = {
     "content-inventory": DocumentContext(
         explanation=(
             "Every piece of copy, microcopy, and legally-mandated text the crawl found, cited to "
-            "the specific component instance it was observed on. A copywriter or legal reviewer "
-            "auditing site-wide language starts here, not a fresh screen-by-screen read of the site."
+            "the catalog component variant and screens it was observed on. A copywriter or legal "
+            "reviewer auditing site-wide language starts here, not a fresh screen-by-screen read "
+            "of the site."
         ),
         example=(
-            '{"text": "By continuing you agree to our Terms", "component": '
-            '"example.com/checkout|p.legal", "is_legal": true}'
+            '{"component_ref": "LegalNotice#variant-1", "screens": ["SCR-a1b2c3"], '
+            '"text": "By continuing you agree to our Terms", "is_legal": true}'
         ),
     ),
     "coverage": DocumentContext(
