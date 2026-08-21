@@ -342,16 +342,22 @@ class GraphStoreSink:
     async def record_interaction(
         self, page_key: str, path: str, action: str, value: str, resulting_url: str,
         step: Optional[VisitStep] = None,
+        blocked: bool = False, blocked_reason: str = "",
     ) -> None:
         """One call per *attempted* interaction, success or failure.
         `step` places it in its visit's sequence - see `VisitStep`.
+        `blocked`/`blocked_reason` carry the mode-gate handler having
+        intercepted a mutating request this interaction tried to fire, in
+        `immutable` mode - `PageVisitor.visit` derives them from the same
+        `PageState.blocked_mutations` `record_component_network` reads its
+        requests from. Issue #62.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_interaction
         """
         write_path, source_path = self._resolve_write_path(page_key, path)
         await self._write(
             self.graph_store.record_component_interaction, page_key, write_path,
             action=action, value=value, resulting_url=resulting_url, source_path=source_path,
-            step=step,
+            step=step, blocked=blocked, blocked_reason=blocked_reason,
         )
 
     async def record_component_network(

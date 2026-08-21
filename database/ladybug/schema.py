@@ -110,7 +110,9 @@ CREATE NODE TABLE IF NOT EXISTS Interaction(
     value STRING DEFAULT '',
     source_path STRING DEFAULT '',
     visit_id STRING DEFAULT '',
-    step_seq INT64 DEFAULT 0);
+    step_seq INT64 DEFAULT 0,
+    blocked BOOLEAN DEFAULT false,
+    blocked_reason STRING DEFAULT '');
 
 CREATE NODE TABLE IF NOT EXISTS TextContent(
     id STRING PRIMARY KEY,
@@ -164,6 +166,16 @@ CREATE NODE TABLE IF NOT EXISTS StateStyle(
     property STRING DEFAULT '',
     value STRING DEFAULT '');
 """
+# Interaction.blocked/blocked_reason: set when the mode-gate handler
+# (spiders/browser/crawl4ai_crawler/hooks.py's `_route_gate`) intercepted
+# at least one mutating request this interaction tried to fire, in
+# `immutable` mode. A blocked mutation never reaches the network layer,
+# so it produces no `Request` node and no `TRIGGERED` edge - these two
+# scalar columns on `Interaction` itself carry the fact and its reason
+# (the blocked method(s), e.g. `"POST"`) instead of forcing a phantom
+# `Request`/`TRIGGERED` pair for a call that never happened. Decided by
+# "Research Ladybug schema for blocked-mutation recording" (issue #59).
+#
 # Container: direct containment only, not the transitive closure the
 # retired DuckDB backend's `containment` table stored (one row per
 # (component, ancestor) pair at every depth, its largest table by far) -

@@ -142,6 +142,13 @@ what worked. `resulting_url` is `""` for a failed interaction (nothing to
 report) or a same-page one (no navigation). Redirects through
 `_resolve_write_path` first - see above.
 
+`blocked`/`blocked_reason` (default `False`/`""`) carry the mode-gate
+handler having intercepted a mutating request this interaction tried to
+fire, in `immutable` mode. `PageVisitor.visit` derives them via
+`_blocked_summary` from `PageState.blocked_mutations`, the same call it
+already reads `network_requests` from - a failed interaction never
+supplies them (nothing ran to be blocked). Issue #62.
+
 ## record_component_network
 
 One call per interaction that triggered ≥1 meaningful (xhr/fetch) network

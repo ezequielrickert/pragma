@@ -77,12 +77,13 @@ def mutation_tracking_fixture_server():
     thread.join()
 
 
-async def _create_and_delete(base_url: str, mode: str) -> None:
+async def _create_and_delete(base_url: str, mode: str) -> tuple:
     url = f"{base_url}/mutation_response_handling.html"
     async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, mode=mode)) as crawler:
         await crawler.discover_page(url, session_id="s")
-        await crawler.click(url, "s", "#createForm button[type=submit]")
-        await crawler.click(url, "s", "#deleteButton")
+        create_state = await crawler.click(url, "s", "#createForm button[type=submit]")
+        delete_state = await crawler.click(url, "s", "#deleteButton")
+    return create_state, delete_state
 
 
 def test_stateful_mode_lets_mutating_requests_reach_the_network(mutation_tracking_fixture_server):
@@ -113,6 +114,28 @@ def test_immutable_mode_still_serves_ordinary_get_requests(mutation_tracking_fix
 
     assert any(method == "GET" and path.endswith("mutation_response_handling.html")
                for method, path in requests_seen)
+
+
+def test_immutable_mode_reports_each_block_on_its_own_click_result(mutation_tracking_fixture_server):
+    """`PageState.blocked_mutations` (issue #62's link into the graph-store
+    write path) has to name the interaction that caused it, not just that
+    a block happened somewhere this crawl - the create click's block must
+    read POST, the delete click's DELETE, never pooled together."""
+    base_url, _requests_seen = mutation_tracking_fixture_server
+
+    create_state, delete_state = asyncio.run(_create_and_delete(base_url, mode="immutable"))
+
+    assert [m["method"] for m in create_state.blocked_mutations] == ["POST"]
+    assert [m["method"] for m in delete_state.blocked_mutations] == ["DELETE"]
+
+
+def test_stateful_mode_reports_no_blocked_mutations(mutation_tracking_fixture_server):
+    base_url, _requests_seen = mutation_tracking_fixture_server
+
+    create_state, delete_state = asyncio.run(_create_and_delete(base_url, mode="stateful"))
+
+    assert create_state.blocked_mutations == []
+    assert delete_state.blocked_mutations == []
 
 
 def test_immutable_mode_blocks_mutating_get_requests(mutation_tracking_fixture_server):

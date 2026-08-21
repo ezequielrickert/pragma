@@ -51,6 +51,38 @@ from .writer import LadybugWriter
 _DEFAULT_DIRECTORY = "data/sites"
 
 
+# `CREATE ... IF NOT EXISTS` (DDL, replayed every connect) is a no-op for a
+# table that already exists on disk - it never adds a column an older
+# `.lbdb` file's `Interaction` table was created without. This is the one-
+# time schema-evolution step "Research Ladybug schema for blocked-mutation
+# recording" (issue #59) found this repo has no precedent for: an ordinary
+# `ALTER TABLE ... ADD` per new column, guarded against re-running against a
+# database that already has it. Kùzu's own `ALTER TABLE ADD` backfills every
+# existing row with the column's `DEFAULT`, so a row written before this
+# migration and one written after both read identically once it has run.
+_INTERACTION_BLOCKED_MIGRATION = (
+    "ALTER TABLE Interaction ADD blocked BOOLEAN DEFAULT false",
+    "ALTER TABLE Interaction ADD blocked_reason STRING DEFAULT ''",
+)
+
+
+def _migrate_interaction_blocked_columns(conn) -> None:
+    """Add `Interaction.blocked`/`blocked_reason` to a database opened
+    before issue #62 - a no-op (confirmed against the real engine: re-
+    adding an existing column raises a `RuntimeError` naming it, "already
+    has property", not a no-op) for one already carrying them, whether
+    from a prior run of this same migration or because `DDL` itself
+    created the table fresh just above.
+    Details: docs/dev/database/ladybug/store.md#_migrate_interaction_blocked_columns
+    """
+    for statement in _INTERACTION_BLOCKED_MIGRATION:
+        try:
+            conn.execute(statement)
+        except RuntimeError as exc:
+            if "already has property" not in str(exc):
+                raise
+
+
 def _resolve_path(directory: Optional[str], site: str) -> str:
     """Where this site's database lives - `<directory>/<slug(site)>.lbdb`,
     or Ladybug's own in-memory sentinel (`""`) when `directory` is `None`.
@@ -112,6 +144,7 @@ class LadybugGraphStore(
             return
         self._writer = LadybugWriter(self.path)
         self._writer.call(lambda conn: conn.execute(DDL))
+        self._writer.call(_migrate_interaction_blocked_columns)
         self._touch_site()
 
     def _touch_site(self) -> None:

@@ -108,6 +108,20 @@ Consume and return `session_id`'s stashed extraction, or `{}` if nothing
 was ever stashed for it (a navigation/interaction that failed before its
 hook ran).
 
+## _blocked_mutations
+
+`session_id -> [{"method", "url"}]`: mutations `_route_gate` blocked for
+that session since the last time they were consumed. One page (and one
+`session_id`) per Playwright route handler, so this is what lets a
+request the network layer never saw be attributed back to the
+interaction that tried to fire it - `_route_gate` has no other way to
+reach the click/fill that triggered a given request. Consumed the same
+pop-not-peek way `_stash` is: `on_execution_ended` pops it into
+`data["blocked_mutations"]` so a block belongs to exactly the one
+interaction that caused it, and `before_retrieve_html` discards (not
+stashes) whatever accumulated during page load, since discovery has no
+interaction of its own to attribute a block to. Issue #62.
+
 ## log_only_hook
 
 Build a hook callback that only logs to `self.debug_log`, for the
@@ -152,13 +166,22 @@ navigator-overrider/shadow-DOM hooks already use on `context`, to avoid
 stacking a duplicate `page.route()` handler on every single interaction
 against an already-routed, reused page.
 
+`_route_gate` is bound via `functools.partial(self._route_gate,
+session_id=config.session_id)` at install time, not read off `route`
+itself - a Playwright `Route`/`Request` carries no `session_id` of its
+own, only the page/frame that issued it, and one page belongs to exactly
+one session for this crawler's whole lifetime, so capturing it once here
+is enough for `_route_gate` to attribute a blocked mutation to the right
+session's `_blocked_mutations` entry (issue #62).
+
 ## _route_gate
 
 The one `page.route("**/*", ...)` handler this crawler installs, composing
 every per-request policy in priority order: media blocking first (`_is_blocked_media_request`
 - an outright network-cost cut, independent of `mode`), then the
 `immutable`-mode mutation gate (`_is_blocked_mutation`). A blocked mutation
-gets `route.fulfill(status=200, ...)` with `_mode_gate_fulfill_body`
+is recorded onto `_blocked_mutations[session_id]` (issue #62) before it gets
+`route.fulfill(status=200, ...)` with `_mode_gate_fulfill_body`
 (above) instead of `route.abort()` - the request must read as a normal
 *success* to the page's own JS, not a network failure, so the crawl keeps
 interacting with the rest of the page instead of the page falling into
@@ -231,6 +254,14 @@ all of that, after `js_code` has actually run, and nothing ever reads
 this hook's stash write for a `js_only` call before `on_execution_ended`
 overwrites it moments later within the same `arun()` call.
 
+On the plain-navigation path this hook doesn't skip (a `discover_page`
+call, not `_interact`), it also pops and discards
+`_blocked_mutations[session_id]`. Discovery calls
+`record_component_interaction` for nothing (only a click/fill does), so a
+mutation blocked during page load has no interaction to attribute to -
+left in place instead, it would get misattributed to whatever click
+happens to run next. Issue #62.
+
 ## on_execution_ended
 
 Discovery point for the interaction-followup case: fires immediately
@@ -268,6 +299,16 @@ clicks/fills from the *same* pass, each evaluated against selectors that
 belonged to a page no longer there - confirmed to cascade into "element
 not found" errors on every subsequent component in that pass, not just
 the one that actually navigated.
+
+Also pops `_blocked_mutations[session_id]` (not peeks) into
+`data["blocked_mutations"]` - the mutations `_route_gate` blocked while
+this click/fill's own `js_code` ran. Popped rather than left in place for
+the same reason `_stash` itself is consumed via `pop()`: a block belongs
+to the one interaction that triggered it, and leaving it behind would
+attribute it to whatever this session's next click happens to be instead.
+`PageState.blocked_mutations` (`page_state.py::build_page_state`) is
+where a caller outside this module reads it - see
+`docs/dev/core/data_contracts.md#pagestateblocked_mutations`. Issue #62.
 
 ## on_execution_ended-navigation-retry
 

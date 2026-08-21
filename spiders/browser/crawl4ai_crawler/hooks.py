@@ -7,7 +7,8 @@ Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#module
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+import functools
+from typing import Any, Dict, List
 
 from ...content.accessibility_snapshot import capture_accessibility_snapshot
 from ...content.page_extraction import run_extraction
@@ -58,6 +59,13 @@ class HookHandlers:
         # session_id -> extraction dict, populated by whichever hook last ran.
         # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_stash
         self._stash: Dict[str, Dict[str, Any]] = {}
+        # session_id -> mutations `_route_gate` blocked since the last time
+        # this session's stash was popped - one page (and one session_id)
+        # per Playwright route handler, so this is what lets a request the
+        # network layer never saw be attributed back to the interaction
+        # that tried to fire it. Issue #62.
+        # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#_blocked_mutations
+        self._blocked_mutations: Dict[str, List[Dict[str, str]]] = {}
 
     def pop(self, session_id: str) -> Dict[str, Any]:
         """Consume and return `session_id`'s stashed extraction, or `{}`.
@@ -84,10 +92,18 @@ class HookHandlers:
         one handler either way: Playwright only reliably chains one active
         router per pattern scope, so media-blocking and the mode-gate can't
         be two competing `page.route("**/*", ...)` calls.
+
+        Bound with `config.session_id` baked in via `functools.partial`,
+        not read off `route` itself - a `Route`/`Request` carries no
+        session_id of its own, only the page/frame that issued it, and one
+        page belongs to exactly one session for this crawler's whole
+        lifetime, so capturing it once here is enough to attribute a
+        blocked mutation back to the interaction that tried to fire it.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#on_page_context_created
         """
         if not getattr(page, "_pragma_route_gate_installed", False):
-            await page.route("**/*", self._route_gate)
+            session_id = config.session_id or "default"
+            await page.route("**/*", functools.partial(self._route_gate, session_id=session_id))
             page._pragma_route_gate_installed = True
         if self.interaction_timeout_seconds is not None:
             # Changes Playwright's own no-explicit-timeout fallback.
@@ -101,7 +117,7 @@ class HookHandlers:
             )
         return page
 
-    async def _route_gate(self, route) -> None:
+    async def _route_gate(self, route, session_id: str) -> None:
         """The one `page.route("**/*", ...)` handler this crawler installs,
         composing every per-request policy in priority order: media
         blocking first (an outright network-cost cut, independent of
@@ -111,6 +127,9 @@ class HookHandlers:
         if self._is_blocked_media_request(route):
             await route.abort()
         elif self._is_blocked_mutation(route):
+            self._blocked_mutations.setdefault(session_id, []).append(
+                {"method": route.request.method, "url": route.request.url}
+            )
             await route.fulfill(
                 status=200, content_type="application/json", body=_MODE_GATE_FULFILL_BODY
             )
@@ -183,6 +202,11 @@ class HookHandlers:
             return page
         await _wait_for_new_content(page, self.wait_seconds)
         session_id = config.session_id or "default"
+        # Discovery has no interaction of its own to attribute a block to
+        # (record_component_interaction is only ever called for a click/
+        # fill) - discard rather than let a page-load-time block leak
+        # forward and get misattributed to whichever click happens next.
+        self._blocked_mutations.pop(session_id, None)
         data = await run_extraction(page)
         data = await self._retry_empty_extraction(page, data)
         # Once per discovery, not per interaction - ADR-0003's snapshot
@@ -246,6 +270,11 @@ class HookHandlers:
                 }
             )
         data["action_result"] = action_result
+        # Popped, not peeked - a mutation `_route_gate` blocks belongs to
+        # the one interaction that triggered it; leaving it in place would
+        # re-attribute it to whatever this session's next click happens to
+        # be. Issue #62.
+        data["blocked_mutations"] = self._blocked_mutations.pop(session_id, [])
         self._stash[session_id] = data
         if self.debug_log:
             self.debug_log.log_hook(
@@ -256,5 +285,6 @@ class HookHandlers:
                 navigated=action_result.get("navigated", False),
                 error=action_result.get("error", ""),
                 components=len(data["components"]),
+                blocked_mutations=len(data["blocked_mutations"]),
             )
         return page

@@ -23,3 +23,9 @@ specifically to capture JS-driven navigation - see
 
 Shared `PageState`-assembly logic, factored out of `discover_page`'s and
 `_interact`'s own near-identical bodies into one function both call.
+
+`blocked_mutations` is read straight off `data`, not filtered or
+reshaped here the way `network_requests` is - `HookHandlers.
+on_execution_ended` already popped exactly the right session's list
+before stashing it (see `hooks.md#_blocked_mutations`), so this function
+has nothing left to do but pass it through.

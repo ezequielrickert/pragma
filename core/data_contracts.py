@@ -30,6 +30,12 @@ class PageState:
     # Meaningful (xhr/fetch) requests triggered by the interaction, if any.
     # Details: docs/dev/core/interfaces.md#pagestatenetwork_requests
     network_requests: List[Dict[str, Any]] = field(default_factory=list)
+    # Mutating requests (method-based or GET-heuristic-based) the mode-gate
+    # handler intercepted and fulfilled synthetically instead of letting
+    # reach the network, in `immutable` mode - `[{"method", "url"}]`. `[]`
+    # in `stateful` mode, or for a backend that has no mode-gate at all.
+    # Details: docs/dev/core/data_contracts.md#pagestateblocked_mutations
+    blocked_mutations: List[Dict[str, str]] = field(default_factory=list)
     # Non-interactive prose, captured once per page visit alongside components.
     # Details: docs/dev/core/interfaces.md#pagestatetext_content
     text_content: List[Dict[str, Any]] = field(default_factory=list)
