@@ -7,10 +7,9 @@ as a single vendorable static asset, one `<script>`/`<link>` tag, no
 Node.js toolchain to *use* it; actively maintained; saves meaningfully
 more effort than the generic template):
 
-- `openapi` -> **Redoc** (`redoc.standalone.js`). The exact reference
-  case ADR-0016 point 2 names by name - real, single-script, actively
-  maintained. Wired in ticket #124, not here; this audit only records
-  the verdict.
+- `openapi` -> **Redoc** (`dashboard/redoc_renderer.py`, ticket #124).
+  The exact reference case ADR-0016 point 2 names by name - real,
+  single-script, actively maintained.
 - Every other document -> **generic**. Checked each real external
   standard this map adopted for a matching single-script embed and
   found none that clears the bar without a Node build step: FINOS
@@ -40,9 +39,9 @@ from __future__ import annotations
 from typing import Dict
 
 # {DOCUMENT_REGISTRY name: renderer verdict}. "generic" means the shared
-# template in dashboard/generic_template.py; any other value names the
-# dedicated renderer (only "redoc" exists today, wired in ticket #124).
-# A name absent here - asyncapi/i18n-inventory/browser-support-matrix -
+# template in dashboard/generic_template.py; "redoc" means
+# dashboard/redoc_renderer.py (the only dedicated renderer today). A
+# name absent here - asyncapi/i18n-inventory/browser-support-matrix -
 # never produces a file to render at all; see the module docstring.
 RENDERER_BY_NAME: Dict[str, str] = {
     "accessibility": "generic",
