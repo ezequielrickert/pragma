@@ -38,6 +38,7 @@ from html import escape
 import yaml
 
 from core.documents import ProducedDocument
+from .document_context import render_context_section
 
 _REDOC_SCRIPT = "https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"
 
@@ -50,6 +51,9 @@ body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; backgrou
 .header .breadcrumb a { color: var(--text-dim); }
 .header h1 { margin: 0 0 2px; font-size: 18px; }
 .header .purpose { margin: 0; color: var(--text-dim); font-size: 13px; }
+.context { margin: 12px 0 0; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.context h2 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; color: var(--text-dim); }
+.context .example { margin: 8px 0 0; padding: 10px; background: var(--bg); border-radius: 6px; font-size: 12px; overflow-x: auto; }
 """
 
 
@@ -70,7 +74,8 @@ def render_redoc_page(document: ProducedDocument, content: str) -> str:
         f'<div class="header"><div class="breadcrumb">'
         f'<a href="../concern/{escape(document.name)}.html">&larr; {escape(document.title)}</a></div>'
         f'<h1>{escape(document.title)}</h1>'
-        f'<p class="purpose">{escape(document.purpose)}</p></div>'
+        f'<p class="purpose">{escape(document.purpose)}</p>'
+        f"{render_context_section(document)}</div>"
         f'<div id="redoc-container"></div>'
         f'<script id="spec-data" type="application/json">{spec_json}</script>'
         f'<script src="{_REDOC_SCRIPT}"></script>'
