@@ -41,3 +41,18 @@ python3 cli.py https://example.com
 #juli:
 python cli.py https://example.com
 ```
+
+Documents + dashboard, once a site is crawled:
+
+```bash
+# One shot: crawl + cluster + interact + generate every document, dashboard included.
+python cli.py https://example.com
+
+# Or, if a site is already crawled (data/sites/<slug>.lbdb exists), regenerate just the
+# documents/dashboard without re-crawling - faster when only generator code changed.
+python cli.py docs <slug>
+
+# Either way, the dashboard always lands at <out_dir>/dashboard/index.html (out_dir
+# defaults to data/output, override with --out). Static HTML - open it directly in a
+# browser, no server needed.
+```

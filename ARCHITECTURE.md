@@ -304,17 +304,45 @@ banner on every generated document:
 
 Documents are plugins, resolved by name from `PragmaConfig.documents` through
 `DOCUMENT_REGISTRY` — the same registry pattern as agents and graph stores. Each implements
-`DocumentGenerator` (`core/documents.py`): declare `name`/`title`/`purpose`/`extension`,
-implement `generate(request) -> str`, never touch the filesystem.
+`DocumentGenerator` (`core/documents.py`): declare `name`/`title`/`purpose`, implement
+`generate(request) -> Tuple[DocumentOutput, ...]`, never touch the filesystem. A generator
+returns one `DocumentOutput` per file it produces (most emit one; some, like `custom_elements.py`,
+emit a `kind="source"` machine-readable file alongside a `kind="view"` rendered Markdown one) —
+the multi-file/kind-tagged contract this map's first ticket (#95) redesigned so a generator could
+own a source-plus-view pair without a second registry entry.
 
 `generators/pipeline.py` runs them, prepends the crawl-coverage banner to every Markdown
 document, writes each file, and closes with the master "Start Here" document — which indexes
 whatever was produced and is the only generator that reads other generators' output rather than
 the graph. A generator that raises is logged and skipped: one failed document must not cost a
-twenty-minute crawl its other eight.
+twenty-minute crawl its other twenty-eight.
 
 Adding a document is a new module in `generators/`, one `@DOCUMENT_REGISTRY.register(...)`
 class, one import in `core/bootstrap.py`, and its name in config. `Engine` does not change.
+
+Roughly thirty documents exist today, each locked to an ADR under `docs/adr/` (coverage, the
+JSON-LD graph export, the ARIA/AXTree component tree, OpenAPI, design tokens, the Custom Elements
+catalog, architecture as CALM + CycloneDX, the data model, requirements, usability and
+accessibility findings as EARL/SARIF, Gherkin scenarios, XState/Arazzo flows, `llms.txt`, an
+evidence log, AsyncAPI, a change log, a glossary, a redaction log, a test plan, ADRs-as-documents,
+a risk register, a content inventory, a performance baseline, an i18n inventory, a browser-support
+matrix, and a confidence-summary rollup across the others) — see `docs/dev/generators/` for what
+each one actually does, and `docs/adr/0001` onward for why it looks the way it does.
+
+## The Dashboard
+
+`dashboard/` (ADR-0016) turns that document set into one static site a reviewer opens directly —
+no server, no Node build, works equally for a human and for Claude Code reading files. A landing
+page (`dashboard/shell.py::build_dashboard`) carries the navigation: KPI tiles sourced from
+whatever's already real for the run (never recomputed), then one card per document-generator
+"concern," each linking to a detail page listing that concern's own outputs, each in turn linking
+to a per-document render. Rendering is a best-fit lookup (`dashboard/renderer_audit.py`): a
+document gets a dedicated renderer only when a real, actively-maintained, single-vendorable-asset
+viewer exists for its format (today, only `openapi.yaml` does, via Redoc,
+`dashboard/redoc_renderer.py`) — everything else falls back to `dashboard/generic_template.py`'s
+uniform `<pre>` block. `build_dashboard` stays pure; `write_dashboard` is the one impure entry
+point, wired into both `core/docs_engine.py::run()` and `core/engine.py::run()`, so every real run
+produces one at `<out_dir>/dashboard/index.html`.
 
 ---
 
@@ -385,6 +413,10 @@ new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent
   that runs them, and the pure helpers they share - `component_classifier.py` and
   `component_family.py` (deterministic classification and clustering, no LLM or browser
   dependency), `ledger.py`, `traces.py`, `coverage.py`.
+- **`dashboard/`**: the static site that stitches every document into one browsable entry point
+  (see "The Dashboard") - `shell.py` (landing/concern/document pages), `renderer_audit.py` (which
+  document gets a dedicated renderer), `generic_template.py` and `redoc_renderer.py` (the
+  renderers themselves).
 - **`utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
 - **`docs/`**: Every generated document for every run, plus `index.md`/`runs.json` (the browsable
   run manifest) and `dev/` (the per-module developer notes every `Details:` docstring line points
