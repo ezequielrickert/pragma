@@ -26,6 +26,15 @@ _BOM_FORMAT = "CycloneDX"
 _PROPERTY_SOURCE = "pragma:evidence:source"
 _PROPERTY_OBSERVATION_COUNT = "pragma:evidence:observationCount"
 _PROPERTY_HAR_REQUEST_ID = "pragma:evidence:harRequestId"
+# Reserved for `risk-register.json` (docs/adr/0024 point 1): this crawl
+# captures no HTTP response headers at all yet - the same reserved-field
+# precedent `_PROPERTY_HAR_REQUEST_ID` already set. Once a header-capture
+# pass exists, this carries a comma-separated list of the response header
+# *names* actually observed on this service (never full header values -
+# an information-disclosure header's own name is the risk signal, not
+# its contents). Public (not `_`-prefixed): `generators/risk_register.py`
+# reads this exact key off `architecture.cyclonedx.json`'s own properties.
+DISCLOSED_HEADERS_PROPERTY = "pragma:evidence:disclosedHeaders"
 
 
 def hosts_by_traffic(integrations: Sequence[Dict[str, Any]]) -> List[Tuple[str, int, int]]:
@@ -59,6 +68,9 @@ def _external_service(host: str, calls: int, endpoint_count: int) -> Dict[str, A
             # Reserved: this crawl captures no HAR entries with a stable
             # per-request id yet (docs/adr/0001's reserved-field pattern).
             {"name": _PROPERTY_HAR_REQUEST_ID, "value": ""},
+            # Reserved: no response-header capture exists yet - see the
+            # constant's own comment above.
+            {"name": DISCLOSED_HEADERS_PROPERTY, "value": ""},
         ],
     }
 
