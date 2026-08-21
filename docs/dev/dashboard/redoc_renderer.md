@@ -27,3 +27,5 @@ dict (`yaml`, already a project dependency) and re-embedded as a
 
 Same signature/style as `generic_template.render_generic_page` -
 `content` is the caller-supplied raw text, never read from disk here.
+Carries the same breadcrumb back to `../concern/{document.name}.html`
+(ticket #143) that `render_generic_page` does.

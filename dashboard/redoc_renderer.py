@@ -46,6 +46,8 @@ _STYLE = """
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
 .header { padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.header .breadcrumb { color: var(--text-dim); font-size: 13px; margin-bottom: 8px; }
+.header .breadcrumb a { color: var(--text-dim); }
 .header h1 { margin: 0 0 2px; font-size: 18px; }
 .header .purpose { margin: 0; color: var(--text-dim); font-size: 13px; }
 """
@@ -55,7 +57,9 @@ def render_redoc_page(document: ProducedDocument, content: str) -> str:
     """One self-contained static HTML page for `document`, rendered
     through Redoc - `content` is `openapi.yaml`'s raw YAML text, already
     read by the caller, parsed here into the JSON object Redoc's own
-    `init()` API takes.
+    `init()` API takes. The breadcrumb back to the document's own
+    concern page uses `document.name`/`.title` directly, the same pair
+    `dashboard/shell.py` groups documents by concern with.
     Details: docs/dev/dashboard/redoc_renderer.md#render_redoc_page
     """
     spec_json = json.dumps(yaml.safe_load(content))
@@ -63,7 +67,9 @@ def render_redoc_page(document: ProducedDocument, content: str) -> str:
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(document.title)}</title>'
         f"<style>{_STYLE}</style></head><body>"
-        f'<div class="header"><h1>{escape(document.title)}</h1>'
+        f'<div class="header"><div class="breadcrumb">'
+        f'<a href="../concern/{escape(document.name)}.html">&larr; {escape(document.title)}</a></div>'
+        f'<h1>{escape(document.title)}</h1>'
         f'<p class="purpose">{escape(document.purpose)}</p></div>'
         f'<div id="redoc-container"></div>'
         f'<script id="spec-data" type="application/json">{spec_json}</script>'

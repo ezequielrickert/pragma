@@ -65,6 +65,14 @@ def test_redoc_init_is_called_with_the_container_element():
     assert 'id="redoc-container"' in html
 
 
+def test_the_breadcrumb_links_back_to_the_documents_own_concern_page():
+    _, content = _real_openapi_yaml()
+
+    html = render_redoc_page(_document(), content)
+
+    assert '<a href="../concern/openapi.html">&larr; API Contract</a>' in html
+
+
 def test_title_and_purpose_are_rendered_and_escaped():
     document = ProducedDocument(
         name="openapi", title="API <Contract>", purpose="Spec & docs.", path="/out/x.yaml",
