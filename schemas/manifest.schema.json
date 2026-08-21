@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/manifest.schema.json",
+  "title": "Run manifest",
+  "description": "docs/adr/0015 point 2: one entry per registered document. status='on' entries describe a real file this run wrote (path/kind/checksum, format where known); status='off' entries name a registered document this run's config left out, with no file to describe. status is never a second, hand-maintained flag - it mirrors request.produced at generation time.",
+  "type": "object",
+  "required": ["documents"],
+  "properties": {
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["on", "off"] },
+          "path": { "type": "string" },
+          "kind": { "enum": ["source", "view", "rule-catalog", "projection"] },
+          "format": { "type": "string" },
+          "checksum": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        },
+        "if": { "properties": { "status": { "const": "on" } } },
+        "then": { "required": ["path", "kind", "checksum"] }
+      }
+    }
+  }
+}

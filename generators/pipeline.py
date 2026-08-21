@@ -77,7 +77,7 @@ def _write_document(
         produced.append(
             ProducedDocument(
                 name=generator.name, title=generator.title, purpose=generator.purpose,
-                path=path, kind=output.kind, checksum=checksum,
+                path=path, kind=output.kind, checksum=checksum, filename=output.filename,
             )
         )
     return produced

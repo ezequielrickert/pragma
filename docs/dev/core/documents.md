@@ -57,6 +57,16 @@ heard of, at the cost of no type checking on the key. The alternative -
 a typed field per document-specific setting - would put every document's
 tuning knobs in a shared class that most documents ignore.
 
+## ProducedDocument.filename
+
+Added in ticket #109 (docs/adr/0015): the raw `DocumentOutput.filename` a
+generator passed in, before `DocumentNaming.path_for` wraps it with the
+run's slug and timestamp. `manifest.json`/`llms.txt` need this stable
+identifier to key their own lookups on (a document's external-standard
+`format`, its place in the resolution order) - `path` alone can't be
+reliably reversed back into it, since both the slug and the filename can
+contain `_`/`.`.
+
 ## DocumentRequest.produced
 
 Empty for every ordinary generator and filled only for the master

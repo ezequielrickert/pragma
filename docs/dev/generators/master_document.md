@@ -19,6 +19,13 @@ contradiction waiting to happen, and the reader has no way to know which
 one is authoritative. This document answers a different question, "which
 file do I open", and that question has a deterministic answer.
 
+**docs/adr/0015, ticket #109.** `MasterDocument` now writes three files
+instead of one - `master.md` (the index above, unchanged), `llms.txt`
+(the same index, shaped for llmstxt.org's own convention), and
+`manifest.json` (one entry per registered document, on or off, with a
+real checksum for every file this run actually wrote). All three read
+`request.produced`, never a second, independently-maintained list.
+
 ## MasterDocument
 
 **Why it is not registered in `DOCUMENT_REGISTRY`.** Registering it would
@@ -59,3 +66,34 @@ images-blocked crawl and are reported; absolute ones do not.
 this note disappear on its own, rather than leaving behind a claim someone
 has to remember to delete. See `research/plan-segunda-ronda-de-documentos.md`
 B2, where not reviving it was the recommendation rather than an oversight.
+
+## _llms_section
+
+`kind in ("rule-catalog", "projection")` before `kind == "view"`: a
+projection is exactly the case docs/adr/0015 point 1 names by example
+(`usability.sarif.json`, `architecture.cyclonedx.json`) as belonging in
+`## Optional` despite the ADR's own top-line wording for `## Source
+Documents` also mentioning "projection" - the concrete named examples are
+what actually pins the rule, not the summary sentence above them.
+
+## _render_llms_txt
+
+Ordered within each section by `_resolution_rank(document.name)` (the
+*registry* name - `"flows"`, not a specific output's own `"flows.xstate"`
+`filename`), `document.filename` only as the tiebreaker for a generator
+with more than one file in the same section. Sorting by `filename`
+instead would scatter a multi-output generator's own files across the
+resolution order essentially at random, since names like `"flows.xstate"`
+and `"tree.aria"` aren't in ADR-0015's own list at all - only the bare
+registry names are.
+
+## _build_manifest
+
+Every registered name (`DOCUMENT_REGISTRY.names()`) gets an entry -
+`status: "on"` when it's in `request.produced` this run, `"off"`
+otherwise. An "off" entry carries only `name`/`status`: `path`/`kind`/
+`checksum` describe a real file, and this run wrote none for it - not
+even a best-guess `kind` from `_FORMAT_BY_FILENAME`, since that table
+describes a *file*, and a document that never ran produced none. `master`
+itself is never in `DOCUMENT_REGISTRY` (see `MasterDocument` above), so
+it never appears in its own manifest either.
