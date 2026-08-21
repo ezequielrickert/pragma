@@ -379,3 +379,37 @@ class _LadybugNetworkMixin:
             return [(step_seq, endpoint_id) for step_seq, endpoint_id in rows]
 
         return self._call(op)
+
+    def get_request_evidence(self) -> List[Dict[str, Any]]:
+        """Every `Request` node, its own auto-increment `id` (`har:<id>`,
+        ADR-0017) plus enough context for a one-line summary.
+
+        `Endpoint` is an `OPTIONAL MATCH` rather than the `first_party:
+        true` filter `get_inferred_requests`/`get_endpoint_discovery_sequence`
+        both apply: a third-party request never gets a `Request` node at
+        all today (`record_page_network`/`record_component_network` only
+        merge a third-party `Endpoint`, never `CREATE (req:Request)`), so
+        every row this returns currently does resolve to one - but this
+        method's own job is "index whatever was captured," not "assume
+        today's write path never changes," so it doesn't hard-code that
+        coincidence into a required join.
+        Details: docs/dev/database/ladybug/network.md#get_request_evidence
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                """
+                MATCH (r:Request)
+                OPTIONAL MATCH (r)-[:CALLS]->(e:Endpoint)
+                RETURN r.id, r.method, r.path, r.status, e.host, e.path_pattern
+                ORDER BY r.id
+                """
+            )
+            return [
+                {
+                    "id": row[0], "method": row[1], "path": row[2], "status": row[3],
+                    "host": row[4], "path_pattern": row[5],
+                }
+                for row in rows
+            ]
+
+        return self._call(op)

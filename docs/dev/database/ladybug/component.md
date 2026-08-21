@@ -83,6 +83,17 @@ components exist versus how many were actually clicked/filled, the two
 numbers a reader needs to judge how thorough the crawl's interaction pass
 was, not just its page coverage.
 
+## get_interaction_evidence
+
+Added for ticket #110 (docs/adr/0017): `evidence-log.jsonl`'s
+`interaction:<id>` rows. Non-optional `MATCH` through
+`Component-[:PERFORMED]->Interaction`, the same shape
+`get_component_ledger`'s own `interaction_rows` query already uses - a
+`record_component_interaction` write always creates both the `Interaction`
+node and its `PERFORMED` edge together, so an orphaned `Interaction`
+would be a real graph-write bug, not a case this method needs to degrade
+gracefully for.
+
 ## get_component_ledger
 
 The whole-site per-component record: `{page_url: {path: record}}`, each record

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/evidence-log.schema.json",
+  "title": "Evidence log",
+  "description": "docs/adr/0017: one row per interaction:<id>/har:<id> evidence citation another document's derived_from field could reference - the row list validated here, before JSONL line-serialization (evidence-log.jsonl is one JSON object per line, not one JSON array). screenshot is a reserved kind: present in this enum, never actually emitted - no screenshot-capture instrumentation exists yet.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "kind", "run_id", "summary"],
+    "properties": {
+      "id": { "type": "string", "pattern": "^(interaction|har|screenshot):" },
+      "kind": { "enum": ["interaction", "har", "screenshot"] },
+      "run_id": { "type": "string" },
+      "summary": { "type": "string" }
+    }
+  }
+}

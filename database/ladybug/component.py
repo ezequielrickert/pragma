@@ -266,6 +266,29 @@ class _LadybugComponentMixin:
 
         return self._call(op)
 
+    def get_interaction_evidence(self) -> List[Dict[str, Any]]:
+        """Every `Interaction` node, its own auto-increment `id`
+        (`interaction:<id>`, ADR-0017) plus enough context for a one-line
+        summary - the page/component it happened on, the action, the
+        value. `evidence-log.jsonl` is what makes this citation resolvable
+        to anyone reading `derived_from` from outside the graph.
+        Details: docs/dev/database/ladybug/component.md#get_interaction_evidence
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                """
+                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)
+                RETURN i.id, p.url, c.path, i.action, i.value
+                ORDER BY i.id
+                """
+            )
+            return [
+                {"id": row[0], "page_url": row[1], "path": row[2], "action": row[3], "value": row[4]}
+                for row in rows
+            ]
+
+        return self._call(op)
+
     def get_component_ledger(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Full per-component record for the whole site, `{page_url:
         {path: record}}`, each record carrying its own ordered
