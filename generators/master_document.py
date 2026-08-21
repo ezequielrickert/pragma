@@ -67,6 +67,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "flows.xstate": "XState v5",
     "flows.arazzo": "Arazzo 1.1.0",
     "gherkin": "Gherkin",
+    "evidence-log": "JSON Lines",
 }
 
 

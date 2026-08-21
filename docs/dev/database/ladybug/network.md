@@ -139,6 +139,18 @@ own discovery order, not sorted by endpoint - the curve's whole point is
 showing when new surface stopped appearing, which only means something
 against the order the crawl actually made the calls in.
 
+## get_request_evidence
+
+Added for ticket #110 (docs/adr/0017): `evidence-log.jsonl`'s `har:<id>`
+rows. `Endpoint` is an `OPTIONAL MATCH`, not the `first_party: true`
+filter `get_inferred_requests`/`get_endpoint_discovery_sequence` both
+apply - not because a real row without an `Endpoint` exists today
+(`record_page_network`/`record_component_network` only ever `CREATE
+(req:Request)` inside the first-party branch; a third-party observation
+never gets a `Request` node at all), but because this method's own job is
+indexing whatever was captured, not encoding today's write-path shape as
+a required join.
+
 ## get_page_network_ledger
 
 Per-page request list for the documents that describe a page rather than an

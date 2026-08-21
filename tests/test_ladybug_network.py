@@ -112,6 +112,24 @@ def test_component_network_request_with_no_matching_interaction_step_is_skipped(
 
     store.record_component_network("https://x/y", "button#go", [_request()])
 
+
+def test_get_request_evidence_carries_the_real_request_id_and_endpoint(store) -> None:
+    """`evidence-log.jsonl`'s `har:<id>` (ADR-0017) is Kùzu's own
+    `Request.id` - this is the one place that id becomes readable outside
+    a raw Cypher query."""
+    store.record_page_network("https://x/y", [_request(method="POST", path="/orders", status=201)])
+
+    (evidence,) = store.get_request_evidence()
+
+    assert isinstance(evidence["id"], int)
+    assert evidence["method"] == "POST"
+    assert evidence["path"] == "/orders"
+    assert evidence["status"] == 201
+
+
+def test_get_request_evidence_is_empty_without_requests(store) -> None:
+    assert store.get_request_evidence() == []
+
     assert _rows(store, "MATCH (r:Request) RETURN r.method") == []
 
 

@@ -115,6 +115,28 @@ def test_get_edges_reports_observation_count_and_run_provenance(store) -> None:
     ]
 
 
+def test_get_interaction_evidence_carries_the_real_interaction_id(store) -> None:
+    """`evidence-log.jsonl`'s `interaction:<id>` (ADR-0017) is Kùzu's own
+    `Interaction.id` - this is the one place that id becomes readable
+    outside a raw Cypher query."""
+    store.record_component("https://x/a", "input#q", text="Cupon")
+    store.record_component_interaction("https://x/a", "input#q", "fill", value="DESC10")
+
+    (evidence,) = store.get_interaction_evidence()
+
+    assert isinstance(evidence["id"], int)
+    assert evidence["page_url"] == "https://x/a"
+    assert evidence["path"] == "input#q"
+    assert evidence["action"] == "fill"
+    assert evidence["value"] == "DESC10"
+
+
+def test_get_interaction_evidence_is_empty_without_interactions(store) -> None:
+    store.record_component("https://x/a", "input#q")
+
+    assert store.get_interaction_evidence() == []
+
+
 def test_count_unexplored_components_counts_interacted_vs_total(store) -> None:
     store.record_component("https://x/a", "button#go")
     store.record_component("https://x/a", "a#skip")
