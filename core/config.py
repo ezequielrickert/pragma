@@ -132,7 +132,7 @@ class PragmaConfig:
     # order. The master document ("Start Here") always runs last and is
     # not listed here - it is the pipeline's closing step, not an optional
     # document. Details: docs/dev/core/config.md#documents
-    documents: List[str] = field(default_factory=lambda: ["coverage", "architecture", "risk-register", "prd", "decisions.adr", "tree", "openapi", "catalog", "tokens", "data-model", "flows", "usability", "accessibility", "gherkin", "test-plan", "evidence-log", "change-log", "glossary", "content-inventory", "redaction-log"])
+    documents: List[str] = field(default_factory=lambda: ["coverage", "architecture", "risk-register", "prd", "decisions.adr", "tree", "performance-baseline", "openapi", "catalog", "tokens", "data-model", "flows", "usability", "accessibility", "gherkin", "test-plan", "evidence-log", "change-log", "glossary", "content-inventory", "redaction-log"])
     # Component-tree rendering mode: Unicode box-drawing by default.
     # Details: docs/dev/core/config.md#tree_ascii
     tree_ascii: bool = False
