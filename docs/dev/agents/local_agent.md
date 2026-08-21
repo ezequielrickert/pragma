@@ -24,6 +24,15 @@ per-step structured action schema, which no longer exists (see
 fill-value (Phase 4) and synthesis (Phase 5) call sites, both plain
 text completions.
 
+## converse
+
+Real multi-turn chat (ADR-0033, ticket #149) - `_build_payload`/`_generate_request` were widened
+to take a full `messages` list rather than always synthesizing one from a single prompt +
+`system_instruction`, so `converse()` sends every turn as its own entry in the same
+OpenAI-compatible `messages[]` array `generate()` already built, just never with more than one
+user turn in it. `generate()` itself is unchanged behaviorally - it now wraps its single prompt
+into a one-message list before calling the same widened `_generate_request`.
+
 ## _raise_if_truncated
 
 Raise a clear, actionable error if the server cut the response off for

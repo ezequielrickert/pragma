@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -88,17 +88,30 @@ class LocalAgent(Agent):
     def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         """Generate content using the local API with fallback for system role."""
         try:
-            return self._generate_request(prompt, system_instruction)
+            return self._generate_request([{"role": "user", "content": prompt}], system_instruction)
         except RuntimeError as exc:
             if "Local API Error (400)" in str(exc) and system_instruction:
                 # Fallback: merge system instruction into the user prompt.
                 fallback_prompt = f"SYSTEM:\n{system_instruction}\n\nUSER:\n{prompt}"
-                return self._generate_request(fallback_prompt, None)
+                return self._generate_request([{"role": "user", "content": fallback_prompt}], None)
             raise
 
-    def _generate_request(self, prompt: str, system_instruction: Optional[str]) -> str:
-        """Internal helper to make the API request."""
-        payload = self._build_payload(prompt, system_instruction)
+    def converse(self, messages: List[Dict[str, str]], system_instruction: Optional[str] = None) -> str:
+        """Real multi-turn chat (ADR-0033, ticket #149): every entry of
+        `messages` rides in the request as its own turn, not collapsed
+        into one `generate()` call - what this same OpenAI-compatible
+        payload shape already supported, `generate()` alone just never
+        exercised it.
+        Details: docs/dev/agents/local_agent.md#converse
+        """
+        return self._generate_request(messages, system_instruction)
+
+    def _generate_request(self, messages: List[Dict[str, str]], system_instruction: Optional[str]) -> str:
+        """Internal helper to make the API request. `messages` is already
+        the full turn history (oldest first) - `generate()` wraps its
+        single prompt into a one-message list before calling this.
+        """
+        payload = self._build_payload(messages, system_instruction)
 
         try:
             resp = requests.post(
@@ -114,16 +127,17 @@ class LocalAgent(Agent):
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(f"Local API request failed: {exc}") from exc
 
-    def _build_payload(self, prompt: str, system_instruction: Optional[str]) -> dict[str, Any]:
-        """Build the OpenAI-compatible request payload."""
-        messages = []
+    def _build_payload(self, messages: List[Dict[str, str]], system_instruction: Optional[str]) -> dict[str, Any]:
+        """Build the OpenAI-compatible request payload - `system_instruction`
+        prepended as its own turn, then every entry of `messages` as-is."""
+        full_messages = []
         if system_instruction:
-            messages.append({"role": "system", "content": system_instruction})
-        messages.append({"role": "user", "content": prompt})
+            full_messages.append({"role": "system", "content": system_instruction})
+        full_messages.extend(messages)
 
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": full_messages,
             "temperature": 0.7,
         }
         if self.max_tokens is not None:
