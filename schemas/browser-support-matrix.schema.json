@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/browser-support-matrix.schema.json",
+  "title": "Browser support matrix",
+  "description": "docs/adr/0028: one entry per observed piece of technical evidence (a polyfill, a vendor-prefixed CSS rule, user-agent-sniffing code). browserslist_query is the Browserslist query-string value this evidence implies, null when the evidence alone doesn't determine one. business_reason is unset by default, filled in by a human reviewer (prd's hitl_status pattern, ADR-0009) - never inferred from the site. performance_baseline_refs cites performance-baseline.json's own template_hash by reference (point 3), never duplicating its threshold data. Entirely absent in v1 - no polyfill/vendor-prefix/UA-sniffing detection instrumentation exists; this schema validates the shape build_browser_support_matrix produces against synthetic fixtures only.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["kind", "subject", "browserslist_query", "business_reason", "performance_baseline_refs"],
+    "properties": {
+      "kind": { "enum": ["polyfill", "vendor_prefix", "ua_sniffing"] },
+      "subject": { "type": "string" },
+      "browserslist_query": { "type": ["string", "null"] },
+      "business_reason": { "type": ["string", "null"] },
+      "performance_baseline_refs": { "type": "array", "items": { "type": "string", "pattern": "^t-" } }
+    }
+  }
+}
