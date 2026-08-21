@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/glossary.schema.json",
+  "title": "Glossary SKOS concept scheme",
+  "description": "docs/adr/0020: one skos:Concept per data-model field name recurring across two or more entities. TERM-<hash> ids (a Short hash of the normalized prefLabel). broader/narrower/related are SKOS's own native relationship vocabulary, reserved (empty) until a real hierarchy signal exists; cross_references and derived_from/axtree_ref are pragma's own extensions, since SKOS has no provenance field at all. Structural correctness for pragma's own fields, not the full official SKOS vocabulary.",
+  "type": "object",
+  "required": ["@context", "@graph"],
+  "properties": {
+    "@context": { "type": "string" },
+    "@graph": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "@id", "@type", "prefLabel", "broader", "narrower", "related",
+          "cross_references", "derived_from", "axtree_ref"
+        ],
+        "properties": {
+          "@id": { "type": "string", "pattern": "^TERM-" },
+          "@type": { "const": "Concept" },
+          "prefLabel": { "type": "string" },
+          "broader": { "type": "array", "items": { "type": "string" } },
+          "narrower": { "type": "array", "items": { "type": "string" } },
+          "related": { "type": "array", "items": { "type": "string" } },
+          "cross_references": { "type": "array", "items": { "type": "string" } },
+          "derived_from": { "type": "array", "items": { "type": "string" } },
+          "axtree_ref": {
+            "type": ["string", "null"],
+            "description": "Reserved: no field-to-AXTree-leaf correlation pass exists yet (the same gap catalog.json's x-region.axtree_ref left reserved, ticket #101)."
+          }
+        }
+      }
+    }
+  }
+}
