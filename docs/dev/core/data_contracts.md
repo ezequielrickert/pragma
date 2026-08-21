@@ -72,3 +72,18 @@ write for the former.
 `[]` for a site serving its CSS cross-origin: `cssRules` throws for those
 stylesheets and there is no way around it. The design-token document says so
 rather than presenting an empty list as "this site declares no hover styles".
+
+## pagestateblocked_mutations
+
+Mutating requests (`POST`/`PUT`/`PATCH`/`DELETE`, or a `GET` the mutation
+heuristic flagged) the mode-gate handler
+(`spiders/browser/crawl4ai_crawler/hooks.py`) intercepted and fulfilled
+synthetically instead of letting reach the network, in `immutable` mode -
+`[{"method", "url"}]`. `[]` in `stateful` mode, or for a backend without a
+mode-gate at all.
+
+`PageVisitor.visit` reads this the same call it reads `network_requests`
+from, turning it into the `blocked`/`blocked_reason` pair
+`sink.record_interaction` writes onto the `Interaction` node - a request
+this list carries never produced a `Request`/`TRIGGERED` pair of its own,
+since it never reached the network. Issue #62.

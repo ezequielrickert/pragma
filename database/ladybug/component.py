@@ -136,6 +136,8 @@ class _LadybugComponentMixin:
         resulting_url: str = "",
         source_path: str = "",
         step: Optional[VisitStep] = None,
+        blocked: bool = False,
+        blocked_reason: str = "",
     ) -> None:
         """Mark a component as interacted with and append one interaction
         record - an `Interaction` node, `PERFORMED` from its `Component`
@@ -158,6 +160,14 @@ class _LadybugComponentMixin:
         self. Every other page identity that reaches storage is already
         canonical; this is the one write path that has to enforce it
         itself rather than trust the caller.
+
+        `blocked`/`blocked_reason` record the mode-gate handler
+        (`spiders/browser/crawl4ai_crawler/hooks.py`) having intercepted
+        at least one mutating request this interaction tried to fire, in
+        `immutable` mode - decided by issue #59's schema research. A
+        blocked mutation never reaches the network, so it has no
+        `Request`/`TRIGGERED` pair of its own; these two scalars on the
+        `Interaction` itself are the only trace of it.
         Details: docs/dev/database/ladybug/component.md#record_component_interaction
         """
         target_url = route_shape(resulting_url) if resulting_url else page_url
@@ -166,6 +176,7 @@ class _LadybugComponentMixin:
             "page_url": page_url, "component_id": component_id, "path": path, "target_url": target_url,
             "action": action, "value": value, "source_path": source_path,
             "visit_id": step.visit_id if step else "", "step_seq": step.seq if step else 0,
+            "blocked": blocked, "blocked_reason": blocked_reason,
         }
 
         def op(conn) -> None:
@@ -198,7 +209,8 @@ class _LadybugComponentMixin:
                 MATCH (target:Page {url: $target_url})
                 CREATE (i:Interaction {
                     action: $action, value: $value, source_path: $source_path,
-                    visit_id: $visit_id, step_seq: $step_seq
+                    visit_id: $visit_id, step_seq: $step_seq,
+                    blocked: $blocked, blocked_reason: $blocked_reason
                 })
                 CREATE (c)-[:PERFORMED]->(i)
                 CREATE (i)-[:RESULTED_IN]->(target)

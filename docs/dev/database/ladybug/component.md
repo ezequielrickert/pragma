@@ -60,6 +60,13 @@ package, which callers shape before calling. `PageVisitor.visit` is the one
 caller that passes a `clean_url`'d literal on purpose, so the shaping happens
 at this boundary rather than being required of it.
 
+`blocked`/`blocked_reason` (default `False`/`""`) record the mode-gate
+handler having intercepted at least one mutating request this interaction
+tried to fire, in `immutable` mode - decided by issue #59's schema
+research, wired end-to-end by issue #62. A blocked mutation never reaches
+the network, so it produces no `Request`/`TRIGGERED` pair of its own;
+these two scalars are the only trace of it on the graph.
+
 ## get_component_states
 
 Every known component for one page, one query per page visit. Read by

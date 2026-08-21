@@ -44,6 +44,16 @@ isn't a general exploration limit (the interaction loop has none - see
 `visit-frontier-loop` below), it's specifically for a pass that's already
 shown it isn't converging.
 
+## _blocked_summary
+
+`(blocked, blocked_reason)` for `sink.record_interaction`, derived from
+`PageState.blocked_mutations` - `blocked_reason` is every distinct method
+a mode-gate call blocked for this one interaction, comma-joined and
+sorted so it reads the same regardless of Playwright route-handler firing
+order. One `blocked`/`blocked_reason` per `Interaction` node, not one per
+blocked request: a click that fires both a blocked `POST` and a blocked
+`DELETE` is one blocked interaction, not two rows. Issue #62.
+
 ## PageVisitor
 
 Mechanically interacts with one page's frontier at a time, called once

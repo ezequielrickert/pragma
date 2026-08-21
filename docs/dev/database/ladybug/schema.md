@@ -52,6 +52,17 @@ rediscovery reset a component's interaction history.
 
 ### Notes on individual tables
 
+**`Interaction.blocked`/`blocked_reason`** record the mode-gate handler
+(`spiders/browser/crawl4ai_crawler/hooks.py`) having intercepted at least
+one mutating request this interaction tried to fire, in `immutable`
+mode - decided by "Research Ladybug schema for blocked-mutation
+recording" (issue #59), wired end-to-end by issue #62. A blocked
+mutation never reaches the network, so it produces no `Request`/
+`TRIGGERED` pair; these two scalars are the only trace of it. Added to
+existing `.lbdb` databases by `store.py::_migrate_interaction_blocked_columns`,
+since `CREATE ... IF NOT EXISTS` never adds a column to a table that
+already exists.
+
 **`Container`** stores direct containment only. The retired DuckDB backend
 stored the full transitive closure - one row per (component, ancestor) pair at
 every depth, 58,714 rows in the snapshot that shaped the storage plan, its

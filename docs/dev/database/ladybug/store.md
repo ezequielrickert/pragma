@@ -38,13 +38,32 @@ per-site filename this project writes, rather than only here.
 
 ## connect
 
-Establish the connection, run the DDL idempotently, write the `Site` header
-row. Returns early if already connected, so it is safe to call from
-`_call`'s lazy path and from an explicit caller in the same run.
+Establish the connection, run the DDL idempotently, run
+`_migrate_interaction_blocked_columns`, write the `Site` header row. Returns
+early if already connected, so it is safe to call from `_call`'s lazy path
+and from an explicit caller in the same run.
 
 The DDL runs on every connect rather than once at creation: `CREATE ... IF NOT
 EXISTS` is cheap, and it means a database created by an older version picks up
-any table added since without a migration step.
+any table added since without a migration step - but only a *table*, never a
+*column* on one that already exists, which is why the migration call is
+separate.
+
+## _migrate_interaction_blocked_columns
+
+Adds `Interaction.blocked`/`blocked_reason` to a database whose
+`Interaction` table predates issue #62 - `CREATE ... IF NOT EXISTS` is a
+no-op against an existing table, so a column added to the DDL after a
+database was first created never appears on it without this. Runs
+`ALTER TABLE Interaction ADD <col> <type> [DEFAULT ...]` for each column,
+swallowing only the exact "already has property" `RuntimeError` Kùzu raises
+for a column that's already there (confirmed against the real engine); any
+other failure propagates.
+
+Kùzu backfills every existing row with the column's own `DEFAULT` when
+`ALTER TABLE ADD` runs, so a row written before this migration and one
+written after read identically once it has run - no reader needs to branch
+on which database version it's talking to.
 
 ## _touch_site
 

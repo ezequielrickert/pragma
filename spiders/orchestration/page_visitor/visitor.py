@@ -41,6 +41,22 @@ _MAX_CONSECUTIVE_UNEXPLAINED_FAILURES = 3
 _PROGRESS_EVERY_N_INTERACTIONS = 100
 
 
+def _blocked_summary(blocked_mutations: List[Dict[str, str]]) -> Tuple[bool, str]:
+    """`(blocked, blocked_reason)` for `sink.record_interaction` - `reason`
+    is every distinct method a mode-gate call blocked this interaction,
+    comma-joined and sorted so it reads the same regardless of the order
+    Playwright's route handler happened to fire in. `Interaction` carries
+    one `blocked_reason` per node, not one per blocked request, since a
+    real page firing e.g. both a POST and a DELETE from one click is one
+    blocked interaction, not two.
+    Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_blocked_summary
+    """
+    if not blocked_mutations:
+        return False, ""
+    methods = sorted({m["method"] for m in blocked_mutations})
+    return True, ",".join(methods)
+
+
 class PageVisitor:
     """Mechanically interacts with one page's frontier, called once per URL.
     Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#pagevisitor
@@ -388,8 +404,10 @@ class PageVisitor:
                 # fired - that pairing is the whole point of stamping them.
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-step
                 step = visit_step.take()
+                blocked, blocked_reason = _blocked_summary(new_state.blocked_mutations)
                 await self.sink.record_interaction(
-                    page_key, path, interaction.action, interaction.value, new_literal, step=step
+                    page_key, path, interaction.action, interaction.value, new_literal, step=step,
+                    blocked=blocked, blocked_reason=blocked_reason,
                 )
                 if new_state.network_requests:
                     await self.sink.record_component_network(
