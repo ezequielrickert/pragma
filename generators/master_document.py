@@ -68,6 +68,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "flows.arazzo": "Arazzo 1.1.0",
     "gherkin": "Gherkin",
     "evidence-log": "JSON Lines",
+    "asyncapi": "AsyncAPI 3.0.0",
 }
 
 

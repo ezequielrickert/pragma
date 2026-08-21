@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/asyncapi.schema.json",
+  "title": "Async API contract",
+  "description": "docs/adr/0018: the subset of AsyncAPI 3.0.0 pragma would emit once WS/SSE/long-polling capture instrumentation exists - CH-<hash>/MSG-<hash> as channel/message map keys (AsyncAPI's own shape, not an object field the way OpenAPI's operationId is), x-inference per message, x-sse-stream/x-long-polling flags on the generic http binding. Not wired to a live generator today (build_asyncapi_document has no store method feeding it) - this schema exists so the shape is locked and testable now. Structural correctness for pragma's own fields, not the full official AsyncAPI schema.",
+  "type": "object",
+  "required": ["asyncapi", "info", "channels", "components"],
+  "properties": {
+    "asyncapi": { "const": "3.0.0" },
+    "info": {
+      "type": "object",
+      "required": ["title", "version"],
+      "properties": { "title": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "channels": {
+      "type": "object",
+      "propertyNames": { "pattern": "^CH-" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["address", "bindings", "messages"],
+        "properties": {
+          "address": { "type": "string" },
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "ws": { "type": "object" },
+              "http": { "type": "object" },
+              "x-sse-stream": { "type": "boolean" },
+              "x-long-polling": { "type": "boolean" }
+            }
+          },
+          "messages": {
+            "type": "object",
+            "propertyNames": { "pattern": "^MSG-" },
+            "additionalProperties": {
+              "type": "object",
+              "required": ["$ref"],
+              "properties": { "$ref": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "required": ["messages"],
+      "properties": {
+        "messages": {
+          "type": "object",
+          "propertyNames": { "pattern": "^MSG-" },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["name", "payload", "x-inference"],
+            "properties": {
+              "name": { "type": "string" },
+              "payload": { "type": "object" },
+              "x-inference": {
+                "type": "object",
+                "required": ["observation_count", "confidence", "derived_from"],
+                "properties": {
+                  "observation_count": { "type": "integer", "minimum": 1 },
+                  "confidence": {
+                    "type": "object",
+                    "required": ["payload_shape"],
+                    "properties": { "payload_shape": { "type": "number", "minimum": 0, "maximum": 1 } }
+                  },
+                  "derived_from": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
