@@ -9,7 +9,7 @@ from generators.requirements import (
     RequirementsDocument,
     _event_driven_requirements,
     _optional_feature_requirements,
-    _requirement_id,
+    requirement_id,
     _ubiquitous_requirements,
     _unwanted_behavior_requirements,
     build_requirements_document,
@@ -26,15 +26,15 @@ def _inferred_request(**overrides):
 
 
 def test_requirement_id_is_deterministic_across_two_calls():
-    first = _requirement_id("event_driven", "trigger", "target")
-    second = _requirement_id("event_driven", "trigger", "target")
+    first = requirement_id("event_driven", "trigger", "target")
+    second = requirement_id("event_driven", "trigger", "target")
 
     assert first == second
     assert first.startswith("REQ-")
 
 
 def test_requirement_id_differs_for_a_different_trigger():
-    assert _requirement_id("event_driven", "a", "x") != _requirement_id("event_driven", "b", "x")
+    assert requirement_id("event_driven", "a", "x") != requirement_id("event_driven", "b", "x")
 
 
 # --- event_driven ---

@@ -16,6 +16,18 @@ what a user sets out to do. Traces are short because a pass stops the
 moment an interaction navigates - which is also what makes that cut a
 natural scenario boundary rather than an arbitrary one.
 
+**Traceability tags (docs/adr/0013), added in ticket #107.** `@REQ-<hash>`
+and `@confidence:observed` are required on every scenario this document
+writes; a trace correlating to no `requirements.py` extraction rule is
+excluded rather than tagged with something invented. `Background` is
+deliberately never used - it needs a real precondition common to every
+scenario in one `Feature`, and this crawl has no state/authentication
+instrumentation to back one honestly. The correlation itself (a store
+read, `requirements.py`/`core.graph_metrics` calls) lives in
+`generators/gherkin_tags.py` - see `docs/dev/generators/gherkin_tags.md` -
+once it made this module cross the file-size-audit SPLIT threshold; this
+module stays a pure trace-shape renderer, no store dependency.
+
 ## _is_observable
 
 A pass whose every interaction changed nothing and called nothing is real
@@ -29,7 +41,17 @@ button's own label (`Buy "now"`) closes the argument early and corrupts
 the file. Replaced with single quotes rather than escaped: the label is
 being quoted for a human to read, not round-tripped.
 
+## _table_cell
+
+The `Examples:` table's own delimiter is `|`, not `"` - a value containing
+one (rare, but a label could) would otherwise be read as a column break.
+Newlines are flattened to a space for the same "one physical row" reason.
+
 ## render_scenario
+
+No tag line: the caller prepends one (`GherkinDocument.generate`), because
+the identical body is also `render_scenario_outline`'s template - keeping
+tagging out of this function means neither caller has to strip anything.
 
 ## render_sequence_diagram
 
@@ -47,6 +69,49 @@ answer at all.
 
 A failed call degrades that one title to `_fallback_title`, which is built
 from the trace itself - poorer to read, and never wrong.
+
+## _structural_signature
+
+The `template_hash` idea (`generators/aria_tree.py::_structural_shape`,
+ADR-0003) applied to a trace: strip every concrete value, keep the shape.
+Per step: the route (not the literal page), the action, the label (kept,
+not stripped - two traces differing only in *which* control was clicked
+are a different pattern, not the same one with a different value), what
+it fired (method + route + status + failed, never the literal url or
+query string), and which route it navigated to (`""` if it didn't).
+
+The destination is a per-step route, not one trailing "did it navigate"
+boolean - two traces landing on genuinely different routes are different
+patterns even though both technically "navigated somewhere."
+
+## _group_by_pattern
+
+First-seen order, not sorted by signature - so the `.feature` file's
+scenario order still roughly follows crawl order rather than jumping
+around by hash.
+
+## _templated_trace
+
+Builds one synthetic `Trace` for a group's `Outline` body: every field
+that's constant across the group stays literal, every field that varies
+becomes a `<placeholder>` token. Because a Gherkin placeholder is just
+literal `<name>` text sitting where a value normally would, this synthetic
+trace renders correctly through `render_scenario` unchanged - no second,
+templated rendering path was needed.
+
+## _placeholder_row
+
+The `Examples:` row one member trace contributes, one dict per member.
+Every trace in a group produces the same key set: the group already
+shares one structural signature, so the *positions* that vary are
+identical across every member, only the concrete values differ.
+
+## render_scenario_outline
+
+`Scenario Outline` + `Examples` (ADR-0013 point 4) for a group of 2+
+structurally identical traces - one templated body, one concrete row per
+occurrence, instead of N near-duplicate `Scenario`s a reader has to
+notice are the same thing.
 
 ## GherkinDocument
 
