@@ -12,13 +12,38 @@ pipeline writes it" separation `core/documents.py::DocumentGenerator`
 already enforces, kept here even though this isn't a `DocumentGenerator`
 itself.
 
-**One page, any kind.** Every document's raw content renders inside a
-`<pre>` block, HTML-escaped - source, view, rule-catalog, and projection
-alike. A kind-specific rendering (syntax highlighting, Markdown-to-HTML)
+**One page, any kind - except Markdown, which is the majority of it.**
+Every non-Markdown document's raw content still renders inside a `<pre>`
+block, HTML-escaped: syntax highlighting for CALM/CycloneDX/SARIF/etc.
 would be exactly the "per-document renderer" ADR-0016 point 2 reserves
-for a dedicated integration that clears its own real bar - the generic
-template's whole job is being the honest, uniform fallback, not a worse
-copy of what a real renderer would do.
+for a dedicated integration that clears its own real bar, and staying a
+uniform fallback for those formats is still the honest choice.
+
+**Update - ticket #144 (map #142)**: Markdown is a different case from
+those - it's nearly every `view`/`projection` document this pipeline
+produces (`prd.md`, `catalog.md`, `tokens.md`, `decisions.adr/*.md`,
+...), not a rare exotic format with no good renderer, so leaving it in
+the generic `<pre>` fallback showed a reviewer raw `#`/`>`/`| --- |`
+syntax instead of the prose/tables it was meant to be. `_render_markdown`
+converts it to real HTML (`markdown`, `tables`/`fenced_code` extensions -
+GFM-style tables and code fences are what this pipeline's own Markdown
+generators actually emit) for any document whose `path` ends in `.md`,
+regardless of `kind` - `master_document.py`'s own `llms.txt` is `kind=
+"view"` too but not Markdown, so the extension is the real signal here,
+not the kind.
+
+**Sanitized, not trusted.** Python-Markdown passes raw embedded HTML
+straight through by design (its own FAQ says so) - and every document
+here ultimately traces back to text scraped off a crawled site, which
+this project treats as untrusted input everywhere else. A component's
+own `text` narrated into `prd.md`/`catalog.md` containing a real
+`<script>` tag would otherwise execute in whoever's browser opens this
+dashboard. `bleach.clean()` strips anything outside `_ALLOWED_TAGS`/
+`_ALLOWED_ATTRIBUTES` (a plain-Python sanitizer, no native wheel - this
+project already has one recurring native-dependency pain point, see
+`ladybug`'s own C API gap, not worth a second one here) after Markdown
+conversion, keeping only the structural tags these generators actually
+emit.
 
 Visual language matches the validated Phase C prototype
 (`prototype/dashboard-80`, ADR-0016) - the same dark palette and
@@ -30,6 +55,9 @@ Details: docs/dev/dashboard/generic_template.md#module
 from __future__ import annotations
 
 from html import escape
+
+import bleach
+import markdown
 
 from core.documents import ProducedDocument
 
@@ -52,7 +80,46 @@ h1 { margin: 0 0 4px; font-size: 22px; }
 .badge.rule-catalog { background: #3a2c1e; color: var(--warn); }
 .badge.projection { background: #3a2c1e; color: var(--warn); }
 pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.markdown-body th { background: var(--panel-2); }
+.markdown-body code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 14px; color: var(--text-dim); }
 """
+
+# GFM-style tables and code fences - what this pipeline's own Markdown
+# generators (generators/*.py, docstrings above) actually emit.
+_MARKDOWN_EXTENSIONS = ["tables", "fenced_code"]
+
+# Every structural tag Markdown-conversion above can actually produce
+# from this pipeline's own generators - nothing script/style/event-
+# handler-capable makes this list, regardless of what a scraped site's
+# own text tried to smuggle in.
+_ALLOWED_TAGS = [
+    "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+    "strong", "em", "b", "i", "ul", "ol", "li", "blockquote",
+    "code", "pre", "table", "thead", "tbody", "tr", "th", "td", "a",
+]
+_ALLOWED_ATTRIBUTES = {"a": ["href", "title"]}
+
+
+def _is_markdown(document: ProducedDocument) -> bool:
+    """The extension, not `kind`, is the real signal - `llms.txt`
+    (`master_document.py`) is `kind="view"` too but isn't Markdown.
+    Details: docs/dev/dashboard/generic_template.md#_is_markdown
+    """
+    return document.path.endswith(".md")
+
+
+def _render_markdown(content: str) -> str:
+    """Markdown-to-HTML, then sanitized - see the module docstring's
+    own "Sanitized, not trusted" section for why the second step isn't
+    optional here.
+    Details: docs/dev/dashboard/generic_template.md#_render_markdown
+    """
+    html = markdown.markdown(content, extensions=_MARKDOWN_EXTENSIONS)
+    return bleach.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRIBUTES, strip=True)
 
 
 def render_generic_page(document: ProducedDocument, content: str) -> str:
@@ -63,6 +130,11 @@ def render_generic_page(document: ProducedDocument, content: str) -> str:
     groups documents by concern with, so no second lookup is needed.
     Details: docs/dev/dashboard/generic_template.md#render_generic_page
     """
+    body = (
+        f'<div class="markdown-body">{_render_markdown(content)}</div>'
+        if _is_markdown(document)
+        else f"<pre>{escape(content)}</pre>"
+    )
     return (
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(document.title)}</title>'
@@ -72,6 +144,6 @@ def render_generic_page(document: ProducedDocument, content: str) -> str:
         f"<h1>{escape(document.title)}</h1>"
         f'<p class="purpose">{escape(document.purpose)}</p>'
         f'<span class="badge {escape(document.kind)}">{escape(document.kind)}</span>'
-        f"<pre>{escape(content)}</pre>"
+        f"{body}"
         "</main></body></html>\n"
     )

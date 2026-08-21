@@ -14,6 +14,13 @@ def _document(kind, name="requirements", title="Requirements", purpose="Requirem
     )
 
 
+def _markdown_document(name="prd", title="Digital Blueprint"):
+    return ProducedDocument(
+        name=name, title=title, purpose="Rendered Markdown.", path=f"/out/x_{name}_1.md",
+        kind="view", checksum="a" * 64, filename=name, relative_link=f"x_{name}_1.md",
+    )
+
+
 def test_a_source_document_renders_its_title_purpose_and_content():
     html = render_generic_page(_document("source"), '{"requirements": []}')
 
@@ -76,6 +83,57 @@ def test_the_breadcrumb_links_back_to_the_documents_own_concern_page():
     html = render_generic_page(document, "content")
 
     assert '<a href="../concern/catalog.html">&larr; Component Catalogue</a>' in html
+
+
+def test_a_md_view_document_renders_as_real_html_not_raw_syntax():
+    """The gap ticket #144 exists for: raw '#'/'>'/'| --- |' syntax
+    should never reach the page for a .md document."""
+    html = render_generic_page(_markdown_document(), "# Heading\n\n| a | b |\n|---|---|\n| 1 | 2 |")
+
+    assert "<h1>Heading</h1>" in html
+    assert "<table>" in html and "<th>a</th>" in html
+    assert "| --- |" not in html
+    assert "# Heading" not in html
+
+
+def test_a_non_md_view_document_still_gets_the_pre_fallback():
+    """kind alone isn't the signal - llms.txt is kind='view' too but
+    isn't Markdown (master_document.py)."""
+    document = ProducedDocument(
+        name="master", title="Start Here", purpose="The index.", path="/out/x_llms_1.txt",
+        kind="view", checksum="a" * 64, filename="llms", relative_link="x_llms_1.txt",
+    )
+
+    html = render_generic_page(document, "# Not actually Markdown here")
+
+    assert "<pre>" in html
+    assert "<h1>Not actually Markdown here</h1>" not in html
+
+
+def test_a_script_tag_smuggled_through_scraped_content_never_executes():
+    """Every document here traces back to text scraped off a crawled
+    site - Python-Markdown passes raw HTML through by design, so this
+    has to be sanitized after conversion, not just escaped like the
+    <pre> fallback does. The <script> tag itself is what has to be gone
+    (nothing left for a browser to execute) - bleach.clean(strip=True)
+    unwraps a disallowed tag rather than deleting its text content, so
+    the source text can still appear as inert prose, same as it would
+    for any other stripped tag."""
+    html = render_generic_page(_markdown_document(), "Some text.\n\n<script>alert(document.cookie)</script>")
+
+    assert "<script>" not in html and "</script>" not in html
+
+
+def test_a_javascript_scheme_link_loses_its_href_but_a_real_link_keeps_it():
+    """A distinct attack surface from the <script> tag case above - an
+    attribute value, not an element. bleach's default protocol allowlist
+    (http/https/mailto) drops javascript: from href while leaving a real
+    link untouched."""
+    html = render_generic_page(_markdown_document(), "[click me](javascript:alert(1))")
+    assert "javascript:" not in html
+
+    safe_html = render_generic_page(_markdown_document(), "[real link](https://example.com)")
+    assert 'href="https://example.com"' in safe_html
 
 
 def test_the_page_is_self_contained_static_html():

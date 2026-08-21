@@ -26,3 +26,14 @@ backups/
 # old pattern list only covered prd/tree/graph output, not every document
 # type the pipeline can produce.
 data/
+
+# The same generated-run-output problem, but for --out docs (an older
+# default out_dir, before it moved to data/output) - docs/adr/, docs/agents/,
+# docs/dev/, docs/index.md and docs/runs.json are real tracked content, so
+# docs/ itself can't be ignored wholesale the way data/ is. The site-prefixed
+# "__" in every generated filename (docs/<site>__<document>_<timestamp>.ext)
+# is what neither of those real entries ever contains - caught after a real
+# crawl run against --out docs slipped its output into a commit unrelated to
+# it, the same class of incident the data/ comment above already describes.
+docs/*__*
+docs/dashboard/

@@ -13,3 +13,5 @@ openapi-spec-validator==0.7.1
 python-igraph==1.0.0
 leidenalg==0.12.0
 gherkin-official==42.0.1
+Markdown==3.10.3
+bleach==6.4.0
