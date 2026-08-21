@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/risk-register.schema.json",
+  "title": "Risk register",
+  "description": "docs/adr/0024: sparse annotation of architecture.cyclonedx.json's externalServices, never a re-listing - one entry per structurally-observable risk actually flagged. Live CVE cross-referencing is reserved, not live (point 1); cvss_score/cvss_vector are genuinely absent, never null, unless a real CVE is cross-referenced (point 2).",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["service", "rule", "description", "level"],
+    "properties": {
+      "service": { "type": "string", "description": "architecture.cyclonedx.json's externalServices[].name, by reference." },
+      "rule": { "type": "string" },
+      "description": { "type": "string" },
+      "level": { "enum": ["error", "warning", "note", "none"] },
+      "cvss_score": { "type": "number", "minimum": 0, "maximum": 10 },
+      "cvss_vector": { "type": "string" }
+    }
+  }
+}

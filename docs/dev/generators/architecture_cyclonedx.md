@@ -27,4 +27,8 @@ One `externalServices` entry per distinct host. `pragma:evidence:source`
 and `pragma:evidence:observationCount` are real; `pragma:evidence:
 harRequestId` is reserved - this crawl captures no HAR entries with a
 stable per-request id yet (docs/adr/0001's reserved-field pattern,
-applied to a CycloneDX property instead of a JSON field).
+applied to a CycloneDX property instead of a JSON field). `pragma:
+evidence:disclosedHeaders` (`DISCLOSED_HEADERS_PROPERTY`) is reserved
+the same way, added in ticket #117 for `risk-register.json`
+(docs/adr/0024) to read once a response-header capture pass exists -
+public, not `_`-prefixed, since a second module reads this exact key.
