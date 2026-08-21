@@ -6,11 +6,12 @@ split out for the same file-size reason the retired DuckDB backend split
 `self._call(...)` existing on whatever it ends up mixed into.
 
 Unaffected by the API-contract redesign (step 7) - a `ComponentFamily` is
-still a deterministic cluster of `Component` nodes, the same shape
-`generators/component_family.py::build_component_families` has always
-produced. Called by `Engine`'s post-crawl pass, not `GraphStoreSink` -
-inferred once the whole site is in the graph, not incrementally as the
-crawl proceeds.
+still a deterministic cluster of `Component` nodes, now produced by
+`analysis/component_matching_pipeline.py`'s leaf-vector clustering rather
+than the retired `generators/component_family.py::build_component_families`
+Jaccard pass (issue #139). Called by `Engine`'s post-crawl pass, not
+`GraphStoreSink` - inferred once the whole site is in the graph, not
+incrementally as the crawl proceeds.
 
 Details: docs/dev/database/ladybug/component_family.md#module
 """

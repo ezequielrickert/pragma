@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from analysis.component_clustering import apply_component_families
+from analysis.component_matching_pipeline import apply_component_matching
 from .config import PragmaConfig
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
@@ -62,8 +62,10 @@ class ClusterEngine:
 
     def run(self) -> ClusterRunResult:
         """Cluster `site`'s current component ledger and stop - see
-        `analysis/component_clustering.py::apply_component_families` for
-        the actual algorithm. Details: docs/dev/core/cluster_engine.md#run
+        `analysis/component_matching_pipeline.py::apply_component_matching`
+        for the actual four-step algorithm (leaf exact collapse, leaf
+        family grouping, composite exact collapse, composite family
+        grouping). Details: docs/dev/core/cluster_engine.md#run
         """
         _, total_components = self.graph_store.count_unexplored_components()
         if total_components == 0:
@@ -72,7 +74,7 @@ class ClusterEngine:
                 "did you run `pragma static` first, or point --graph-store at the right backend?"
             )
 
-        apply_component_families(self.graph_store, self.agent)
+        apply_component_matching(self.graph_store, self.agent)
         families = len(self.graph_store.get_component_families())
         self.graph_store.close()
         return ClusterRunResult(site=self.site, families=families)

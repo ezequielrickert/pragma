@@ -85,19 +85,19 @@ def narrate_family_purposes(
         agent: the same LLM backend `GraphPRDSynthesizer` already narrates
             pages with (`Engine` already holds one instance of this,
             shared across every narration step in a run).
-        families: `component_family.build_component_families`'s output -
-            each entry's own `purpose` (normally `""`, since that
-            function never sets it) is what gets replaced in the
+        families: `analysis/component_matching_pipeline.py::_build_leaf_families`'s
+            output - each entry's own `purpose` (normally `""`, since
+            clustering never sets it) is what gets replaced in the
             returned list; every other field is carried over unchanged.
         member_texts: `{(page_url, path): text}` for every component
             discovered this crawl. `ComponentFamily.member_paths` only
             carries identity (which page/selector), not each member's
             own visible text - this lookup is how that text gets back in,
-            without `component_family.py` itself needing to know about
+            without the clustering step itself needing to know about
             component text at all. The caller
-            (`analysis/component_clustering.py::apply_component_families`)
+            (`analysis/component_matching_pipeline.py::apply_component_matching`)
             already has this, since it built it from the same `get_component_ledger` read
-            that supplied `build_component_families`'s own input.
+            that supplied `_build_leaf_families`'s own input.
 
     Returns:
         A new list, same length and order as `families`. Each entry is

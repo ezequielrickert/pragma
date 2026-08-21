@@ -6,26 +6,33 @@ no document generation).
 from core import bootstrap  # noqa: F401  (registers agent/graph-store plugins)
 from core.cluster_engine import ClusterEngine
 from core.config import PragmaConfig
+from core.interfaces import ComponentFacts
 from core.registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 SITE = "shop.example"
 
 
-def _seed_two_identical_buttons(graph_store) -> None:
+def _seed_two_button_variants(graph_store) -> None:
+    """Two buttons similar enough to family together but not identical -
+    distinct `href` keeps them two rows rather than one content-hash-
+    collapsed row (issue #134), which is what a *family* (several
+    distinct-but-similar components) actually needs to test, as opposed
+    to exact-tier collapse (issue #139) folding two truly identical ones
+    into a single canonical row."""
     graph_store.record_component(
         "shop.example/", "btn1", tag="button", text="Add to cart",
-        component_type="submit button", facts=None,
+        component_type="submit button", facts=ComponentFacts(css_class="btn btn-primary", href="/cart/add"),
     )
     graph_store.record_component(
-        "shop.example/", "btn2", tag="button", text="Add to cart",
-        component_type="submit button", facts=None,
+        "shop.example/", "btn2", tag="button", text="Buy now",
+        component_type="submit button", facts=ComponentFacts(css_class="btn btn-secondary", href="/checkout"),
     )
 
 
 def test_cluster_engine_groups_components_already_in_the_graph_store():
     graph_store = GRAPH_STORE_REGISTRY.create("memory", site=SITE)
     graph_store.connect()
-    _seed_two_identical_buttons(graph_store)
+    _seed_two_button_variants(graph_store)
 
     engine = ClusterEngine(AGENT_REGISTRY.create("mock"), graph_store, SITE)
     result = engine.run()

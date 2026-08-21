@@ -10,7 +10,7 @@ only where it can be determined from what was captured, and omitted rather
 than guessed - see `research/plan-generacion-de-documentos.md` Fase 3.
 
 Needs no new capture: families already exist
-(`component_family.build_component_families`), and every prop below is a
+(`analysis/component_matching_pipeline.py`'s leaf family grouping), and every prop below is a
 `ComponentFacts` field the crawl has been persisting all along.
 
 Split from its own `DocumentGenerator` (moved to `custom_elements.py`,

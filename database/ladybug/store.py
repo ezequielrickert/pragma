@@ -32,7 +32,11 @@ from .analysis import _LadybugAnalysisMixin
 from .clock import now
 from .component import _LadybugComponentMixin
 from .component_family import _LadybugComponentFamilyMixin
+from .component_merge import _LadybugComponentMergeMixin
+from .composite_family import _LadybugCompositeFamilyMixin
 from .containment import _LadybugContainmentMixin
+from .container_forest import _LadybugContainerForestMixin
+from .container_merge import _LadybugContainerMergeMixin
 from .named_queries import _LadybugNamedQueriesMixin
 from .network import _LadybugNetworkMixin
 from .options import _LadybugOptionsMixin
@@ -100,9 +104,10 @@ def _resolve_path(directory: Optional[str], site: str) -> str:
 
 class LadybugGraphStore(
     _LadybugPageMixin, _LadybugComponentMixin, _LadybugTextContentMixin,
-    _LadybugComponentFamilyMixin, _LadybugAnalysisMixin, _LadybugNetworkMixin,
-    _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugRawQueryMixin,
-    _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
+    _LadybugComponentFamilyMixin, _LadybugComponentMergeMixin, _LadybugCompositeFamilyMixin,
+    _LadybugAnalysisMixin, _LadybugNetworkMixin,
+    _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugContainerForestMixin, _LadybugContainerMergeMixin,
+    _LadybugRawQueryMixin, _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
     _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
