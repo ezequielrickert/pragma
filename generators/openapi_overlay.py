@@ -22,6 +22,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 _SEGMENT = re.compile(r"\.(?P<dot>[A-Za-z0-9_]+)|\[\*\]|\['(?P<bracket>[^']*)'\]")
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def _segments(target: str) -> List[str]:
@@ -44,10 +45,28 @@ def _segments(target: str) -> List[str]:
     return steps
 
 
-def _matches(node: Any, segments: List[str]) -> List[Tuple[Any, Any]]:
-    """`[(container, key)]` for every location `segments` resolves to,
-    walking from `node` - a wildcard fans out over every key of a dict or
-    every index of a list at that level.
+def _path_step(path: str, key: Any) -> str:
+    """One more step of a concrete field path - dot form for an
+    identifier-shaped key, bracket-quoted for anything else (a path
+    template's own `/`, `{`, `}`), `[N]` for a list index. Mirrors
+    `_segments`'s own dot-vs-bracket split so a concrete path a match
+    resolves to reads like a target a maintainer could have hand-written.
+    Details: docs/dev/generators/openapi_overlay.md#_path_step
+    """
+    if isinstance(key, int):
+        return f"{path}[{key}]"
+    if _IDENTIFIER.match(key):
+        return f"{path}.{key}"
+    return f"{path}['{key}']"
+
+
+def _matches(node: Any, segments: List[str], path: str = "$") -> List[Tuple[str, Any, Any]]:
+    """`[(field_path, container, key)]` for every location `segments`
+    resolves to, walking from `node` - a wildcard fans out over every key
+    of a dict or every index of a list at that level. `field_path` is the
+    concrete path a match resolved to, never the wildcard template itself
+    - `redaction_events` below is why this is threaded through even
+    though `apply_overlay` only needs `container`/`key`.
     Details: docs/dev/generators/openapi_overlay.md#_matches
     """
     segment, rest = segments[0], segments[1:]
@@ -58,16 +77,17 @@ def _matches(node: Any, segments: List[str]) -> List[Tuple[Any, Any]]:
             else ()
         )
         if not rest:
-            return list(children)
-        results: List[Tuple[Any, Any]] = []
-        for _, child in children:
-            results.extend(_matches(child, rest))
+            return [(_path_step(path, key), node, key) for key, _ in children]
+        results: List[Tuple[str, Any, Any]] = []
+        for key, child in children:
+            results.extend(_matches(child, rest, _path_step(path, key)))
         return results
     if not isinstance(node, dict) or segment not in node:
         return []
+    step_path = _path_step(path, segment)
     if not rest:
-        return [(node, segment)]
-    return _matches(node[segment], rest)
+        return [(step_path, node, segment)]
+    return _matches(node[segment], rest, step_path)
 
 
 def apply_overlay(document: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
@@ -83,9 +103,26 @@ def apply_overlay(document: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str
     result = copy.deepcopy(document)
     for action in overlay.get("actions", []):
         segments = _segments(action["target"])
-        for container, key in reversed(_matches(result, segments)):
+        for _, container, key in reversed(_matches(result, segments)):
             if action.get("remove"):
                 del container[key]
             elif "update" in action:
                 container[key] = action["update"]
     return result
+
+
+def redaction_events(document: Dict[str, Any], overlay: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+    """`[(field_path, action)]` for every field `overlay`'s actions
+    actually match against `document` - the same match set `apply_overlay`
+    would redact, computed read-only against the pre-redaction document
+    so a caller (`redaction_log.py`) can cite exactly which concrete
+    field a rule touched, never the value that was there. An action whose
+    target matches nothing this run contributes no event - a rule that
+    never fires is not evidence redaction happened.
+    Details: docs/dev/generators/openapi_overlay.md#redaction_events
+    """
+    events: List[Tuple[str, Dict[str, Any]]] = []
+    for action in overlay.get("actions", []):
+        segments = _segments(action["target"])
+        events += [(field_path, action) for field_path, _, _ in _matches(document, segments)]
+    return events

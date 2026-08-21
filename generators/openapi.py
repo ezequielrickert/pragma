@@ -47,6 +47,12 @@ from .openapi_overlay import apply_overlay
 
 _OVERLAY_PATH = "config/redaction.overlay.yaml"
 _EMPTY_OVERLAY = {"overlay": "1.0.0", "info": {"title": "Pragma redaction overlay", "version": "1.0.0"}, "actions": []}
+# The exact filenames generate() writes below - named so redaction_log.py
+# can cite which artifact backs its own evidence without duplicating the
+# literal strings (docs/adr/0021 point 2's "evidence that redaction
+# happened" is the raw-private and public artifacts both existing).
+RAW_FILENAME = "openapi.raw"
+PUBLIC_FILENAME = "openapi"
 # One observation is not enough to trust a generalization; five
 # independent calls to the same operation is - a deliberately simple,
 # stated v1 heuristic, not a statistical model.
@@ -397,11 +403,14 @@ def build_openapi_document(requests: List[InferredRequest], site: str) -> Dict[s
     return document
 
 
-def _load_overlay() -> Dict[str, Any]:
+def load_overlay() -> Dict[str, Any]:
     """`config/redaction.overlay.yaml`, or the empty default when nobody
     has added one yet - a missing overlay file is a valid v1 state
-    (capture-time redaction alone), not an error.
-    Details: docs/dev/generators/openapi.md#_load_overlay
+    (capture-time redaction alone), not an error. Public: `redaction_log.py`
+    calls this directly rather than re-reading the file itself, the same
+    "call the real build function, never read files twice" discipline
+    every other cross-generator call in this map already follows.
+    Details: docs/dev/generators/openapi.md#load_overlay
     """
     try:
         with open(_OVERLAY_PATH, encoding="utf-8") as handle:
@@ -444,7 +453,7 @@ class OpenAPIDocument(DocumentGenerator):
         raw_document = build_openapi_document(requests, request.site)
         validate_openapi(raw_document)
 
-        overlay = _load_overlay()
+        overlay = load_overlay()
         public_document = apply_overlay(raw_document, overlay)
         validate_openapi(public_document)
 
@@ -452,7 +461,7 @@ class OpenAPIDocument(DocumentGenerator):
             print(f"openapi lint: {finding}")
 
         return (
-            DocumentOutput(filename="openapi.raw", kind="source", extension="yaml", content=_as_yaml(raw_document)),
+            DocumentOutput(filename=RAW_FILENAME, kind="source", extension="yaml", content=_as_yaml(raw_document)),
             DocumentOutput(filename="redaction.overlay", kind="rule-catalog", extension="yaml", content=_as_yaml(overlay)),
-            DocumentOutput(filename="openapi", kind="source", extension="yaml", content=_as_yaml(public_document)),
+            DocumentOutput(filename=PUBLIC_FILENAME, kind="source", extension="yaml", content=_as_yaml(public_document)),
         )

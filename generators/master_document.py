@@ -71,6 +71,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "asyncapi": "AsyncAPI 3.0.0",
     "change-log": "JSON Schema 2020-12",
     "glossary": "SKOS/JSON-LD",
+    "redaction-log": "JSON Lines",
 }
 
 

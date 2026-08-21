@@ -33,11 +33,11 @@ Details: docs/dev/generators/evidence_log.md#module
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Tuple
 
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
+from utils.jsonl import as_jsonl
 from utils.schema_validation import validate_against_schema
 
 _SCHEMA_PATH = "schemas/evidence-log.schema.json"
@@ -83,10 +83,6 @@ def build_evidence_log(request: DocumentRequest) -> List[Dict[str, Any]]:
     return rows
 
 
-def _as_jsonl(rows: List[Dict[str, Any]]) -> str:
-    return "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows)
-
-
 @DOCUMENT_REGISTRY.register("evidence-log")
 class EvidenceLogDocument(DocumentGenerator):
     """Details: docs/dev/generators/evidence_log.md#evidencelogdocument"""
@@ -104,4 +100,4 @@ class EvidenceLogDocument(DocumentGenerator):
         # `graph_export.py`'s single-file `export.json` does.
         rows = build_evidence_log(request)
         validate_against_schema(rows, _SCHEMA_PATH)
-        return (DocumentOutput(filename="evidence-log", kind="source", extension="jsonl", content=_as_jsonl(rows)),)
+        return (DocumentOutput(filename="evidence-log", kind="source", extension="jsonl", content=as_jsonl(rows)),)

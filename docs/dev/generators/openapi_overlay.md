@@ -24,12 +24,23 @@ matching nothing silently: an overlay action that never fires because its
 target was mistyped is a rule someone should be told isn't working, not
 one that quietly no-ops.
 
+## _path_step
+
+One more step of a concrete field path - dot form for an
+identifier-shaped key, bracket-quoted otherwise, `[N]` for a list index.
+Mirrors `_segments`'s own dot-vs-bracket split, so a concrete path this
+module resolves a wildcard to reads like a target a maintainer could
+have hand-written, not an internal encoding.
+
 ## _matches
 
-`[(container, key)]` for every location a segment list resolves to inside
-a document, walking recursively - a wildcard fans out over every key of a
-dict or every index of a list at that level, so `$.paths[*][*].example`
-reaches every operation's `example` field in one action.
+`[(field_path, container, key)]` for every location a segment list
+resolves to inside a document, walking recursively - a wildcard fans out
+over every key of a dict or every index of a list at that level, so
+`$.paths[*][*].example` reaches every operation's `example` field in one
+action. `field_path` is the concrete path each match resolved to, not
+the wildcard template - `apply_overlay` ignores it, `redaction_events`
+is why it's threaded through at all.
 
 ## apply_overlay
 
@@ -38,3 +49,11 @@ survive unchanged for its own write, since this function's result is a
 different file entirely. Applies each action's matches in reverse order,
 so a wildcard removing several items from the same list doesn't shift the
 indices of matches still queued for deletion within that same action.
+
+## redaction_events
+
+Same match pass as `apply_overlay`, read-only against the pre-redaction
+document instead of applying anything - `redaction_log.py`'s only way to
+learn which concrete field a rule touched without ever holding the value
+that was there. An action that matches nothing this run contributes no
+event: a rule that never fired isn't evidence anything was redacted.
