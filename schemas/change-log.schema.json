@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/change-log.schema.json",
+  "title": "Change log",
+  "description": "docs/adr/0019: a per-entity diff between two runs, scoped to every entity kind that already carries a Short hash ID (SCR-/REQ-/EP-/MOD-/CH-/MSG-). run_id_from is null when no previous run was available to compare against - an honest empty diff, not a fabricated one. Each kind's own three-way split: newly_discovered (id present this run, absent last), no_longer_observed (present last, absent this), changed (same id, a non-identity field differs - forced by how each Short hash id is built from an entity's own identity-defining fields, per CONTEXT.md's Short hash entry).",
+  "type": "object",
+  "required": ["run_id_from", "run_id_to", "kinds"],
+  "properties": {
+    "run_id_from": { "type": ["string", "null"] },
+    "run_id_to": { "type": "string" },
+    "kinds": {
+      "type": "object",
+      "required": ["screens", "requirements", "endpoints", "modules", "channels", "messages"],
+      "properties": {
+        "screens": { "$ref": "#/$defs/kindDiff" },
+        "requirements": { "$ref": "#/$defs/kindDiff" },
+        "endpoints": { "$ref": "#/$defs/kindDiff" },
+        "modules": { "$ref": "#/$defs/kindDiff" },
+        "channels": { "$ref": "#/$defs/kindDiff" },
+        "messages": { "$ref": "#/$defs/kindDiff" }
+      }
+    }
+  },
+  "$defs": {
+    "kindDiff": {
+      "type": "object",
+      "required": ["newly_discovered", "no_longer_observed", "changed"],
+      "properties": {
+        "newly_discovered": { "type": "array", "items": { "type": "string" } },
+        "no_longer_observed": { "type": "array", "items": { "type": "string" } },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "changed_fields"],
+            "properties": {
+              "id": { "type": "string" },
+              "changed_fields": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
