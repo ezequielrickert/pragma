@@ -21,11 +21,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .ids import component_id, split_component_id
+from ._component_lookup import resolve_component_ids, stub_component_id
 
-# Keyed by (component, state, property): a rediscovery overwrites one value
-# rather than appending a second, and a component whose hover colour changed
-# between runs reports the new one with no duplicate left behind.
+# Keyed by (page_url, path, state, property): a rediscovery overwrites one
+# value rather than appending a second, and a component whose hover colour
+# changed between runs reports the new one with no duplicate left behind.
+# Independent of `Component.id` (content-derived, page-decoupled per #134) -
+# a declared style is inherently a fact about one page's rendering, and
+# `page_url`/`path` are carried directly on `StateStyle` rather than decoded
+# from it, so this key needs no help from that id's own shape.
 _ID_SEPARATOR = "|"
 
 
@@ -33,7 +37,7 @@ def state_style_id(page_url: str, path: str, state: str, css_property: str) -> s
     """The primary key one declared state value is stored under.
     Details: docs/dev/database/ladybug/state_styles.md#state_style_id
     """
-    return _ID_SEPARATOR.join((component_id(page_url, path), state, css_property))
+    return _ID_SEPARATOR.join((page_url, path, state, css_property))
 
 
 class _LadybugStateStyleMixin:
@@ -58,7 +62,6 @@ class _LadybugStateStyleMixin:
         rows = [
             {
                 "id": state_style_id(page_url, entry["path"], state, css_property),
-                "component_id": component_id(page_url, entry["path"]),
                 "path": entry["path"],
                 "state": state,
                 "property": css_property,
@@ -74,23 +77,29 @@ class _LadybugStateStyleMixin:
             return
 
         def op(conn) -> None:
+            self._ensure_page(conn, page_url)
+            resolved = resolve_component_ids(conn, page_url, {row["path"] for row in rows})
+            for row in rows:
+                row["component_id"] = resolved.get(row["path"]) or stub_component_id(page_url, row["path"])
             conn.execute(
                 """
                 UNWIND $rows AS r
                 MERGE (s:StateStyle {id: r.id})
-                SET s.state = r.state, s.property = r.property, s.value = r.value
+                SET s.page_url = $page_url, s.path = r.path, s.state = r.state,
+                    s.property = r.property, s.value = r.value
                 """,
-                {"rows": rows},
+                {"rows": rows, "page_url": page_url},
             )
             conn.execute(
                 """
+                MATCH (page:Page {url: $page_url})
                 UNWIND $rows AS r
                 MERGE (c:Component {id: r.component_id})
-                ON CREATE SET c.path = r.path
+                MERGE (page)-[e:HAS_COMPONENT {path: r.path}]->(c)
                 MERGE (s:StateStyle {id: r.id})
                 MERGE (c)-[:HAS_STATE_STYLE]->(s)
                 """,
-                {"rows": rows},
+                {"rows": rows, "page_url": page_url},
             )
 
         self._call(op)
@@ -105,29 +114,25 @@ class _LadybugStateStyleMixin:
         package should have an opinion about. Same boundary
         `get_component_ledger` keeps for `options`.
 
-        The page comes from `split_component_id`, **not** from a hop through
-        `HAS_COMPONENT`. Going through the page would undo the whole point of
-        the write's `MERGE`: a component whose descriptive write has not landed
-        has no `HAS_COMPONENT` edge, so its styles would be stored and then
-        unreadable. Caught by
+        Read straight off `StateStyle` itself, **not** through
+        `HAS_STATE_STYLE`/`HAS_COMPONENT` - going through either would undo
+        the whole point of the write's `MERGE`: a component whose descriptive
+        write has not landed has no `HAS_COMPONENT` edge, so its styles would
+        be stored and then unreadable. Caught by
         `tests/test_ladybug_state_styles.py::test_a_style_for_a_component_not_yet_written_still_lands`.
         Details: docs/dev/database/ladybug/state_styles.md#get_state_styles
         """
         def op(conn) -> List[Dict[str, Any]]:
             rows = conn.execute(
                 """
-                MATCH (c:Component)-[:HAS_STATE_STYLE]->(s:StateStyle)
-                RETURN c.id, s.state, s.property, s.value
-                ORDER BY c.id, s.state, s.property
+                MATCH (s:StateStyle)
+                RETURN s.page_url, s.path, s.state, s.property, s.value
+                ORDER BY s.page_url, s.path, s.state, s.property
                 """
             )
-            styles = []
-            for component_id_value, state, css_property, value in rows:
-                page_url, path = split_component_id(component_id_value)
-                styles.append({
-                    "page_url": page_url, "path": path,
-                    "state": state, "property": css_property, "value": value,
-                })
-            return styles
+            return [
+                {"page_url": page_url, "path": path, "state": state, "property": css_property, "value": value}
+                for page_url, path, state, css_property, value in rows
+            ]
 
         return self._call(op)

@@ -138,8 +138,11 @@ def test_get_interaction_evidence_is_empty_without_interactions(store) -> None:
 
 
 def test_count_unexplored_components_counts_interacted_vs_total(store) -> None:
-    store.record_component("https://x/a", "button#go")
-    store.record_component("https://x/a", "a#skip")
+    # Distinct text keeps the two components themselves distinct - id is
+    # content-derived (#134), so two otherwise-blank ones would
+    # legitimately collapse onto one shared row.
+    store.record_component("https://x/a", "button#go", text="Go")
+    store.record_component("https://x/a", "a#skip", text="Skip")
     store.record_component_interaction("https://x/a", "button#go", "click")
 
     assert store.count_unexplored_components() == (1, 2)
@@ -187,8 +190,12 @@ def test_get_component_ledger_repeated_interactions_keep_their_order(store) -> N
 
 
 def test_get_component_ledger_step_seq_orders_across_components_in_one_visit(store) -> None:
-    store.record_component("https://x/a", "input#q")
-    store.record_component("https://x/a", "button#go")
+    # Distinct tag/text keeps the two components themselves distinct - id
+    # is content-derived (#134), so two otherwise-blank ones would
+    # legitimately collapse onto one shared row and share one interaction
+    # history.
+    store.record_component("https://x/a", "input#q", tag="input")
+    store.record_component("https://x/a", "button#go", tag="button", text="Go")
     step = VisitStep(visit_id="visit-abc")
     store.record_component_interaction("https://x/a", "input#q", "fill", value="x", step=step.take())
     store.record_component_interaction("https://x/a", "button#go", "click", step=step.take())
@@ -252,9 +259,12 @@ def test_component_families_two_families_with_identical_properties_stay_distinct
     """Grouping happens on the node itself, not a Python-side key derived
     from its properties - `id(f)` comes back as an unhashable dict from
     the real engine, and even if it didn't, two families sharing every
-    property would be a real (if unlikely) case this must not collapse."""
-    store.record_component("https://x/a", "button#go")
-    store.record_component("https://x/b", "button#submit")
+    property would be a real (if unlikely) case this must not collapse.
+    Distinct `text` keeps the two underlying components themselves
+    distinct too - Component.id is content-derived (#134), so two
+    otherwise-blank buttons would legitimately collapse onto one row."""
+    store.record_component("https://x/a", "button#go", text="Go")
+    store.record_component("https://x/b", "button#submit", text="Submit")
 
     families = [
         ComponentFamily(tag="button", component_type="button", common_classes=(),

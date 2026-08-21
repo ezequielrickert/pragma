@@ -138,10 +138,13 @@ def test_get_page_landmarks_counts_distinct_regions_not_components(store) -> Non
         {"path": "a#2", "tag": "a", "text": "Two"},
         {"path": "a#3", "tag": "a", "text": "Three"},
     ])
+    # Distinct css_class keeps the two headers themselves distinct -
+    # Container.id is content-derived (#134), so two otherwise-identical
+    # landmarks would legitimately collapse onto one shared row.
     store.record_component_ancestors(PAGE, [
-        {"path": "a#1", "ancestors": [{"path": "header#h1", "tag": "header", "landmark": "banner"}]},
-        {"path": "a#2", "ancestors": [{"path": "header#h1", "tag": "header", "landmark": "banner"}]},
-        {"path": "a#3", "ancestors": [{"path": "header#h2", "tag": "header", "landmark": "banner"}]},
+        {"path": "a#1", "ancestors": [{"path": "header#h1", "tag": "header", "landmark": "banner", "class": "site-header"}]},
+        {"path": "a#2", "ancestors": [{"path": "header#h1", "tag": "header", "landmark": "banner", "class": "site-header"}]},
+        {"path": "a#3", "ancestors": [{"path": "header#h2", "tag": "header", "landmark": "banner", "class": "promo-banner"}]},
     ])
 
     assert store.get_page_landmarks() == {PAGE: {"banner": 2}}

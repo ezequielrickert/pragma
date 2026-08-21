@@ -195,7 +195,7 @@ def test_a_field_edits_the_control_it_was_derived_from(store) -> None:
     store.record_entities(build_entities([_input("input#a")]), run_id="run-1")
 
     rows = store._call(lambda conn: list(conn.execute(
-        "MATCH (f:Field)-[:EDITS]->(c:Component) RETURN f.name, c.path"
+        "MATCH (f:Field)-[:EDITS]->(c:Component) MATCH (:Page)-[e:HAS_COMPONENT]->(c) RETURN f.name, e.path"
     )))
     assert rows == [["email", "input#a"]]
 

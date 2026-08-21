@@ -97,10 +97,10 @@ def test_component_triggered_request_hangs_off_the_matching_interaction(store) -
     row = _rows(
         store,
         """
-        MATCH (:Component {id: $id})-[:PERFORMED]->(:Interaction)-[:TRIGGERED]->(r:Request)
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'button#go'}]->(:Component)
+              -[:PERFORMED]->(:Interaction)-[:TRIGGERED]->(r:Request)
         RETURN r.method, r.path
         """,
-        id="https://x/y|button#go",
     )
     assert row == [["POST", "/orders"]]
 

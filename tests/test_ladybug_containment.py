@@ -41,10 +41,13 @@ def test_direct_containment_only_no_closure_row(store) -> None:
 
     row = _rows(
         store,
-        "MATCH (main:Container {landmark: 'main'})-[:CONTAINS]->(form:Container)-[:CONTAINS]->(c:Component) "
-        "RETURN c.id",
+        """
+        MATCH (main:Container {landmark: 'main'})-[:CONTAINS]->(form:Container)-[:CONTAINS]->(c:Component)
+        MATCH (:Page {url: 'https://x/y'})-[e:HAS_COMPONENT]->(c)
+        RETURN e.path
+        """,
     )
-    assert row == [["https://x/y|button#go"]]
+    assert row == [["button#go"]]
 
 
 def test_contains_star_recovers_the_full_ancestor_chain(store) -> None:
@@ -55,12 +58,21 @@ def test_contains_star_recovers_the_full_ancestor_chain(store) -> None:
 
     row = _rows(
         store,
-        "MATCH (:Container {landmark: 'main'})-[:CONTAINS*1..8]->(c:Component) RETURN c.id",
+        """
+        MATCH (:Container {landmark: 'main'})-[:CONTAINS*1..8]->(c:Component)
+        MATCH (:Page {url: 'https://x/y'})-[e:HAS_COMPONENT]->(c)
+        RETURN e.path
+        """,
     )
-    assert row == [["https://x/y|button#go"]]
+    assert row == [["button#go"]]
 
 
 def test_two_components_sharing_an_ancestor_merge_onto_one_container_node(store) -> None:
+    # Distinct text keeps the two leaf components themselves distinct -
+    # only the shared ancestor is expected to collapse here.
+    store.record_components(
+        "https://x/y", [{"path": "button#a", "text": "A"}, {"path": "button#b", "text": "B"}],
+    )
     store.record_component_ancestors(
         "https://x/y",
         [
@@ -69,7 +81,7 @@ def test_two_components_sharing_an_ancestor_merge_onto_one_container_node(store)
         ],
     )
 
-    containers = _rows(store, "MATCH (n:Container) RETURN n.path")
+    containers = _rows(store, "MATCH (:Page)-[e:HAS_CONTAINER]->(:Container) RETURN e.path")
     edges = _rows(store, "MATCH (:Container)-[:CONTAINS]->(:Component) RETURN count(*)")
     assert containers == [["nav"]]
     assert edges == [[2]]
@@ -89,8 +101,11 @@ def test_container_descriptive_fields_are_captured(store) -> None:
         ]}],
     )
 
-    row = _rows(store, "MATCH (n:Container) RETURN n.tag, n.role, n.landmark, n.element_id, n.css_class")
-    assert row == [["nav", "navigation", "navigation", "mainNav", "top"]]
+    row = _rows(store, "MATCH (n:Container) RETURN n.tag, n.role, n.landmark, n.css_class")
+    assert row == [["nav", "navigation", "navigation", "top"]]
+
+    edge_row = _rows(store, "MATCH (:Page)-[e:HAS_CONTAINER]->(:Container) RETURN e.path, e.element_id")
+    assert edge_row == [["nav", "mainNav"]]
 
 
 # --- the read path: which landmark region a component sits in ---

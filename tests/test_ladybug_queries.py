@@ -175,10 +175,12 @@ def test_components_in_recovers_nested_containment(store) -> None:
             {"path": "main", "tag": "main", "role": "", "landmark": "main", "id": "", "class": ""},
         ]}],
     )
+    main_id = store.raw("MATCH (n:Container {landmark: 'main'}) RETURN n.id")[0][0]
 
-    members = store.components_in("https://x/y|main")
+    members = store.components_in(main_id)
 
-    assert members == [{"id": "https://x/y|button#go", "path": "button#go"}]
+    assert len(members) == 1
+    assert members[0]["path"] == "button#go"
 
 
 def test_unexplored_is_a_parity_shim_for_get_pending(store) -> None:

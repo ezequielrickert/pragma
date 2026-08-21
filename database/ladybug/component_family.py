@@ -16,9 +16,10 @@ Details: docs/dev/database/ladybug/component_family.md#module
 """
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List
 
 from core.interfaces import ComponentFamily
+from ._component_lookup import resolve_component_ids
 
 
 class _LadybugComponentFamilyMixin:
@@ -29,26 +30,33 @@ class _LadybugComponentFamilyMixin:
         `families` - full rebuild, not an incremental merge, since
         cluster membership isn't guaranteed stable across runs.
 
-        A `member_paths` entry that doesn't resolve to a real `Component`
-        is silently skipped, matching `GraphStore.record_component_families`'s
-        own documented contract - confirmed the real engine does this
-        (a `MATCH` inside an `UNWIND` drops that iteration, not the
-        whole write) rather than assumed.
+        `member_paths` is `(page_url, path)`, resolved to a `Component`
+        through its `HAS_COMPONENT` edge rather than a directly-constructed
+        id (content-derived and page-decoupled per #134, so no id can be
+        built from `(page_url, path)` alone any more). A pair that doesn't
+        resolve to a real `Component` is silently skipped, matching
+        `GraphStore.record_component_families`'s own documented contract.
         Details: docs/dev/database/ladybug/component_family.md#record_component_families
         """
-        rows = [
-            {
-                "tag": family.tag, "component_type": family.component_type,
-                "common_classes": list(family.common_classes), "purpose": family.purpose,
-                "members": [f"{page_url}|{path}" for page_url, path in family.member_paths],
-            }
-            for family in families
-        ]
-
         def op(conn) -> None:
             # Full rebuild - clear every existing family before writing
             # the new set.
             conn.execute("MATCH (f:ComponentFamily) DETACH DELETE f")
+            rows = []
+            for family in families:
+                by_page: Dict[str, List[str]] = {}
+                for page_url, path in family.member_paths:
+                    by_page.setdefault(page_url, []).append(path)
+                member_ids = [
+                    component_id
+                    for page_url, paths in by_page.items()
+                    for component_id in resolve_component_ids(conn, page_url, paths).values()
+                ]
+                rows.append({
+                    "tag": family.tag, "component_type": family.component_type,
+                    "common_classes": list(family.common_classes), "purpose": family.purpose,
+                    "members": member_ids,
+                })
             if not rows:
                 return
             conn.execute(
@@ -74,6 +82,12 @@ class _LadybugComponentFamilyMixin:
         retired DuckDB backend's own behavior - the `MATCH` here requires
         at least one `VARIANT_OF` edge to produce a row at all.
 
+        `member_paths` is expanded through each member's `HAS_COMPONENT`
+        edges, not decoded from its id (content-derived and page-decoupled
+        per #134, so it no longer encodes a page) - a canonical member
+        shared by several pages now legitimately contributes one
+        `(page_url, path)` pair per page, not a single one as before.
+
         Grouped by `f` itself inside the query (`WITH f, collect(...)`),
         not by a Python-side key: `id(f)` comes back as an unhashable
         dict (`{"table": ..., "offset": ...}`), confirmed against the
@@ -88,13 +102,14 @@ class _LadybugComponentFamilyMixin:
             rows = conn.execute(
                 """
                 MATCH (c:Component)-[:VARIANT_OF]->(f:ComponentFamily)
-                WITH f, collect(c.id) AS member_ids
-                RETURN f.tag, f.component_type, f.common_classes, f.purpose, member_ids
+                MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
+                WITH f, collect(DISTINCT [page.url, e.path]) AS member_paths
+                RETURN f.tag, f.component_type, f.common_classes, f.purpose, member_paths
                 """
             )
             families = []
-            for tag, component_type, common_classes, purpose, member_ids in rows:
-                members = tuple(sorted(tuple(mid.partition("|")[::2]) for mid in member_ids))
+            for tag, component_type, common_classes, purpose, member_paths in rows:
+                members = tuple(sorted((page_url, path) for page_url, path in member_paths))
                 families.append(
                     ComponentFamily(
                         tag=tag, component_type=component_type,

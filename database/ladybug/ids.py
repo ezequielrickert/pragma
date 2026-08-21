@@ -1,40 +1,62 @@
-"""Composite primary keys for node tables Ladybug has no secondary index
-for - Kùzu/Ladybug hash-indexes the primary key only, so any property a
-write path upserts on has to be the key itself or every upsert is a table
-scan (docs/dev/database/ladybug/ids.md discusses the two backends this
-was checked against). `Component`/`Container`/`TextContent` are all
-upserted by `(page_url, path)`, never by `page_url` or `path` alone, so
-that pair is the key - built in exactly one place so every write and
-every read agrees on its shape.
+"""Primary keys for node tables Ladybug has no secondary index for -
+Kùzu/Ladybug hash-indexes the primary key only, so any property a write
+path upserts on has to be the key itself or every upsert is a table scan
+(docs/dev/database/ladybug/ids.md discusses the two backends this was
+checked against).
 
-`path` here is a CSS selector (`discover_components.js`'s `gp()`), not a
-URL path - `body > header > div:nth-of-type(2) > a`. Neither a selector
-nor a `route_shape`d URL contains a literal `|`, so it is a safe,
-human-readable separator; a component's id is legible in a query result
-without decoding, which a hash would not be.
+`Component`/`Container` are content-derived and page-decoupled (issue
+#134): two instances discovered on different pages `MERGE` onto the same
+row the moment every field that stays on the node (`schema.py`'s
+`DESCRIPTIVE_COMPONENT_FIELDS`/`CONTAINER_DESCRIPTIVE_FIELDS`) matches
+exactly - the ordinary primary-key MERGE this database already does for
+`Page`/`Site`, not a new mechanism. This is the strict, no-judgment floor
+collapse gets for free: a byte-identical navbar on every page becomes one
+row with zero similarity computation. Genuinely *similar*-but-not-
+identical instances (a variant, a near-duplicate with one differing
+class) are a fuzzy question this hash cannot and does not answer - that's
+the leaf/composite vector matching pipeline's job (issues #131/#132),
+layered on top of this floor once it exists, not a replacement for it.
+
+Never Python's built-in `hash()` here - process-randomized by
+`PYTHONHASHSEED`, not reproducible across runs (`hashlib.sha1` is,
+deterministic by design).
 
 Details: docs/dev/database/ladybug/ids.md#module
 """
 from __future__ import annotations
 
-_COMPONENT_ID_SEPARATOR = "|"
+import hashlib
+from typing import Any, Dict, Iterable
+
+from .schema import CONTAINER_DESCRIPTIVE_FIELDS, DESCRIPTIVE_COMPONENT_FIELDS
 
 
-def component_id(page_url: str, path: str) -> str:
-    """The primary key `Component`/`Container`/`TextContent` all share.
-    Details: docs/dev/database/ladybug/ids.md#component_id
+def _content_hash(values: Iterable[Any]) -> str:
+    joined = "\x1f".join(str(v) for v in values)
+    return hashlib.sha1(joined.encode()).hexdigest()
+
+
+def component_content_id(fields: Dict[str, Any]) -> str:
+    """`Component`'s primary key - a hash of every field ordered by
+    `DESCRIPTIVE_COMPONENT_FIELDS`, the exact set that stays on the node.
+    `fields` missing a name reads as `""`, the same "absence is itself a
+    shared trait" rule the leaf feature vector (#131) uses for the same
+    reason: a caller that only knows a component by its path (no facts
+    yet) still gets a real, reproducible id - the shared blank-content one
+    every such caller collides onto, documented in `component.py`.
+    Details: docs/dev/database/ladybug/ids.md#component_content_id
     """
-    return f"{page_url}{_COMPONENT_ID_SEPARATOR}{path}"
+    ordered = (fields.get(name, "") for name in DESCRIPTIVE_COMPONENT_FIELDS)
+    return f"component:{_content_hash(ordered)}"
 
 
-def split_component_id(component_id_value: str) -> tuple[str, str]:
-    """Inverse of `component_id` - `(page_url, path)`. Only `HAS_COMPONENT`/
-    `HAS_TEXT`/`CONTAINS` traversal results need this; a fresh write never
-    does, since it already has `page_url` and `path` as separate arguments.
-    Details: docs/dev/database/ladybug/ids.md#split_component_id
+def container_content_id(fields: Dict[str, Any]) -> str:
+    """`Container`'s primary key - same scheme as `component_content_id`,
+    over `CONTAINER_DESCRIPTIVE_FIELDS`.
+    Details: docs/dev/database/ladybug/ids.md#container_content_id
     """
-    page_url, _, path = component_id_value.partition(_COMPONENT_ID_SEPARATOR)
-    return page_url, path
+    ordered = (fields.get(name, "") for name in CONTAINER_DESCRIPTIVE_FIELDS)
+    return f"container:{_content_hash(ordered)}"
 
 
 def endpoint_id(method: str, host: str, path_pattern: str) -> str:

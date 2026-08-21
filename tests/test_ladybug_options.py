@@ -38,10 +38,9 @@ def test_choice_group_options_get_their_own_node_per_member(store) -> None:
     rows = _rows(
         store,
         """
-        MATCH (:Component {id: $id})-[hop:HAS_OPTION]->(o:Option)
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'div#ship'}]->(:Component)-[hop:HAS_OPTION]->(o:Option)
         RETURN o.path, o.text, o.selected, o.group_name, hop.seq ORDER BY hop.seq
         """,
-        id="https://x/y|div#ship",
     )
     assert rows == [
         ["input#pickup", "Pickup", False, "ship_method", 0],
@@ -109,7 +108,11 @@ def test_options_can_be_recorded_before_the_component_row_exists(store) -> None:
         {"group": "ship_method", "options": [{"path": "input#pickup", "text": "Pickup", "selected": False}]},
     )
 
-    row = _rows(store, "MATCH (c:Component {id: $id})-[:HAS_OPTION]->(:Option) RETURN c.path", id="https://x/y|div#ship")
+    row = _rows(
+        store,
+        "MATCH (:Page {url: 'https://x/y'})-[e:HAS_COMPONENT {path: 'div#ship'}]->(:Component)-[:HAS_OPTION]->(:Option) "
+        "RETURN e.path",
+    )
     assert row == [["div#ship"]]
 
 

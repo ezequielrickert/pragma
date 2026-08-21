@@ -33,9 +33,14 @@ def _store_with_page(page_url: str, *paths_interacted: str) -> _SpyGraphStore:
     store = _SpyGraphStore()
     store.connect()
     store.upsert_page(page_url, status="Pending")
-    store.record_component(page_url, "a", tag="button")
-    store.record_component(page_url, "b", tag="button")
-    store.record_component(page_url, "c", tag="button")
+    # Distinct text keeps "a"/"b"/"c" themselves distinct - Component.id is
+    # content-derived (#134), so three otherwise-identical buttons on the
+    # same page would legitimately collapse onto one shared row and share
+    # one `interacted` flag, which isn't what these cache tests mean to
+    # exercise.
+    store.record_component(page_url, "a", tag="button", text="A")
+    store.record_component(page_url, "b", tag="button", text="B")
+    store.record_component(page_url, "c", tag="button", text="C")
     for path in paths_interacted:
         store.record_component_interaction(page_url, path, action="click")
     return store

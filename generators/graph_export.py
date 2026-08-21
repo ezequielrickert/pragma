@@ -37,7 +37,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.graph_metrics import compute_graph_metrics
 from core.registry import DOCUMENT_REGISTRY
-from database.ladybug.ids import component_id
 from utils.schema_validation import validate_against_schema
 from utils.short_hash import short_hash
 from utils.urls import route_shape
@@ -57,6 +56,19 @@ _SCHEMA_PATH = "schemas/export.schema.json"
 _EXTERNAL_STATUS = "External"
 
 Node = Dict[str, Any]
+
+
+def _componente_node_id(page_url: str, path: str) -> str:
+    """This module's own `Componente` node key - `(page, path)`, one per
+    ledger entry, not `database/ladybug`'s `Component.id` (content-derived
+    and page-decoupled since #134, and an internal storage detail this
+    document doesn't otherwise depend on). `@graph` still names one
+    `Componente` per page's rendering, same as every ledger entry `_componente_
+    nodes` builds from - a canonical, collapsed `Component` a future export
+    revision surfaces as one shared node is #141's territory, not this key.
+    Details: docs/dev/generators/graph_export.md#_componente_node_id
+    """
+    return f"{page_url}|{path}"
 
 
 def _pantalla_nodes(
@@ -82,7 +94,7 @@ def _componente_nodes(component_ledger: Dict[str, Dict[str, Dict[str, Any]]]) ->
     nodes = {}
     for page_url, components in component_ledger.items():
         for path, record in components.items():
-            node_id = component_id(page_url, path)
+            node_id = _componente_node_id(page_url, path)
             nodes[node_id] = {"id": node_id, "type": "Componente", "label": record.get("text") or record.get("tag") or path}
     return nodes
 
@@ -220,7 +232,7 @@ def _populate_contiene(pantallas: Dict[str, Node], component_ledger: Dict[str, D
         if pantalla is None:
             continue
         for path in components:
-            _add_edge(pantalla, "contiene", component_id(page_url, path))
+            _add_edge(pantalla, "contiene", _componente_node_id(page_url, path))
 
 
 def _populate_navega_a(pantallas: Dict[str, Node], componentes: Dict[str, Node], edges: List[Dict[str, Any]]) -> None:
@@ -235,7 +247,7 @@ def _populate_navega_a(pantallas: Dict[str, Node], componentes: Dict[str, Node],
         if edge["to"] not in pantallas:
             continue
         source = (
-            componentes.get(component_id(edge["from"], edge["component"]))
+            componentes.get(_componente_node_id(edge["from"], edge["component"]))
             if edge["component"]
             else pantallas.get(edge["from"])
         )
@@ -255,7 +267,7 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
     for request in inferred_requests:
         node_id = f"{request.method} {request.endpoint}"
         for page_url, path in request.triggered_by:
-            source = componentes.get(component_id(page_url, path))
+            source = componentes.get(_componente_node_id(page_url, path))
             if source is not None:
                 _add_edge(source, "dispara", node_id)
         for page_url in request.loaded_by:
@@ -283,7 +295,7 @@ def _populate_usa_token(componentes: Dict[str, Node], catalog_entries: Iterable[
         if not token_ids:
             continue
         for page_url, path in entry.member_paths:
-            componente = componentes.get(component_id(page_url, path))
+            componente = componentes.get(_componente_node_id(page_url, path))
             if componente is None:
                 continue
             for token_id in token_ids:

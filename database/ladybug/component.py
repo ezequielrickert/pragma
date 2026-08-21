@@ -6,10 +6,12 @@ class via multiple inheritance and relies on `self._call(...)`/
 `self._ensure_page(...)` (defined on `page.py`'s mixin, resolved through
 `LadybugGraphStore`'s MRO) existing on whatever it ends up mixed into.
 
-Storage-migration plan step 4. `get_component_states` does not yet carry
-`options`/`network_requests` - steps 7-8 add the `Option`/`Request` nodes
-those come from; the crawl's own live tracking (`GraphStoreInteractionTracker`)
-only ever reads `interacted` from this method today.
+Storage-migration plan step 4, then the canonical-schema migration
+(issue #134): `Component.id` is content-derived and page-decoupled
+(`ids.py::component_content_id`), so a discovery no longer creates a node
+per page - it `MERGE`s onto whichever row already has identical content,
+anywhere in the site. `path`/`element_id`/geometry moved off the node
+entirely, onto `HAS_COMPONENT` as page-instance data.
 
 Details: docs/dev/database/ladybug/component.md#module
 """
@@ -20,29 +22,56 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.interfaces import ComponentFacts, VisitStep
 from utils.urls import route_shape
+from ._component_lookup import resolve_component_ids, stub_component_id
 from ._cypher import set_clause
+from .ids import component_content_id
 from .schema import DESCRIPTIVE_COMPONENT_FIELDS
 
 _SET_CLAUSE = set_clause("c", DESCRIPTIVE_COMPONENT_FIELDS)
 _SET_CLAUSE_UNWIND = set_clause("c", DESCRIPTIVE_COMPONENT_FIELDS, row_alias="r.")
+# `path` is a MERGE key on HAS_COMPONENT itself (below), not a plain SET -
+# two distinct DOM instances on the *same* page whose content happens to
+# be identical (two identical icon buttons, two identical card templates)
+# still need two separate edges to the one canonical Component they share,
+# and MERGE only gets that by including path in the pattern it matches on.
+_EDGE_FIELDS = ("element_id", "x", "y", "width", "height")
+_EDGE_SET_CLAUSE = set_clause("e", _EDGE_FIELDS)
+_EDGE_SET_CLAUSE_UNWIND = set_clause("e", _EDGE_FIELDS, row_alias="r.")
 
 
-def _component_params(page_url: str, path: str, item: Dict[str, Any]) -> Dict[str, Any]:
-    """Shared by `record_component`/`record_components`: the descriptive
-    param set one component write needs, `ComponentFacts` flattened in -
-    `item` is either the kwargs `record_component` was called with, or one
-    entry of `record_components`' batch list, both already dict-shaped.
-    Details: docs/dev/database/ladybug/component.md#_component_params
+def _node_fields(item: Dict[str, Any]) -> Dict[str, Any]:
+    """The descriptive fields that stay on `Component` - everything
+    `DESCRIPTIVE_COMPONENT_FIELDS` names, `item` being either the kwargs
+    `record_component` was called with or one entry of `record_components`'
+    batch list, both already dict-shaped.
+    Details: docs/dev/database/ladybug/component.md#_node_fields
     """
     facts = item.get("facts") or ComponentFacts()
-    return {
-        "id": f"{page_url}|{path}", "path": path,
+    fields = {
         "tag": item.get("tag", ""), "text": item.get("text", ""),
         "role": item.get("role", ""), "input_type": item.get("input_type", ""),
         "visible": item.get("visible", True), "layer": item.get("layer", "semantic"),
-        "x": item.get("x"), "y": item.get("y"), "width": item.get("width"), "height": item.get("height"),
         "component_type": item.get("component_type", ""),
         **asdict(facts),
+    }
+    fields.pop("element_id", None)
+    return fields
+
+
+def _component_params(path: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    """One component write's full param set: its node fields (`id` filled
+    in by the caller once it knows whether this path was already known -
+    see `record_component`/`record_components`) and the page-instance
+    fields `HAS_COMPONENT` carries instead of the node (`path`,
+    `element_id`, geometry).
+    Details: docs/dev/database/ladybug/component.md#_component_params
+    """
+    facts = item.get("facts") or ComponentFacts()
+    node_fields = _node_fields(item)
+    return {
+        "path": path, "element_id": facts.element_id,
+        "x": item.get("x"), "y": item.get("y"), "width": item.get("width"), "height": item.get("height"),
+        **node_fields,
     }
 
 
@@ -66,9 +95,19 @@ class _LadybugComponentMixin:
         component_type: str = "",
         facts: Optional[ComponentFacts] = None,
     ) -> None:
-        """Create or refresh a Component node's descriptive fields only -
+        """Create or refresh a Component node's descriptive fields, and
+        the `HAS_COMPONENT` edge carrying this page's rendering of it -
         `interacted`/`interaction_count` are untouched by a rediscovery,
         bootstrapped only by the schema's own `DEFAULT` on first creation.
+
+        This exact `(page_url, path)` slot's existing `HAS_COMPONENT` edge,
+        if any, decides `id` ahead of content-hashing a fresh one - a
+        rediscovery whose content drifted slightly (a client-side text
+        update, a class toggle) still updates the *same* row rather than
+        minting a new canonical id and orphaning the old one's `interacted`/
+        `interaction_count` ledger. Content-hash collapse
+        (`ids.py::component_content_id`) only decides identity the first
+        time this slot is ever seen.
         Details: docs/dev/database/ladybug/component.md#record_component
         """
         item = {
@@ -76,20 +115,22 @@ class _LadybugComponentMixin:
             "visible": visible, "layer": layer, "x": x, "y": y, "width": width, "height": height,
             "component_type": component_type, "facts": facts,
         }
-        params = _component_params(page_url, path, item)
+        params = _component_params(path, item)
 
         def op(conn) -> None:
             self._ensure_page(conn, page_url)
+            resolved = resolve_component_ids(conn, page_url, [path])
+            target_id = resolved.get(path) or component_content_id(_node_fields(item))
             conn.execute(
                 f"""
                 MERGE (c:Component {{id: $id}})
-                ON CREATE SET c.path = $path, {_SET_CLAUSE}
-                ON MATCH SET {_SET_CLAUSE}
+                SET {_SET_CLAUSE}
                 WITH c
                 MATCH (p:Page {{url: $page_url}})
-                MERGE (p)-[:HAS_COMPONENT]->(c)
+                MERGE (p)-[e:HAS_COMPONENT {{path: $path}}]->(c)
+                SET {_EDGE_SET_CLAUSE}
                 """,
-                {**params, "page_url": page_url},
+                {**params, "id": target_id, "page_url": page_url},
             )
 
         self._call(op)
@@ -104,10 +145,20 @@ class _LadybugComponentMixin:
         """
         if not components:
             return
-        rows = [_component_params(page_url, item["path"], item) for item in components]
 
         def op(conn) -> None:
             self._ensure_page(conn, page_url)
+            # Same rediscovery-continuity rule as record_component: a path
+            # already known on this page keeps its existing id even if its
+            # content drifted; only a path seen here for the first time
+            # gets a fresh content hash, which is what lets it collapse
+            # onto a matching row from another page.
+            resolved = resolve_component_ids(conn, page_url, (item["path"] for item in components))
+            rows = []
+            for item in components:
+                params = _component_params(item["path"], item)
+                target_id = resolved.get(item["path"]) or component_content_id(_node_fields(item))
+                rows.append({**params, "id": target_id})
             # Page matched before UNWIND, not after via WITH - a MATCH
             # following a WITH that itself follows an UNWIND raised "Cannot
             # evaluate expression with type VARIABLE" against the real
@@ -118,9 +169,9 @@ class _LadybugComponentMixin:
                 MATCH (p:Page {{url: $page_url}})
                 UNWIND $rows AS r
                 MERGE (c:Component {{id: r.id}})
-                ON CREATE SET c.path = r.path, {_SET_CLAUSE_UNWIND}
-                ON MATCH SET {_SET_CLAUSE_UNWIND}
-                MERGE (p)-[:HAS_COMPONENT]->(c)
+                SET {_SET_CLAUSE_UNWIND}
+                MERGE (p)-[e:HAS_COMPONENT {{path: r.path}}]->(c)
+                SET {_EDGE_SET_CLAUSE_UNWIND}
                 """,
                 {"rows": rows, "page_url": page_url},
             )
@@ -140,11 +191,14 @@ class _LadybugComponentMixin:
         blocked_reason: str = "",
     ) -> None:
         """Mark a component as interacted with and append one interaction
-        record - an `Interaction` node, `PERFORMED` from its `Component`
-        and `RESULTED_IN` the page it left you on. An interaction that
-        didn't navigate points back at its own page, never a dangling
-        reference - same rule the retired DuckDB backend's
-        `target_url = resulting_url or page_url` followed.
+        record - an `Interaction` node, `PERFORMED` from its `Component`,
+        `RESULTED_IN` the page it left you on, and `OCCURRED_ON` the page
+        it happened on (the last one explicit now that `Component` is
+        canonical and no longer implies it the way an embedded `page_url`
+        once did). An interaction that didn't navigate points `RESULTED_IN`
+        back at its own page, never a dangling reference - same rule the
+        retired DuckDB backend's `target_url = resulting_url or page_url`
+        followed.
 
         `resulting_url` is `route_shape`d before it names a page here,
         even though every other caller in this codebase already shapes
@@ -168,12 +222,18 @@ class _LadybugComponentMixin:
         blocked mutation never reaches the network, so it has no
         `Request`/`TRIGGERED` pair of its own; these two scalars on the
         `Interaction` itself are the only trace of it.
+
+        The component this interaction is against is resolved through
+        the page's `HAS_COMPONENT` edges by `path` - real crawls always
+        discover a component before interacting with it, so this is
+        expected to find it. The blank-content fallback
+        (`_component_lookup.stub_component_id`) only guards against
+        interacting with a component discovery itself somehow missed.
         Details: docs/dev/database/ladybug/component.md#record_component_interaction
         """
         target_url = route_shape(resulting_url) if resulting_url else page_url
-        component_id = f"{page_url}|{path}"
         params = {
-            "page_url": page_url, "component_id": component_id, "path": path, "target_url": target_url,
+            "page_url": page_url, "path": path, "target_url": target_url,
             "action": action, "value": value, "source_path": source_path,
             "visit_id": step.visit_id if step else "", "step_seq": step.seq if step else 0,
             "blocked": blocked, "blocked_reason": blocked_reason,
@@ -182,18 +242,20 @@ class _LadybugComponentMixin:
         def op(conn) -> None:
             self._ensure_page(conn, page_url)
             self._ensure_page(conn, target_url)
+            resolved = resolve_component_ids(conn, page_url, [path])
+            component_id = resolved.get(path) or stub_component_id(page_url, path)
             # One statement, not a MERGE-then-CREATE pair - a component
             # discovered mid-crawl is expected to already exist here (the
-            # stub path only guards against interacting with a component
-            # discovery itself somehow missed), and there is no reason to
-            # split an otherwise-atomic write into two round trips.
+            # fallback path only guards against the rare discovery miss
+            # documented above), and there is no reason to split an
+            # otherwise-atomic write into two round trips.
             #
-            # MERGE (page)-[:HAS_COMPONENT]->(c), not just MERGE (c): a
-            # component's own Page node owns the edge get_component_ledger
-            # joins through, and record_component/record_components is
-            # what normally creates it. Real crawls always discover a
-            # component before interacting with it, so this only matters
-            # for a stub - but the same completeness guarantee
+            # MERGE (page)-[e:HAS_COMPONENT]->(c), not just MERGE (c): a
+            # component's own Page edge is what get_component_ledger joins
+            # through, and record_component/record_components is what
+            # normally creates it. Real crawls always discover a component
+            # before interacting with it, so this only matters for the
+            # fallback case - but the same completeness guarantee
             # `_ensure_component_stub` gave the retired DuckDB backend
             # (any write path produces a queryable component) has to hold
             # here too, confirmed the hard way: without this, a component
@@ -203,9 +265,8 @@ class _LadybugComponentMixin:
                 """
                 MATCH (page:Page {url: $page_url})
                 MERGE (c:Component {id: $component_id})
-                ON CREATE SET c.path = $path
-                MERGE (page)-[:HAS_COMPONENT]->(c)
-                WITH c
+                MERGE (page)-[e:HAS_COMPONENT {path: $path}]->(c)
+                WITH c, page
                 MATCH (target:Page {url: $target_url})
                 CREATE (i:Interaction {
                     action: $action, value: $value, source_path: $source_path,
@@ -214,9 +275,10 @@ class _LadybugComponentMixin:
                 })
                 CREATE (c)-[:PERFORMED]->(i)
                 CREATE (i)-[:RESULTED_IN]->(target)
+                CREATE (i)-[:OCCURRED_ON]->(page)
                 SET c.interacted = true, c.interaction_count = c.interaction_count + 1
                 """,
-                params,
+                {**params, "component_id": component_id},
             )
 
         self._call(op)
@@ -232,10 +294,10 @@ class _LadybugComponentMixin:
         def op(conn) -> Dict[str, Dict[str, Any]]:
             rows = conn.execute(
                 f"""
-                MATCH (c:Component) WHERE c.id STARTS WITH $prefix
-                RETURN c.path, c.interacted, c.interaction_count, {fields}
+                MATCH (:Page {{url: $page_url}})-[e:HAS_COMPONENT]->(c:Component)
+                RETURN e.path, c.interacted, c.interaction_count, {fields}
                 """,
-                {"prefix": f"{page_url}|"},
+                {"page_url": page_url},
             )
             result: Dict[str, Dict[str, Any]] = {}
             for row in rows:
@@ -284,13 +346,20 @@ class _LadybugComponentMixin:
         summary - the page/component it happened on, the action, the
         value. `evidence-log.jsonl` is what makes this citation resolvable
         to anyone reading `derived_from` from outside the graph.
+
+        Resolved through `OCCURRED_ON`, not a bare `HAS_COMPONENT` hop
+        from `Component`: a canonical component can carry many
+        `HAS_COMPONENT` edges (one per page rendering it), so only
+        `OCCURRED_ON` names the one page this specific interaction
+        actually happened on.
         Details: docs/dev/database/ladybug/component.md#get_interaction_evidence
         """
         def op(conn) -> List[Dict[str, Any]]:
             rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)
-                RETURN i.id, p.url, c.path, i.action, i.value
+                MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
+                MATCH (p)-[e:HAS_COMPONENT]->(c)
+                RETURN i.id, p.url, e.path, i.action, i.value
                 ORDER BY i.id
                 """
             )
@@ -313,22 +382,39 @@ class _LadybugComponentMixin:
         own docstring states the layering this mirrors), so a caller that
         wants the normalized shape calls
         `describe_options_from_rows(*record["options"])` itself.
+
+        Base component rows come from `HAS_COMPONENT`, one entry per
+        (page, path) rendering - a canonical component shared by several
+        pages produces one ledger entry per page, each carrying the same
+        descriptive fields, exactly the "known once, applies everywhere"
+        shape collapse is for. Interaction/request/option rows are
+        attributed through `OCCURRED_ON` (interactions) or the same
+        `HAS_COMPONENT` `path`, never through a bare hop off the now-
+        canonical `Component`, which would otherwise fan an interaction
+        out across every page that happens to share the component.
         Details: docs/dev/database/ladybug/component.md#get_component_ledger
         """
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
+        edge_fields = ", ".join(f"e.{field}" for field in _EDGE_FIELDS)
 
         def op(conn) -> Dict[str, Dict[str, Dict[str, Any]]]:
             component_rows = conn.execute(
                 f"""
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)
-                RETURN p.url, c.path, c.interacted, c.interaction_count, {fields}
+                MATCH (p:Page)-[e:HAS_COMPONENT]->(c:Component)
+                RETURN p.url, e.path, c.interacted, c.interaction_count, {fields}, {edge_fields}
                 """
             )
             ledger: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for row in component_rows:
                 page_url, path, interacted, interaction_count = row[0], row[1], row[2], row[3]
+                node_field_count = len(DESCRIPTIVE_COMPONENT_FIELDS)
                 record: Dict[str, Any] = {"interacted": interacted, "interaction_count": interaction_count}
-                record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:]))
+                record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:4 + node_field_count]))
+                # This page's own rendering of the (possibly shared) canonical
+                # component - path/element_id/geometry, moved off Component
+                # onto HAS_COMPONENT by #134, belong exactly here: the ledger
+                # is already keyed per page, the level these facts are true at.
+                record.update(zip(_EDGE_FIELDS, row[4 + node_field_count:]))
                 record["interactions"] = []
                 record["network_requests"] = []
                 record["options"] = ([], "")
@@ -336,8 +422,10 @@ class _LadybugComponentMixin:
 
             interaction_rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)-[:RESULTED_IN]->(target:Page)
-                RETURN p.url, c.path, i.action, i.value, target.url, i.source_path, i.visit_id, i.step_seq
+                MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
+                MATCH (p)-[e:HAS_COMPONENT]->(c)
+                MATCH (i)-[:RESULTED_IN]->(target:Page)
+                RETURN p.url, e.path, i.action, i.value, target.url, i.source_path, i.visit_id, i.step_seq
                 ORDER BY i.id
                 """
             )
@@ -363,8 +451,10 @@ class _LadybugComponentMixin:
 
             request_rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[:PERFORMED]->(i:Interaction)-[:TRIGGERED]->(req:Request)
-                RETURN p.url, c.path, req.method, req.path, req.status, req.failed, req.failure_text,
+                MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
+                MATCH (p)-[e:HAS_COMPONENT]->(c)
+                MATCH (i)-[:TRIGGERED]->(req:Request)
+                RETURN p.url, e.path, req.method, req.path, req.status, req.failed, req.failure_text,
                        i.visit_id, i.step_seq
                 ORDER BY req.id
                 """
@@ -383,8 +473,8 @@ class _LadybugComponentMixin:
 
             option_rows = conn.execute(
                 """
-                MATCH (p:Page)-[:HAS_COMPONENT]->(c:Component)-[hop:HAS_OPTION]->(o:Option)
-                RETURN p.url, c.path, o.group_name, o.path, o.text, o.selected, hop.seq
+                MATCH (p:Page)-[e:HAS_COMPONENT]->(c:Component)-[hop:HAS_OPTION]->(o:Option)
+                RETURN p.url, e.path, o.group_name, o.path, o.text, o.selected, hop.seq
                 ORDER BY hop.seq
                 """
             )

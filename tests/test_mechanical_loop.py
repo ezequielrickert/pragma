@@ -677,8 +677,20 @@ def test_separate_scout_only_then_interact_only_runs_visit_and_click_the_same_pa
     equivalence the retired `two_phase_crawl` flag used to guarantee within
     one process; splitting it across two commands changes *when* and *in
     which process* the work happens, never *what* gets done."""
+    # Both runs need a real graph-store-backed sink, not the config default
+    # (no sink at all, so no interaction-dedup state to consult) - a
+    # canonical, page-decoupled Component (#134) is what makes "click
+    # exactly the same pages" meaningful to compare in the first place:
+    # the fixture's three leaf buttons are content-identical, so once one
+    # is clicked, the graph store already knows the other two are the same
+    # component - a real behavior only a real sink can exhibit.
     fake_fused = _FakeHubAndLeavesCrawler(num_leaves=3)
-    mech_fused = MechanicalCrawler(fake_fused, config=MechanicalCrawlerConfig(base_url=fake_fused.start_url))
+    store_fused = LadybugGraphStore("scout-then-interact-equivalence-test-fused")
+    store_fused.connect()
+    sink_fused = GraphStoreSink(store_fused, base_url=fake_fused.start_url)
+    mech_fused = MechanicalCrawler(
+        fake_fused, config=MechanicalCrawlerConfig(sink=sink_fused, base_url=fake_fused.start_url),
+    )
     results_fused = asyncio.run(mech_fused.crawl_site(fake_fused.start_url))
 
     fake_split = _FakeHubAndLeavesCrawler(num_leaves=3)

@@ -115,30 +115,41 @@ def test_record_component_rediscovery_updates_descriptive_fields_only(store) -> 
     store.record_component("https://x/y", "button#go", tag="button", text="Go",
                             facts=ComponentFacts(css_class="btn"))
     store._call(lambda conn: conn.execute(
-        "MATCH (c:Component {id: $id}) SET c.interacted = true, c.interaction_count = 3",
-        {"id": "https://x/y|button#go"},
+        """
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'button#go'}]->(c:Component)
+        SET c.interacted = true, c.interaction_count = 3
+        """
     ))
 
     store.record_component("https://x/y", "button#go", tag="button", text="Go (rediscovered)")
 
-    row = _rows(store, "MATCH (c:Component {id: $id}) RETURN c.text, c.interacted, c.interaction_count",
-                id="https://x/y|button#go")
+    row = _rows(
+        store,
+        """
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'button#go'}]->(c:Component)
+        RETURN c.text, c.interacted, c.interaction_count
+        """,
+    )
     assert row == [["Go (rediscovered)", True, 3]]
 
 
 def test_record_component_persists_position(store) -> None:
     store.record_component("https://x/y", "div#box", x=12.5, y=34.0, width=100.0, height=50.0)
 
-    row = _rows(store, "MATCH (c:Component {id: $id}) RETURN c.x, c.y, c.width, c.height",
-                id="https://x/y|div#box")
+    row = _rows(
+        store,
+        "MATCH (:Page)-[e:HAS_COMPONENT {path: 'div#box'}]->(:Component) RETURN e.x, e.y, e.width, e.height",
+    )
     assert row == [[12.5, 34.0, 100.0, 50.0]]
 
 
 def test_record_component_defaults_facts_to_blank_when_none_given(store) -> None:
     store.record_component("https://x/y", "div#box")
 
-    row = _rows(store, "MATCH (c:Component {id: $id}) RETURN c.css_class, c.required",
-                id="https://x/y|div#box")
+    row = _rows(
+        store,
+        "MATCH (:Page)-[:HAS_COMPONENT {path: 'div#box'}]->(c:Component) RETURN c.css_class, c.required",
+    )
     assert row == [["", False]]
 
 
@@ -155,7 +166,7 @@ def test_record_components_batch_with_mixed_and_all_none_geometry(store) -> None
 
     rows = _rows(
         store,
-        "MATCH (:Page {url: $url})-[:HAS_COMPONENT]->(c:Component) RETURN c.path, c.x, c.y ORDER BY c.path",
+        "MATCH (:Page {url: $url})-[e:HAS_COMPONENT]->(:Component) RETURN e.path, e.x, e.y ORDER BY e.path",
         url="https://x/y",
     )
     assert rows == [["a#skip", 10.0, 20.0], ["input#email", None, None]]
@@ -172,10 +183,10 @@ def test_record_component_interaction_creates_the_full_chain(store) -> None:
     row = _rows(
         store,
         """
-        MATCH (c:Component {id: $id})-[:PERFORMED]->(i:Interaction)-[:RESULTED_IN]->(target:Page)
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'button#go'}]->(c:Component)
+        MATCH (c)-[:PERFORMED]->(i:Interaction)-[:RESULTED_IN]->(target:Page)
         RETURN c.interacted, c.interaction_count, i.action, i.visit_id, i.step_seq, target.url
         """,
-        id="https://x/y|button#go",
     )
     # "x/cart", not the literal "https://x/cart" passed in - resulting_url
     # is route_shape'd before it names a page, same as every other page
@@ -191,14 +202,22 @@ def test_record_component_interaction_with_no_navigation_points_back_at_own_page
 
     row = _rows(
         store,
-        "MATCH (:Component {id: $id})-[:PERFORMED]->(:Interaction)-[:RESULTED_IN]->(target:Page) RETURN target.url",
-        id="https://x/y|select#opt",
+        """
+        MATCH (:Page {url: 'https://x/y'})-[:HAS_COMPONENT {path: 'select#opt'}]->(:Component)
+              -[:PERFORMED]->(:Interaction)-[:RESULTED_IN]->(target:Page)
+        RETURN target.url
+        """,
     )
     assert row == [["https://x/y"]]
 
 
 def test_get_component_states_reports_interacted_flag_per_path(store) -> None:
-    store.record_components("https://x/y", [{"path": "a#skip"}, {"path": "button#go"}])
+    # Distinct text keeps the two components themselves distinct - id is
+    # content-derived (#134), so two otherwise-blank components would
+    # legitimately collapse onto one shared row, `interacted` included.
+    store.record_components(
+        "https://x/y", [{"path": "a#skip", "text": "Skip"}, {"path": "button#go", "text": "Go"}],
+    )
     store.record_component_interaction("https://x/y", "button#go", "click")
 
     states = store.get_component_states("https://x/y")

@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Sequence
 
 from core.interfaces import SemanticEntity, SemanticField
-from .ids import component_id, split_component_id
+from ._component_lookup import resolve_component_ids, stub_component_id
 
 # Recorded on every `DERIVED_FROM` edge this module writes, so a reader can
 # tell which pass produced a node without joining anything.
@@ -82,8 +82,7 @@ class _LadybugSemanticMixin:
 
         self._call(op)
 
-    @staticmethod
-    def _link_provenance(conn, label: str, name: str, sources, run_id: str) -> None:
+    def _link_provenance(self, conn, label: str, name: str, sources, run_id: str) -> None:
         """One `DERIVED_FROM` edge per supporting component.
 
         `MERGE` on the `Component` rather than `MATCH`: a `MATCH` that
@@ -94,16 +93,20 @@ class _LadybugSemanticMixin:
         Details: docs/dev/database/ladybug/semantic.md#_link_provenance
         """
         for page_url, path in sources:
+            self._ensure_page(conn, page_url)
+            resolved = resolve_component_ids(conn, page_url, [path])
+            component_id = resolved.get(path) or stub_component_id(page_url, path)
             conn.execute(
                 f"""
                 MATCH (n:{label} {{name: $name}})
+                MATCH (page:Page {{url: $page_url}})
                 MERGE (c:Component {{id: $component_id}})
-                ON CREATE SET c.path = $path
+                MERGE (page)-[e:HAS_COMPONENT {{path: $path}}]->(c)
                 CREATE (n)-[:DERIVED_FROM {{method: $method, confidence: $confidence,
                                             run_id: $run_id, generator: $generator}}]->(c)
                 """,
                 {
-                    "name": name, "component_id": component_id(page_url, path), "path": path,
+                    "name": name, "component_id": component_id, "page_url": page_url, "path": path,
                     "method": _METHOD, "confidence": _CONFIDENCE,
                     "run_id": run_id, "generator": _GENERATOR,
                 },
@@ -140,17 +143,20 @@ class _LadybugSemanticMixin:
             {"entity_name": entity_name, "field_name": field.name},
         )
         for page_url, path in field.derived_from:
+            self._ensure_page(conn, page_url)
+            resolved = resolve_component_ids(conn, page_url, [path])
+            target_id = resolved.get(path) or stub_component_id(page_url, path)
             conn.execute(
                 """
                 MATCH (f:Field {name: $field_name})
+                MATCH (page:Page {url: $page_url})
                 MERGE (c:Component {id: $component_id})
-                ON CREATE SET c.path = $path
+                MERGE (page)-[e:HAS_COMPONENT {path: $path}]->(c)
                 CREATE (f)-[:EDITS]->(c)
                 """,
                 {
                     "field_name": field.name,
-                    "component_id": component_id(page_url, path),
-                    "path": path,
+                    "component_id": target_id, "page_url": page_url, "path": path,
                 },
             )
         self._link_provenance(conn, "Field", field.name, field.derived_from, run_id)
@@ -204,6 +210,12 @@ class _LadybugSemanticMixin:
         Read in one query per label rather than per node: an entity with
         twelve fields would otherwise cost thirteen round trips through the
         writer thread for data that is one `MATCH` away.
+
+        Expanded through `HAS_COMPONENT`, not decoded from `Component.id`
+        (content-derived and page-decoupled per #134, so it no longer
+        encodes a page at all) - a component shared by several pages now
+        legitimately reports provenance from every one of them, more
+        accurate than the single page the old encoded id could ever name.
         Details: docs/dev/database/ladybug/semantic.md#_provenance_by_node
         """
         provenance: Dict[Any, List[Any]] = {}
@@ -211,12 +223,10 @@ class _LadybugSemanticMixin:
             rows = conn.execute(
                 f"""
                 MATCH (n:{label})-[:DERIVED_FROM]->(c:Component)
-                RETURN n.name, c.id ORDER BY n.name, c.id
+                MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
+                RETURN DISTINCT n.name, page.url, e.path ORDER BY n.name, page.url, e.path
                 """
             )
-            for name, node_id in rows:
-                # `split_component_id` rather than a second hop through
-                # HAS_COMPONENT: the page is already encoded in the id, and
-                # this is the one function that knows how.
-                provenance.setdefault((label, name), []).append(split_component_id(node_id))
+            for name, page_url, path in rows:
+                provenance.setdefault((label, name), []).append((page_url, path))
         return provenance
