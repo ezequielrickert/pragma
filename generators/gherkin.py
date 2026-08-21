@@ -141,32 +141,6 @@ def render_scenario(trace: Trace, title: str) -> str:
     return "\n".join(lines)
 
 
-def render_sequence_diagram(trace: Trace) -> str:
-    """The same trace as a UML sequence diagram.
-
-    Not a second source of truth - the same steps, drawn. A trace already
-    *is* a sequence (actor, control, endpoint, response, over time), which
-    is why this costs no extra query and cannot disagree with the scenario.
-    Details: docs/dev/generators/gherkin.md#render_sequence_diagram
-    """
-    lines = ["```mermaid", "sequenceDiagram", "    actor User", "    participant UI", "    participant API"]
-    for step in trace.steps:
-        lines.append(f"    User->>UI: {step.action} {_quoted(step.label)[:40]}")
-        for request in step.requests:
-            url = (request.get("url") or "").split("?")[0]
-            lines.append(f"    UI->>API: {request.get('method', '')} {url}")
-            status = request.get("status")
-            if request.get("failed"):
-                answer = "request failed"
-            else:
-                answer = str(status) if status is not None else "no response captured"
-            lines.append(f"    API-->>UI: {answer}")
-        if step.navigated:
-            lines.append(f"    UI-->>User: {_quoted(step.resulting_url)[:40]}")
-    lines.append("```")
-    return "\n".join(lines)
-
-
 def _fallback_title(trace: Trace) -> str:
     """A title from the trace itself - poorer than a narrated one, never wrong.
     Used when no model is wired, and when a narration call fails."""
@@ -388,36 +362,4 @@ class GherkinDocument(DocumentGenerator):
             else:
                 lines.append(line + "\n" + render_scenario(representative, title) + "\n")
 
-        return "\n".join(lines)
-
-
-@DOCUMENT_REGISTRY.register("sequences")
-class SequenceDiagramsDocument(DocumentGenerator):
-    """The same traces as UML sequence diagrams, in Markdown.
-
-    Untouched by docs/adr/0013: that ADR locks `gherkin`'s own tag
-    vocabulary and `Outline` dedup convention, not this document's shape -
-    every observable trace still gets its own diagram, undeduplicated and
-    untagged.
-    Details: docs/dev/generators/gherkin.md#sequencediagramsdocument
-    """
-
-    name = "sequences"
-    title = "Sequence Diagrams"
-    purpose = "Each recorded interaction sequence drawn as a UML sequence diagram - actor, UI, API, response."
-
-    def generate(self, request: DocumentRequest) -> str:
-        traces = _observable_traces(request)
-        lines = [f"# Sequence Diagrams: {request.site}", ""]
-        if not traces:
-            lines.append(_NO_TRACES_NOTE)
-            return "\n".join(lines) + "\n"
-        titles = _titles_for(request, traces)
-        lines += [
-            "The same traces the behaviour specification renders as scenarios, drawn. Not a second "
-            "source of truth - a trace already *is* a sequence, so these cannot disagree with it.",
-            "",
-        ]
-        for trace in traces:
-            lines += [f"## {titles[trace.visit_id]}", "", render_sequence_diagram(trace), ""]
         return "\n".join(lines)

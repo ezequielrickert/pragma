@@ -10,6 +10,20 @@ Gherkin specification, whose scenarios *are* traces, and the flow
 document, which uses per-step request attribution to stop labelling a
 successful branch with a failed one's status.
 
+## render_sequence_diagram
+
+Moved here from `generators/gherkin.py` in ticket #108 when `sequences`
+(the document it used to back) folded into `flows.md` per ADR-0014 point
+4. Drawing a `Trace` as a Mermaid sequence diagram was never actually
+Gherkin-specific, so it belongs with the trace model rather than with
+either document generator that consumes it - `generators/flows_arazzo.py`
+is the current caller.
+
+Costs nothing: a trace already *is* a sequence (actor, control, endpoint,
+response, over time), so this is the same data drawn rather than a second
+query, and the diagram cannot disagree with a scenario or workflow built
+from the identical trace.
+
 ## TraceStep
 
 ## Trace

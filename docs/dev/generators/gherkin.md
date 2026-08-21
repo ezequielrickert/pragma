@@ -53,13 +53,6 @@ No tag line: the caller prepends one (`GherkinDocument.generate`), because
 the identical body is also `render_scenario_outline`'s template - keeping
 tagging out of this function means neither caller has to strip anything.
 
-## render_sequence_diagram
-
-The H4 item from the plan, and it costs nothing: a trace already *is* a
-sequence - actor, control, endpoint, response, over time - so this is the
-same data drawn rather than a second query. That also means the diagram
-cannot disagree with the scenario above it.
-
 ## narrate_titles
 
 One call per scenario, for a title. The system instruction says plainly
@@ -125,10 +118,9 @@ parser (`gherkin-official`) rather than by asserting substrings, so a
 malformed step fails the test rather than passing a `"Given" in text`
 check.
 
-## SequenceDiagramsDocument
-
-Registered separately because one generator writes one file and the two
-have different formats - a `.feature` cannot hold a Mermaid block, and a
-Markdown file cannot be run by Cucumber. They share `_observable_traces`
-and `_titles_for`, so the diagram and the scenario always describe the
-same trace under the same name.
+`sequences` (formerly registered here as `SequenceDiagramsDocument`) was
+removed entirely in ticket #108, per ADR-0014 point 4 - it folded into
+`flows.md` as a rendered section instead of surviving as its own
+mechanically-regenerated file. `render_sequence_diagram` moved to
+`generators/traces.py` (see `docs/dev/generators/traces.md`), since it
+was never actually Gherkin-specific.

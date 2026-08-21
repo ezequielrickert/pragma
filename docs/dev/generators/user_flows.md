@@ -13,6 +13,14 @@ path restates the navigation menu. One showing the checkout POST answering
 422 and landing back on the form describes how the application actually
 behaves - and those are the paths a rebuild has to keep working.
 
+**docs/adr/0014, ticket #108.** This `FlowGraph` now also backs
+`flows.xstate.json` (an XState v5 machine) - the API-level half
+(`flows.arazzo.json`, one workflow per observed trace) needs a different,
+per-visit data source and lives in `generators/flows_arazzo.py`.
+`FlowsDocument` (was `UserFlowsDocument`) wires both source documents plus
+the view together. `sequences` folded into `flows.md`'s own final section
+instead of surviving as its own file (point 4).
+
 ## FlowTransition
 
 ## FlowGraph
@@ -84,11 +92,57 @@ colon is what separates a Mermaid state id from its label, so one inside a
 button's text (`Total: 500`) would silently corrupt the line rather than
 fail loudly.
 
-## UserFlowsDocument
+## _render_flow_view
+
+The state diagram, transitions table, error branches, and dead-ends
+sections `UserFlowsDocument` used to render directly, pulled out into
+their own function once `FlowsDocument.generate` needed to append the
+folded-in sequence-diagram section (ADR-0014 point 4) after them.
+States up front how requests are attributed and when that attribution
+fails - see `_requests_for_move`. A reader taking a per-move status at
+face value should know whether it was resolved or pooled.
+
+## _screen_id
+
+`SCR-<hash>` (ADR-0003), computed straight from the route-shaped state
+string - the same convention `requirements.py`/`gherkin_tags.py` already
+use for a page url.
+
+## _guard
+
+XState v5's guard object has exactly two fields, `type` and `params` - no
+native `description`. `params.description`/`params.derived_from`
+(ADR-0014 point 2) are the plain-language condition and the reserved
+evidence pointers; `type` carries the same `ok`/`error`/`unknown` value
+`FlowTransition.outcome` already has, so a reader (or a real XState guard
+function keyed by `type`) doesn't need a second vocabulary.
+
+## _state_events
+
+An event fires exactly one target when the crawl only ever observed one
+destination for that trigger; it becomes an array of guarded branches
+only when the *same* trigger really did lead to more than one
+destination - a fact `FlowGraph`'s existing `(from, to, trigger, action)`
+transition keying already preserves, so this needed no change to
+`build_flow_graph` itself, only a new grouping pass over its output.
+
+## build_xstate_document
+
+The one entry point: a `FlowGraph` and a site name in, an XState v5
+machine config out. Mints its own `s0`/`s1`... state ids via the same
+`_state_ids` Mermaid rendering already uses, so both outputs agree on
+which short id names which real screen.
+
+## FlowsDocument
 
 States up front how requests are attributed and when that attribution
 fails - see `_requests_for_move`. A reader taking a per-move status at
 face value should know whether it was resolved or pooled.
+
+Both source documents are schema-validated before the view is rendered,
+so a structural mistake in either fails the whole `generate()` call
+rather than shipping a `flows.md` that describes JSON `flows.xstate.json`/
+`flows.arazzo.json` don't actually contain.
 
 ## _requests_for_move
 
