@@ -87,6 +87,15 @@ resolution order essentially at random, since names like `"flows.xstate"`
 and `"tree.aria"` aren't in ADR-0015's own list at all - only the bare
 registry names are.
 
+## _format_for
+
+Added in ticket #116 (docs/adr/0023): `_FORMAT_BY_FILENAME`'s own exact
+match still runs first, but a generator whose filename varies per output
+(`decisions.adr/0001-...`, `decisions.adr/0002-...`, one per inferred/
+assumed requirement) has no single key that table could hold - checked
+against `_FORMAT_BY_FILENAME_PREFIX` instead, falling back to no
+`format` entry when neither matches, same as before this existed.
+
 ## _build_manifest
 
 Every registered name (`DOCUMENT_REGISTRY.names()`) gets an entry -

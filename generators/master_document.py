@@ -17,7 +17,6 @@ Details: docs/dev/generators/master_document.md#module
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest, ProducedDocument
@@ -74,6 +73,28 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "redaction-log": "JSON Lines",
     "test-plan": "JSON Schema 2020-12",
 }
+
+# A generator whose filename varies per output - `decisions.adr/0001-...`,
+# `decisions.adr/0002-...`, one per inferred/assumed requirement - has no
+# single filename `_FORMAT_BY_FILENAME` could ever key on. Checked only
+# once an exact match above misses.
+_FORMAT_BY_FILENAME_PREFIX: Tuple[Tuple[str, str], ...] = (
+    ("decisions.adr/", "MADR 4.0.0"),
+)
+
+
+def _format_for(filename: str) -> str:
+    """`_FORMAT_BY_FILENAME`'s exact match, falling back to
+    `_FORMAT_BY_FILENAME_PREFIX`'s prefix match, then `""` - a filename
+    matching neither gets no `format` entry, same as before this existed.
+    Details: docs/dev/generators/master_document.md#_format_for
+    """
+    if filename in _FORMAT_BY_FILENAME:
+        return _FORMAT_BY_FILENAME[filename]
+    for prefix, document_format in _FORMAT_BY_FILENAME_PREFIX:
+        if filename.startswith(prefix):
+            return document_format
+    return ""
 
 
 class MasterDocument(DocumentGenerator):
@@ -147,7 +168,7 @@ def _render_master(request: DocumentRequest) -> str:
         "",
     ]
     for document in request.produced:
-        lines.append(f"## [{document.title}]({Path(document.path).name})")
+        lines.append(f"## [{document.title}]({document.relative_link})")
         lines.append("")
         lines.append(document.purpose)
         lines.append("")
@@ -198,7 +219,7 @@ def _render_llms_txt(request: DocumentRequest) -> str:
         documents = sorted(documents, key=lambda d: (_resolution_rank(d.name), d.filename))
         lines.append(f"## {section}")
         lines.append("")
-        lines += [f"- [{document.title}]({Path(document.path).name}): {document.purpose}" for document in documents]
+        lines += [f"- [{document.title}]({document.relative_link}): {document.purpose}" for document in documents]
         lines.append("")
     return "\n".join(lines)
 
@@ -209,7 +230,7 @@ def _render_llms_txt(request: DocumentRequest) -> str:
 def _manifest_entry(document: ProducedDocument) -> Dict[str, Any]:
     entry: Dict[str, Any] = {
         "name": document.name,
-        "path": Path(document.path).name,
+        "path": document.relative_link,
         "kind": document.kind,
         "status": "on",
         "checksum": f"sha256:{document.checksum}",
@@ -218,7 +239,7 @@ def _manifest_entry(document: ProducedDocument) -> Dict[str, Any]:
     # `filename` (e.g. both of coverage.json/coverage.md are minted from
     # `filename="coverage"`), so `kind` decides first - the table would
     # otherwise hand the view the source's external-standard format.
-    document_format = "Markdown" if document.kind == "view" else _FORMAT_BY_FILENAME.get(document.filename, "")
+    document_format = "Markdown" if document.kind == "view" else _format_for(document.filename)
     if document_format:
         entry["format"] = document_format
     return entry

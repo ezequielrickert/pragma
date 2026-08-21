@@ -64,6 +64,12 @@ generator produces exactly one, via `outputs()`'s own auto-wrap
 file on disk actually gets, not what the generator returned before the
 pipeline modified it.
 
+`relative_link` is `path` relative to `naming.out_dir`, forward slashes
+forced regardless of host OS (it's a Markdown link, not a filesystem
+path). Computed here because this is the one place `path` and
+`naming.out_dir` are both in scope together - `master_document.py`'s
+own renderers never see `naming` at all.
+
 ## run_document_pipeline
 
 Computes `CrawlCoverage` exactly once, here, before the generator loop -

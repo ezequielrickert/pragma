@@ -9,6 +9,7 @@ Details: docs/dev/generators/pipeline.md#module
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, replace
 from typing import List, Sequence
 
@@ -74,10 +75,14 @@ def _write_document(
         content = _with_banner(output, request)
         write_output(path, content)
         checksum = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        # Forward slashes always, regardless of host OS - this is a
+        # Markdown link another document embeds, not a filesystem path.
+        relative_link = os.path.relpath(path, naming.out_dir).replace(os.sep, "/")
         produced.append(
             ProducedDocument(
                 name=generator.name, title=generator.title, purpose=generator.purpose,
                 path=path, kind=output.kind, checksum=checksum, filename=output.filename,
+                relative_link=relative_link,
             )
         )
     return produced

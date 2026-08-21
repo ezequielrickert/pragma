@@ -67,6 +67,19 @@ identifier to key their own lookups on (a document's external-standard
 reliably reversed back into it, since both the slug and the filename can
 contain `_`/`.`.
 
+## ProducedDocument.relative_link
+
+Added in ticket #116 (docs/adr/0023), the day `decisions.adr/`'s own
+numbered MADR files became the first document living inside a
+subdirectory of `out_dir` rather than flat inside it. `Path(path).name`
+- what `master.md`/`llms.txt`/`manifest.json` used before this field
+existed - silently drops the subdirectory for a nested document,
+producing a broken link. Computed once, in
+`generators/pipeline.py::_write_document`, the one place that has both
+the written `path` and `naming.out_dir` in scope together; identical to
+`Path(path).name` for every flat document, so nothing else in the
+pipeline needed to change.
+
 ## DocumentRequest.produced
 
 Empty for every ordinary generator and filled only for the master
