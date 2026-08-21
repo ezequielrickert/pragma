@@ -24,6 +24,7 @@ from typing import Optional
 from .data_contracts import (  # noqa: F401 - re-exported, see module docstring below
     ComponentFacts,
     ComponentFamily,
+    CompositeFamily,
     InferredRequest,
     PageState,
     SemanticEntity,

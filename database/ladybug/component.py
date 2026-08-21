@@ -401,20 +401,25 @@ class _LadybugComponentMixin:
             component_rows = conn.execute(
                 f"""
                 MATCH (p:Page)-[e:HAS_COMPONENT]->(c:Component)
-                RETURN p.url, e.path, c.interacted, c.interaction_count, {fields}, {edge_fields}
+                RETURN p.url, e.path, c.id, c.interacted, c.interaction_count, {fields}, {edge_fields}
                 """
             )
             ledger: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for row in component_rows:
-                page_url, path, interacted, interaction_count = row[0], row[1], row[2], row[3]
+                page_url, path, component_id, interacted, interaction_count = row[0], row[1], row[2], row[3], row[4]
                 node_field_count = len(DESCRIPTIVE_COMPONENT_FIELDS)
-                record: Dict[str, Any] = {"interacted": interacted, "interaction_count": interaction_count}
-                record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[4:4 + node_field_count]))
+                # "id": the canonical Component row this page's rendering
+                # resolves to (content-derived, possibly shared with other
+                # pages per #134) - here so a whole-site pass (the
+                # matching pipeline, issue #139) can merge/reference rows
+                # without re-deriving an id from (page_url, path) itself.
+                record: Dict[str, Any] = {"id": component_id, "interacted": interacted, "interaction_count": interaction_count}
+                record.update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[5:5 + node_field_count]))
                 # This page's own rendering of the (possibly shared) canonical
                 # component - path/element_id/geometry, moved off Component
                 # onto HAS_COMPONENT by #134, belong exactly here: the ledger
                 # is already keyed per page, the level these facts are true at.
-                record.update(zip(_EDGE_FIELDS, row[4 + node_field_count:]))
+                record.update(zip(_EDGE_FIELDS, row[5 + node_field_count:]))
                 record["interactions"] = []
                 record["network_requests"] = []
                 record["options"] = ([], "")

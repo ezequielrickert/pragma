@@ -109,12 +109,14 @@ class ComponentFamily:
     """One inferred reusable-component cluster (a "Button" pattern, a
     "combobox" pattern, ...) - a post-hoc, whole-site grouping of already-
     discovered Components by structural/visual similarity, computed by
-    `generators/component_family.py::build_component_families` (that
+    `analysis/component_matching_pipeline.py::_build_leaf_families` (that
     module's own docstring has the full algorithm - bucketed by `(tag,
-    component_type)`, then clustered within each bucket by CSS-class
-    similarity). Lives here (not in `generators/`) so `GraphStore` - a
-    `core` module - can reference the type without `core` depending on
-    `generators`, the reverse of this project's normal layering.
+    component_type)`, then clustered within each bucket by leaf-feature-
+    vector cosine similarity, issue #139 - retired the earlier CSS-class-
+    Jaccard version this dataclass's shape predates). Lives here (not in
+    `generators/`) so `GraphStore` - a `core` module - can reference the
+    type without `core` depending on `generators`, the reverse of this
+    project's normal layering.
 
     Frozen + tuple fields (not list) so a `ComponentFamily` is hashable
     and safely comparable by value - callers (tests, in particular) can
@@ -156,6 +158,43 @@ class ComponentFamily:
     tag: str
     component_type: str
     common_classes: Tuple[str, ...]
+    member_paths: Tuple[Tuple[str, str], ...]
+    purpose: str = ""
+
+
+@dataclass(frozen=True)
+class CompositeFamily:
+    """`ComponentFamily`'s counterpart one level up - one inferred
+    reusable *composite* pattern (a card layout, a nav-link cluster shape)
+    rather than a single component, computed by
+    `analysis/composite_matching.py`'s matching pass (issue #132/#139) and
+    stored as `Container`/`COMPOSITE_VARIANT_OF` per the canonical schema
+    (issue #134). Not a repurposed `ComponentFamily`: a `Container`
+    subtree doesn't fit that dataclass's columns (no `component_type`,
+    no single `css_class`), so this is its own minimal shape.
+
+    Fields:
+        root_tag: the composite root's raw HTML tag every member shares,
+            e.g. `"nav"`, `"article"` - the bucketing key
+            `composite_matching.py::bucket_candidates` groups within
+            (alongside `role`, which this dataclass doesn't carry since
+            it isn't part of what a reader needs to know about the
+            resulting family, only about how it was found).
+        member_paths: one `(page_url, path)` pair per member composite's
+            root, expanded through its `HAS_CONTAINER` edges the same way
+            `ComponentFamily.member_paths` expands through
+            `HAS_COMPONENT` - a member shared by several pages
+            legitimately contributes one pair per page. Sorted for a
+            deterministic order.
+        purpose: one-sentence description of what this composite pattern
+            is typically used for, or `""` if never narrated - mirrors
+            `ComponentFamily.purpose`, but this map's implementation
+            tickets don't yet narrate composites (nothing consumes it
+            yet); left for whoever needs it to wire up via
+            `component_family_narrator.py`'s existing pattern.
+    """
+
+    root_tag: str
     member_paths: Tuple[Tuple[str, str], ...]
     purpose: str = ""
 

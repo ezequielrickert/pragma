@@ -19,7 +19,7 @@ from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
 from generators.data_model import build_entities
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
-from analysis.component_clustering import apply_component_families
+from analysis.component_matching_pipeline import apply_component_matching
 from analysis.graph_projection_apply import apply_graph_projection
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import route_shape, slugify
@@ -277,18 +277,27 @@ class Engine:
         # indistinguishable from a hung one.
         # Details: research/plan-progreso-en-terminal.md
         #
-        # graph_store (not self.graph_store) from here on: the crawl has
-        # finished writing, so every whole-site read from here to the end
-        # of the pipeline is safe to memoize per method -
+        # apply_component_matching runs against self.graph_store directly,
+        # not the CachingGraphStore constructed below - it merges rows
+        # (merge_components/merge_containers) partway through its own four
+        # steps, then re-reads get_component_ledger/get_container_forest
+        # to see the result. CachingGraphStore's safety argument is that
+        # nothing it wraps writes what it caches; this pass is the one
+        # exception to that, so it has to run before the wrapper exists,
+        # not through it.
+        print("\nCrawl finished. Matching and collapsing reused components...")
+        apply_component_matching(self.graph_store, self.agent)
+
+        # graph_store (not self.graph_store) from here on: every remaining
+        # whole-site read is safe to memoize per method -
         # get_component_ledger alone was called ~8 times per run before
         # this, once per generator that needed it. See
         # CachingGraphStore's own module docstring for why this is safe
-        # specifically *here* (after the crawl, not during it) and not a
-        # general-purpose cache. self.graph_store itself is untouched, so
-        # self.graph_store.close() below still closes the real connection.
+        # specifically *here* (after both the crawl and the matching pass
+        # above) and not a general-purpose cache. self.graph_store itself
+        # is untouched, so self.graph_store.close() below still closes the
+        # real connection.
         graph_store = CachingGraphStore(self.graph_store)
-        print("\nCrawl finished. Grouping components into families...")
-        apply_component_families(graph_store, self.agent)
         print("Projecting the navigation graph into modules and metrics...")
         apply_graph_projection(graph_store, route_shape(url))
         print("Deducing the data model from the forms found...")

@@ -2,9 +2,10 @@
 writes the computed page metrics/modules back.
 
 Split from `graph_projection.py` for the same reason
-`analysis/component_clustering.py` is split from
-`generators/component_family.py`: that module stays pure/no-I/O (its own
-module docstring is explicit about it), this one is the impure caller -
+`analysis/component_matching_pipeline.py` is split from
+`analysis/leaf_feature_vector.py`/`composite_matching.py`: those modules
+stay pure/no-I/O (their own docstrings are explicit about it), this one
+is the impure caller -
 shared by `Engine`'s fused pipeline and `pragma docs`
 (`core/docs_engine.py`), which absorbed this as its own first internal
 step since nothing but doc generation consumes projection output.
