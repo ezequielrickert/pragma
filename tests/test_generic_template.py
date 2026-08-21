@@ -124,6 +124,24 @@ def test_a_script_tag_smuggled_through_scraped_content_never_executes():
     assert "<script>" not in html and "</script>" not in html
 
 
+def test_a_registered_documents_page_shows_its_explanation_and_example():
+    document = _document("source", name="coverage", title="Crawl Coverage")
+
+    html = render_generic_page(document, "{}")
+
+    assert "About this document" in html
+    assert "ceiling" in html
+    assert "pages" in html and "endpoints" in html
+
+
+def test_an_unlisted_documents_page_shows_no_placeholder_context_section():
+    document = _document("source", name="not-a-real-document")
+
+    html = render_generic_page(document, "{}")
+
+    assert "About this document" not in html
+
+
 def test_a_javascript_scheme_link_loses_its_href_but_a_real_link_keeps_it():
     """A distinct attack surface from the <script> tag case above - an
     attribute value, not an element. bleach's default protocol allowlist

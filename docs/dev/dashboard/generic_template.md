@@ -57,4 +57,6 @@ though this isn't a `DocumentGenerator`.
 Carries its own breadcrumb back to `../concern/{document.name}.html`
 (ticket #143) - the same `.name`/`.title` pair `dashboard/shell.py`
 already groups documents by concern with, so no second lookup is
-needed to know where "back" goes.
+needed to know where "back" goes. Also renders `document_context.py`'s
+own `render_context_section` (ticket #145), the "About this document"
+block, right after the purpose/badge.

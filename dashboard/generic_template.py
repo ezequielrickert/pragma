@@ -60,6 +60,7 @@ import bleach
 import markdown
 
 from core.documents import ProducedDocument
+from .document_context import render_context_section
 
 _STYLE = """
 :root {
@@ -86,6 +87,9 @@ pre { background: var(--panel); border: 1px solid var(--border); border-radius: 
 .markdown-body code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
 .markdown-body pre code { background: none; padding: 0; }
 .markdown-body blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 14px; color: var(--text-dim); }
+.context { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+.context h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: var(--text-dim); }
+.context .example { margin: 12px 0 0; padding: 12px; background: var(--panel-2); border-radius: 6px; font-size: 12px; overflow-x: auto; }
 """
 
 # GFM-style tables and code fences - what this pipeline's own Markdown
@@ -144,6 +148,7 @@ def render_generic_page(document: ProducedDocument, content: str) -> str:
         f"<h1>{escape(document.title)}</h1>"
         f'<p class="purpose">{escape(document.purpose)}</p>'
         f'<span class="badge {escape(document.kind)}">{escape(document.kind)}</span>'
+        f"{render_context_section(document)}"
         f"{body}"
         "</main></body></html>\n"
     )

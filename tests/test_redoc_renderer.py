@@ -73,6 +73,15 @@ def test_the_breadcrumb_links_back_to_the_documents_own_concern_page():
     assert '<a href="../concern/openapi.html">&larr; API Contract</a>' in html
 
 
+def test_openapis_page_shows_its_explanation_and_example():
+    _, content = _real_openapi_yaml()
+
+    html = render_redoc_page(_document(), content)
+
+    assert "About this document" in html
+    assert "mock servers" in html
+
+
 def test_title_and_purpose_are_rendered_and_escaped():
     document = ProducedDocument(
         name="openapi", title="API <Contract>", purpose="Spec & docs.", path="/out/x.yaml",
