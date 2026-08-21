@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/content-inventory.schema.json",
+  "title": "Content inventory",
+  "description": "docs/adr/0025: one entry per catalog/custom-elements.json component variant that carried observed text - component-primary organization, screen as location context. is_legal/requires_review are this document's own flag, a different axis from data-model.json's DPV/PII annotations. glossary_ref completes glossary.jsonld's forward reference (ADR-0020 point 3) when this entry's own text is a known glossary term.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["component_ref", "screens", "text", "is_legal", "requires_review", "glossary_ref"],
+    "properties": {
+      "component_ref": { "type": "string", "description": "\"<catalog component name>#variant-<N>\", citing custom-elements.json's own x-observed-variants entry." },
+      "screens": { "type": "array", "items": { "type": "string", "pattern": "^SCR-" } },
+      "text": { "type": "string" },
+      "is_legal": { "type": "boolean" },
+      "requires_review": { "type": "boolean" },
+      "glossary_ref": { "type": ["string", "null"], "pattern": "^TERM-" }
+    }
+  }
+}
