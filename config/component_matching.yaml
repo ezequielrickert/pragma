@@ -1,0 +1,28 @@
+# Tunables for the component-matching pipeline (issue #127): the leaf
+# feature-vector block weights (analysis/leaf_feature_vector.py) and the
+# leaf/composite thresholds and bucketing slack #132/#133 decided.
+#
+# Kept out of pragma.yaml on purpose - this whole map's tunables live in
+# one dedicated place instead of mixed into the general run config. A
+# missing file, or a missing key within it, falls back to the hardcoded
+# defaults in analysis/component_matching_config.py - never an error.
+#
+# Every value below is a starting point (docs/dev/generators/
+# matching-threshold-calibration.md), meant to be tuned empirically once a
+# real crawl (data/sites/austral.edu.ar.lbdb) is run through it.
+
+leaf_weights:
+  structural: 1.0
+  identity_strings: 0.8
+  css_class: 0.6
+  style: 0.5
+  geometry: 0.15
+
+thresholds:
+  leaf_family: 0.55
+  leaf_exact: 0.92
+  composite_family: 0.5
+  composite_exact: 0.9
+
+composite_bucketing:
+  child_count_slack: 0.5

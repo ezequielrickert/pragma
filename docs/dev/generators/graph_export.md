@@ -21,6 +21,14 @@ Same "reads only from `GraphStore`, writes nothing back" shape as every
 other generator here - pure, deterministic, no AI/LLM call anywhere in
 this module.
 
+## _componente_node_id
+
+This module's own `Componente` node key - `(page, path)`, one per ledger
+entry. Not `database/ladybug`'s `Component.id` (content-derived and
+page-decoupled since #134, an internal storage detail this document
+doesn't otherwise depend on) - inlined here rather than imported once that
+function stopped having this shape.
+
 ## _pantalla_nodes
 
 One `Pantalla` per crawled page, keyed by url. `External` pages (a link
