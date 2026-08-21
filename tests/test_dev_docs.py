@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEV_DOCS = ROOT / "docs" / "dev"
 
 # Top-level packages docs/dev mirrors, per its own README.
-_DOCUMENTED_PACKAGES = ("core", "agents", "database", "spiders", "generators", "utils", "analysis")
+_DOCUMENTED_PACKAGES = ("core", "agents", "dashboard", "database", "spiders", "generators", "utils", "analysis")
 
 _POINTER = re.compile(r"docs/dev/([A-Za-z0-9_./-]*\.md)(?:#([A-Za-z0-9_-]+))?")
 

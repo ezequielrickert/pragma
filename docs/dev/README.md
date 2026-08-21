@@ -1,7 +1,7 @@
 # Developer notes index
 
-Every file under a top-level Python package (`core/`, `agents/`, `database/`, `spiders/`,
-`generators/`, `utils/`) gets a matching file here, at the same relative path
+Every file under a top-level Python package (`core/`, `agents/`, `dashboard/`, `database/`,
+`spiders/`, `generators/`, `utils/`) gets a matching file here, at the same relative path
 (`spiders/orchestration/mechanical_loop/loop.py` → `docs/dev/spiders/orchestration/mechanical_loop/loop.md`).
 The source file keeps a short (≤2-line) comment or docstring at each
 decision point; anything longer - the "why," the bug it fixes, the
