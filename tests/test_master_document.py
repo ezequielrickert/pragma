@@ -2,15 +2,20 @@
 addition (docs/adr/0015). master.md's own rendering (including the
 accessibility-gap note) is tested in tests/test_document_pipeline.py."""
 import json
+from pathlib import Path
 
 from core.documents import DocumentRequest, ProducedDocument
 from generators.master_document import MasterDocument
 
 
 def _document(name, kind, path, checksum="a" * 64, filename=None, purpose="p", title=None):
+    """`relative_link` defaults to `path`'s own basename - what
+    `generators/pipeline.py::_write_document` computes for every flat
+    fixture path here (none of these tests exercise a nested document)."""
     return ProducedDocument(
         name=name, title=title or name.title(), purpose=purpose, path=path,
         kind=kind, checksum=checksum, filename=filename or name,
+        relative_link=Path(path).name,
     )
 
 

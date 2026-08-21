@@ -61,6 +61,16 @@ class ProducedDocument:
     # (docs/adr/0015) key their own lookups on this, not on `path`.
     # Details: docs/dev/core/documents.md#produceddocumentfilename
     filename: str = ""
+    # `path`, relative to the run's own `out_dir` - what a link inside
+    # another document this same run writes (`master.md`, `llms.txt`)
+    # must point at. Equal to `Path(path).name` for every flat document
+    # (the common case, unchanged), but a nested one (`decisions.adr/`'s
+    # own numbered files, ADR-0023) lives inside a subdirectory `path`'s
+    # bare basename would silently drop - computed once in
+    # `generators/pipeline.py::_write_document`, the one place that has
+    # both `path` and `out_dir` in scope together.
+    # Details: docs/dev/core/documents.md#produceddocumentrelative_link
+    relative_link: str = ""
 
 
 @dataclass(frozen=True)
