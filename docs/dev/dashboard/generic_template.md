@@ -29,3 +29,8 @@ never read from `document.path` itself inside this function. The same
 "generator returns content, the pipeline writes it" separation
 `core/documents.py::DocumentGenerator` already enforces, kept here even
 though this isn't a `DocumentGenerator`.
+
+Carries its own breadcrumb back to `../concern/{document.name}.html`
+(ticket #143) - the same `.name`/`.title` pair `dashboard/shell.py`
+already groups documents by concern with, so no second lookup is
+needed to know where "back" goes.

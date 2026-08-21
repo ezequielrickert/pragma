@@ -44,6 +44,7 @@ body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; backgrou
 main { max-width: 1000px; margin: 0 auto; padding: 32px; }
 a { color: var(--accent); text-decoration: none; }
 h1 { margin: 0 0 4px; font-size: 22px; }
+.breadcrumb { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
 .purpose { color: var(--text-dim); margin: 0 0 20px; }
 .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-bottom: 16px; }
 .badge.source { background: var(--accent-dim); color: #b9c9ff; }
@@ -57,12 +58,17 @@ pre { background: var(--panel); border: 1px solid var(--border); border-radius: 
 def render_generic_page(document: ProducedDocument, content: str) -> str:
     """One self-contained static HTML page for `document` - `content` is
     the raw text of the file it describes, already read by the caller.
+    The breadcrumb link back to the document's own concern page uses
+    `document.name`/`.title` directly - the same pair `dashboard/shell.py`
+    groups documents by concern with, so no second lookup is needed.
     Details: docs/dev/dashboard/generic_template.md#render_generic_page
     """
     return (
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(document.title)}</title>'
         f"<style>{_STYLE}</style></head><body><main>"
+        f'<div class="breadcrumb"><a href="../concern/{escape(document.name)}.html">'
+        f"&larr; {escape(document.title)}</a></div>"
         f"<h1>{escape(document.title)}</h1>"
         f'<p class="purpose">{escape(document.purpose)}</p>'
         f'<span class="badge {escape(document.kind)}">{escape(document.kind)}</span>'

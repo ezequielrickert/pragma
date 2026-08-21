@@ -67,6 +67,17 @@ def test_the_title_itself_is_escaped_too():
     assert "&lt;b&gt;" in html
 
 
+def test_the_breadcrumb_links_back_to_the_documents_own_concern_page():
+    """A document page has no way back to its concern page otherwise -
+    ticket #143's own gap, `dashboard/shell.py`'s concern page already
+    has this for the landing page."""
+    document = _document("source", name="catalog", title="Component Catalogue")
+
+    html = render_generic_page(document, "content")
+
+    assert '<a href="../concern/catalog.html">&larr; Component Catalogue</a>' in html
+
+
 def test_the_page_is_self_contained_static_html():
     """No external script/stylesheet requests - ADR-0016 point 1's own
     no-server, no-build-step constraint."""
