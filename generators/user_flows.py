@@ -10,22 +10,46 @@ happy path restates the navigation menu; one that shows the checkout
 POST answering 422 and landing you back on the form describes how the
 application actually behaves.
 
+**docs/adr/0014, ticket #108.** `FlowGraph` (UI-level, deduplicated across
+every visit) now backs `flows.xstate.json` too - an XState v5 machine,
+`meta.screen` citing the real `SCR-<hash>` per state, guards
+(`params.description`/`params.derived_from`) only where the same trigger
+was observed leading to more than one destination. The API-level half
+(`flows.arazzo.json`, one Arazzo workflow per observed trace) needs a
+different, per-visit data source and lives in
+`generators/flows_arazzo.py`; `FlowsDocument` here is the one place that
+wires both source documents plus the view together. `sequences` folded in
+as `flows.md`'s own final section rather than surviving as its own file
+(point 4).
+
 Details: docs/dev/generators/user_flows.md#module
 """
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
+from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
+from utils.schema_validation import validate_against_schema
+from utils.short_hash import short_hash
 from utils.urls import route_shape
+from .flows_arazzo import build_arazzo_document, render_flows_sequence_diagrams
 from .ledger import flat_component_ledger
 from .traces import requests_for
 
 OK = "ok"
 ERROR = "error"
 UNKNOWN = "unknown"
+
+_XSTATE_SCHEMA_PATH = "schemas/flows.xstate.schema.json"
+_ARAZZO_SCHEMA_PATH = "schemas/flows.arazzo.schema.json"
+
+
+def _as_json(document: Dict[str, Any]) -> str:
+    return json.dumps(document, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
 
 
 @dataclass(frozen=True)
@@ -220,65 +244,180 @@ def _render_table(flow: FlowGraph) -> List[str]:
     return lines
 
 
+def _render_flow_view(flow: FlowGraph, site: str) -> str:
+    """The `flows.md` sections this module has always rendered - state
+    diagram, transitions table, error branches, dead ends. Unchanged by
+    ADR-0014 except the extraction into its own function; the folded-in
+    sequence diagrams (point 4) are a separate section
+    `FlowsDocument.generate` appends after this one.
+    Details: docs/dev/generators/user_flows.md#_render_flow_view
+    """
+    lines = [f"# User Flows: {site}", ""]
+    if not flow.transitions:
+        lines.append("The crawl recorded no navigation between pages, so there is no flow to draw.")
+        return "\n".join(lines) + "\n"
+
+    lines += [
+        f"{len(flow.states)} screens, {len(flow.transitions)} distinct moves between them. "
+        "States are route shapes, not raw URLs, so many instances of one screen collapse into one node.",
+        "",
+        "Each request is attributed to the interaction that fired it, using the position both "
+        "carry - a control clicked twice keeps each click's own response separate from the "
+        "other's.",
+        "",
+        render_state_diagram(flow),
+        "",
+        "## Transitions",
+        "",
+    ]
+    lines += _render_table(flow)
+    lines.append("")
+
+    failures = [t for t in flow.transitions if t.outcome == ERROR]
+    if failures:
+        lines += [
+            "## Error branches",
+            "",
+            "Moves whose request failed or answered 4xx/5xx. These are the paths a rebuild has to "
+            "keep working, and the ones a happy-path diagram would hide.",
+            "",
+        ]
+        lines += [
+            f"- `{t.from_state}` -> `{t.to_state}` via **{t.trigger}**: {t.endpoint or 'no request captured'}"
+            f" ({t.status if t.status is not None else 'request failed'})"
+            for t in failures
+        ]
+        lines.append("")
+
+    if flow.dead_ends:
+        lines += [
+            "## Screens with no way out",
+            "",
+            "No interaction the crawl tried led anywhere from these. Either a genuine dead end - "
+            "which is a usability finding - or a screen whose exits the crawl never reached; the "
+            "coverage document tells which.",
+            "",
+        ]
+        lines += [f"- {state}" for state in flow.dead_ends]
+        lines.append("")
+    return "\n".join(lines)
+
+
+# --- flows.xstate.json (docs/adr/0014) ---
+
+
+def _screen_id(page_url: str) -> str:
+    return f"SCR-{short_hash(page_url)}"
+
+
+def _event_slug(label: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "_", label.upper()).strip("_") or "EVENT"
+
+
+def _event_name(transition: FlowTransition) -> str:
+    return f"{transition.action.upper()}_{_event_slug(transition.trigger)}"
+
+
+def _guard_description(transition: FlowTransition) -> str:
+    if transition.outcome == OK:
+        return f"{transition.endpoint} responded {transition.status}" if transition.endpoint else "the call succeeded"
+    if transition.outcome == ERROR:
+        if transition.endpoint and transition.status is not None:
+            return f"{transition.endpoint} answered {transition.status}"
+        return f"{transition.endpoint or 'the call'} failed"
+    return "no distinguishing evidence was captured for this branch"
+
+
+def _guard(transition: FlowTransition) -> Dict[str, Any]:
+    """XState v5's guard object has exactly two fields, `type` and
+    `params` - no native `description` (ADR-0014 point 2). `params` is
+    the only confirmed extension point, so the plain-language condition
+    and evidence pointers both live there.
+    Details: docs/dev/generators/user_flows.md#_guard
+    """
+    return {
+        "type": transition.outcome,
+        "params": {
+            "description": _guard_description(transition),
+            # Reserved: no stable per-interaction/HAR/screenshot id
+            # scheme exists yet (the same gap prd/usability/accessibility
+            # left reserved).
+            "derived_from": [],
+        },
+    }
+
+
+def _state_events(state: str, transitions: Sequence[FlowTransition], state_ids: Dict[str, str]) -> Dict[str, Any]:
+    """`on` for one state: an event fires exactly one target normally, or
+    an array of guarded branches when the same trigger has been observed
+    leading to more than one destination - a real branch the crawl saw,
+    not one this function invents.
+    Details: docs/dev/generators/user_flows.md#_state_events
+    """
+    by_event: Dict[str, List[FlowTransition]] = {}
+    for transition in transitions:
+        if transition.from_state != state:
+            continue
+        by_event.setdefault(_event_name(transition), []).append(transition)
+
+    on: Dict[str, Any] = {}
+    for event, branches in sorted(by_event.items()):
+        if len(branches) == 1:
+            on[event] = {"target": state_ids[branches[0].to_state]}
+        else:
+            on[event] = [
+                {"target": state_ids[branch.to_state], "guard": _guard(branch)} for branch in branches
+            ]
+    return on
+
+
+def build_xstate_document(flow: FlowGraph, site: str) -> Dict[str, Any]:
+    """`flows.xstate.json` - an XState v5 machine config, `meta.screen`
+    citing the real `SCR-<hash>` per state (ADR-0014 point 1).
+    Details: docs/dev/generators/user_flows.md#build_xstate_document
+    """
+    state_ids = _state_ids(flow.states)
+    states = {
+        state_ids[state]: {
+            "meta": {"screen": _screen_id(state)},
+            **({"on": on} if (on := _state_events(state, flow.transitions, state_ids)) else {}),
+        }
+        for state in flow.states
+    }
+    document: Dict[str, Any] = {"id": site, "states": states}
+    if flow.entry_states:
+        document["initial"] = state_ids[flow.entry_states[0]]
+    elif flow.states:
+        document["initial"] = state_ids[flow.states[0]]
+    return document
+
+
 @DOCUMENT_REGISTRY.register("flows")
-class UserFlowsDocument(DocumentGenerator):
-    """Details: docs/dev/generators/user_flows.md#userflowsdocument"""
+class FlowsDocument(DocumentGenerator):
+    """`flows.xstate.json` (UI statecharts, source) + `flows.arazzo.json`
+    (API call sequences, source) + `flows.md` (view, rendering both plus
+    the folded-in sequence diagrams `sequences` used to own) - ADR-0014.
+    Details: docs/dev/generators/user_flows.md#flowsdocument
+    """
 
     name = "flows"
     title = "User Flows"
-    purpose = "The state machine the crawl walked: every screen, what moves between them, and which moves fail."
+    purpose = "UI statechart (XState) and API call sequences (Arazzo) the crawl walked, with error branches and dead ends."
 
-    def generate(self, request: DocumentRequest) -> str:
+    def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
         flow = build_flow_graph(
             request.graph_store.get_edges(),
             flat_component_ledger(request.graph_store),
         )
-        lines = [f"# User Flows: {request.site}", ""]
-        if not flow.transitions:
-            lines.append("The crawl recorded no navigation between pages, so there is no flow to draw.")
-            return "\n".join(lines) + "\n"
+        xstate_document = build_xstate_document(flow, request.site)
+        validate_against_schema(xstate_document, _XSTATE_SCHEMA_PATH)
 
-        lines += [
-            f"{len(flow.states)} screens, {len(flow.transitions)} distinct moves between them. "
-            "States are route shapes, not raw URLs, so many instances of one screen collapse into one node.",
-            "",
-            "Each request is attributed to the interaction that fired it, using the position both "
-            "carry - a control clicked twice keeps each click's own response separate from the "
-            "other's.",
-            "",
-            render_state_diagram(flow),
-            "",
-            "## Transitions",
-            "",
-        ]
-        lines += _render_table(flow)
-        lines.append("")
+        arazzo_document = build_arazzo_document(request)
+        validate_against_schema(arazzo_document, _ARAZZO_SCHEMA_PATH)
 
-        failures = [t for t in flow.transitions if t.outcome == ERROR]
-        if failures:
-            lines += [
-                "## Error branches",
-                "",
-                "Moves whose request failed or answered 4xx/5xx. These are the paths a rebuild has to "
-                "keep working, and the ones a happy-path diagram would hide.",
-                "",
-            ]
-            lines += [
-                f"- `{t.from_state}` -> `{t.to_state}` via **{t.trigger}**: {t.endpoint or 'no request captured'}"
-                f" ({t.status if t.status is not None else 'request failed'})"
-                for t in failures
-            ]
-            lines.append("")
-
-        if flow.dead_ends:
-            lines += [
-                "## Screens with no way out",
-                "",
-                "No interaction the crawl tried led anywhere from these. Either a genuine dead end - "
-                "which is a usability finding - or a screen whose exits the crawl never reached; the "
-                "coverage document tells which.",
-                "",
-            ]
-            lines += [f"- {state}" for state in flow.dead_ends]
-            lines.append("")
-        return "\n".join(lines)
+        view = _render_flow_view(flow, request.site) + "\n" + render_flows_sequence_diagrams(request)
+        return (
+            DocumentOutput(filename="flows.xstate", kind="source", extension="json", content=_as_json(xstate_document)),
+            DocumentOutput(filename="flows.arazzo", kind="source", extension="json", content=_as_json(arazzo_document)),
+            DocumentOutput(filename="flows", kind="view", extension="md", content=view),
+        )

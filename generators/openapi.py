@@ -171,6 +171,19 @@ def _operation_id(request: InferredRequest, resource: str) -> str:
     return f"{verb}{_capitalized(subject)}"
 
 
+def operation_id_for(request: InferredRequest) -> str:
+    """The real `operationId` `build_openapi_document` would mint for this
+    request, derived the identical way (`_resource_name` off the same
+    `_host_and_path` split). Public so `generators/flows.py`'s Arazzo
+    workflow steps (ADR-0014 point 1) can cite the exact id
+    `openapi.yaml` itself carries, rather than re-deriving the naming
+    formula independently and risking drift.
+    Details: docs/dev/generators/openapi.md#operation_id_for
+    """
+    resource = _resource_name(_host_and_path(request.endpoint)[1])
+    return _operation_id(request, resource)
+
+
 def _summary(request: InferredRequest, resource: str) -> str:
     """`"List orders"`, `"Create item"` - a phrase, not a restatement.
 

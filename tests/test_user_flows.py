@@ -1,12 +1,16 @@
-"""Unit tests for the user-flow state machine (generators/user_flows.py).
-Pure functions over hand-built edges and ledger rows."""
+"""Unit tests for the user-flow state machine and its XState export
+(generators/user_flows.py). Pure functions over hand-built edges and
+ledger rows. The Arazzo half has its own tests in
+tests/test_flows_arazzo.py."""
 from generators.user_flows import (
     ERROR,
     OK,
     UNKNOWN,
     build_flow_graph,
+    build_xstate_document,
     render_state_diagram,
 )
+from utils.short_hash import short_hash
 
 
 def _edge(from_state="/shop", to_state="/checkout", path="div > button", action="click"):
@@ -183,11 +187,77 @@ def test_a_trigger_with_a_colon_does_not_break_the_diagram_syntax():
     assert line.count(":") == 1
 
 
+# --- XState export (ADR-0014 point 1/2) ---
+
+def test_every_state_carries_its_real_screen_id():
+    flow = build_flow_graph([_edge("/shop", "/checkout")], [_component()])
+
+    machine = build_xstate_document(flow, "shop.example")
+
+    for state in machine["states"].values():
+        assert state["meta"]["screen"].startswith("SCR-")
+
+
+def test_a_single_destination_needs_no_guard():
+    flow = build_flow_graph([_edge("/shop", "/checkout")], [_component()])
+
+    machine = build_xstate_document(flow, "shop.example")
+
+    origin = next(state for state in machine["states"].values() if "on" in state)
+    (transition,) = origin["on"].values()
+    assert "target" in transition and "guard" not in transition
+
+
+def test_two_destinations_for_the_same_trigger_produce_guarded_branches():
+    """The crawl actually observed the same control leading to two
+    different screens - a real branch to document, not one invented."""
+    edges = [_edge("/cart", "/receipt", path="div > pay"), _edge("/cart", "/cart", path="div > pay")]
+    component = {
+        "page_url": "/cart", "path": "div > pay", "text": "Pagar", "component_type": "button",
+        "interactions": [
+            {"action": "click", "resulting_url": "/receipt", "visit_id": "v1", "step_seq": 1},
+            {"action": "click", "resulting_url": "/cart", "visit_id": "v1", "step_seq": 2},
+        ],
+        "network_requests": [
+            {**_request(status=201), "visit_id": "v1", "step_seq": 1},
+            {**_request(status=422), "visit_id": "v1", "step_seq": 2},
+        ],
+    }
+    flow = build_flow_graph(edges, [component])
+
+    machine = build_xstate_document(flow, "shop.example")
+
+    cart_state_id = next(
+        sid for sid, s in machine["states"].items() if s["meta"]["screen"] == f"SCR-{short_hash('/cart')}"
+    )
+    (branches,) = machine["states"][cart_state_id]["on"].values()
+    assert len(branches) == 2
+    assert {b["guard"]["type"] for b in branches} == {OK, ERROR}
+    assert all(b["guard"]["params"]["derived_from"] == [] for b in branches)
+
+
+def test_the_initial_state_is_a_real_entry_state():
+    flow = build_flow_graph([_edge("/shop", "/checkout")], [_component()])
+
+    machine = build_xstate_document(flow, "shop.example")
+
+    assert machine["initial"] in machine["states"]
+
+
+def test_an_empty_flow_produces_no_initial_state():
+    flow = build_flow_graph([], [])
+
+    machine = build_xstate_document(flow, "shop.example")
+
+    assert "initial" not in machine
+    assert machine["states"] == {}
+
+
 # --- document ---
 
-def test_the_document_reports_error_branches_and_dead_ends():
+def test_the_view_reports_error_branches_and_dead_ends():
     from core.documents import DocumentRequest
-    from generators.user_flows import UserFlowsDocument
+    from generators.user_flows import FlowsDocument
 
     class _Store:
         def get_edges(self):
@@ -196,18 +266,21 @@ def test_the_document_reports_error_branches_and_dead_ends():
         def get_component_ledger(self):
             return {"/shop": {"div > button": _component(requests=[_request(status=422)])}}
 
-    text = UserFlowsDocument().generate(
-        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
-    )
+        def get_inferred_requests(self):
+            return []
 
-    assert "Error branches" in text
-    assert "Screens with no way out" in text
-    assert "/checkout" in text
+    view = FlowsDocument().outputs(
+        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
+    )[2].content
+
+    assert "Error branches" in view
+    assert "Screens with no way out" in view
+    assert "/checkout" in view
 
 
 def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
     from core.documents import DocumentRequest
-    from generators.user_flows import UserFlowsDocument
+    from generators.user_flows import FlowsDocument
 
     class _Store:
         def get_edges(self):
@@ -216,11 +289,41 @@ def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
         def get_component_ledger(self):
             return {}
 
-    text = UserFlowsDocument().generate(
+        def get_inferred_requests(self):
+            return []
+
+    view = FlowsDocument().outputs(
+        DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
+    )[2].content
+
+    assert "no navigation" in view
+
+
+def test_generate_returns_xstate_arazzo_and_view_outputs():
+    from core.documents import DocumentRequest
+    from generators.user_flows import FlowsDocument
+    import json
+
+    class _Store:
+        def get_edges(self):
+            return [_edge()]
+
+        def get_component_ledger(self):
+            return {"/shop": {"div > button": _component()}}
+
+        def get_inferred_requests(self):
+            return []
+
+    outputs = FlowsDocument().outputs(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )
 
-    assert "no navigation" in text
+    assert [o.filename for o in outputs] == ["flows.xstate", "flows.arazzo", "flows"]
+    assert [(o.kind, o.extension) for o in outputs] == [
+        ("source", "json"), ("source", "json"), ("view", "md"),
+    ]
+    json.loads(outputs[0].content)
+    json.loads(outputs[1].content)
 
 
 def test_one_control_leading_to_two_screens_with_agreeing_requests_keeps_its_outcome():

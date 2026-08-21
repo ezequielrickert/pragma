@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/flows.xstate.schema.json",
+  "title": "Flows XState machine",
+  "description": "docs/adr/0014 point 1/5: an XState v5 machine config over the crawl's deduplicated screen/transition graph. meta.screen cites the real SCR-<hash> per state (ADR-0003); a guard's params.description/params.derived_from document a branch the crawl observed the same trigger leading to more than one destination (point 2). Structural correctness for pragma's own fields, not the full official XState schema.",
+  "type": "object",
+  "required": ["id", "states"],
+  "properties": {
+    "id": { "type": "string" },
+    "initial": { "type": "string" },
+    "states": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["meta"],
+        "properties": {
+          "meta": {
+            "type": "object",
+            "required": ["screen"],
+            "properties": { "screen": { "type": "string", "pattern": "^SCR-" } }
+          },
+          "on": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["target"],
+                  "properties": { "target": { "type": "string" } }
+                },
+                {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "object",
+                    "required": ["target", "guard"],
+                    "properties": {
+                      "target": { "type": "string" },
+                      "guard": {
+                        "type": "object",
+                        "required": ["type", "params"],
+                        "properties": {
+                          "type": { "type": "string" },
+                          "params": {
+                            "type": "object",
+                            "required": ["description", "derived_from"],
+                            "properties": {
+                              "description": { "type": "string" },
+                              "derived_from": { "type": "array", "items": { "type": "string" } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

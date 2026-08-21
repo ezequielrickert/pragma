@@ -6,6 +6,13 @@ Gherkin specification, whose scenarios *are* traces, and the flow
 document, which uses the per-step request attribution to stop labelling a
 successful branch with a failed one's status.
 
+`render_sequence_diagram` moved here from `generators/gherkin.py` in
+ticket #108: `sequences` (the document it used to back) folded into
+`flows.md` per ADR-0014 point 4, and this drawing of a `Trace` as a UML
+sequence diagram was never actually Gherkin-specific - it belongs with
+the trace model itself, not with either document that happens to
+consume it.
+
 Details: docs/dev/generators/traces.md#module
 """
 from __future__ import annotations
@@ -126,3 +133,37 @@ def build_traces(components: Sequence[Dict[str, Any]]) -> List[Trace]:
         for visit_id, steps in by_visit.items()
     ]
     return sorted(traces, key=lambda trace: (-len(trace.steps), trace.visit_id))
+
+
+def _quoted(value: str) -> str:
+    """Truncated diagram labels still need their own quotes normalized -
+    kept local rather than imported from `generators/gherkin.py`, which
+    this module must not depend on (`gherkin.py` depends on this one)."""
+    return value.replace('"', "'")
+
+
+def render_sequence_diagram(trace: Trace) -> str:
+    """One `Trace` as a UML sequence diagram, in Mermaid.
+
+    Not a second source of truth - the same steps, drawn. A trace already
+    *is* a sequence (actor, control, endpoint, response, over time), which
+    is why this costs no extra query and cannot disagree with a scenario
+    or workflow built from the identical trace.
+    Details: docs/dev/generators/traces.md#render_sequence_diagram
+    """
+    lines = ["```mermaid", "sequenceDiagram", "    actor User", "    participant UI", "    participant API"]
+    for step in trace.steps:
+        lines.append(f"    User->>UI: {step.action} {_quoted(step.label)[:40]}")
+        for request in step.requests:
+            url = (request.get("url") or "").split("?")[0]
+            lines.append(f"    UI->>API: {request.get('method', '')} {url}")
+            status = request.get("status")
+            if request.get("failed"):
+                answer = "request failed"
+            else:
+                answer = str(status) if status is not None else "no response captured"
+            lines.append(f"    API-->>UI: {answer}")
+        if step.navigated:
+            lines.append(f"    UI-->>User: {_quoted(step.resulting_url)[:40]}")
+    lines.append("```")
+    return "\n".join(lines)

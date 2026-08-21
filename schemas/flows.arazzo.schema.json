@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/flows.arazzo.schema.json",
+  "title": "Flows Arazzo workflows",
+  "description": "docs/adr/0014 point 3/5: Arazzo 1.1.0 API call-sequence workflows, one per observed trace. Every step carries a baseline simple status-code successCriteria from its own observation, omitted (never guessed) when no status was captured; the jsonpath-typed second criterion the ADR describes is never emitted by this crawl (see generators/flows_arazzo.py's own module docstring for why). Structural correctness for pragma's own fields, not the full official Arazzo schema.",
+  "type": "object",
+  "required": ["arazzo", "info", "sourceDescriptions", "workflows"],
+  "properties": {
+    "arazzo": { "const": "1.1.0" },
+    "info": {
+      "type": "object",
+      "required": ["title", "version"],
+      "properties": { "title": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "sourceDescriptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "type"],
+        "properties": {
+          "name": { "type": "string" }, "url": { "type": "string" }, "type": { "const": "openapi" }
+        }
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["workflowId", "steps"],
+        "properties": {
+          "workflowId": { "type": "string" },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["stepId", "operationId"],
+              "properties": {
+                "stepId": { "type": "string" },
+                "operationId": { "type": "string" },
+                "successCriteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["condition"],
+                    "properties": {
+                      "condition": { "type": "string" },
+                      "context": { "type": "string" },
+                      "type": {
+                        "oneOf": [
+                          { "enum": ["simple", "regex", "jsonpath", "xpath"] },
+                          {
+                            "type": "object",
+                            "required": ["type"],
+                            "properties": {
+                              "type": { "const": "jsonpath" },
+                              "version": { "const": "rfc9535" }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

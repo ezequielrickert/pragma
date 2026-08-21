@@ -54,6 +54,14 @@ operationId. An earlier version repeated the id plus the raw endpoint,
 which also printed `{id}` one line under a path key reading `{orderId}` -
 the same parameter under two names.
 
+## operation_id_for
+
+Public wrapper around `_operation_id`/`_resource_name`/`_host_and_path`,
+added in ticket #108 - `generators/flows_arazzo.py`'s Arazzo workflow
+steps (ADR-0014 point 1) cite the exact `operationId` this document
+itself mints, rather than re-deriving the naming formula independently
+and risking drift.
+
 ## _schemaregistry
 
 Deduplicates identical schemas into `components/schemas` and references

@@ -1,9 +1,9 @@
-"""Unit tests for traces, the Gherkin specification, its `Scenario Outline`
-dedup (docs/adr/0013 point 4) and its sequence diagrams
-(generators/traces.py, gherkin.py). The .feature output is checked with
-the real Cucumber parser, not by asserting substrings.
+"""Unit tests for the Gherkin specification and its `Scenario Outline`
+dedup (docs/adr/0013 point 4). The .feature output is checked with the
+real Cucumber parser, not by asserting substrings.
 
-The store-dependent half of ADR-0013 (correlating a trace to
+Trace construction has its own tests in tests/test_traces.py. The
+store-dependent half of ADR-0013 (correlating a trace to
 requirements.py's extraction rules and to the graph's module/screen ids)
 has its own tests in tests/test_gherkin_tags.py."""
 from gherkin.parser import Parser
@@ -13,14 +13,12 @@ from core.documents import DocumentRequest
 from core.interfaces import InferredRequest
 from generators.gherkin import (
     GherkinDocument,
-    SequenceDiagramsDocument,
     _group_by_pattern,
     _structural_signature,
     render_scenario,
     render_scenario_outline,
-    render_sequence_diagram,
 )
-from generators.traces import build_traces, requests_for
+from generators.traces import build_traces
 
 PAGE = "shop/cart"
 ENDPOINT = "shop/api/checkout"
@@ -105,52 +103,6 @@ def _request_for_store(agent=None, inferred_requests=None, pages=(), edges=()):
         inferred_requests = [_inferred_request(triggered_by=((PAGE, "div > pay"),))]
     store = _Store(ledger, inferred_requests, pages, edges)
     return DocumentRequest(graph_store=store, site="shop.example", agent=agent)
-
-
-# --- traces ---
-
-def test_steps_are_ordered_by_their_recorded_position():
-    """The whole point: "+ + -" and "- + +" were indistinguishable before."""
-    components = [
-        _component("b", "Second", [_interaction(step_seq=2)]),
-        _component("a", "First", [_interaction(step_seq=1)]),
-    ]
-
-    trace = build_traces(components)[0]
-
-    assert [step.label for step in trace.steps] == ["First", "Second"]
-
-
-def test_interactions_from_different_visits_are_different_traces():
-    components = [
-        _component("a", "A", [_interaction(visit_id="v1", step_seq=1)]),
-        _component("b", "B", [_interaction(visit_id="v2", step_seq=1)]),
-    ]
-
-    assert len(build_traces(components)) == 2
-
-
-def test_unstamped_interactions_are_skipped_entirely():
-    """They carry no position, so including them would place them
-    arbitrarily in a sequence whose whole value is its order."""
-    components = [_component("a", "A", [{"action": "click", "visit_id": "", "step_seq": 0}])]
-
-    assert build_traces(components) == []
-
-
-def test_a_request_is_attributed_to_the_interaction_that_fired_it():
-    component = _component("a", "Pay", [], [_request(step_seq=1), _request(status=422, step_seq=2)])
-
-    assert [r["status"] for r in requests_for(component, "v1", 1)] == [201]
-    assert [r["status"] for r in requests_for(component, "v1", 2)] == [422]
-
-
-def test_unstamped_requests_fall_back_to_the_whole_pool():
-    """Old data: an unattributable request is still evidence, and returning
-    nothing would silently drop it."""
-    component = _component("a", "Pay", [], [{"method": "POST", "url": "u", "status": 201}])
-
-    assert len(requests_for(component, "v1", 1)) == 1
 
 
 # --- Scenario Outline dedup (ADR-0013 point 4) ---
@@ -349,38 +301,3 @@ def test_a_failed_title_call_degrades_to_the_deterministic_one():
 
     assert _parse(text)["feature"]["children"]
     assert "Scenario:" in text
-
-
-# --- sequence diagrams ---
-
-def test_the_diagram_shows_the_actor_the_ui_and_the_api():
-    trace = build_traces(_ledger_components())[0]
-
-    diagram = render_sequence_diagram(trace)
-
-    assert "sequenceDiagram" in diagram
-    assert "User->>UI: fill" in diagram
-    assert f"UI->>API: POST https://{ENDPOINT}" in diagram
-    assert "API-->>UI: 201" in diagram
-
-
-def test_a_failed_request_is_drawn_as_a_failure_not_a_blank():
-    components = [_component("a", "Pay", [_interaction(resulting_url="shop/x")],
-                             [_request(status=None, failed=True)])]
-
-    diagram = render_sequence_diagram(build_traces(components)[0])
-
-    assert "API-->>UI: request failed" in diagram
-
-
-def test_the_diagrams_document_names_each_trace_the_same_way():
-    class _NoopStore:
-        def get_component_ledger(self):
-            return {PAGE: {component["path"]: component for component in _ledger_components()}}
-
-    text = SequenceDiagramsDocument().generate(
-        DocumentRequest(graph_store=_NoopStore(), site="shop.example", agent=None)
-    )
-
-    assert "cannot disagree with it" in text
-    assert "sequenceDiagram" in text
