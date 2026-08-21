@@ -162,12 +162,13 @@ allowed/denied observation to report yet. Reserved rather than invented -
 activates once role-differentiated crawling exists (see map #94's Out of
 scope).
 
-## _load_overlay
+## load_overlay
 
 `config/redaction.overlay.yaml`, or the empty default when the file is
 missing - a maintainer who hasn't added a rule yet is a valid v1 state
 (capture-time redaction, `spiders/content/redaction.py`, already ran),
-not an error this generator should refuse to run without.
+not an error this generator should refuse to run without. Public -
+`redaction_log.py` calls this directly instead of re-reading the file.
 
 ## _security_scheme
 

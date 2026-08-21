@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/redaction-log.schema.json",
+  "title": "Redaction log",
+  "description": "docs/adr/0021: one row per redaction event a document's own redaction mechanism actually applied this run - consolidated after the fact from whichever documents already redact (openapi's Overlay workflow today, ADR-0004), never a universal redaction mechanism of its own. The row list validated here, before JSONL line-serialization (redaction-log.jsonl is one JSON object per line, not one JSON array). Every field describes metadata about a redaction - which field, which document, why - and never the value that was removed, so the document is safe to read freely without itself needing redaction.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["source_document", "field_path", "reason", "run_id", "evidence"],
+    "properties": {
+      "source_document": { "type": "string" },
+      "field_path": { "type": "string" },
+      "reason": { "type": "string" },
+      "run_id": { "type": "string" },
+      "evidence": {
+        "type": "object",
+        "description": "Proof redaction happened: the raw-private and public artifact filenames, both existing - never the redacted value itself.",
+        "required": ["raw_artifact", "public_artifact"],
+        "properties": {
+          "raw_artifact": { "type": "string" },
+          "public_artifact": { "type": "string" }
+        }
+      }
+    }
+  }
+}
