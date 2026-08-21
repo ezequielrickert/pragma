@@ -6,10 +6,12 @@
 docs/adr/0002 (ticket #97) - replaces this module's original flat JSON
 dump entirely, not just its serialization. `Pantalla`/`Componente`/
 `Endpoint` nodes populated from real graph-store queries, connected by
-`contiene`/`navega_a`/`dispara`/`consume` edges; `Modulo`/`Entidad`/
-`Requisito`/`Escenario`/`Hallazgo`/`Token`/`Flujo`/`Estado` stay reserved
-- present in `schemas/export.schema.json`'s `type` enum, absent from
-`@graph` until their own document's ticket populates them.
+`contiene`/`navega_a`/`dispara`/`consume`/`usa_token` edges (the last
+since ticket #126); `Escenario`/`Hallazgo`/`Flujo`/`Estado` stay
+reserved - present in `schemas/export.schema.json`'s `type` enum,
+absent from `@graph` until their own document's ticket populates them.
+`Modulo`/`Entidad`/`Requisito`/`Token` are populated too - see each
+node-builder's own section below for which ticket did it.
 
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
@@ -49,8 +51,8 @@ ADR-0005). Built from the same `build_tokens_document` call `tokens.json`
 itself makes - not read back from that document's file (generators don't
 read each other's output, only `DocumentRequest.produced`, which only the
 master document gets) - so the export and `tokens.json` always agree
-within one run. The `usa_token` edge stays reserved: it needs `catalog`'s
-`x-tokens` links (ADR-0006), not yet implemented.
+within one run. The `usa_token` edge (`_populate_usa_token`, below) reuses
+this exact document, since ticket #126.
 
 ## _endpoint_nodes
 
@@ -118,6 +120,17 @@ load fired with no component involved - `InferredRequest`'s own
 `triggered_by`/`loaded_by` split (`core/data_contracts.md`), kept apart
 rather than conflated: "called when you open /orders" and "called when
 you click Save" are different facts.
+
+## _populate_usa_token
+
+Componente `usa_token` Token, for every catalog entry with a real
+`x-tokens.color` citation (ADR-0002/0005/0006 point 5, ticket #126) -
+one edge per real component instance the entry groups
+(`CatalogEntry.member_paths`), never once per pattern. Reuses
+`custom_elements.py`'s own `color_token_alias_by_value`/`x_tokens`
+directly - the same alias computation `catalog.json` itself makes, not
+a second, independently-derived one. An alias's own `{...}` DTCG
+wrapper is stripped to recover the bare `Token` node id.
 
 ## build_export_graph
 
