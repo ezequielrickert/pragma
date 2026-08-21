@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
 from analysis.graph_projection_apply import apply_graph_projection
+from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import slugify
@@ -44,6 +45,10 @@ class DocsRunResult:
     documents: Tuple[ProducedDocument, ...] = ()
     manifest_path: str = ""
     index_path: str = ""
+    # Phase C's own entry point (ADR-0016 point 4) - the file to open in
+    # a browser, distinct from `index_path`'s cross-run Markdown index.
+    # Details: docs/dev/core/docs_engine.md#docsrunresultdashboard_path
+    dashboard_path: str = ""
 
 
 class DocsEngine:
@@ -162,9 +167,17 @@ class DocsEngine:
         index_path = f"{self.out_dir}/index.md"
         write_output(index_path, index_doc)
 
+        kpi_context = KpiContext(
+            pages_finished=finished_pages, pages_total=total_pages,
+            components_explored=total_components - unexplored_components, components_total=total_components,
+        )
+        dashboard_context = DashboardRunContext(kpi_context=kpi_context, site=self.site, out_dir=self.out_dir)
+        dashboard_path = write_dashboard(produced, dashboard_context)
+
         self.graph_store.close()
         return DocsRunResult(
             site=self.site, documents=tuple(produced), manifest_path=manifest_path, index_path=index_path,
+            dashboard_path=dashboard_path,
         )
 
     def _document_names(self) -> List[str]:

@@ -32,6 +32,17 @@ the manifest, regenerated fresh on every run (Fase E,
 `manifest_path` - this is bookkeeping over `runs.json`, not an opt-in
 artifact.
 
+## EngineRunResult-dashboard_path
+
+Added in ticket #125 (ADR-0016 Phase C): `dashboard/index.html` under
+`out_dir`, built by `dashboard.shell.write_dashboard` from the same
+`produced` list and the same `finished_pages`/`total_pages`/
+`unexplored_components`/`total_components` this method already computed
+for `record_run_manifest` - passed through as `KpiContext` rather than
+a second, independently-derived count. Distinct from `index_path`'s
+cross-run concern (which past runs exist) - this answers "what does
+*this* run's crawl look like."
+
 ## __init__-crawl-timeouts
 
 See `PragmaConfig`'s matching fields / `Crawl4AICrawlerConfig`'s doc for
