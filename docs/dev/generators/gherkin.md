@@ -106,6 +106,24 @@ structurally identical traces - one templated body, one concrete row per
 occurrence, instead of N near-duplicate `Scenario`s a reader has to
 notice are the same thing.
 
+## GherkinScenario
+
+One `Scenario`/`Scenario Outline` block, before rendering - `tags`,
+`title`, and the `group` of traces it renders. Introduced in ticket
+#115 so `test_plan.py` can enumerate exactly what `generate()` writes
+without re-deriving the grouping/correlation/titling pipeline a second
+time.
+
+## build_scenarios
+
+The grouping/correlation/titling pipeline `generate()` used to run
+inline, factored out once a second caller (`test_plan.py`) needed the
+identical list. Returns `(scenarios, excluded_count)` rather than a
+richer result type - the empty case is unambiguous once paired with
+`excluded_count`: `0` means the crawl recorded nothing observable, a
+positive count means it did, but none of it correlated to a
+requirement.
+
 ## GherkinDocument
 
 `extension = "feature"`, and the output is a **real** `.feature` file:

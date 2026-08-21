@@ -60,13 +60,20 @@ Every module a trace's visited screens resolve to, deduplicated - most
 traces stay within one module, but a trace that navigates across a module
 boundary carries every one it touched.
 
+## scenario_tags
+
+The exact tag tokens, as a tuple - `@REQ-<hash>` + `@confidence:observed`
+always come first and are never omitted (ADR-0013 point 3) - a scenario
+reaching this function already has at least one requirement id, since
+`build_scenarios` filters out anything that doesn't before rendering.
+`confidence` is a literal `"observed"`, not computed per-tag:
+`event_driven`/`ubiquitous`/`unwanted_behavior` are the only EARS
+patterns a trace step can ever correlate to, and `requirements.py` never
+emits any of the three at any other confidence. This tuple is verbatim
+what Cucumber JSON's own `tags` array carries regardless of runner
+(ADR-0022 point 1) - `test_plan.py` cites scenarios by it directly.
+
 ## tag_line
 
-`@REQ-<hash>` + `@confidence:observed` always come first and are never
-omitted (ADR-0013 point 3) - a scenario reaching this function already
-has at least one requirement id, since `GherkinDocument.generate` filters
-out anything that doesn't before rendering. `confidence` is a literal
-`"observed"`, not computed per-tag: `event_driven`/`ubiquitous`/
-`unwanted_behavior` are the only EARS patterns a trace step can ever
-correlate to, and `requirements.py` never emits any of the three at any
-other confidence.
+`scenario_tags`, joined into one indented Gherkin tag line - the only
+form `render_scenario`/`render_scenario_outline` need.

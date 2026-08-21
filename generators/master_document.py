@@ -72,6 +72,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "change-log": "JSON Schema 2020-12",
     "glossary": "SKOS/JSON-LD",
     "redaction-log": "JSON Lines",
+    "test-plan": "JSON Schema 2020-12",
 }
 
 

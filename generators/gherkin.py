@@ -32,13 +32,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 from core.documents import DocumentGenerator, DocumentRequest
 from core.registry import DOCUMENT_REGISTRY
 from utils.short_hash import short_hash
 from utils.urls import route_shape
-from .gherkin_tags import correlate_trace, module_tags, screen_module_ids, screen_tags, tag_line
+from .gherkin_tags import correlate_trace, module_tags, screen_module_ids, screen_tags, scenario_tags
 from .ledger import flat_component_ledger
 from .traces import Trace, TraceStep, build_traces
 
@@ -311,6 +311,67 @@ def render_scenario_outline(group: Sequence[Trace], title: str, tags_line: str) 
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class GherkinScenario:
+    """One `Scenario`/`Scenario Outline` block `generate()` writes -
+    `tags` the exact tokens `scenario_tags` produced, `title` the one
+    line naming it, `group` every trace it renders (one trace for a plain
+    `Scenario`, 2+ sharing a structural signature for an `Outline`).
+    Computed once by `build_scenarios` and consumed by both `generate()`
+    (to render it) and `test_plan.py` (to enumerate what `test-plan.json`
+    must cite) - the two structures can never silently drift apart
+    because there's only one place either is built.
+    Details: docs/dev/generators/gherkin.md#gherkinscenario
+    """
+
+    tags: Tuple[str, ...]
+    title: str
+    group: Tuple[Trace, ...]
+
+
+def build_scenarios(request: DocumentRequest) -> Tuple[List[GherkinScenario], int]:
+    """Every `Scenario`/`Scenario Outline` block this document writes,
+    plus the count of observed traces excluded for having no
+    `requirements.json` correlation - the same
+    grouping/correlation/titling pipeline `generate()` itself renders
+    from, run exactly once. An empty result is ambiguous between "no
+    traces at all" and "traces, none traceable" only in isolation; paired
+    with the excluded count it isn't - `excluded == 0` means the crawl
+    itself recorded nothing observable, `excluded > 0` means it did, but
+    none of it correlated to a requirement.
+    Details: docs/dev/generators/gherkin.md#build_scenarios
+    """
+    traces = _observable_traces(request)
+    if not traces:
+        return [], 0
+
+    store = request.graph_store
+    correlations_by_visit = {trace.visit_id: correlate_trace(store, trace) for trace in traces}
+    traceable = [trace for trace in traces if correlations_by_visit[trace.visit_id].requirement_ids]
+    excluded = len(traces) - len(traceable)
+    if not traceable:
+        return [], excluded
+
+    groups = _group_by_pattern(traceable)
+    representatives = [group[0] for group in groups]
+    titles = _titles_for(request, representatives)
+    module_ids = screen_module_ids(request)
+
+    scenarios = [
+        GherkinScenario(
+            tags=scenario_tags(
+                correlations_by_visit[group[0].visit_id],
+                module_tags(module_ids, group[0]),
+                screen_tags(group[0]),
+            ),
+            title=titles[group[0].visit_id],
+            group=tuple(group),
+        )
+        for group in groups
+    ]
+    return scenarios, excluded
+
+
 @DOCUMENT_REGISTRY.register("gherkin")
 class GherkinDocument(DocumentGenerator):
     """A real `.feature` file, not Gherkin quoted inside prose.
@@ -323,22 +384,9 @@ class GherkinDocument(DocumentGenerator):
     extension = "feature"
 
     def generate(self, request: DocumentRequest) -> str:
-        traces = _observable_traces(request)
-        if not traces:
-            return f"# {_NO_TRACES_NOTE}\n"
-
-        store = request.graph_store
-        correlations_by_visit = {trace.visit_id: correlate_trace(store, trace) for trace in traces}
-        traceable = [trace for trace in traces if correlations_by_visit[trace.visit_id].requirement_ids]
-        excluded = len(traces) - len(traceable)
-        if not traceable:
-            lines = [f"# {_NO_TRACEABLE_NOTE}\n"]
-            return "\n".join(lines)
-
-        groups = _group_by_pattern(traceable)
-        representatives = [group[0] for group in groups]
-        titles = _titles_for(request, representatives)
-        module_ids = screen_module_ids(request)
+        scenarios, excluded = build_scenarios(request)
+        if not scenarios:
+            return f"# {_NO_TRACES_NOTE}\n" if excluded == 0 else f"# {_NO_TRACEABLE_NOTE}\n"
 
         lines = [f"# {line}".rstrip() for line in _PREAMBLE]
         if excluded:
@@ -349,17 +397,11 @@ class GherkinDocument(DocumentGenerator):
             ]
         lines += ["", f"Feature: {request.site}", ""]
 
-        for group in groups:
-            representative = group[0]
-            line = tag_line(
-                correlations_by_visit[representative.visit_id],
-                module_tags(module_ids, representative),
-                screen_tags(representative),
-            )
-            title = titles[representative.visit_id]
-            if len(group) >= 2:
-                lines.append(render_scenario_outline(group, title, line) + "\n")
+        for scenario in scenarios:
+            tags_line = "  " + " ".join(scenario.tags)
+            if len(scenario.group) >= 2:
+                lines.append(render_scenario_outline(scenario.group, scenario.title, tags_line) + "\n")
             else:
-                lines.append(line + "\n" + render_scenario(representative, title) + "\n")
+                lines.append(tags_line + "\n" + render_scenario(scenario.group[0], scenario.title) + "\n")
 
         return "\n".join(lines)

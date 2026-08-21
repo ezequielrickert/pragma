@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/test-plan.schema.json",
+  "title": "Test plan",
+  "description": "docs/adr/0022: one entry per gherkin.feature scenario, cited by its own tags (never a runner-dependent Cucumber JSON id). outcome is EARL's outcome vocabulary, normalized at ingestion from whatever a specific test-runner's Cucumber JSON dialect emits - untested is the meaningful pre-staging default, not an absent value.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["scenario", "tags", "outcome"],
+    "properties": {
+      "scenario": { "type": "string" },
+      "tags": {
+        "type": "array",
+        "items": { "type": "string", "pattern": "^@" },
+        "minItems": 1
+      },
+      "outcome": { "enum": ["passed", "failed", "cantTell", "inapplicable", "untested"] }
+    }
+  }
+}

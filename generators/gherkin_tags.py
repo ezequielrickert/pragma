@@ -136,17 +136,32 @@ def module_tags(module_ids_by_screen: Dict[str, str], trace: Trace) -> Tuple[str
     }))
 
 
-def tag_line(correlations: TraceCorrelations, module_ids: Tuple[str, ...], screen_ids: Tuple[str, ...]) -> str:
-    """`@REQ-<hash>` + `@confidence:observed` first (both required,
-    ADR-0013 point 3) - `confidence` is always `"observed"` here because
+def scenario_tags(
+    correlations: TraceCorrelations, module_ids: Tuple[str, ...], screen_ids: Tuple[str, ...]
+) -> Tuple[str, ...]:
+    """The exact tag tokens (`@REQ-<hash>`, `@confidence:observed`, ...) one
+    scenario carries, in the order `tag_line` renders them. `@REQ-<hash>` +
+    `@confidence:observed` come first and are both required (ADR-0013 point
+    3) - `confidence` is always `"observed"` here because
     `event_driven`/`ubiquitous`/`unwanted_behavior` are the only EARS
     patterns a trace step can correlate to, and `requirements.py` never
     emits any of the three at any confidence but `"observed"`. Then
     `@EP-<hash>`/`@MOD-<x>`/`@SCR-<hash>`, all optional.
-    Details: docs/dev/generators/gherkin_tags.md#tag_line
+
+    These are verbatim what survives into Cucumber JSON's own `tags` array
+    regardless of which runner produced it (ADR-0022 point 1) -
+    `test_plan.py` cites scenarios by this exact tuple.
+    Details: docs/dev/generators/gherkin_tags.md#scenario_tags
     """
     tags = [f"@{req_id}" for req_id in correlations.requirement_ids] + ["@confidence:observed"]
     tags += [f"@{ep_id}" for ep_id in correlations.endpoint_ids]
     tags += [f"@{mod_id}" for mod_id in module_ids]
     tags += [f"@{scr_id}" for scr_id in screen_ids]
-    return "  " + " ".join(tags)
+    return tuple(tags)
+
+
+def tag_line(correlations: TraceCorrelations, module_ids: Tuple[str, ...], screen_ids: Tuple[str, ...]) -> str:
+    """`scenario_tags`, joined into one indented Gherkin tag line.
+    Details: docs/dev/generators/gherkin_tags.md#tag_line
+    """
+    return "  " + " ".join(scenario_tags(correlations, module_ids, screen_ids))
