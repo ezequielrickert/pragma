@@ -1,11 +1,15 @@
 """D11: accessibility findings that can be computed from what the crawl
-already captures, without axe-core.
+already captures, without a live axe-core run.
 
 **This is deliberately a partial WCAG audit, and says so in its own output.**
 The previous D11 ran axe-core (~90 rules) during a measurement pass that no
 longer exists. Rather than leave the project with no accessibility document at
 all, this covers the criteria the captured data supports *deterministically* -
 accessible names and landmark structure - and names the ones it cannot reach.
+
+The ACT/EARL/SARIF assembly (docs/adr/0012) lives in `generators/accessibility_act.py`,
+the same split `usability`/`usability_act` established (docs/adr/0011) - this
+module stays the pure detection layer, unaware of any external rule format.
 
 What makes these computable now and not before:
 
@@ -34,10 +38,9 @@ Details: docs/dev/generators/accessibility.md#module
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.documents import DocumentGenerator, DocumentRequest
-from core.registry import DOCUMENT_REGISTRY
+from core.documents import DocumentRequest
 from .ledger import flat_component_ledger
 
 # Landmark roles a page may only have one of. `navigation` and `region` are
@@ -58,6 +61,13 @@ _NAMED_COMPONENT_TYPES: Tuple[str, ...] = (
 @dataclass(frozen=True)
 class AccessibilityFinding:
     """One finding, with the criterion it fails and the evidence to check it.
+
+    `axe_hint` is the structured value `generators/accessibility_act.py` needs
+    to cite the real axe-core rule this finding corresponds to - a
+    `_NAMED_COMPONENT_TYPES` prefix for a name finding, a landmark role for
+    `duplicate-unique-landmark`, empty where no such value applies
+    (`no-main-landmark` always maps to the same axe rule). This module stays
+    unaware of axe-core itself; it only carries the raw fact the mapping needs.
     Details: docs/dev/generators/accessibility.md#accessibilityfinding
     """
 
@@ -67,6 +77,19 @@ class AccessibilityFinding:
     where: str
     detail: str
     recommendation: str
+    axe_hint: str = ""
+
+
+def _matched_named_type(component_type: str) -> Optional[str]:
+    """The `_NAMED_COMPONENT_TYPES` prefix `component_type` (already
+    lower-cased) starts with, or `None` if it matches none of them.
+
+    Shared by `_needs_a_name` (does this component need a name at all) and
+    `name_findings` (which exact type to cite as `axe_hint`) so the two never
+    drift into checking one prefix set and reporting another.
+    Details: docs/dev/generators/accessibility.md#_matched_named_type
+    """
+    return next((prefix for prefix in _NAMED_COMPONENT_TYPES if component_type.startswith(prefix)), None)
 
 
 def _needs_a_name(component: Dict[str, Any]) -> bool:
@@ -83,7 +106,7 @@ def _needs_a_name(component: Dict[str, Any]) -> bool:
     if component.get("layer") == "pointer":
         return False
     component_type = (component.get("component_type") or "").lower()
-    return any(component_type.startswith(prefix) for prefix in _NAMED_COMPONENT_TYPES)
+    return _matched_named_type(component_type) is not None
 
 
 def accessible_name(component: Dict[str, Any]) -> str:
@@ -117,6 +140,7 @@ def name_findings(components: Sequence[Dict[str, Any]]) -> List[AccessibilityFin
             continue
         where = f"{component.get('page_url')} — {component.get('path')}"
         component_type = component.get("component_type") or "control"
+        axe_hint = _matched_named_type((component.get("component_type") or "").lower()) or ""
         if (component.get("placeholder") or "").strip():
             findings.append(
                 AccessibilityFinding(
@@ -128,6 +152,7 @@ def name_findings(components: Sequence[Dict[str, Any]]) -> List[AccessibilityFin
                            f"({component['placeholder']!r}).",
                     recommendation="Give it a real `<label>` in the rebuild. A placeholder "
                                    "disappears as soon as the user types, so it cannot be the name.",
+                    axe_hint=axe_hint,
                 )
             )
             continue
@@ -142,6 +167,7 @@ def name_findings(components: Sequence[Dict[str, Any]]) -> List[AccessibilityFin
                 recommendation="Give it a visible text label, or `aria-label` when the design "
                                "needs it to stay icon-only. A screen reader announces this "
                                "control as nothing at all today.",
+                axe_hint=axe_hint,
             )
         )
     return findings
@@ -183,6 +209,7 @@ def landmark_findings(landmarks: Dict[str, Dict[str, int]]) -> List[Accessibilit
                         detail=f"{count} separate `{landmark}` regions on one page.",
                         recommendation=f"Keep one `{landmark}` per page, or give each a distinct "
                                        "accessible name so they can be told apart.",
+                        axe_hint=landmark,
                     )
                 )
     return findings
@@ -202,53 +229,3 @@ def build_findings(request: DocumentRequest) -> Tuple[List[AccessibilityFinding]
     order = {"high": 0, "medium": 1, "low": 2}
     findings.sort(key=lambda f: (order.get(f.severity, 3), f.rule, f.where))
     return findings, skipped
-
-
-_SCOPE_NOTE = (
-    "**This is a partial audit, not a conformance check.** It covers the criteria the crawl's "
-    "captured data supports deterministically: accessible names and landmark structure. Contrast "
-    "ratios, touch-target sizes, focus visibility and tab order are absent - each needs a "
-    "measurement pass that visits pages at a realistic viewport with images enabled, which this "
-    "pipeline does not have. A clean report here does not mean the application is accessible."
-)
-
-
-@DOCUMENT_REGISTRY.register("accessibility")
-class AccessibilityDocument(DocumentGenerator):
-    """Details: docs/dev/generators/accessibility.md#accessibilitydocument"""
-
-    name = "accessibility"
-    title = "Accessibility Audit"
-    purpose = "Deterministic WCAG findings on accessible names and landmark structure, each tied to the element that fails."
-
-    def generate(self, request: DocumentRequest) -> str:
-        findings, skipped = build_findings(request)
-        lines = [f"# Accessibility Audit: {request.site}", "", _SCOPE_NOTE, ""]
-        if skipped:
-            lines += [
-                f"{skipped} element(s) found only by the `cursor: pointer` catch-all are excluded "
-                "from the name rules. An unnamed clickable `div` is a real failure and a decorative "
-                "wrapper is not, and the crawl cannot tell them apart - so they are counted here "
-                "rather than reported as either.",
-                "",
-            ]
-        if not findings:
-            lines += [
-                "No findings from these rules. Read that narrowly: it means every operable control "
-                "the crawl found has a name and every page with landmarks has a `main`.",
-                "",
-            ]
-            return "\n".join(lines)
-        lines += [
-            f"{len(findings)} finding(s), worst first. Each cites the page and element it came "
-            "from - disagree and go look.",
-            "",
-            "| Severity | Rule | Criterion | Where | Finding | Do instead |",
-            "|---|---|---|---|---|---|",
-        ]
-        lines += [
-            f"| {f.severity} | `{f.rule}` | {f.criterion} | {f.where} | {f.detail} | {f.recommendation} |"
-            for f in findings
-        ]
-        lines.append("")
-        return "\n".join(lines)

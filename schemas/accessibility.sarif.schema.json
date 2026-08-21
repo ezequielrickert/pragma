@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/accessibility.sarif.schema.json",
+  "title": "Accessibility SARIF export",
+  "description": "docs/adr/0012 point 5: the subset of SARIF 2.1.0 pragma actually emits - a mechanical projection of accessibility.earl.jsonld's findings, for CI/tooling consumption. Structural correctness for pragma's own fields, not the full official SARIF schema.",
+  "type": "object",
+  "required": ["version", "runs"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": "2.1.0" },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "results"],
+        "properties": {
+          "tool": {
+            "type": "object",
+            "required": ["driver"],
+            "properties": {
+              "driver": {
+                "type": "object",
+                "required": ["name", "rules"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "rules": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["id"],
+                      "properties": { "id": { "type": "string" } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ruleId", "level", "message", "locations"],
+              "properties": {
+                "ruleId": { "type": "string" },
+                "level": { "enum": ["error", "warning", "note", "none"] },
+                "message": {
+                  "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } }
+                },
+                "locations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "physicalLocation": {
+                        "type": "object",
+                        "properties": {
+                          "artifactLocation": {
+                            "type": "object",
+                            "properties": { "uri": { "type": "string" } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

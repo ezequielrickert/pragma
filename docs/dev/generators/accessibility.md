@@ -2,7 +2,15 @@
 
 ## module
 
-D11, rebuilt without axe-core.
+D11, rebuilt without a live axe-core run.
+
+The ACT/EARL/SARIF assembly (docs/adr/0012) moved to
+`generators/accessibility_act.py` - see
+`docs/dev/generators/accessibility_act.md` - the same split
+`usability`/`usability_act` established for docs/adr/0011. This module stays
+the pure detection layer: it knows nothing about axe-core, ACT, EARL, or
+SARIF, only WCAG criteria and the raw hint (`AccessibilityFinding.axe_hint`)
+the assembly layer needs to cite the right rule.
 
 The previous version ran axe (~90 rules) during a measurement pass that no
 longer exists, and was deleted with it. This covers the criteria the captured
@@ -55,6 +63,17 @@ here" answer.
 Carries `criterion` rather than just a rule name. The audience for this document
 reads WCAG numbers, and "WCAG 4.1.2 Name, Role, Value" is checkable against the
 standard in a way `missing-accessible-name` is not.
+
+`axe_hint` is new: the structured value (a `_NAMED_COMPONENT_TYPES` prefix, or
+a landmark role) `accessibility_act.py` needs to resolve the real axe-core
+rule this finding corresponds to. Defaults to `""` so every existing call
+site and test that doesn't care about it keeps working unchanged.
+
+## _matched_named_type
+
+Pulled out of `_needs_a_name` so the exact matched prefix is available to
+`name_findings` too (for `axe_hint`), rather than the two re-deriving the
+same `startswith` check against two copies of the same list.
 
 ## _needs_a_name
 
@@ -109,18 +128,8 @@ Returns `(findings, skipped)`. The skipped count is returned rather than logged
 because it is the size of this document's own blind spot, and that belongs in
 the document rather than in a terminal nobody keeps.
 
-## accessibilitydocument
-
-Registered as `accessibility`, and placed after `usability` in the default list -
-they overlap slightly (both touch input semantics) and reading the Nielsen pass
-first makes the WCAG one easier to place.
-
-**The scope note is unconditional.** It renders whether or not there are
-findings, because the dangerous output of this document is the empty one: a
-clean partial audit that does not say it is partial reads as "this application
-is accessible", which it has not checked. That is also why the no-findings
-branch says "read that narrowly" and states exactly what was verified.
-
-Retiring the master document's own "no WCAG audit" gap note is automatic - see
-`docs/dev/generators/master_document.md#_gaps`, which is conditional on this
-document not being produced.
+`AccessibilityDocument` itself - registered as `accessibility`, the scope
+note, the skip count in the rendered view, and retiring the master
+document's own "no WCAG audit" gap note - now lives in
+`generators/accessibility_act.py`; see
+`docs/dev/generators/accessibility_act.md#accessibilitydocument`.

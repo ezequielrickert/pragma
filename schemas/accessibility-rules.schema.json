@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/accessibility-rules.schema.json",
+  "title": "Accessibility rule catalog",
+  "description": "docs/adr/0012 point 1/2: a rule catalog (CONTEXT.md - fixed for a rule-set version, extracted-once, not derived from any crawl) mechanically extracted from axe-core 4.10.2's own rule metadata (axe.getRules() + each rule's default impact) - axe's own slug rule ids, not invented pragma ids. accessibility_requirements carries axe's wcag2a/wcag111-style tags, the same field ACT Rules Format 1.1 SS4.4 defines for citing external requirements a rule's failure violates, kept as a flat tag list rather than the full ACT accessibility-requirements object (structural correctness for pragma's own fields, not the full official ACT schema). act_id cites the published ACT rule id only where Deque's own mapping table confirms a correspondence.",
+  "type": "object",
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "help", "helpUrl", "accessibility_requirements", "defaultConfiguration"],
+        "properties": {
+          "id": { "type": "string", "description": "axe-core's own rule id, e.g. \"button-name\", \"landmark-one-main\"." },
+          "description": { "type": "string" },
+          "help": { "type": "string" },
+          "helpUrl": { "type": "string" },
+          "accessibility_requirements": { "type": "array", "items": { "type": "string" } },
+          "act_id": { "type": ["string", "null"] },
+          "defaultConfiguration": {
+            "type": "object",
+            "required": ["level", "impact"],
+            "properties": {
+              "level": { "enum": ["error", "warning", "note", "none"] },
+              "impact": {
+                "enum": ["minor", "moderate", "serious", "critical"],
+                "description": "axe-core's own native severity for this rule, carried verbatim alongside the SARIF-normalized level (docs/adr/0012 point 3)."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
