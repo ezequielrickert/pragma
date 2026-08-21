@@ -77,6 +77,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "performance-baseline": "JSON Schema 2020-12",
     "i18n-inventory": "ICU MessageFormat",
     "browser-support-matrix": "JSON Schema 2020-12",
+    "confidence-summary": "JSON Schema 2020-12",
 }
 
 # A generator whose filename varies per output - `decisions.adr/0001-...`,
