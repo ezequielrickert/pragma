@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pragma.local/schemas/performance-baseline.schema.json",
+  "title": "Performance baseline",
+  "description": "docs/adr/0026: one entry per distinct template_hash (tree.aria.yaml, ADR-0003), not per screen. network is a real p50/p95/p99 aggregate of Request.latency_ms; web_vitals (LCP/FCP/CLS/INP/TTFB, Web Vitals' own metric names) is reserved - present, typed null, until a future capture pass wires Playwright's Performance API.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["template_hash", "screens", "network", "web_vitals"],
+    "properties": {
+      "template_hash": { "type": "string", "pattern": "^t-" },
+      "screens": { "type": "array", "items": { "type": "string", "pattern": "^SCR-" } },
+      "network": {
+        "type": "object",
+        "required": ["sample_count", "p50_ms", "p95_ms", "p99_ms"],
+        "properties": {
+          "sample_count": { "type": "integer", "minimum": 0 },
+          "p50_ms": { "type": ["number", "null"] },
+          "p95_ms": { "type": ["number", "null"] },
+          "p99_ms": { "type": ["number", "null"] }
+        }
+      },
+      "web_vitals": {
+        "type": "object",
+        "required": ["LCP", "FCP", "CLS", "INP", "TTFB"],
+        "properties": {
+          "LCP": { "type": ["number", "null"] },
+          "FCP": { "type": ["number", "null"] },
+          "CLS": { "type": ["number", "null"] },
+          "INP": { "type": ["number", "null"] },
+          "TTFB": { "type": ["number", "null"] }
+        }
+      }
+    }
+  }
+}

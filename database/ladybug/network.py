@@ -380,6 +380,36 @@ class _LadybugNetworkMixin:
 
         return self._call(op)
 
+    def get_request_latencies_by_page(self) -> List[Dict[str, Any]]:
+        """`[{page_url, latency_ms}]` for every real `Request` this crawl
+        measured a response time for - both page-load-triggered (`LOADED`)
+        and interaction-triggered (`TRIGGERED`, via `Component`/
+        `Interaction`) requests. `performance_baseline.py`'s own per-
+        `template_hash` grouping (ADR-0026 point 2) needs this page-level
+        attribution; `get_inferred_requests`'s own `latencies_ms` is
+        aggregated across every observation of one *endpoint* regardless
+        of which page triggered it, so it can't answer "which page."
+
+        Two separate queries, combined here rather than a Cypher `UNION` -
+        no query in this module uses `UNION` today, so this stays
+        consistent with the rest of the file instead of introducing the
+        one exception.
+        Details: docs/dev/database/ladybug/network.md#get_request_latencies_by_page
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            loaded_rows = conn.execute("MATCH (p:Page)-[:LOADED]->(r:Request) RETURN p.url, r.latency_ms")
+            triggered_rows = conn.execute(
+                "MATCH (p:Page)-[:HAS_COMPONENT]->(:Component)-[:PERFORMED]->(:Interaction)-[:TRIGGERED]->(r:Request) "
+                "RETURN p.url, r.latency_ms"
+            )
+            return [
+                {"page_url": page_url, "latency_ms": latency_ms}
+                for page_url, latency_ms in list(loaded_rows) + list(triggered_rows)
+                if latency_ms is not None
+            ]
+
+        return self._call(op)
+
     def get_request_evidence(self) -> List[Dict[str, Any]]:
         """Every `Request` node, its own auto-increment `id` (`har:<id>`,
         ADR-0017) plus enough context for a one-line summary.

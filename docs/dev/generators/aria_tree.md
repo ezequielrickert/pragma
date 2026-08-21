@@ -85,6 +85,13 @@ order).
 captured snapshot, in url order - a page discovered before this
 instrumentation existed, or whose capture failed, contributes neither.
 
+## template_hash_by_page
+
+Added in ticket #119 (docs/adr/0026): `{page_url: template_hash}`, the
+same `_template_hash` computation `build_aria_tree` already performs per
+screen, exposed once `performance_baseline.py` needed the grouping
+without the rest of the tree payload.
+
 ## AriaTreeDocument
 
 `DocumentGenerator` adapter, registered under the same `"tree"` name

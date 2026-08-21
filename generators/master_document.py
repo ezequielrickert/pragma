@@ -74,6 +74,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "test-plan": "JSON Schema 2020-12",
     "risk-register": "JSON Schema 2020-12",
     "content-inventory": "JSON Schema 2020-12",
+    "performance-baseline": "JSON Schema 2020-12",
 }
 
 # A generator whose filename varies per output - `decisions.adr/0001-...`,

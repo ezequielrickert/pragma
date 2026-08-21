@@ -122,6 +122,10 @@ def _attach_axtree_refs(nodes: List[Node], indices: Iterator[int]) -> None:
         _attach_axtree_refs(node["children"], indices)
 
 
+def _aria_nodes(snapshot: Dict[str, Any]) -> List[Node]:
+    return _walk_aria_yaml(yaml.safe_load(snapshot["aria_snapshot_yaml"]) or [])
+
+
 def _build_screen(page_url: str, snapshot: Dict[str, Any]) -> Tuple[Node, ...]:
     """One page's captured snapshot into its `tree.aria.yaml` entry and its
     `tree.axtree.json` entry - a pair, since every `x-axtree-ref` in the
@@ -129,7 +133,7 @@ def _build_screen(page_url: str, snapshot: Dict[str, Any]) -> Tuple[Node, ...]:
     Details: docs/dev/generators/aria_tree.md#_build_screen
     """
     screen_id = f"SCR-{short_hash(page_url)}"
-    aria_nodes = _walk_aria_yaml(yaml.safe_load(snapshot["aria_snapshot_yaml"]) or [])
+    aria_nodes = _aria_nodes(snapshot)
     axtree_nodes = json.loads(snapshot["axtree_json"] or "{}").get("nodes", [])
 
     _attach_axtree_refs(aria_nodes, iter(_axtree_preorder_node_indices(axtree_nodes)))
@@ -161,6 +165,18 @@ def build_aria_tree(request: DocumentRequest) -> Tuple[List[Dict[str, Any]], Dic
         axtree_screens.append(axtree_entry)
     axtree_document = {"run_id": request.settings.get("run_id", ""), "screens": axtree_screens}
     return aria_screens, axtree_document
+
+
+def template_hash_by_page(request: DocumentRequest) -> Dict[str, str]:
+    """`{page_url: template_hash}` for every page with a captured snapshot
+    - the grouping `performance-baseline.json` needs (ADR-0026 point 2),
+    without the full `tree.aria.yaml`/`tree.axtree.json` payload
+    `build_aria_tree` produces. Same `_template_hash` computation,
+    exposed once a second caller needed it.
+    Details: docs/dev/generators/aria_tree.md#template_hash_by_page
+    """
+    snapshots = request.graph_store.get_accessibility_snapshots()
+    return {page_url: _template_hash(_aria_nodes(snapshots[page_url])) for page_url in snapshots}
 
 
 @DOCUMENT_REGISTRY.register("tree")

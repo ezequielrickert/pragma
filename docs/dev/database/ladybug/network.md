@@ -151,6 +151,15 @@ never gets a `Request` node at all), but because this method's own job is
 indexing whatever was captured, not encoding today's write-path shape as
 a required join.
 
+## get_request_latencies_by_page
+
+Added for ticket #119 (docs/adr/0026): `performance-baseline.json`'s own
+per-`template_hash` grouping needs page-level attribution `get_inferred_
+requests`'s `latencies_ms` can't give it (that's aggregated across every
+observation of one *endpoint*, not one *page*). Two queries combined in
+Python rather than a Cypher `UNION` - the one exception would be the only
+`UNION` in this file.
+
 ## get_page_network_ledger
 
 Per-page request list for the documents that describe a page rather than an
