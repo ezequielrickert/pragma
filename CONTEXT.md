@@ -26,6 +26,17 @@ template — never hand-authored in parallel with the source it renders. Its
 job is readability for a human, not truth; if it disagrees with its source
 document, the source wins and the view is regenerated.
 
+**Customized document** (from the "Interactive dashboard" map):
+A document a user has deliberately edited through the interactive dashboard,
+living under `data/output/<slug>/customized/` — one per original document,
+always reflecting the latest edit, never a version history. Neither a
+Source document nor a View document: not the source of truth (the crawled
+original still is that — customization never overwrites it), and not a
+deterministic render either (a human's own intervention, not a template
+output). A customized document keeps its original's own schema, so it
+validates the same way; it exists *alongside* the source/view pair it
+customizes, not instead of it.
+
 **Duplicate view**:
 The anti-pattern the format-overhaul effort is eliminating: a document
 written independently of a source document that covers the same ground, so
