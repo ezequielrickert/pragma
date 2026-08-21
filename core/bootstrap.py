@@ -9,6 +9,7 @@ from generators import accessibility_act  # noqa: F401  (registers "accessibilit
 from generators import architecture_calm  # noqa: F401  (registers "architecture")
 from generators import aria_tree  # noqa: F401  (registers "tree")
 from generators import asyncapi  # noqa: F401  (registers "asyncapi" - never in core/config.py's default list, docs/adr/0018)
+from generators import change_log  # noqa: F401  (registers "change-log")
 from generators import coverage  # noqa: F401  (registers "coverage")
 from generators import custom_elements  # noqa: F401  (registers "catalog")
 from generators import data_model  # noqa: F401  (registers "data-model")

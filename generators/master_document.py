@@ -69,6 +69,7 @@ _FORMAT_BY_FILENAME: Dict[str, str] = {
     "gherkin": "Gherkin",
     "evidence-log": "JSON Lines",
     "asyncapi": "AsyncAPI 3.0.0",
+    "change-log": "JSON Schema 2020-12",
 }
 
 
