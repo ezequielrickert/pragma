@@ -8,19 +8,25 @@ interaction over a site. Deliberately its own class, not a mode on
 into one pass with no resume capability. `DynamicEngine` resumes from
 whatever `pragma static` (and, if it ran, `pragma cluster`) already
 wrote: when the graph store has pages left `"Scouted"`, this interacts
-with exactly those, skipping redundant clicks/fills on components a
-known family already covers (`analysis/family_sampling.py::FamilySampler`).
-When it doesn't - no prior `pragma static` run for this site - it falls
-back to independent full discovery+interaction, the same fused behavior
-`Engine` has always run.
+with exactly those, skipping redundant clicks/fills two ways - a
+canonical `Component` reused across pages is interacted with once,
+ever, its outcome inferred onto every other page it renders on
+(`analysis/exact_reuse_index.py::ExactReuseIndex`, issue #140), while a
+merely similar, genuinely distinct component belonging to a known
+family is sample-and-skip capped instead
+(`analysis/family_sampling.py::FamilySampler`). When it doesn't - no
+prior `pragma static` run for this site - it falls back to independent
+full discovery+interaction, the same fused behavior `Engine` has always
+run.
 
 ## dynamicrunresult
 
 A summary of what landed in the graph store, not a document - dynamic
 generates none. `resumed_from_static` is the fallback-vs-resume signal
 `run_dynamic_command` reports to the terminal; `families_sampled`/
-`instances_skipped` are `0` whenever clustering never ran, since a
-component with no known family is always interacted with.
+`instances_skipped`/`exact_reuse_skipped` are `0` whenever clustering
+never ran, since a component with no known family or reuse is always
+interacted with.
 
 ## dynamicengine
 
@@ -34,16 +40,19 @@ Resolves the agent and graph store named in `config` and wires a
 `Engine.from_config`/`StaticEngine.from_config`
 (`urlparse(url).netloc`) - the on-disk key this resumes against.
 
-## _build_family_sampler
+## _build_matching_state
 
-Reads `graph_store.get_component_families()`; `None` when it's empty
-(clustering never ran, or ran over a site with no repeating patterns) so
-`run`'s interact sweep never consults a sampler and interacts with every
-eligible component as it always did before this ticket. Otherwise builds
-a `FamilySampler` from the family list plus the flat component ledger
-(`generators/ledger.py::flat_component_ledger`) - the same ledger
-`pragma cluster` itself clustered from, needed to resolve each family
-member's stored `(page_key, path)` back to a content-based identity (see
+Reads `generators/ledger.py::flat_component_ledger` once and builds both
+gates from it. `exact_reuse_index` needs nothing beyond the ledger
+itself - a component can be exact-tier reused via write-time collapse
+alone (issue #136), without `pragma cluster` ever running - so it's
+`None` only when the site has no components at all. `sampler`
+additionally needs `graph_store.get_component_families()`; `None` when
+that's empty (clustering never ran, or ran over a site with no
+repeating patterns) so `run`'s interact sweep never consults it and
+interacts with every eligible component as it always did before issue
+#135. The ledger is also what resolves each family member's stored
+`(page_key, path)` back to a content-based identity (see
 `analysis/family_sampling.py::_index_family_members`).
 
 ## run

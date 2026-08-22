@@ -6,7 +6,11 @@ still fuses discovery and interaction into one pass with no resume
 capability. `DynamicEngine` resumes from whatever `pragma static` (and,
 if it ran, `pragma cluster`) already wrote: when the graph store has
 pages left `"Scouted"`, this interacts with exactly those, skipping
-redundant clicks/fills on components a known family already covers
+redundant clicks/fills two ways - a canonical `Component` reused across
+pages is interacted with once, ever, its outcome inferred onto every
+other page it renders on (`analysis/exact_reuse_index.py::
+ExactReuseIndex`, issue #140), while a merely similar, genuinely distinct
+component belonging to a known family is sample-and-skip capped instead
 (`analysis/family_sampling.py::FamilySampler`). When it doesn't - no
 prior `pragma static` run for this site - it falls back to independent
 full discovery+interaction, the same fused behavior `Engine` has always
@@ -19,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from analysis.exact_reuse_index import ExactReuseIndex
 from analysis.family_sampling import DEFAULT_MAX_SAMPLES_PER_FAMILY, FamilySampler
 from generators.ledger import flat_component_ledger
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
@@ -50,6 +55,7 @@ class DynamicRunResult:
     pages_total: int
     families_sampled: int
     instances_skipped: int
+    exact_reuse_skipped: int
 
 
 class DynamicEngine:
@@ -144,18 +150,27 @@ class DynamicEngine:
             mode=config.mode,
         )
 
-    def _build_family_sampler(self) -> tuple[Optional[FamilySampler], int]:
-        """`(sampler, families_found)` from whatever `pragma cluster`
-        already wrote for this site - `None` when clustering never ran, so
-        `should_interact` is simply never consulted and every component
-        gets interacted with as it always did before this ticket.
-        Details: docs/dev/core/dynamic_engine.md#_build_family_sampler
+    def _build_matching_state(self) -> tuple[Optional[FamilySampler], int, Optional[ExactReuseIndex]]:
+        """`(sampler, families_found, exact_reuse_index)` from whatever
+        `pragma static`/`pragma cluster` already wrote for this site -
+        `exact_reuse_index` needs only the component ledger (a component
+        can be exact-tier reused via write-time collapse alone, without
+        clustering ever running), `sampler` additionally needs
+        `ComponentFamily` records. Both `None` when their own
+        prerequisite is missing, so neither `should_interact` nor
+        `ExactReuseIndex.lookup` is ever consulted and every component
+        gets interacted with as it always did before either ticket.
+        Details: docs/dev/core/dynamic_engine.md#_build_matching_state
         """
+        components = flat_component_ledger(self.graph_store)
+        if not components:
+            return None, 0, None
+        exact_reuse_index = ExactReuseIndex(components)
         families = self.graph_store.get_component_families()
         if not families:
-            return None, 0
-        components = flat_component_ledger(self.graph_store)
-        return FamilySampler(families, components, self.max_samples_per_family), len(families)
+            return None, 0, exact_reuse_index
+        sampler = FamilySampler(families, components, self.max_samples_per_family)
+        return sampler, len(families), exact_reuse_index
 
     async def run(self, url: str) -> DynamicRunResult:
         """Interact with `url`'s site: resumes from whatever `pragma
@@ -168,9 +183,10 @@ class DynamicEngine:
         site = self.site or urlparse(url).netloc
         resumed = bool(self.graph_store.get_scouted())
         family_sampler: Optional[FamilySampler] = None
+        exact_reuse_index: Optional[ExactReuseIndex] = None
         families_sampled = 0
         if resumed:
-            family_sampler, families_sampled = self._build_family_sampler()
+            family_sampler, families_sampled, exact_reuse_index = self._build_matching_state()
 
         session_path = None
         if self.login_enabled:
@@ -209,12 +225,14 @@ class DynamicEngine:
                     allow_subdomains=self.allow_subdomains,
                     interact_only=resumed,
                     family_sampler=family_sampler,
+                    exact_reuse_index=exact_reuse_index,
                 ),
             )
             await mechanical.crawl_site(url)
 
         finished_pages, total_pages = self.graph_store.count_visited()
         instances_skipped = len(family_sampler.skipped) if family_sampler else 0
+        exact_reuse_skipped = len(exact_reuse_index.skipped) if exact_reuse_index else 0
         self.graph_store.close()
         return DynamicRunResult(
             site=site,
@@ -223,4 +241,5 @@ class DynamicEngine:
             pages_total=total_pages,
             families_sampled=families_sampled,
             instances_skipped=instances_skipped,
+            exact_reuse_skipped=exact_reuse_skipped,
         )

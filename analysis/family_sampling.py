@@ -100,18 +100,27 @@ def _index_family_members(
     component. `component_identity` is what survives that reload; this
     resolves each member's stored path back to the identity its ledger
     record had at clustering time, via `components` (the same flat
-    ledger `pragma cluster` clustered from).
+    ledger `pragma cluster` clustered from) - reconciled through each
+    member's canonical `id` (issue #140) rather than recomputed per
+    `(page_url, path)` in isolation: descriptive fields live on the
+    `Component` node itself since #136, so every location a given id
+    renders at reports the identical identity, and resolving through the
+    id is what makes that invariant explicit instead of relying on it by
+    accident.
     Details: docs/dev/analysis/family_sampling.md#_index_family_members
     """
-    identity_by_location = {
-        (c["page_url"], c["path"]): component_identity(c) for c in components
-    }
+    identity_by_id: Dict[str, tuple] = {}
+    id_by_location: Dict[Tuple[str, str], str] = {}
+    for c in components:
+        identity_by_id.setdefault(c["id"], component_identity(c))
+        id_by_location[(c["page_url"], c["path"])] = c["id"]
+
     index: Dict[Tuple[str, tuple], Tuple[str, str]] = {}
     for fam in families:
         family_key = (fam.tag, fam.component_type)
         for page_key, path in fam.member_paths:
-            identity = identity_by_location.get((page_key, path))
-            if identity is None:
+            component_id = id_by_location.get((page_key, path))
+            if component_id is None:
                 continue
-            index[(page_key, identity)] = family_key
+            index[(page_key, identity_by_id[component_id])] = family_key
     return index

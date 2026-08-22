@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
+from analysis.exact_reuse_index import ReuseEntry
 from core.interfaces import PageState
 from generators.component_classifier import find_revealed_options
 from ...content.component_matching import state_transition_key
@@ -105,6 +106,7 @@ class InteractionOutcomes:
         path: str,
         interaction: "ComponentInteraction",
         result: "PageVisitResult",
+        reuse_entry: Optional[ReuseEntry] = None,
     ) -> None:
         """Bookkeeping for an interaction whose literal result URL differs
         from the page - always records the edge and excludes the component
@@ -113,6 +115,12 @@ class InteractionOutcomes:
         future visit when it isn't already known to this crawl (queued, in
         flight, or visited) - a known destination needs no separate entry,
         it's already accounted for.
+
+        `reuse_entry` is this component's `ExactReuseIndex` entry, when it
+        has one - the real navigation edge just recorded is also inferred
+        onto every other page rendering the same canonical component
+        (issue #140), sparing them a live click of their own on the
+        strength of it being the same node, not a merely similar one.
 
         Never decides whether the pass has to stop: `visit` always follows
         this with `return_to_origin` to hop the browser back and keep
@@ -130,6 +138,11 @@ class InteractionOutcomes:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-self-loop
             await self.sink.record_navigation_edge(page_key, new_key, path, interaction.action)
+            if reuse_entry is not None:
+                for sibling_key, sibling_path in reuse_entry.siblings_of((page_key, path)):
+                    await self.sink.record_navigation_edge(
+                        sibling_key, new_key, sibling_path, interaction.action
+                    )
         if not self._is_known(new_state.url):
             self._enqueue(new_state.url)
 

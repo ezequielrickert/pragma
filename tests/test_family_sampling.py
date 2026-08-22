@@ -19,7 +19,11 @@ def _family(paths) -> ComponentFamily:
 
 
 def _components(*texts: str) -> list:
-    return [{"page_url": PAGE, "path": f"#{t}", **_button(t)} for t in texts]
+    # `id` mirrors `flat_component_ledger`'s real shape post-#136 - one
+    # distinct canonical id per distinct component here, since each of
+    # these fixture buttons is a genuinely different Component row, not
+    # the same one rendered on several pages.
+    return [{"page_url": PAGE, "path": f"#{t}", "id": f"id-{t}", **_button(t)} for t in texts]
 
 
 def test_should_interact_keeps_the_first_max_samples_members_of_a_family():

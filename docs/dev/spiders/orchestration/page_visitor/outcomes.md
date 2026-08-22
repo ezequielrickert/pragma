@@ -83,6 +83,15 @@ destination only if `is_known_url(new_state.url)` says the crawl doesn't
 already have a place for it (queued, in flight, or visited already) -
 nothing to add otherwise, it's already accounted for.
 
+When `reuse_entry` is given (`analysis/exact_reuse_index.py::ReuseEntry`,
+issue #140), the real navigation edge just recorded is also inferred
+onto every other page rendering the same canonical component - one
+`record_navigation_edge` call per `reuse_entry.siblings_of((page_key,
+path))` entry, all pointing at the same destination and action as the
+one real click. Sparing every sibling page a live click of its own on
+the strength of it being the same `Component` node, not a merely
+similar one.
+
 Purely bookkeeping now - doesn't decide whether the pass stops. `visit`
 always follows this with `NavigationRecovery.return_to_origin` to hop the
 browser straight back and keep draining this same page's frontier,
