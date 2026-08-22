@@ -84,7 +84,17 @@ methods themselves need to know.
 `pragma dynamic`'s own `DynamicEngine` when it built one - see
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#family_sampler`.
 Consulted once per component in `_drain_interaction_frontier`, before
-any click/fill.
+any click/fill, and only after `_exact_reuse_index` has already had
+first refusal.
+
+## _exact_reuse_index
+
+`config.exact_reuse_index`, unset (`None`) for every caller except
+`pragma dynamic`'s own `DynamicEngine` when it built one - see
+`docs/dev/spiders/orchestration/mechanical_loop/config.md#exact_reuse_index`.
+Consulted once per component in `_drain_interaction_frontier`, before
+`_family_sampler` - a canonical reuse hit short-circuits the sampler
+entirely, issue #140.
 
 ## _fill_value_cache
 
@@ -328,6 +338,25 @@ Marks the component interacted the same way a real click/fill does
 (`tracker.mark_interacted`, `_frontier.mark_interacted_identity`) so
 this pass never reconsiders it; `FamilySampler.should_interact` does its
 own logging, so there's nothing further to report here.
+
+## visit-exact-reuse-skip
+
+Checked immediately before `visit-family-sampling-skip`, same
+`fillable`-determined point. A `reuse_entry` already marked `interacted`
+means this canonical component was interacted with somewhere - this
+pass or an earlier one, this page or another - so the click is skipped
+entirely, never routed through `_family_sampler` at all. Marks the
+component interacted the same way a real click/fill does, same
+reasoning as the family-sampling skip above.
+
+## visit-exact-reuse-claim
+
+`reuse_entry.interacted = True` set synchronously, in the same
+statement block as the `visit-exact-reuse-skip` check above and before
+any `await` - closes the race a concurrent worker on a sibling page
+would otherwise hit between "not yet interacted" and the click actually
+landing. See `analysis/exact_reuse_index.py::ReuseEntry` for why this is
+safe under `asyncio`'s cooperative scheduling.
 
 ## visit-static-href-check
 

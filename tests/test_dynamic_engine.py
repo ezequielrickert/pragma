@@ -85,6 +85,14 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
             member_paths=((page_key, "#a"), (page_key, "#b")),
         )]
     )
+    # Byte-identical write-time collapse (issue #136) - two identical
+    # components on separate pages MERGE onto one canonical row, the
+    # exact reuse `ExactReuseIndex` needs no clustering pass to find.
+    other_page_key = route_shape("http://resumable.example/other")
+    asyncio.run(sink.record_page_arrival(other_page_key, description="", title=""))
+    asyncio.run(sink.record_page_scouted(other_page_key, 1))
+    graph_store.record_component(page_key, "#nav", tag="a", text="Home", component_type="nav link")
+    graph_store.record_component(other_page_key, "#nav2", tag="a", text="Home", component_type="nav link")
 
     captured_configs = []
 
@@ -119,4 +127,5 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
     assert result.families_sampled == 1
     assert captured_configs[0].interact_only is True
     assert captured_configs[0].family_sampler is not None
+    assert captured_configs[0].exact_reuse_index is not None
     assert captured_crawler_configs[0].mode == "immutable"

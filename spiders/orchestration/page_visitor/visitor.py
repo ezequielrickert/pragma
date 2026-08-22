@@ -81,6 +81,13 @@ class PageVisitor:
         # MechanicalCrawlerConfig.family_sampler.
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_family_sampler
         self._family_sampler = config.family_sampler
+        # `analysis/exact_reuse_index.py::ExactReuseIndex`, or `None` to
+        # skip the exact-tier interact-once check - see
+        # MechanicalCrawlerConfig.exact_reuse_index. Consulted before
+        # `_family_sampler` on every component: a canonical reuse hit
+        # short-circuits the sampler entirely, issue #140.
+        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#_exact_reuse_index
+        self._exact_reuse_index = config.exact_reuse_index
         self.errors: List[ComponentInteraction] = []
         # Collaborators - see each module's own docstring for why it's
         # split out. Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#__init__-collaborators
@@ -310,6 +317,25 @@ class PageVisitor:
 
             fillable = is_fillable(component)
 
+            reuse_entry = self._exact_reuse_index.lookup(page_key, component) if self._exact_reuse_index else None
+            if reuse_entry is not None:
+                if reuse_entry.interacted:
+                    # Already interacted with this canonical component -
+                    # here or on another page - this run or a prior one.
+                    # Never routed through the family sampler: exact reuse
+                    # is the same Component row, not a merely similar one.
+                    # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-exact-reuse-skip
+                    self._exact_reuse_index.skipped.append((page_key, path))
+                    print(f"  exact-reuse-skipped: {component.get('tag', '')!r} on {page_key} (already interacted)")
+                    self.tracker.mark_interacted(page_key, path)
+                    self._frontier.mark_interacted_identity(page_key, component)
+                    continue
+                # Flipped synchronously, before the first `await` below -
+                # closes the race a concurrent worker on a sibling page
+                # would otherwise hit between this check and the click.
+                # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-exact-reuse-claim
+                reuse_entry.interacted = True
+
             if self._family_sampler and not self._family_sampler.should_interact(page_key, component):
                 # Already sampled enough of this repeating family - see
                 # FamilySampler.should_interact, which does its own logging.
@@ -424,7 +450,7 @@ class PageVisitor:
                 # other way (its own future visit, via the enqueue below).
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-physical-navigation-branch
                 await self._outcomes.handle_physical_navigation(
-                    page_key, new_key, new_state, component, path, interaction, result
+                    page_key, new_key, new_state, component, path, interaction, result, reuse_entry=reuse_entry
                 )
                 fresh_state = await self._recovery.return_to_origin(
                     url, session_id, page_key, page_literal, frontier, idx, result, seen_paths_this_pass

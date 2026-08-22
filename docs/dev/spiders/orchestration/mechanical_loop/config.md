@@ -107,12 +107,25 @@ of its own.
 
 `analysis/family_sampling.py::FamilySampler`, or `None` to interact with
 every eligible component as usual. Consulted by `PageVisitor` once per
-component, before any click/fill - the mechanism `pragma dynamic` uses
+component, before any click/fill, *after* `exact_reuse_index` has
+already had first refusal - the mechanism `pragma dynamic` uses
 to skip components already known (via `pragma cluster`'s output) to
 belong to a repeating family once enough instances of that family have
 already been sampled. `None` for every caller except `DynamicEngine`,
 which only builds one when `graph_store.get_component_families()` isn't
-empty - see `docs/dev/core/dynamic_engine.md#_build_family_sampler`.
+empty - see `docs/dev/core/dynamic_engine.md#_build_matching_state`.
+
+## exact_reuse_index
+
+`analysis/exact_reuse_index.py::ExactReuseIndex`, or `None` to skip the
+exact-tier interact-once check entirely. Consulted by `PageVisitor`
+before `family_sampler` on every component - a canonical `Component`
+reused across pages is interacted with once, ever, per run, with its
+outcome inferred onto every other page it renders on, rather than
+sampled like a family. `None` for every caller except `DynamicEngine`,
+which builds one whenever the site has any recorded components at all
+(no clustering prerequisite, unlike `family_sampler`) - see
+`docs/dev/core/dynamic_engine.md#_build_matching_state`.
 
 ## max_requeue_attempts
 

@@ -51,4 +51,9 @@ so it can't be matched directly against a fresh interact-sweep
 component. `component_identity` is what survives that reload; this
 resolves each member's stored path back to the identity its ledger
 record had at clustering time, via `components` (the same flat ledger
-`pragma cluster` clustered from).
+`pragma cluster` clustered from) - reconciled through each member's
+canonical `id` (issue #140) rather than recomputed per `(page_url,
+path)` in isolation: descriptive fields live on the `Component` node
+itself since #136, so every location a given id renders at reports the
+identical identity, and resolving through the id makes that invariant
+explicit instead of relying on it by accident.

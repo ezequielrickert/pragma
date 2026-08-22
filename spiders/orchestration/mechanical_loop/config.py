@@ -82,3 +82,11 @@ class MechanicalCrawlerConfig:
     # enough instances of that family have already been sampled.
     # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#family_sampler
     family_sampler: Optional[Any] = None
+    # `analysis/exact_reuse_index.py::ExactReuseIndex`, or `None` to skip
+    # the exact-tier interact-once check entirely. Consulted by
+    # `PageVisitor` before `family_sampler` on every component - a
+    # canonical `Component` reused across pages is interacted with once,
+    # ever, per run, with its outcome inferred onto every other page it
+    # renders on, rather than sampled like a family.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#exact_reuse_index
+    exact_reuse_index: Optional[Any] = None

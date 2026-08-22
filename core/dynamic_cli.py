@@ -101,6 +101,11 @@ def run_dynamic_command(argv: list) -> None:
                 f"Sampled {result.families_sampled} known component {noun}, "
                 f"skipped {result.instances_skipped} already-sampled instance(s)."
             )
+        if result.exact_reuse_skipped:
+            print(
+                f"Skipped {result.exact_reuse_skipped} exact-tier reuse instance(s) "
+                "already interacted with elsewhere."
+            )
     except Exception as exc:
         print(f"Critical error during dynamic interaction: {exc}")
         sys.exit(1)
