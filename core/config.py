@@ -126,8 +126,10 @@ class PragmaConfig:
     # Also write the full crawl graph as structured JSON. Kept as its own
     # flag rather than folded into `documents` below so an existing
     # pragma.yaml keeps working unchanged; `true` appends "export" to the
-    # document list. Details: docs/dev/core/config.md#export_json
-    export_json: bool = False
+    # document list. On by default since the static dashboard's own Graph
+    # card (dashboard/) renders this file - set `false` to skip it.
+    # Details: docs/dev/core/config.md#export_json
+    export_json: bool = True
     # Which output documents to generate, by DOCUMENT_REGISTRY name, in
     # order. The master document ("Start Here") always runs last and is
     # not listed here - it is the pipeline's closing step, not an optional

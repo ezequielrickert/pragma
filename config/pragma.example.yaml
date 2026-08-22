@@ -93,14 +93,15 @@ allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts a
 #   - gherkin
 #   - sequences
 #   - export
-export_json: false    # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
+export_json: true     # also write data/output/{slug}_export_{timestamp}.json - the full crawl graph (pages,
                        # edges, component ledger, text content) as structured JSON, alongside the
                        # prose PRD and the component tree - for a downstream tool that wants the
                        # crawl's facts as data instead of documents meant for a person to read. See
                        # generators/graph_export.py. Equivalent to adding "export" to `documents`
-                       # above; kept as its own flag so an existing config keeps working. Every run is
-                       # always recorded (regardless of this flag) in docs/runs.json - see
-                       # utils/io.py::record_run_manifest.
+                       # above; kept as its own flag so an existing config keeps working. On by
+                       # default since the static dashboard's Graph card renders this file - set
+                       # false to skip it. Every run is always recorded (regardless of this flag)
+                       # in docs/runs.json - see utils/io.py::record_run_manifest.
 # page_timeout_seconds: 15.0  # crawl4ai's raw navigation/goto dead-page timeout - a DIFFERENT phase
                        # than wait_seconds/interaction_wait_seconds above (those apply after a page
                        # has already loaded; this bounds the underlying fetch itself). crawl4ai's own
