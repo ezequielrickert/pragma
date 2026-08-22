@@ -140,12 +140,15 @@ def _walk_token_groups(group: Dict[str, Any], path_prefix: str) -> Dict[str, Nod
     return nodes
 
 
-def _token_nodes(tokens_document: Dict[str, Any]) -> Dict[str, Node]:
+def token_nodes(tokens_document: Dict[str, Any]) -> Dict[str, Node]:
     """One `Token` per DTCG token in `tokens.json`'s `core`/`semantic`
     groups (docs/adr/0005 point 5) - built from the same
     `build_tokens_document` call `tokens.json` itself makes, not read back
     from that document's file, so the two always agree within one run.
-    Details: docs/dev/generators/graph_export.md#_token_nodes
+    Promoted to public in ticket #152: `interactive/grounding.py` needs
+    the same real dot-path token ids this module derives, computed over
+    a tokens.json already on disk rather than a live store.
+    Details: docs/dev/generators/graph_export.md#token_nodes
     """
     nodes: Dict[str, Node] = {}
     for group_name in ("core", "semantic"):
@@ -344,7 +347,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     componentes = _componente_nodes(component_ledger)
     endpoints = _endpoint_nodes(inferred_requests)
     tokens_document = build_tokens_document(store)
-    tokens = _token_nodes(tokens_document)
+    tokens = token_nodes(tokens_document)
     root = route_shape(request.settings.get("target", "")) or None
     modulos = _modulo_nodes(pantallas, root)
     entidades = _entidad_nodes(build_data_model_document(request), endpoints)

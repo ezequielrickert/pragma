@@ -57,7 +57,7 @@ which need `short_hash` because their natural identity is too long to
 use directly. A group is told apart from a token by whether it carries a
 `$value` key.
 
-## _token_nodes
+## token_nodes
 
 One `Token` per DTCG token, since ticket #100 (ADR-0002 point 5,
 ADR-0005). Built from the same `build_tokens_document` call `tokens.json`
@@ -65,7 +65,9 @@ itself makes - not read back from that document's file (generators don't
 read each other's output, only `DocumentRequest.produced`, which only the
 master document gets) - so the export and `tokens.json` always agree
 within one run. The `usa_token` edge (`_populate_usa_token`, below) reuses
-this exact document, since ticket #126.
+this exact document, since ticket #126. Promoted to public in ticket
+#152: `interactive/grounding.py` needs the same real dot-path token ids,
+computed over a `tokens.json` already on disk rather than a live store.
 
 ## _endpoint_nodes
 
@@ -95,7 +97,7 @@ the citing Endpoint to its Entidad, populating `export.json`'s reserved
 `Entidad` type since ticket #103. Built from the same
 `build_data_model_document` call `data-model.json` itself makes, not
 read back from its file - the same "generators don't read each other's
-output, only recompute from the same store" discipline `_token_nodes`/
+output, only recompute from the same store" discipline `token_nodes`/
 `_modulo_nodes` already follow.
 
 ## _requisito_nodes
