@@ -32,12 +32,20 @@ exists for that document. No new patch-forwarding logic between document pairs i
 common case.
 
 **2. A customized document is a complete, schema-valid copy, not a sparse overlay.**
-`data/output/<slug>/customized/<same-filename>` holds the *entire* document, the edited value(s)
-already substituted in - not a JSON Patch or a `{path: new_value}` diff. This means
-`utils/schema_validation.py::validate_against_schema` applies to a customized document exactly as
-it does to an original one, with no merge-then-validate step to build first. The cost is
-per-site disk duplication of documents that get customized; irrelevant next to a scraped site's
-own crawl data.
+The *entire* document, edited value(s) already substituted in - not a JSON Patch or a
+`{path: new_value}` diff. This means `utils/schema_validation.py::validate_against_schema` applies
+to a customized document exactly as it does to an original one, with no merge-then-validate step
+to build first. The cost is per-site disk duplication of documents that get customized;
+irrelevant next to a scraped site's own crawl data.
+
+**Update - ticket #151, path convention corrected against the real layout**: this point
+originally said `data/output/<slug>/customized/<same-filename>`, a per-site subdirectory that
+doesn't match how `data/output/` actually works - every document lives flat, named
+`{slug}_{filename}_{timestamp}.{extension}` (`generators/pipeline.py::DocumentNaming.path_for`),
+never under a per-site subdirectory. A customized document follows the same flat convention, just
+without the timestamp (it isn't a per-run artifact): `data/output/customized/
+{slug}_{filename}.{extension}` - `slug` is `slugify(site)` (`utils/urls.py`), matching
+`DocumentNaming`'s own slugging, not the raw site string `runs.json` happens to key by.
 
 **3. No raw-value-copy case is known to exist today.** Every citation relationship checked while
 charting this map cites by id/alias. If a real one turns up later (a document this ADR's authors
@@ -48,7 +56,7 @@ doesn't cover a document that copied a value outright. Tracked as fog on
 instance is found, not solved speculatively here.
 
 **Consequence**: whatever renders a document for the interactive dashboard needs one shared
-"effective document for this site" lookup (`customized/<name>` if it exists, else the original)
-that every consumer goes through - not a per-document special case. Designing that lookup, and how
-edits get written to `customized/` in the first place, is separate implementation work this ADR
-doesn't itself specify.
+"effective document for this site" lookup (`data/output/customized/{slug}_{filename}.{extension}`
+if it exists, else the original) that every consumer goes through - not a per-document special
+case. Designing that lookup, and how edits get written to `customized/` in the first place, is
+separate implementation work this ADR doesn't itself specify.
