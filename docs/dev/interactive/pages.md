@@ -8,9 +8,12 @@ Every page `interactive/server.py`'s routes render, split out once that file cro
 lives in its own file" precedent `dashboard/generic_template.py`/`dashboard/redoc_renderer.py`
 already set for the static dashboard. Plain Python string building, no Jinja templates.
 
-Every function here is pure - no disk access, no Flask app object - `url_for()` is the one Flask
+Most functions here are pure - no disk access, no Flask app object; `url_for()` is the one Flask
 dependency, and it works identically regardless of which module calls it, as long as an
-app/request context is active (always true for a route handler).
+app/request context is active (always true for a route handler). `color_token_form` and
+`generic_form_panel` are the two exceptions - each reads through its own data module's accessor
+(`token_form.color_tokens`, `generic_form.form_entries`) to know what to render, the same way a
+route handler would, just one call removed from it.
 
 **First real client-side JS in this app** (ticket #155, `_DIFF_GUTTER_JS`): the raw-text editor's
 diff/error gutter repaints on every keystroke, which only a client-side line-diff can do without
@@ -64,3 +67,12 @@ The `core.color.*` picker section on `tokens.json`'s own edit page (ticket #154)
 site's `tokens.json` has no color tokens at all, so an empty section doesn't render for nothing.
 Form fields are named `token:<token_id>` (`COLOR_FIELD_PREFIX`) - `server.py::save_colors` strips
 that same prefix back off to know which token each submitted value belongs to.
+
+## generic_form_panel
+
+ADR-0034's generic form (ticket #158) - one `<fieldset>` per row of `interactive/generic_form.py
+::form_entries`, one real input per HITL-fillable field, the widget itself already resolved
+against the document's own schema by that module, never chosen here. `""` when the document has
+no `GenericFormSpec` at all, or this site never produced it - same empty case as
+`color_token_form`. Fields are named `entry:<row index>:<field name>`
+(`generic_form.ENTRY_FIELD_PREFIX`) - `server.py::_parse_entry_updates` is the inverse.

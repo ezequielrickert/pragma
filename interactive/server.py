@@ -38,6 +38,16 @@ regardless of any customized copy), bundled into a
 the actual diff/gutter rendering, this module only gathers the two
 strings.
 
+**Generic form** (ADR-0034, ticket #158): `requirements.json` and
+`browser-support-matrix.json` get a schema-driven review panel
+alongside the raw-text editor, the same coexistence `pages.
+color_token_form` already established for `tokens.json`. `save_fields`
+parses each submitted `entry:<index>:<field>` key
+(`interactive/generic_form.py::ENTRY_FIELD_PREFIX`) into a per-row
+update dict and hands it to `generic_form.save_generic_form` - this
+module still only parses form data, `interactive/generic_form.py` still
+owns knowing what a field's real widget/value is.
+
 Details: docs/dev/interactive/server.md#module
 """
 from __future__ import annotations
@@ -54,8 +64,23 @@ from core.interfaces import Agent
 
 from . import pages
 from .customization import DocumentRef, SiteOutput, effective_content, original_content, save_customized
+from .generic_form import ENTRY_FIELD_PREFIX, save_generic_form
 from .grounding import grounding_for, system_instruction_for
 from .token_form import save_color_tokens
+
+
+def _parse_entry_updates(form: Dict[str, str]) -> Dict[int, Dict[str, str]]:
+    """`{"entry:2:hitl_status": "approved", ...}` ->
+    `{2: {"hitl_status": "approved"}, ...}` - the inverse of
+    `interactive/pages.py::_generic_field_html`'s own field naming.
+    """
+    updates: Dict[int, Dict[str, str]] = {}
+    for key, value in form.items():
+        if not key.startswith(ENTRY_FIELD_PREFIX):
+            continue
+        _, index, field_name = key.split(":", 2)
+        updates.setdefault(int(index), {})[field_name] = value
+    return updates
 
 
 def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
@@ -96,9 +121,16 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
         original = original_content(where, ref) or content
         history = chat_history.get((filename, extension), [])
         color_form = pages.color_token_form(where) if filename == "tokens" else ""
+        generic_form_html = pages.generic_form_panel(where, ref)
         state = pages.DocumentEditState(content=content, original=original, failure=failure)
-        body = color_form + pages.document_page(ref, state) + pages.chat_panel(ref, history, None)
+        body = color_form + generic_form_html + pages.document_page(ref, state) + pages.chat_panel(ref, history, None)
         return pages.page(f"{filename}.{extension} - {site}", body)
+
+    @app.route("/document/<filename>.<extension>/fields", methods=["POST"])
+    def save_fields(filename: str, extension: str):
+        ref = DocumentRef(filename=filename, extension=extension)
+        save_generic_form(where, ref, _parse_entry_updates(request.form))
+        return redirect(url_for("edit_document", filename=filename, extension=extension))
 
     @app.route("/document/tokens.json/colors", methods=["POST"])
     def save_colors():

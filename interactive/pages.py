@@ -7,10 +7,14 @@ template.py`/`dashboard/redoc_renderer.py` already set for the static
 dashboard. Plain Python string building, no Jinja templates - matching
 that same precedent, not a second convention.
 
-Every function here is pure - no disk access, no Flask app object -
+Most functions here are pure - no disk access, no Flask app object;
 `url_for()` is the one Flask dependency, and it works identically
 regardless of which module calls it, as long as an app/request context
-is active (always true for a route handler).
+is active (always true for a route handler). `color_token_form` and
+`generic_form_panel` are the two exceptions - each reads through its
+own data module's accessor (`token_form.color_tokens`,
+`generic_form.form_entries`) to know what to render, the same way a
+route handler would, just one call removed from it.
 
 Details: docs/dev/interactive/pages.md#module
 """
@@ -25,6 +29,7 @@ import jsonschema
 from flask import url_for
 
 from .customization import DocumentRef, SiteOutput, available_documents, schema_path_for
+from .generic_form import ENTRY_FIELD_PREFIX, FormEntry, FormField, Widget, form_entries, has_generic_form
 from .token_form import color_tokens
 
 COLOR_FIELD_PREFIX = "token:"
@@ -61,6 +66,16 @@ button { background: var(--accent); color: white; border: none; border-radius: 6
 .color-tokens .row label { flex: 1; font-family: monospace; font-size: 13px; }
 .color-tokens input[type="color"] { width: 48px; height: 28px; border: 1px solid var(--border);
   border-radius: 4px; background: none; padding: 0; cursor: pointer; }
+.generic-form { margin-bottom: 24px; }
+.generic-form fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px;
+  margin-bottom: 12px; }
+.generic-form legend { color: var(--text-dim); font-size: 12px; padding: 0 6px; }
+.generic-form .row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.generic-form .row label { width: 140px; flex-shrink: 0; font-family: monospace; font-size: 13px; }
+.generic-form select, .generic-form input[type="text"] { flex: 1; background: var(--panel);
+  color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+.generic-form textarea { flex: 1; min-height: 60px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-family: inherit; }
 .diff-panes { display: flex; gap: 16px; margin-bottom: 12px; }
 .diff-panes .pane { flex: 1; min-width: 0; }
 .diff-panes .gutter-row { display: flex; }
@@ -270,5 +285,48 @@ def color_token_form(where: SiteOutput) -> str:
         f'<form method="post" action="{url_for("save_colors")}">'
         f"{rows}"
         '<button type="submit">Save colors</button>'
+        "</form></div>"
+    )
+
+
+def _generic_field_html(index: int, field: FormField) -> str:
+    field_id = f"{ENTRY_FIELD_PREFIX}{index}:{field.name}"
+    if field.widget is Widget.SELECT:
+        input_html = f'<select id="{field_id}" name="{field_id}">' + "".join(
+            f'<option value="{escape(option)}"{" selected" if option == field.value else ""}>{escape(option)}</option>'
+            for option in field.options
+        ) + "</select>"
+    elif field.widget is Widget.TEXTAREA:
+        input_html = f'<textarea id="{field_id}" name="{field_id}">{escape(field.value)}</textarea>'
+    else:
+        input_html = f'<input type="text" id="{field_id}" name="{field_id}" value="{escape(field.value)}">'
+    return f'<div class="row"><label for="{field_id}">{escape(field.name)}</label>{input_html}</div>'
+
+
+def _generic_entry_html(entry: FormEntry) -> str:
+    fields_html = "".join(_generic_field_html(entry.index, field) for field in entry.fields)
+    return f"<fieldset><legend>{escape(entry.summary)}</legend>{fields_html}</fieldset>"
+
+
+def generic_form_panel(where: SiteOutput, ref: DocumentRef) -> str:
+    """ADR-0034's generic form - one `<fieldset>` per row of `ref`'s
+    array, one real input per HITL-fillable field (widget resolved
+    against `ref`'s own schema, never hand-picked here). `""` when
+    `ref` has no `GenericFormSpec` at all, or this site never produced
+    it - the raw-text editor is the only path either way, same as
+    `color_token_form`'s own empty case.
+    Details: docs/dev/interactive/pages.md#generic_form_panel
+    """
+    if not has_generic_form(ref.filename):
+        return ""
+    entries = form_entries(where, ref)
+    if not entries:
+        return ""
+    rows = "".join(_generic_entry_html(entry) for entry in entries)
+    return (
+        '<div class="generic-form"><h2>Review</h2>'
+        f'<form method="post" action="{url_for("save_fields", filename=ref.filename, extension=ref.extension)}">'
+        f"{rows}"
+        '<button type="submit">Save</button>'
         "</form></div>"
     )
