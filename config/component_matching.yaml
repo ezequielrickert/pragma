@@ -3,8 +3,17 @@
 # leaf/composite thresholds and bucketing slack #132/#133 decided.
 #
 # css_class (issue #168) scales analysis/tailwind_semantic_classes.py's
-# design-concept vector now, not raw hashed class tokens - the weight's
-# meaning changed, its default value hasn't (yet - see #169).
+# design-concept vector, not raw hashed class tokens. Weight 0.6 and
+# leaf_exact 0.92 (both #127-era defaults, set before #168 existed) were
+# recalibrated by issue #169 against data/sites/mapadeprofesionales.com.lbdb:
+# at the old values, two components differing only by a color-variant
+# modifier (e.g. the "doctor card" border-extra-N badge) still scored
+# 0.97+ cosine similarity - above leaf_exact - so they collapsed into one
+# exact-duplicate row instead of surviving as distinct family members.
+# css_class: 2.0 / leaf_exact: 0.985 opens a real gap on that dataset
+# between genuinely-identical-css_class pairs (>=0.995) and same-family,
+# different-variant pairs (<=0.981), so exact collapse now only fires on
+# true duplicates.
 #
 # Kept out of pragma.yaml on purpose - this whole map's tunables live in
 # one dedicated place instead of mixed into the general run config. A
@@ -12,19 +21,19 @@
 # defaults in analysis/component_matching_config.py - never an error.
 #
 # Every value below is a starting point (docs/dev/generators/
-# matching-threshold-calibration.md), meant to be tuned empirically once a
-# real crawl (data/sites/austral.edu.ar.lbdb) is run through it.
+# matching-threshold-calibration.md), meant to be tuned further once a
+# second real crawl (data/sites/austral.edu.ar.lbdb) is run through it.
 
 leaf_weights:
   structural: 1.0
   identity_strings: 0.8
-  css_class: 0.6
+  css_class: 2.0
   style: 0.5
   geometry: 0.15
 
 thresholds:
   leaf_family: 0.55
-  leaf_exact: 0.92
+  leaf_exact: 0.985
   composite_family: 0.5
   composite_exact: 0.9
 

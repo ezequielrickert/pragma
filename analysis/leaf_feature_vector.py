@@ -12,7 +12,7 @@ like `DESCRIPTIVE_COMPONENT_FIELDS`/`ComponentFacts` (the same flat shape
 `database/ladybug/component.py::get_component_ledger` already returns per
 component, and the same shape `tests/test_leaf_feature_vector.py`'s
 hand-authored dicts use), plus that page/site's `GeometryBuckets` (see
-below) - and returns one `190`-dim `list[float]`, weighted per block per
+below) - and returns one `230`-dim `list[float]`, weighted per block per
 `ComponentMatchingConfig.leaf_weights` and ready to concatenate into a
 Kùzu vector column as-is.
 
@@ -189,7 +189,7 @@ def leaf_feature_vector(
     geometry_buckets: GeometryBuckets,
     config: Optional[ComponentMatchingConfig] = None,
 ) -> List[float]:
-    """The 190-dim feature vector for one component record - concatenated
+    """The 230-dim feature vector for one component record - concatenated
     blocks, each scaled by its `config.leaf_weights` entry before joining,
     so weight directly controls that block's share of the final cosine
     similarity. `config` defaults to `ComponentMatchingConfig()`'s

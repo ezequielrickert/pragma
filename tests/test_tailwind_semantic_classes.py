@@ -104,6 +104,27 @@ def test_spacing_scale_distinguishes_padding_values():
     assert tight == identical_shell
 
 
+def test_many_color_tokens_do_not_saturate_the_family_buckets():
+    """Regression for issue #169: a real button's boilerplate carries
+    several distinct color tokens across all three roles at once (state-
+    variant ring/outline utilities included) - `bg-white`, `ring-
+    destructive/20`, `ring-ring/50`, `border-destructive`, two `hover:`/
+    `active:` background swaps - which, sharing one small bucket set
+    across roles, saturated it to all-`1.0` regardless of which specific
+    variant color was present. `border-extra-4` and `border-extra-1`
+    produced byte-identical vectors on this exact shape of input; role-
+    split buckets fix it.
+    """
+    boilerplate = (
+        "focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 "
+        "aria-invalid:border-destructive bg-white hover:bg-neutral-200 "
+        "active:bg-neutral-50 border-2"
+    )
+    variant_a = semantic_css_class_vector(f"{boilerplate} border-extra-4")
+    variant_b = semantic_css_class_vector(f"{boilerplate} border-extra-1")
+    assert variant_a != variant_b
+
+
 def test_layout_and_typography_tokens_land_in_different_concepts():
     layout_only = semantic_css_class_vector("flex w-full")
     typography_only = semantic_css_class_vector("text-lg font-bold")

@@ -204,14 +204,16 @@ def _is_layout(token: str) -> bool:
 
 # --- per-concept vector builders ---
 
-_COLOR_FAMILY_BUCKETS = 8
+_COLOR_FAMILY_BUCKETS = 16  # per role - see _color_block
 _SPACING_PROPERTY_BUCKETS = 8
 _TYPOGRAPHY_PROPERTY_BUCKETS = 6
 _BORDER_PROPERTY_BUCKETS = 6
 _SHADOW_NAME_BUCKETS = 4
 _LAYOUT_BUCKETS = 12
 
-COLOR_DIMS = _COLOR_FAMILY_BUCKETS + 3  # + background/text/border shade scalars
+_COLOR_ROLES: Tuple[str, ...] = ("background", "text", "border")
+
+COLOR_DIMS = _COLOR_FAMILY_BUCKETS * len(_COLOR_ROLES) + 3  # + one shade scalar per role
 SPACING_DIMS = _SPACING_PROPERTY_BUCKETS + 1  # + average scale scalar
 TYPOGRAPHY_DIMS = _TYPOGRAPHY_PROPERTY_BUCKETS + 2  # + size ordinal + weight ordinal
 BORDER_DIMS = _BORDER_PROPERTY_BUCKETS + 2  # + width scalar + radius ordinal
@@ -222,11 +224,26 @@ TOTAL_DIMS = COLOR_DIMS + SPACING_DIMS + TYPOGRAPHY_DIMS + BORDER_DIMS + SHADOW_
 
 
 def _color_block(color_tokens: List[_ColorToken]) -> List[float]:
-    families = _hash_multi_hot([token.family for token in color_tokens], _COLOR_FAMILY_BUCKETS)
-    shade_by_role = {"background": 0.0, "text": 0.0, "border": 0.0}
+    """One `_COLOR_FAMILY_BUCKETS`-wide multi-hot per role, not one shared
+    across all three (issue #169's finding): a single button's boilerplate
+    alone routinely carries 4-6 distinct color tokens across background/
+    text/border (state-variant ring/outline utilities included) - sharing
+    one small bucket set across all of them saturated it to all-1.0 on
+    real markup, erasing the one token (`border-extra-N`) actually meant
+    to distinguish two components. Splitting by role keeps each role's
+    bucket set sized to what that role alone needs to distinguish.
+    """
+    families_by_role: Dict[str, List[str]] = {role: [] for role in _COLOR_ROLES}
+    shade_by_role = {role: 0.0 for role in _COLOR_ROLES}
     for token in color_tokens:
+        families_by_role[token.role].append(token.family)
         shade_by_role[token.role] = max(shade_by_role[token.role], token.shade)
-    return families + [shade_by_role["background"], shade_by_role["text"], shade_by_role["border"]]
+    families = [
+        value
+        for role in _COLOR_ROLES
+        for value in _hash_multi_hot(families_by_role[role], _COLOR_FAMILY_BUCKETS)
+    ]
+    return families + [shade_by_role[role] for role in _COLOR_ROLES]
 
 
 def _spacing_block(tokens: List[str]) -> List[float]:

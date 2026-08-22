@@ -37,7 +37,7 @@ class LeafWeights:
 
     structural: float = 1.0
     identity_strings: float = 0.8
-    css_class: float = 0.6
+    css_class: float = 2.0
     style: float = 0.5
     geometry: float = 0.15
 
@@ -50,7 +50,7 @@ class MatchingThresholds:
     """
 
     leaf_family: float = 0.55
-    leaf_exact: float = 0.92
+    leaf_exact: float = 0.985
     composite_family: float = 0.5
     composite_exact: float = 0.9
 
