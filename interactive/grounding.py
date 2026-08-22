@@ -144,3 +144,27 @@ def grounding_for(where: SiteOutput, ref: DocumentRef) -> List[GroundingFact]:
     """
     handler = _GROUNDING_BY_FILENAME.get(ref.filename)
     return handler(where) if handler else []
+
+
+_STANDING_INSTRUCTION = (
+    "You are helping someone edit {filename}.{extension} for a site this crawl already "
+    "documented. Guide them through the change rather than just executing it: point out real "
+    "risks or tradeoffs when you can, but only ever cite a fact listed below - never invent a "
+    "consequence you can't point to. If nothing is listed, say plainly that no real dependency "
+    "data exists for this edit; don't guess."
+)
+
+
+def system_instruction_for(ref: DocumentRef, facts: List[GroundingFact]) -> str:
+    """The chat's own `system_instruction` (ADR-0033 point 4) - the same
+    standing guidance every turn, plus whichever grounding facts apply
+    to `ref` right now. Built fresh per call, never cached: grounding is
+    a property of what's being edited, not of the conversation's own
+    history.
+    Details: docs/dev/interactive/grounding.md#system_instruction_for
+    """
+    header = _STANDING_INSTRUCTION.format(filename=ref.filename, extension=ref.extension)
+    if not facts:
+        return f"{header}\n\nNo real grounding facts are available for this document."
+    bullet_list = "\n".join(f"- {fact.statement}" for fact in facts)
+    return f"{header}\n\nReal facts you can cite:\n{bullet_list}"

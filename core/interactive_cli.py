@@ -11,6 +11,7 @@ import argparse
 from interactive.server import run_interactive_server
 
 from .config import PragmaConfig
+from .registry import AGENT_REGISTRY
 
 
 def parse_interactive_args(argv: list) -> argparse.Namespace:
@@ -29,6 +30,10 @@ def parse_interactive_args(argv: list) -> argparse.Namespace:
     parser.add_argument("--config", "-c", dest="config_path", help="Path to a pragma YAML config file")
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder the documents were written to")
     parser.add_argument(
+        "--agent", "--provider", "-p", dest="agent",
+        help=f"Agent plugin for the chat panel ({', '.join(AGENT_REGISTRY.names())})",
+    )
+    parser.add_argument(
         "--host", default="127.0.0.1",
         help="Interface to bind the local server to (default: 127.0.0.1, local-only)",
     )
@@ -37,14 +42,23 @@ def parse_interactive_args(argv: list) -> argparse.Namespace:
 
 
 def run_interactive_command(argv: list) -> None:
-    """`pragma interactive <site>`: resolve `out_dir` the same way
-    every other subcommand does (`PragmaConfig.load`), then hand off to
-    the real server - this command itself does no crawling, no agent,
-    no graph store, so none of those config sections are read.
+    """`pragma interactive <site>`: resolve `out_dir` and an `Agent` the
+    same way every other subcommand does (`PragmaConfig.load`,
+    `AGENT_REGISTRY` - the exact fallback-to-mock pattern
+    `DocsEngine.from_config` already uses), then hand off to the real
+    server - this command still does no crawling and no graph store
+    connection; only the chat panel needed an agent, editing never did.
     Details: docs/dev/core/interactive_cli.md#run_interactive_command
     """
     args = parse_interactive_args(argv)
-    overrides = {"out_dir": args.out_dir} if args.out_dir else {}
+    overrides = {k: v for k, v in {"out_dir": args.out_dir, "agent": args.agent}.items() if v}
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
 
-    run_interactive_server(config.out_dir, args.site, host=args.host, port=args.port)
+    provider_options = config.agents.get(config.agent, {})
+    try:
+        agent = AGENT_REGISTRY.create(config.agent, **provider_options)
+    except Exception as exc:
+        print(f"Failed to initialize {config.agent} agent: {exc}; falling back to mock")
+        agent = AGENT_REGISTRY.create("mock")
+
+    run_interactive_server(config.out_dir, args.site, agent, host=args.host, port=args.port)
