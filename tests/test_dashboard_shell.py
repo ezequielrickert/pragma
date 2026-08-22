@@ -3,7 +3,7 @@ concern pages, and per-document renders (ADR-0016 point 4, ticket #125)."""
 import json
 
 from core.documents import ProducedDocument
-from dashboard.shell import KpiContext, _document_slug, _source_json, build_dashboard
+from dashboard.shell import KpiContext, _document_slug, _source_content, _source_json, build_dashboard
 
 SITE = "shop.example"
 
@@ -41,6 +41,18 @@ def test_malformed_json_is_none_not_a_crash():
     documents = [(_document("coverage", "source"), "not json")]
 
     assert _source_json(documents, "coverage") is None
+
+
+# --- _source_content ---
+
+def test_source_content_returns_the_raw_text_unparsed():
+    documents = [(_document("export", "source"), '{"@graph": []}')]
+
+    assert _source_content(documents, "export") == '{"@graph": []}'
+
+
+def test_source_content_is_none_for_a_name_this_run_never_produced():
+    assert _source_content([], "export") is None
 
 
 # --- _document_slug ---
@@ -141,7 +153,51 @@ def test_every_produced_document_gets_its_own_rendered_page():
     assert '{&quot;a&quot;: 1}' in pages[f"dashboard/document/{slug}.html"]
 
 
-def test_no_documents_at_all_produces_a_landing_page_with_an_empty_grid_not_an_error():
+def test_no_documents_at_all_produces_a_landing_page_with_no_concern_cards_not_an_error():
+    """The grid isn't literally empty - the Graph card always renders,
+    just unavailable with no export.json to back it (see the Graph-card
+    tests below)."""
     pages = build_dashboard([], _kpi(), SITE)
 
-    assert 'class="grid"></div>' in pages["dashboard/index.html"]
+    assert 'href="concern/' not in pages["dashboard/index.html"]
+
+
+# --- Graph card (ticket #163, map #159) ---
+
+def test_the_graph_card_links_to_a_real_graph_page_when_export_json_was_produced():
+    documents = [(_document("export", "source", filename="export"), '{"@graph": []}')]
+
+    pages = build_dashboard(documents, _kpi(), SITE)
+
+    assert 'href="graph.html"' in pages["dashboard/index.html"]
+    assert "dashboard/graph.html" in pages
+
+
+def test_the_graph_card_reads_not_available_when_export_json_was_never_produced():
+    pages = build_dashboard([], _kpi(), SITE)
+
+    landing = pages["dashboard/index.html"]
+    assert "dashboard/graph.html" not in pages
+    assert 'href="graph.html"' not in landing
+    assert "Graph" in landing and "not available this run" in landing
+
+
+def test_the_graph_page_embeds_the_real_export_json_content():
+    export_content = '{"@graph": [{"id": "example.com", "type": "Pantalla"}]}'
+    documents = [(_document("export", "source", filename="export"), export_content)]
+
+    pages = build_dashboard(documents, _kpi(), SITE)
+
+    assert export_content in pages["dashboard/graph.html"]
+    assert 'href="index.html"' in pages["dashboard/graph.html"]  # breadcrumb back to the landing page
+
+
+def test_the_export_concern_still_gets_its_own_ordinary_concern_page_too():
+    """The Graph card is additional, not a replacement - export.json's
+    usual concern/document flow (the raw-JSON view) stays reachable."""
+    documents = [(_document("export", "source", filename="export"), '{"@graph": []}')]
+
+    pages = build_dashboard(documents, _kpi(), SITE)
+
+    assert 'href="concern/export.html"' in pages["dashboard/index.html"]
+    assert "dashboard/concern/export.html" in pages

@@ -31,12 +31,27 @@ caller rather than re-derived.
 kept out of `KpiContext` itself since those two are about identity and
 location, not metrics.
 
+## _source_content
+
+The raw text of a `kind="source"` document, or `None` when a config
+turned it off this run - the same "maybe absent" signal `manifest.json`'s
+own `status: "off"` already encodes. `_source_json` is this, parsed;
+the Graph card (`_graph_card`/`build_dashboard`) needs the raw text
+itself, not a parsed dict, since `render_graph_page` embeds it directly.
+
 ## _source_json
 
-`None` (not an exception, not a fabricated empty dict) when a config
-turned a source document off this run - a dashboard KPI reads the same
-"maybe absent" signal `manifest.json`'s own `status: "off"` already
-encodes.
+`_source_content`'s own text, parsed - `None` for the same "never
+produced this run" case, plus `None` for text that isn't valid JSON.
+
+## _graph_card
+
+The landing page's own top-level Graph card (ticket #163, map #159) -
+alongside the concern grid, not inside it, per the map's own charting
+decision (a dedicated card, more discoverable than being buried under
+the `export` concern's own detail page, which still exists unchanged
+too - this is additional, not a replacement). Reads "not available this
+run" the same way a KPI tile does when `export.json` wasn't produced.
 
 ## _kpi_section
 
@@ -58,7 +73,10 @@ Pure - takes every document's content already read, returns
 outputs (`master.md`/`llms.txt`/`manifest.json`) are excluded from both
 the concern grid and the per-document renders - they describe the run
 as a whole, not one concern, and are already reachable through the raw
-files directly.
+files directly. `dashboard/graph.html` is added only when `export.json`
+was actually produced this run (ticket #163) - no page for the Graph
+card to link to otherwise, matching every other "not available this
+run" document already gets.
 
 ## write_dashboard
 

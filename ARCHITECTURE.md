@@ -334,15 +334,25 @@ each one actually does, and `docs/adr/0001` onward for why it looks the way it d
 `dashboard/` (ADR-0016) turns that document set into one static site a reviewer opens directly —
 no server, no Node build, works equally for a human and for Claude Code reading files. A landing
 page (`dashboard/shell.py::build_dashboard`) carries the navigation: KPI tiles sourced from
-whatever's already real for the run (never recomputed), then one card per document-generator
-"concern," each linking to a detail page listing that concern's own outputs, each in turn linking
-to a per-document render. Rendering is a best-fit lookup (`dashboard/renderer_audit.py`): a
-document gets a dedicated renderer only when a real, actively-maintained, single-vendorable-asset
-viewer exists for its format (today, only `openapi.yaml` does, via Redoc,
-`dashboard/redoc_renderer.py`) — everything else falls back to `dashboard/generic_template.py`'s
-uniform `<pre>` block. `build_dashboard` stays pure; `write_dashboard` is the one impure entry
-point, wired into both `core/docs_engine.py::run()` and `core/engine.py::run()`, so every real run
-produces one at `<out_dir>/dashboard/index.html`.
+whatever's already real for the run (never recomputed), a dedicated **Graph card**, then one card
+per document-generator "concern," each linking to a detail page listing that concern's own
+outputs, each in turn linking to a per-document render. Rendering is a best-fit lookup
+(`dashboard/renderer_audit.py`): a document gets a dedicated renderer only when a real,
+actively-maintained, single-vendorable-asset viewer exists for its format (`openapi.yaml` via
+Redoc, `dashboard/redoc_renderer.py`) — everything else falls back to
+`dashboard/generic_template.py`'s uniform `<pre>` block. The **Graph card** (ticket #163, map #159)
+is a third path, alongside the concern grid rather than inside it: `dashboard/graph_renderer.py`
+renders `export.json`'s Ladybug graph as a real, explorable Cytoscape.js page (colored by
+ADR-0002's node `type`, click-to-expand/inspect, starting collapsed to the "structural" families
+so it isn't unreadable on open) instead of `export.json`'s own raw-JSON concern page, which still
+exists too — the design (CDN-pinned Cytoscape.js, embedded data, no build step, matching Redoc's
+own posture) came from a real prototype (`docs/prototype-graph-card/`, ticket #162), not from this
+ticket. `dashboard/graph_assets.py` holds that page's own static CSS/JS, split out of
+`graph_renderer.py` once it crossed file-size-audit's threshold. `export.json` is on by default
+now (`PragmaConfig.export_json`, ticket #161) so the Graph card has data to render most runs;
+absent, it reads "not available this run" the same way a KPI tile does. `build_dashboard` stays
+pure; `write_dashboard` is the one impure entry point, wired into both `core/docs_engine.py::run()`
+and `core/engine.py::run()`, so every real run produces one at `<out_dir>/dashboard/index.html`.
 
 ---
 
@@ -414,9 +424,10 @@ new provider (e.g. Anthropic) is: write `anthropic_agent.py` with its own `Agent
   `component_family.py` (deterministic classification and clustering, no LLM or browser
   dependency), `ledger.py`, `traces.py`, `coverage.py`.
 - **`dashboard/`**: the static site that stitches every document into one browsable entry point
-  (see "The Dashboard") - `shell.py` (landing/concern/document pages), `renderer_audit.py` (which
-  document gets a dedicated renderer), `generic_template.py` and `redoc_renderer.py` (the
-  renderers themselves).
+  (see "The Dashboard") - `shell.py` (landing/concern/document pages, plus the Graph card),
+  `renderer_audit.py` (which document gets a dedicated renderer), `generic_template.py` and
+  `redoc_renderer.py` (the renderers themselves), `graph_renderer.py`/`graph_assets.py` (the
+  explorable Ladybug-graph page and its own static CSS/JS).
 - **`utils/`**: Basic I/O operations plus `urls.py::clean_url()`.
 - **`docs/`**: Every generated document for every run, plus `index.md`/`runs.json` (the browsable
   run manifest) and `dev/` (the per-module developer notes every `Details:` docstring line points
