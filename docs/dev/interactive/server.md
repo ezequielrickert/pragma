@@ -20,6 +20,15 @@ exercises `make_server`/threading at all): started a real `ServerThread`, hit `/
 `/document/<name>`, and `/finalizar` with real HTTP requests, confirmed the thread was no longer
 alive after `finalizar`'s shutdown completed.
 
+**In-flight requests drain before the server closes (ticket #157).** `.shutdown()` alone only
+stops the accept loop; it never waits for a request already running on its own `ThreadingMixIn`
+worker thread, and `serve_forever()` never calls `server_close()` on its own - without this, an
+in-flight save or chat reply was simply abandoned. `ServerThread.shutdown()` now calls
+`server_close()` right after `.shutdown()` returns, so `ThreadedWSGIServer`'s own inherited
+`block_on_close = True` joins every still-running request thread first. Both "finalizar" and an
+external Ctrl+C share this same path - neither gets a separate "kill it now" behavior. No new
+timeout was added for the drain itself; `LocalAgent`'s own 300s request timeout is the only bound.
+
 **Chat (ticket #153).** A panel on the document's own edit page, not a separate route -
 `interactive/grounding.py`'s own grounding is already scoped to "the document currently open," so
 the chat is too. History is one in-memory list per `(filename, extension)`, held in a plain dict

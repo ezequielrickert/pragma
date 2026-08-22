@@ -16,6 +16,21 @@ replacement. `.shutdown()` must run on a thread other than the one
 blocked in `serve_forever()`, so the "finalizar" route spawns a
 one-off thread to call it rather than calling it inline.
 
+**In-flight requests drain before the server actually closes** (ticket
+#157). `.shutdown()` alone only stops the accept loop - it never waits
+for a request already being handled on its own `ThreadingMixIn` worker
+thread, and `serve_forever()` never calls `server_close()` on its own
+either, so without this, an in-flight save or chat reply was just
+abandoned. `ServerThread.shutdown()` now calls `server_close()` right
+after `.shutdown()` returns - `ThreadedWSGIServer`'s own inherited
+`block_on_close = True` makes that join every still-running request
+thread before returning. Both "finalizar" and an external Ctrl+C go
+through this same `ServerThread.shutdown()`, so neither gets special
+"kill it now" treatment. No separate timeout was added for the drain
+itself - `LocalAgent`'s own 300s request timeout is the only bound, and
+adding a second one would be solving a problem (a hung chat call
+in-flight at the exact moment of shutdown) nobody has actually hit.
+
 **Chat** (ticket #153): a panel on the document's own edit page, not a
 separate route - grounding (`interactive/grounding.py`) is already
 scoped to "the document currently open," so the chat is too. History
@@ -38,11 +53,13 @@ regardless of any customized copy), bundled into a
 the actual diff/gutter rendering, this module only gathers the two
 strings.
 
-**Generic form** (ADR-0034, ticket #158): `requirements.json` and
-`browser-support-matrix.json` get a schema-driven review panel
-alongside the raw-text editor, the same coexistence `pages.
-color_token_form` already established for `tokens.json`. `save_fields`
-parses each submitted `entry:<index>:<field>` key
+**Generic form** (ADR-0034, ticket #158): `requirements.json` gets a
+schema-driven review panel alongside the raw-text editor, the same
+coexistence `pages.color_token_form` already established for
+`tokens.json` (`browser-support-matrix.json` was this ticket's other
+originally-planned case, but its own generator never actually produces
+it - see `interactive/generic_form.py`'s own module docstring).
+`save_fields` parses each submitted `entry:<index>:<field>` key
 (`interactive/generic_form.py::ENTRY_FIELD_PREFIX`) into a per-row
 update dict and hands it to `generic_form.save_generic_form` - this
 module still only parses form data, `interactive/generic_form.py` still
@@ -183,11 +200,19 @@ class ServerThread(threading.Thread):
     def __init__(self, app: Flask, host: str = "127.0.0.1", port: int = 5050) -> None:
         super().__init__()
         self.server: BaseWSGIServer = make_server(host, port, app, threaded=True)
+        # ThreadedWSGIServer.daemon_threads defaults True - socketserver's
+        # own _Threads.append() explicitly skips tracking any daemon
+        # thread, which makes server_close()'s in-flight-request join a
+        # silent no-op otherwise (confirmed: measured 0.51s vs a genuine
+        # 2.00s wait for a real in-flight request, same code, only this
+        # flag differing). False is what makes the join in run() real.
+        self.server.daemon_threads = False
         self.host = host
         self.port = port
 
     def run(self) -> None:
         self.server.serve_forever()
+        self.server.server_close()
 
     def shutdown(self) -> None:
         self.server.shutdown()
