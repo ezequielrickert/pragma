@@ -52,3 +52,11 @@ does this use".
 The dispatch entry point - `_GROUNDING_BY_FILENAME.get(ref.filename)`, `[]` for a document with no
 entry yet (tier c). Mirrors `customization.py::SCHEMA_PATH_BY_FILENAME`'s own "absent means not
 yet extended, not an error" shape.
+
+## system_instruction_for
+
+The chat's own `system_instruction` (ADR-0033 point 4, ticket #153) - the same standing guidance
+every turn (guide, cite only what's listed, say plainly when nothing is) plus whichever grounding
+facts `grounding_for` resolves for the document currently open. Rebuilt fresh on every call, never
+cached across turns of the same conversation - grounding is a property of what's being edited
+right now, not of the conversation's own history, and the user can switch documents mid-chat.
