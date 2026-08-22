@@ -6,7 +6,7 @@ Leaf-level component feature vector - issue #131's design
 (`docs/dev/generators/leaf-feature-vector-design.md`), implemented as a pure
 value-producing function. Replaces `generators/component_family.py`'s
 Jaccard-on-`css_class` clustering as the similarity signal two `Component`
-records are compared by; storage into a real Kùzu `FLOAT[169]` column and
+records are compared by; storage into a real Kùzu `FLOAT[190]` column and
 wiring into the matching pipeline is issue #139's job, not this module's -
 no I/O here, no Kùzu.
 
@@ -14,7 +14,7 @@ no I/O here, no Kùzu.
 `DESCRIPTIVE_COMPONENT_FIELDS`/`ComponentFacts` (the same flat shape
 `database/ladybug/component.py::get_component_ledger` already returns per
 component) - plus that page/site's `GeometryBuckets`, and returns one
-169-dim `list[float]`.
+190-dim `list[float]`.
 
 ## _bucket
 
@@ -28,11 +28,12 @@ hashes like any other value, so "this component has no role" collides into
 one shared bucket rather than being dropped - lacking an attribute is itself
 a signal.
 
-## _hash_multi_hot
+## css_class block (issue #168)
 
-`css_class`'s encoding - one hash per whitespace-split token, OR'd into a
-binary vector, so a component's *set* of classes (independent of order)
-determines this slice.
+No longer this module's own raw hash - `css_class` is now
+`tailwind_semantic_classes.py::semantic_css_class_vector`'s design-concept
+vector (color, spacing, typography, border, shadow, layout). See
+`docs/dev/analysis/tailwind_semantic_classes.md`.
 
 ## _closed_one_hot
 
@@ -87,7 +88,7 @@ to the middle bucket for any component whose group has none.
 
 ## leaf_feature_vector
 
-The 169-dim feature vector for one component record - concatenated blocks,
+The 190-dim feature vector for one component record - concatenated blocks,
 each scaled by its `ComponentMatchingConfig.leaf_weights` entry before
 joining, so weight directly controls that block's share of the final cosine
 similarity. `x`/`y`/`element_id` are excluded (page-position and

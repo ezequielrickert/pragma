@@ -2,6 +2,10 @@
 # feature-vector block weights (analysis/leaf_feature_vector.py) and the
 # leaf/composite thresholds and bucketing slack #132/#133 decided.
 #
+# css_class (issue #168) scales analysis/tailwind_semantic_classes.py's
+# design-concept vector now, not raw hashed class tokens - the weight's
+# meaning changed, its default value hasn't (yet - see #169).
+#
 # Kept out of pragma.yaml on purpose - this whole map's tunables live in
 # one dedicated place instead of mixed into the general run config. A
 # missing file, or a missing key within it, falls back to the hardcoded

@@ -25,14 +25,15 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .component_matching_config import ComponentMatchingConfig
+from .deterministic_hashing import hash_one_hot as _hash_one_hot
 from .hungarian import min_cost_assignment
-from .leaf_feature_vector import GeometryBuckets, _hash_multi_hot, _hash_one_hot, leaf_feature_vector
+from .leaf_feature_vector import GeometryBuckets, leaf_feature_vector
+from .tailwind_semantic_classes import semantic_css_class_vector
 from .vector_similarity import cosine_similarity
 
 _ROOT_TAG_BUCKETS = 16
 _ROOT_ROLE_BUCKETS = 16
 _ROOT_LANDMARK_BUCKETS = 16
-_ROOT_CSS_CLASS_BUCKETS = 32
 
 
 @dataclass
@@ -73,7 +74,11 @@ class CompositeMatchResult:
 def container_root_vector(container: ContainerNode, config: Optional[ComponentMatchingConfig] = None) -> List[float]:
     """A `Container` root's own vector - `tag`/`role`/`landmark` hashed
     into the structural block the same way a leaf's `tag`/`role` are
-    (#131's encoding), plus `css_class` as its own weighted slice.
+    (#131's encoding), plus `css_class` as its own weighted slice, encoded
+    by the same `tailwind_semantic_classes.py` design-concept vector a
+    leaf `Component`'s `css_class` block uses (issue #168) - the same
+    raw-hash path converted in the other module would have left this one
+    still clustering composite roots partly on class-token noise.
     `element_id` is excluded, same precedent as leaf `Component`s; a
     `Container` carries no style/geometry to encode (`schema.py`'s DDL
     gives it none), so this vector is smaller than a leaf's, not a
@@ -86,7 +91,7 @@ def container_root_vector(container: ContainerNode, config: Optional[ComponentMa
         + _hash_one_hot(container.role, _ROOT_ROLE_BUCKETS)
         + _hash_one_hot(container.landmark, _ROOT_LANDMARK_BUCKETS)
     )
-    css_class = _hash_multi_hot((container.css_class or "").split(), _ROOT_CSS_CLASS_BUCKETS)
+    css_class = semantic_css_class_vector(container.css_class)
     return [v * weights.structural for v in structural] + [v * weights.css_class for v in css_class]
 
 

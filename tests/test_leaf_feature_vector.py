@@ -28,7 +28,7 @@ def _cosine(a, b):
 def test_vector_length_matches_the_documented_dimensionality():
     buckets = compute_geometry_buckets([])
     vector = leaf_feature_vector(_comp(), buckets)
-    assert len(vector) == 169
+    assert len(vector) == 190
 
 
 def test_two_content_identical_components_produce_the_same_vector():
@@ -72,9 +72,9 @@ def test_component_type_s_templated_text_field_branch_collapses_to_one_value():
 
 
 def test_css_class_overlap_increases_similarity_over_no_overlap():
-    shared = _comp(css_class="btn btn-primary rounded")
-    variant = _comp(css_class="btn btn-secondary rounded")
-    unrelated = _comp(css_class="nav-link footer-icon")
+    shared = _comp(css_class="bg-white rounded-xl p-4 flex")
+    variant = _comp(css_class="bg-white rounded-xl p-4 flex border-2")
+    unrelated = _comp(css_class="text-lg font-bold uppercase tracking-wide")
     buckets = compute_geometry_buckets([shared, variant, unrelated])
 
     similar_pair = _cosine(leaf_feature_vector(shared, buckets), leaf_feature_vector(variant, buckets))
@@ -85,7 +85,7 @@ def test_css_class_overlap_increases_similarity_over_no_overlap():
 def test_missing_facts_fields_default_without_raising():
     buckets = compute_geometry_buckets([])
     vector = leaf_feature_vector({}, buckets)
-    assert len(vector) == 169
+    assert len(vector) == 190
 
 
 def test_geometry_buckets_rank_components_small_medium_large_within_their_own_kind():
@@ -110,21 +110,21 @@ def test_a_component_type_with_no_geometry_siblings_falls_back_to_the_middle_buc
     buckets = compute_geometry_buckets([lone])
 
     vector = leaf_feature_vector(lone, buckets)
-    assert len(vector) == 169
+    assert len(vector) == 190
 
 
 def test_leaf_weights_scale_a_block_s_contribution():
     """Doubling css_class's weight must move the vector by exactly the
     css_class block's own raw magnitude times the weight delta - nothing
     more, which is also an implicit check that no other block moved."""
-    from analysis.leaf_feature_vector import _CSS_CLASS_BUCKETS, _hash_multi_hot
+    from analysis.tailwind_semantic_classes import semantic_css_class_vector
 
-    comp = _comp(css_class="btn", tag="button", component_type="button")
+    comp = _comp(css_class="bg-white p-4", tag="button", component_type="button")
     buckets = compute_geometry_buckets([comp])
     base = leaf_feature_vector(comp, buckets, ComponentMatchingConfig(leaf_weights=LeafWeights(css_class=0.6)))
     doubled = leaf_feature_vector(comp, buckets, ComponentMatchingConfig(leaf_weights=LeafWeights(css_class=1.2)))
 
-    raw_css_class = _hash_multi_hot(["btn"], _CSS_CLASS_BUCKETS)
+    raw_css_class = semantic_css_class_vector("bg-white p-4")
     total_move = sum(abs(d - b) for d, b in zip(doubled, base))
     expected_move = sum(abs(v) * (1.2 - 0.6) for v in raw_css_class)
     assert total_move == expected_move

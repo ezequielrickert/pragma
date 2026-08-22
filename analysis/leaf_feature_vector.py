@@ -10,11 +10,19 @@ wiring the comparison into the pipeline is a later ticket's job (issue
 `leaf_feature_vector` takes one component record - a plain dict shaped
 like `DESCRIPTIVE_COMPONENT_FIELDS`/`ComponentFacts` (the same flat shape
 `database/ladybug/component.py::get_component_ledger` already returns per
-component, and the same shape `tests/test_component_family.py`'s
+component, and the same shape `tests/test_leaf_feature_vector.py`'s
 hand-authored dicts use), plus that page/site's `GeometryBuckets` (see
-below) - and returns one `168`-dim `list[float]`, weighted per block per
+below) - and returns one `190`-dim `list[float]`, weighted per block per
 `ComponentMatchingConfig.leaf_weights` and ready to concatenate into a
 Kùzu vector column as-is.
+
+`css_class` - block 3 of 5, still weighted by `leaf_weights.css_class` -
+is `tailwind_semantic_classes.py`'s design-concept vector (issue #168),
+not raw whitespace-split, sha1-hashed class tokens: two components
+sharing every structural/style field but differing only by a color-variant
+modifier class (the `mapadeprofesionales.com` doctor cards' `border-
+extra-N`) now read as "the same family, a different variant" instead of a
+near-coin-flip across 32 hash buckets.
 
 `x`/`y` and `element_id` are excluded entirely, same reasoning as the
 design doc: page-position and DOM-remount-unstable, not identity.
@@ -25,49 +33,13 @@ Details: docs/dev/analysis/leaf_feature_vector.md#module
 """
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from generators.color_space import parse_css_color
 from .component_matching_config import ComponentMatchingConfig, LeafWeights
-
-# --- deterministic hashing ---
-
-# hashlib.sha1, never Python's built-in hash() - process-randomized by
-# PYTHONHASHSEED, not reproducible across runs. See the design doc's own
-# "Why hashing" section for the tradeoff this buys (fixed dimensionality
-# across every crawled site) against exact per-run vocabulary indexing.
-def _bucket(value: str, bucket_count: int) -> int:
-    digest = hashlib.sha1((value or "").encode()).digest()
-    return int.from_bytes(digest[:4], "big") % bucket_count
-
-
-def _hash_one_hot(value: str, bucket_count: int) -> List[float]:
-    """One field's value, hashed into one of `bucket_count` slots - an
-    empty string hashes like any other value, so "this component has no
-    role" collides into one shared bucket rather than being dropped:
-    lacking an attribute is itself a signal, not noise.
-    Details: docs/dev/analysis/leaf_feature_vector.md#_hash_one_hot
-    """
-    vector = [0.0] * bucket_count
-    vector[_bucket(value, bucket_count)] = 1.0
-    return vector
-
-
-def _hash_multi_hot(values: Iterable[str], bucket_count: int) -> List[float]:
-    """`css_class`'s encoding - one hash per whitespace-split token,
-    OR'd into a binary vector rather than one-hot per token, so a
-    component's *set* of classes (independent of their order) is what
-    determines this slice.
-    Details: docs/dev/analysis/leaf_feature_vector.md#_hash_multi_hot
-    """
-    vector = [0.0] * bucket_count
-    for value in values:
-        if value:
-            vector[_bucket(value, bucket_count)] = 1.0
-    return vector
-
+from .deterministic_hashing import hash_one_hot as _hash_one_hot
+from .tailwind_semantic_classes import semantic_css_class_vector
 
 # --- closed-vocabulary one-hot (small, known value sets) ---
 
@@ -101,7 +73,6 @@ _TAG_BUCKETS = 16
 _ROLE_BUCKETS = 16
 _INPUT_TYPE_BUCKETS = 12
 _IDENTITY_STRING_BUCKETS = 16
-_CSS_CLASS_BUCKETS = 32
 _DISPLAY_BUCKETS = 10
 
 _FONT_SIZE_SCALE = 32.0  # px, the design doc's normalization divisor
@@ -218,7 +189,7 @@ def leaf_feature_vector(
     geometry_buckets: GeometryBuckets,
     config: Optional[ComponentMatchingConfig] = None,
 ) -> List[float]:
-    """The 168-dim feature vector for one component record - concatenated
+    """The 190-dim feature vector for one component record - concatenated
     blocks, each scaled by its `config.leaf_weights` entry before joining,
     so weight directly controls that block's share of the final cosine
     similarity. `config` defaults to `ComponentMatchingConfig()`'s
@@ -257,7 +228,7 @@ def leaf_feature_vector(
         + _hash_one_hot(form, _IDENTITY_STRING_BUCKETS)
     )
 
-    css_class_tokens = _hash_multi_hot((css_class or "").split(), _CSS_CLASS_BUCKETS)
+    css_class_tokens = semantic_css_class_vector(css_class)
 
     color_r, color_g, color_b = _color_channels(color)
     bg_r, bg_g, bg_b = _color_channels(background_color)
