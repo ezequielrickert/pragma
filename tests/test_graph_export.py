@@ -8,6 +8,7 @@ from core.documents import DocumentRequest
 from database.ladybug.store import LadybugGraphStore
 from generators.component_catalog import CatalogEntry, CatalogVariant
 from generators.graph_export import (
+    _build_location_index,
     _entidad_nodes,
     _modulo_nodes,
     _populate_usa_token,
@@ -48,8 +49,8 @@ def test_pages_become_pantalla_nodes_containing_their_components():
     page = _node(document, "example.com/")
     assert page["type"] == "Pantalla"
     assert page["label"] == "Home"
-    assert page["contiene"] == [f"example.com/|a.about"]
-    component = _node(document, "example.com/|a.about")
+    assert len(page["contiene"]) == 1
+    component = _node(document, page["contiene"][0])
     assert component["type"] == "Componente"
     assert component["label"] == "About"
 
@@ -68,7 +69,8 @@ def test_external_pages_get_no_pantalla_node_and_no_dangling_edge():
 
     ids = {node["id"] for node in document["@graph"]}
     assert "other.example" not in ids
-    component = _node(document, "example.com/|a.out")
+    page = _node(document, "example.com/")
+    component = _node(document, page["contiene"][0])
     assert "navega_a" not in component
 
 
@@ -81,10 +83,41 @@ def test_navigation_via_a_component_attributes_the_edge_to_it():
 
     document = build_export_graph(_request(store))
 
-    component = _node(document, "example.com/|a.about")
-    assert component["navega_a"] == ["example.com/about"]
     page = _node(document, "example.com/")
+    component = _node(document, page["contiene"][0])
+    assert component["navega_a"] == ["example.com/about"]
     assert "navega_a" not in page
+
+
+def test_a_component_reused_across_pages_is_one_shared_componente_node():
+    """Byte-identical content collapses onto one canonical Component row
+    (issue #136's write-time MERGE) - the export reflects that as one
+    shared Componente node, contiene'd by both pages, not two separate
+    ones (issue #141)."""
+    store = _store()
+    store.upsert_page("example.com/", status="Finished")
+    store.upsert_page("example.com/about", status="Finished")
+    store.record_component("example.com/", "a.nav", tag="a", text="Home")
+    store.record_component("example.com/about", "a.nav2", tag="a", text="Home")
+
+    document = build_export_graph(_request(store))
+
+    componente_ids = {node["id"] for node in document["@graph"] if node["type"] == "Componente"}
+    assert len(componente_ids) == 1
+    componente_id = next(iter(componente_ids))
+    assert _node(document, "example.com/")["contiene"] == [componente_id]
+    assert _node(document, "example.com/about")["contiene"] == [componente_id]
+
+
+def test_build_location_index_maps_every_ledger_entry_to_its_component_id():
+    store = _store()
+    store.upsert_page("example.com/", status="Finished")
+    store.record_component("example.com/", "a.about", tag="a", text="About")
+
+    ledger = store.get_component_ledger()
+    index = _build_location_index(ledger)
+
+    assert index[("example.com/", "a.about")] == ledger["example.com/"]["a.about"]["id"]
 
 
 def test_navigation_with_no_component_attributes_the_edge_to_the_page():
@@ -126,7 +159,8 @@ def test_endpoints_are_populated_with_dispara_and_consume_kept_apart():
 
     ids = {node["id"] for node in document["@graph"] if node["type"] == "Endpoint"}
     assert ids == {"POST example.com/api/cart", "GET example.com/api/inventory"}
-    component = _node(document, "example.com/|button.buy")
+    page = _node(document, "example.com/")
+    component = _node(document, page["contiene"][0])
     assert component["dispara"] == ["POST example.com/api/cart"]
     cart_page = _node(document, "example.com/cart")
     assert cart_page["consume"] == ["GET example.com/api/inventory"]
@@ -276,29 +310,48 @@ def test_usa_token_edges_one_per_real_component_instance():
     member_paths entry - not one edge per pattern (used_on would collapse
     both instances into a single page)."""
     componentes = {
-        "shop/|button.buy": {"id": "shop/|button.buy", "type": "Componente"},
-        "shop/|button.checkout": {"id": "shop/|button.checkout", "type": "Componente"},
+        "comp-buy": {"id": "comp-buy", "type": "Componente"},
+        "comp-checkout": {"id": "comp-checkout", "type": "Componente"},
     }
+    location_to_id = {("shop/", "button.buy"): "comp-buy", ("shop/", "button.checkout"): "comp-checkout"}
     tokens_document = {"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}
     entry = _catalog_entry(
         member_paths=(("shop/", "button.buy"), ("shop/", "button.checkout")),
         variants=(CatalogVariant(modifiers=(), background_color="rgb(45, 119, 55)", count=2, example_text=""),),
     )
 
-    _populate_usa_token(componentes, [entry], tokens_document)
+    _populate_usa_token(componentes, [entry], tokens_document, location_to_id)
 
-    assert componentes["shop/|button.buy"]["usa_token"] == ["core.color.surface-1"]
-    assert componentes["shop/|button.checkout"]["usa_token"] == ["core.color.surface-1"]
+    assert componentes["comp-buy"]["usa_token"] == ["core.color.surface-1"]
+    assert componentes["comp-checkout"]["usa_token"] == ["core.color.surface-1"]
 
 
 def test_usa_token_stays_absent_when_no_variant_matches_a_color_token():
-    componentes = {"shop/|button.buy": {"id": "shop/|button.buy", "type": "Componente"}}
+    componentes = {"comp-buy": {"id": "comp-buy", "type": "Componente"}}
+    location_to_id = {("shop/", "button.buy"): "comp-buy"}
     tokens_document = {"core": {"color": {}}, "semantic": {}}
     entry = _catalog_entry(member_paths=(("shop/", "button.buy"),))
 
-    _populate_usa_token(componentes, [entry], tokens_document)
+    _populate_usa_token(componentes, [entry], tokens_document, location_to_id)
 
-    assert "usa_token" not in componentes["shop/|button.buy"]
+    assert "usa_token" not in componentes["comp-buy"]
+
+
+def test_usa_token_edge_lands_once_even_when_two_locations_share_a_reused_component():
+    """Two `member_paths` entries that resolve to the same reused
+    Componente (issue #141) still produce one edge on it, via
+    `_add_edge`'s own dedup - not two identical entries."""
+    componentes = {"comp-nav": {"id": "comp-nav", "type": "Componente"}}
+    location_to_id = {("shop/", "a.nav"): "comp-nav", ("shop/about", "a.nav2"): "comp-nav"}
+    tokens_document = {"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}
+    entry = _catalog_entry(
+        member_paths=(("shop/", "a.nav"), ("shop/about", "a.nav2")),
+        variants=(CatalogVariant(modifiers=(), background_color="rgb(45, 119, 55)", count=2, example_text=""),),
+    )
+
+    _populate_usa_token(componentes, [entry], tokens_document, location_to_id)
+
+    assert componentes["comp-nav"]["usa_token"] == ["core.color.surface-1"]
 
 
 def test_generated_export_document_is_valid_json_ld_and_deterministic():

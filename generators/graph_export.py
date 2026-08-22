@@ -58,17 +58,21 @@ _EXTERNAL_STATUS = "External"
 Node = Dict[str, Any]
 
 
-def _componente_node_id(page_url: str, path: str) -> str:
-    """This module's own `Componente` node key - `(page, path)`, one per
-    ledger entry, not `database/ladybug`'s `Component.id` (content-derived
-    and page-decoupled since #134, and an internal storage detail this
-    document doesn't otherwise depend on). `@graph` still names one
-    `Componente` per page's rendering, same as every ledger entry `_componente_
-    nodes` builds from - a canonical, collapsed `Component` a future export
-    revision surfaces as one shared node is #141's territory, not this key.
-    Details: docs/dev/generators/graph_export.md#_componente_node_id
+def _build_location_index(component_ledger: Dict[str, Dict[str, Dict[str, Any]]]) -> Dict[Tuple[str, str], str]:
+    """`(page_url, path) -> Component.id` for every ledger entry - what
+    every edge-population step below resolves one page's rendering of a
+    component back to the shared `Componente` node it belongs to.
+    `Component.id` is content-derived and page-decoupled since #134: a
+    component reused across pages resolves several `(page_url, path)`
+    locations onto the *same* id here, matching `_componente_nodes`'
+    one-node-per-canonical-component shape (issue #141).
+    Details: docs/dev/generators/graph_export.md#_build_location_index
     """
-    return f"{page_url}|{path}"
+    return {
+        (page_url, path): record["id"]
+        for page_url, components in component_ledger.items()
+        for path, record in components.items()
+    }
 
 
 def _pantalla_nodes(
@@ -88,14 +92,18 @@ def _pantalla_nodes(
 
 
 def _componente_nodes(component_ledger: Dict[str, Dict[str, Dict[str, Any]]]) -> Dict[str, Node]:
-    """One `Componente` per `(page, path)` the ledger already groups by.
+    """One `Componente` per canonical `Component.id` - a component reused
+    across pages (page-decoupled identity since #134) is one shared node
+    here too, not one per page it renders on; `_populate_contiene` is
+    what still gives every such page its own `contiene` edge toward it.
     Details: docs/dev/generators/graph_export.md#_componente_nodes
     """
-    nodes = {}
-    for page_url, components in component_ledger.items():
+    nodes: Dict[str, Node] = {}
+    for components in component_ledger.values():
         for path, record in components.items():
-            node_id = _componente_node_id(page_url, path)
-            nodes[node_id] = {"id": node_id, "type": "Componente", "label": record.get("text") or record.get("tag") or path}
+            node_id = record["id"]
+            if node_id not in nodes:
+                nodes[node_id] = {"id": node_id, "type": "Componente", "label": record.get("text") or record.get("tag") or path}
     return nodes
 
 
@@ -223,8 +231,13 @@ def _add_edge(node: Node, predicate: str, target_id: str) -> None:
         targets.append(target_id)
 
 
-def _populate_contiene(pantallas: Dict[str, Node], component_ledger: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
-    """Pantalla contiene Componente - one edge per pair the ledger groups by.
+def _populate_contiene(
+    pantallas: Dict[str, Node], component_ledger: Dict[str, Dict[str, Dict[str, Any]]],
+    location_to_id: Dict[Tuple[str, str], str],
+) -> None:
+    """Pantalla contiene Componente - one edge per `(page, path)` the
+    ledger groups by, toward the shared node that location resolves to
+    (several pages can `contiene` the same reused `Componente`).
     Details: docs/dev/generators/graph_export.md#_populate_contiene
     """
     for page_url, components in component_ledger.items():
@@ -232,10 +245,13 @@ def _populate_contiene(pantallas: Dict[str, Node], component_ledger: Dict[str, D
         if pantalla is None:
             continue
         for path in components:
-            _add_edge(pantalla, "contiene", _componente_node_id(page_url, path))
+            _add_edge(pantalla, "contiene", location_to_id[(page_url, path)])
 
 
-def _populate_navega_a(pantallas: Dict[str, Node], componentes: Dict[str, Node], edges: List[Dict[str, Any]]) -> None:
+def _populate_navega_a(
+    pantallas: Dict[str, Node], componentes: Dict[str, Node], edges: List[Dict[str, Any]],
+    location_to_id: Dict[Tuple[str, str], str],
+) -> None:
     """Componente navega_a Pantalla when a specific component caused the
     navigation (the common case); Pantalla navega_a Pantalla directly
     when `get_edges`' own `component` field is empty - a whole-page
@@ -246,16 +262,18 @@ def _populate_navega_a(pantallas: Dict[str, Node], componentes: Dict[str, Node],
     for edge in edges:
         if edge["to"] not in pantallas:
             continue
-        source = (
-            componentes.get(_componente_node_id(edge["from"], edge["component"]))
-            if edge["component"]
-            else pantallas.get(edge["from"])
-        )
+        if edge["component"]:
+            source = componentes.get(location_to_id.get((edge["from"], edge["component"])))
+        else:
+            source = pantallas.get(edge["from"])
         if source is not None:
             _add_edge(source, "navega_a", edge["to"])
 
 
-def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[str, Node], inferred_requests: Iterable[Any]) -> None:
+def _populate_dispara_and_consume(
+    pantallas: Dict[str, Node], componentes: Dict[str, Node], inferred_requests: Iterable[Any],
+    location_to_id: Dict[Tuple[str, str], str],
+) -> None:
     """Componente dispara Endpoint for every component whose interaction
     triggered a call; Pantalla consume Endpoint for a call the page's own
     load fired with no component involved - InferredRequest's own
@@ -267,7 +285,7 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
     for request in inferred_requests:
         node_id = f"{request.method} {request.endpoint}"
         for page_url, path in request.triggered_by:
-            source = componentes.get(_componente_node_id(page_url, path))
+            source = componentes.get(location_to_id.get((page_url, path)))
             if source is not None:
                 _add_edge(source, "dispara", node_id)
         for page_url in request.loaded_by:
@@ -276,17 +294,23 @@ def _populate_dispara_and_consume(pantallas: Dict[str, Node], componentes: Dict[
                 _add_edge(source, "consume", node_id)
 
 
-def _populate_usa_token(componentes: Dict[str, Node], catalog_entries: Iterable[Any], tokens_document: Dict[str, Any]) -> None:
+def _populate_usa_token(
+    componentes: Dict[str, Node], catalog_entries: Iterable[Any], tokens_document: Dict[str, Any],
+    location_to_id: Dict[Tuple[str, str], str],
+) -> None:
     """Componente usa_token Token, for every catalog entry with a real
     `x-tokens.color` citation (ADR-0002/0005/0006 point 5, ticket #126) -
     one edge per real component instance the entry groups
-    (`CatalogEntry.member_paths`), never once per pattern. `color_token_
-    alias_by_value`/`x_tokens` are `custom_elements.py`'s own real
-    functions, called directly rather than re-derived - the same
-    "one computation, never a second copy" discipline every cross-
-    generator call in this map already follows. An alias's own `{...}`
-    DTCG wrapper is stripped to recover the bare `Token` node id
-    (`_walk_token_groups`'s own dot-joined key, e.g. `core.color.surface-1`).
+    (`CatalogEntry.member_paths`), never once per pattern - though two
+    member locations that resolve to the same reused `Componente` node
+    (issue #141) still only ever produce one edge on it, via `_add_edge`'s
+    own dedup. `color_token_alias_by_value`/`x_tokens` are
+    `custom_elements.py`'s own real functions, called directly rather
+    than re-derived - the same "one computation, never a second copy"
+    discipline every cross-generator call in this map already follows.
+    An alias's own `{...}` DTCG wrapper is stripped to recover the bare
+    `Token` node id (`_walk_token_groups`'s own dot-joined key, e.g.
+    `core.color.surface-1`).
     Details: docs/dev/generators/graph_export.md#_populate_usa_token
     """
     alias_by_value = color_token_alias_by_value(tokens_document)
@@ -295,7 +319,7 @@ def _populate_usa_token(componentes: Dict[str, Node], catalog_entries: Iterable[
         if not token_ids:
             continue
         for page_url, path in entry.member_paths:
-            componente = componentes.get(_componente_node_id(page_url, path))
+            componente = componentes.get(location_to_id.get((page_url, path)))
             if componente is None:
                 continue
             for token_id in token_ids:
@@ -313,6 +337,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     store = request.graph_store
     pages = store.get_progress_table_rows()
     component_ledger = store.get_component_ledger()
+    location_to_id = _build_location_index(component_ledger)
     inferred_requests = store.get_inferred_requests()
 
     pantallas = _pantalla_nodes(pages, store.get_page_titles(), store.get_page_descriptions())
@@ -325,10 +350,10 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     entidades = _entidad_nodes(build_data_model_document(request), endpoints)
     requisitos = _requisito_nodes(build_requirements_document(request), pantallas, endpoints, entidades)
 
-    _populate_contiene(pantallas, component_ledger)
-    _populate_navega_a(pantallas, componentes, store.get_edges())
-    _populate_dispara_and_consume(pantallas, componentes, inferred_requests)
-    _populate_usa_token(componentes, catalog_for(request), tokens_document)
+    _populate_contiene(pantallas, component_ledger, location_to_id)
+    _populate_navega_a(pantallas, componentes, store.get_edges(), location_to_id)
+    _populate_dispara_and_consume(pantallas, componentes, inferred_requests, location_to_id)
+    _populate_usa_token(componentes, catalog_for(request), tokens_document, location_to_id)
 
     graph = sorted(
         (

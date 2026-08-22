@@ -21,13 +21,15 @@ Same "reads only from `GraphStore`, writes nothing back" shape as every
 other generator here - pure, deterministic, no AI/LLM call anywhere in
 this module.
 
-## _componente_node_id
+## _build_location_index
 
-This module's own `Componente` node key - `(page, path)`, one per ledger
-entry. Not `database/ladybug`'s `Component.id` (content-derived and
-page-decoupled since #134, an internal storage detail this document
-doesn't otherwise depend on) - inlined here rather than imported once that
-function stopped having this shape.
+`(page_url, path) -> Component.id` for every ledger entry - built once
+per `build_export_graph` run and threaded through every edge-population
+pass below, so each resolves a page's rendering of a component back to
+the shared `Componente` node it belongs to (issue #141). `Component.id`
+is content-derived and page-decoupled since #134: several locations can
+resolve onto the same id here, matching `_componente_nodes`' one-node-
+per-canonical-component shape.
 
 ## _pantalla_nodes
 
@@ -38,9 +40,12 @@ get no node: not a screen of the audited application.
 
 ## _componente_nodes
 
-One `Componente` per `(page, path)` the component ledger already groups
-by - `database/ladybug/ids.py::component_id` keys it the same way every
-other component-scoped write/read in this codebase does.
+One `Componente` per canonical `Component.id`, not per `(page, path)`
+ledger entry (issue #141, correcting the original ticket #97 version,
+which predates #134's page-decoupled schema) - a component reused
+across pages is one shared node here too. `_populate_contiene` is what
+still gives every page rendering it its own `contiene` edge toward that
+one node.
 
 ## _walk_token_groups
 
@@ -108,17 +113,21 @@ call `requirements.json` itself makes.
 
 ## _populate_contiene
 
-Pantalla `contiene` Componente - one edge per pair the component ledger
-already groups by, so this needs no query of its own.
+Pantalla `contiene` Componente - one edge per `(page, path)` pair the
+component ledger groups by, toward whatever `_build_location_index`
+resolves that pair to. Several pages can `contiene` the same reused
+Componente (issue #141), so this needs no query of its own beyond that
+index.
 
 ## _populate_navega_a
 
 Componente `navega_a` Pantalla when a specific component caused the
-navigation (`get_edges`' own `component` field); Pantalla `navega_a`
-Pantalla directly when it didn't - a whole-page redirect isn't
-attributable to one element. Never emitted toward a page absent from
-`@graph` (an `External` target): a dangling reference into `@graph` is
-worse than an edge this document is honest about not having.
+navigation (`get_edges`' own `component` field, resolved through
+`_build_location_index`); Pantalla `navega_a` Pantalla directly when it
+didn't - a whole-page redirect isn't attributable to one element. Never
+emitted toward a page absent from `@graph` (an `External` target): a
+dangling reference into `@graph` is worse than an edge this document is
+honest about not having.
 
 ## _populate_dispara_and_consume
 
@@ -127,18 +136,22 @@ triggered a call; Pantalla `consume` Endpoint for a call the page's own
 load fired with no component involved - `InferredRequest`'s own
 `triggered_by`/`loaded_by` split (`core/data_contracts.md`), kept apart
 rather than conflated: "called when you open /orders" and "called when
-you click Save" are different facts.
+you click Save" are different facts. `triggered_by`'s `(page_url, path)`
+pairs go through `_build_location_index` the same way every other
+location-to-node lookup here does.
 
 ## _populate_usa_token
 
 Componente `usa_token` Token, for every catalog entry with a real
 `x-tokens.color` citation (ADR-0002/0005/0006 point 5, ticket #126) -
 one edge per real component instance the entry groups
-(`CatalogEntry.member_paths`), never once per pattern. Reuses
-`custom_elements.py`'s own `color_token_alias_by_value`/`x_tokens`
-directly - the same alias computation `catalog.json` itself makes, not
-a second, independently-derived one. An alias's own `{...}` DTCG
-wrapper is stripped to recover the bare `Token` node id.
+(`CatalogEntry.member_paths`), never once per pattern - though two
+member locations resolving to the same reused Componente (issue #141)
+still only ever produce one edge on it, via `_add_edge`'s own dedup.
+Reuses `custom_elements.py`'s own `color_token_alias_by_value`/
+`x_tokens` directly - the same alias computation `catalog.json` itself
+makes, not a second, independently-derived one. An alias's own `{...}`
+DTCG wrapper is stripped to recover the bare `Token` node id.
 
 ## build_export_graph
 
