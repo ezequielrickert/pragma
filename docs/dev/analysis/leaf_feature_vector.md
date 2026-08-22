@@ -6,7 +6,7 @@ Leaf-level component feature vector - issue #131's design
 (`docs/dev/generators/leaf-feature-vector-design.md`), implemented as a pure
 value-producing function. Replaces `generators/component_family.py`'s
 Jaccard-on-`css_class` clustering as the similarity signal two `Component`
-records are compared by; storage into a real Kùzu `FLOAT[190]` column and
+records are compared by; storage into a real Kùzu `FLOAT[230]` column and
 wiring into the matching pipeline is issue #139's job, not this module's -
 no I/O here, no Kùzu.
 
@@ -14,7 +14,7 @@ no I/O here, no Kùzu.
 `DESCRIPTIVE_COMPONENT_FIELDS`/`ComponentFacts` (the same flat shape
 `database/ladybug/component.py::get_component_ledger` already returns per
 component) - plus that page/site's `GeometryBuckets`, and returns one
-190-dim `list[float]`.
+230-dim `list[float]`.
 
 ## _bucket
 
@@ -88,7 +88,7 @@ to the middle bucket for any component whose group has none.
 
 ## leaf_feature_vector
 
-The 190-dim feature vector for one component record - concatenated blocks,
+The 230-dim feature vector for one component record - concatenated blocks,
 each scaled by its `ComponentMatchingConfig.leaf_weights` entry before
 joining, so weight directly controls that block's share of the final cosine
 similarity. `x`/`y`/`element_id` are excluded (page-position and

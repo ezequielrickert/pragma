@@ -55,6 +55,17 @@ value` disambiguates before a `border-`-prefixed token ever reaches the
 color classifier. `bg-cover`/`bg-center`/... are background-position/size
 utilities sharing `bg-`'s prefix, excluded via `_BG_LAYOUT_SUFFIXES`.
 
+`_color_block` hashes each role's family tokens into its own
+`_COLOR_FAMILY_BUCKETS`-wide slice, not one bucket set shared across all
+three roles (issue #169's fix). Real markup showed why the shared version
+broke: one shadcn/ui-style button's boilerplate alone carries 4-6 distinct
+color tokens across background/text/border (state-variant `ring`/`outline`
+utilities included), which saturated a single small shared bucket set to
+all-`1.0` regardless of which specific palette value was present -
+`border-extra-4` and `border-extra-1` produced byte-identical vectors.
+Splitting by role (and widening each role's own bucket count to 16) gives
+each role only its own tokens to distinguish, restoring separation.
+
 ## Spacing concept
 
 Padding/margin/gap/space utilities - a small hash of which spacing
