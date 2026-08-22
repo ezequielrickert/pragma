@@ -60,6 +60,13 @@ The most recent original file for `(filename, extension)`, or `None` if this sit
 one. Sorted lexicographically, which sorts correctly by time too since the embedded timestamp is
 `YYYYMMDDTHHMMSSZ`.
 
+## original_content
+
+The crawl's own original content for `(filename, extension)`, ignoring any customized copy -
+`_original_path` plus the actual read. The other half of the diff view
+`interactive/pages.py::document_page` shows the current content against (ticket #155); `None`
+when this site never produced one, same as `_original_path` itself.
+
 ## customized_path
 
 Always the same path for a given `(site, filename, extension)` - overwritten in place on every

@@ -30,6 +30,14 @@ submitting every token's own current value back is a real no-op for
 whatever wasn't actually changed (`interactive/token_form.py`'s own
 job, not this module's).
 
+**Diff/error gutter** (ticket #155): every `edit_document` render now
+fetches both `effective_content` (or the submitted form content on a
+failed POST) and `original_content` (the crawl's own output,
+regardless of any customized copy), bundled into a
+`pages.DocumentEditState` - `interactive/pages.py::document_page` owns
+the actual diff/gutter rendering, this module only gathers the two
+strings.
+
 Details: docs/dev/interactive/server.md#module
 """
 from __future__ import annotations
@@ -45,7 +53,7 @@ from werkzeug.serving import BaseWSGIServer, make_server
 from core.interfaces import Agent
 
 from . import pages
-from .customization import DocumentRef, SiteOutput, effective_content, save_customized
+from .customization import DocumentRef, SiteOutput, effective_content, original_content, save_customized
 from .grounding import grounding_for, system_instruction_for
 from .token_form import save_color_tokens
 
@@ -71,22 +79,25 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
     @app.route("/document/<filename>.<extension>", methods=["GET", "POST"])
     def edit_document(filename: str, extension: str):
         ref = DocumentRef(filename=filename, extension=extension)
-        error = None
+        failure = None
         if request.method == "POST":
             content = request.form["content"]
             try:
                 save_customized(where, ref, content)
             except (jsonschema.ValidationError, ValueError, yaml.YAMLError) as exc:
-                error = pages.validation_error_message(exc)
+                path = list(exc.absolute_path) if isinstance(exc, jsonschema.ValidationError) else []
+                failure = pages.ValidationFailure(message=pages.validation_error_message(exc), path=path)
             else:
                 return redirect(url_for("edit_document", filename=filename, extension=extension))
         else:
             content = effective_content(where, ref)
             if content is None:
                 return pages.page("Not found", f"<p>No document named {filename}.{extension} for {site}.</p>"), 404
+        original = original_content(where, ref) or content
         history = chat_history.get((filename, extension), [])
         color_form = pages.color_token_form(where) if filename == "tokens" else ""
-        body = color_form + pages.document_page(ref, content, error) + pages.chat_panel(ref, history, None)
+        state = pages.DocumentEditState(content=content, original=original, failure=failure)
+        body = color_form + pages.document_page(ref, state) + pages.chat_panel(ref, history, None)
         return pages.page(f"{filename}.{extension} - {site}", body)
 
     @app.route("/document/tokens.json/colors", methods=["POST"])
@@ -116,7 +127,8 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
             history.append({"role": "assistant", "content": reply})
 
         content = effective_content(where, ref) or ""
-        body = pages.document_page(ref, content, None) + pages.chat_panel(ref, history, chat_error)
+        state = pages.DocumentEditState(content=content, original=original_content(where, ref) or content, failure=None)
+        body = pages.document_page(ref, state) + pages.chat_panel(ref, history, chat_error)
         return pages.page(f"{filename}.{extension} - {site}", body)
 
     @app.route("/finalizar", methods=["POST"])

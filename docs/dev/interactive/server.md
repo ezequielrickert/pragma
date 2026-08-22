@@ -32,6 +32,12 @@ never written to disk.
 `interactive/token_form.py::save_color_tokens`, which itself reuses `save_customized` - no second
 write or validation path for this field kind.
 
+**Diff/error gutter (ticket #155).** `edit_document` and `chat` now both fetch
+`interactive/customization.py::original_content` alongside `effective_content` (or the submitted
+form content on a failed POST) and bundle the two into a `pages.DocumentEditState` -
+`interactive/pages.py::document_page` owns the actual diff/gutter rendering; this module's own job
+is unchanged, gathering the strings a page needs, not rendering them.
+
 ## create_app
 
 One Flask app for one site's interactive session. `out_dir`/`site` (bundled as a `SiteOutput`),

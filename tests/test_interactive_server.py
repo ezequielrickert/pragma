@@ -64,6 +64,25 @@ def test_get_document_shows_the_effective_content_in_a_textarea(tmp_path):
     assert "<textarea" in html
 
 
+def test_get_document_wires_the_real_original_alongside_the_customized_current(tmp_path):
+    """A unit test of pages.py::document_page alone can't catch this -
+    it would happily accept the same string for both `original` and
+    `content`. This exercises the real route, where a bug forgetting
+    to fetch original_content (or passing `content` for both) would
+    make the diff panes identical without failing anything else."""
+    _write_original(tmp_path, "gherkin", "feature", "Feature: original\n")
+    save_customized(SiteOutput(str(tmp_path), SITE), DocumentRef("gherkin", "feature"), "Feature: edited\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    original_pane = html.split('id="orig-pane"')[1].split("</pre>")[0]
+    editable_content = html.split('id="edit-content"')[1].split("</textarea>")[0]
+
+    assert "Feature: original" in original_pane
+    assert "Feature: edited" in editable_content
+    assert "Feature: original" not in editable_content
+
+
 def test_get_a_document_that_was_never_produced_is_404(tmp_path):
     client = _app(tmp_path).test_client()
 
@@ -97,15 +116,19 @@ def test_post_content_that_breaks_the_schema_shows_the_real_error_and_does_not_s
 
 def test_editing_a_document_that_is_already_customized_edits_the_customized_copy(tmp_path):
     """The effective-content rule (ADR-0031), exercised through a real
-    request rather than just customization.py directly."""
+    request rather than just customization.py directly. The original
+    is legitimately shown too now (ticket #155's own diff pane) - what
+    this test actually guards is that the *editable* textarea (what a
+    save submits) holds the customized content, never the original."""
     _write_original(tmp_path, "gherkin", "feature", "Feature: original\n")
     save_customized(SiteOutput(str(tmp_path), SITE), DocumentRef("gherkin", "feature"), "Feature: already customized\n")
     client = _app(tmp_path).test_client()
 
     html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    editable_content = html.split('id="edit-content"')[1].split("</textarea>")[0]
 
-    assert "Feature: already customized" in html
-    assert "Feature: original" not in html
+    assert "Feature: already customized" in editable_content
+    assert "Feature: original" not in editable_content
 
 
 def test_finalizar_triggers_shutdown_on_a_background_thread(tmp_path):
