@@ -16,6 +16,8 @@ Details: docs/dev/interactive/pages.md#module
 """
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from html import escape
 from typing import Dict, List, Optional
 
@@ -59,6 +61,59 @@ button { background: var(--accent); color: white; border: none; border-radius: 6
 .color-tokens .row label { flex: 1; font-family: monospace; font-size: 13px; }
 .color-tokens input[type="color"] { width: 48px; height: 28px; border: 1px solid var(--border);
   border-radius: 4px; background: none; padding: 0; cursor: pointer; }
+.diff-panes { display: flex; gap: 16px; margin-bottom: 12px; }
+.diff-panes .pane { flex: 1; min-width: 0; }
+.diff-panes .gutter-row { display: flex; }
+.diff-panes .gutter { width: 28px; margin: 0; padding: 12px 4px; text-align: right;
+  background: var(--panel); border: 1px solid var(--border); border-right: none;
+  color: var(--text-dim); overflow: hidden; font-family: monospace; font-size: 13px; }
+.diff-panes .pane-content, .diff-panes textarea { flex: 1; min-width: 0; margin: 0; padding: 12px;
+  max-height: 400px; overflow: auto; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 0 6px 6px 0; font-family: monospace;
+  font-size: 13px; white-space: pre-wrap; }
+"""
+
+_DIFF_GUTTER_JS = """
+function diffLines(a, b) {
+  const av = a.split("\\n"), bv = b.split("\\n");
+  const n = av.length, m = bv.length;
+  const lcs = Array.from({length: n + 1}, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = av[i] === bv[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (av[i] === bv[j]) { rows.push("same"); i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) { rows.push("del"); i++; }
+    else { rows.push("add"); j++; }
+  }
+  while (i < n) { rows.push("del"); i++; }
+  while (j < m) { rows.push("add"); j++; }
+  return rows;
+}
+function paintGutters(errorLine) {
+  const current = document.getElementById("edit-content").value;
+  const rows = diffLines(ORIGINAL_CONTENT, current);
+  const origMarks = [], curMarks = [];
+  let curLineNo = 0;
+  for (const row of rows) {
+    if (row !== "add") { origMarks.push(row === "del" ? "\\u2022" : "\\u00a0"); }
+    if (row !== "del") {
+      curLineNo++;
+      curMarks.push(curLineNo === errorLine ? "!" : (row === "add" ? "\\u2022" : "\\u00a0"));
+    }
+  }
+  document.getElementById("orig-gutter").textContent = origMarks.join("\\n");
+  document.getElementById("cur-gutter").textContent = curMarks.join("\\n");
+  syncGutters();
+}
+function syncGutters() {
+  document.getElementById("orig-gutter").scrollTop = document.getElementById("orig-pane").scrollTop;
+  document.getElementById("cur-gutter").scrollTop = document.getElementById("edit-content").scrollTop;
+}
 """
 
 
@@ -86,14 +141,58 @@ def landing_page(where: SiteOutput) -> str:
     )
 
 
+@dataclass(frozen=True)
+class ValidationFailure:
+    """A failed save's message plus the real jsonschema data path
+    (`exc.absolute_path`, never a source line number) - `document_page`'s
+    own diff gutter turns that path into an approximate line marker
+    (ticket #155), not just a plain-text banner.
+    Details: docs/dev/interactive/pages.md#validationfailure
+    """
+
+    message: str
+    path: List[str]
+
+
+@dataclass(frozen=True)
+class DocumentEditState:
+    """Everything `document_page` needs for one edit session - `content`
+    and `original` bundled per python-clean-code's F1 (max 3 args),
+    matching `SiteOutput`/`DocumentRef`'s own precedent.
+    Details: docs/dev/interactive/pages.md#documenteditstate
+    """
+
+    content: str
+    original: str
+    failure: Optional[ValidationFailure]
+
+
 def validation_error_message(exc: Exception) -> str:
     if isinstance(exc, jsonschema.ValidationError):
         return f"Schema validation failed at {list(exc.absolute_path) or '(root)'}: {exc.message}"
     return f"Could not parse this document: {exc}"
 
 
-def document_page(ref: DocumentRef, content: str, error: Optional[str]) -> str:
-    error_html = f'<div class="error">{escape(error)}</div>' if error else ""
+def _approximate_line_for_path(content: str, path: List[str]) -> Optional[int]:
+    """The best guess at which line of `content` a jsonschema error's
+    data `path` corresponds to - the last segment that looks like a
+    real key, searched as a quoted JSON string. `None` when nothing
+    matches, or the match is ambiguous (more than one line contains
+    it) - a wrong guess is worse than an honest "can't point at a line"
+    here.
+    Details: docs/dev/interactive/pages.md#_approximate_line_for_path
+    """
+    for segment in reversed(path):
+        needle = f'"{segment}"'
+        hits = [n for n, line in enumerate(content.splitlines(), start=1) if needle in line]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def document_page(ref: DocumentRef, state: DocumentEditState) -> str:
+    error_html = f'<div class="error">{escape(state.failure.message)}</div>' if state.failure else ""
+    error_line = _approximate_line_for_path(state.content, state.failure.path) if state.failure else None
     schema_note = (
         f"Validated against {escape(schema_path_for(ref.filename))} on save."
         if schema_path_for(ref.filename)
@@ -104,10 +203,21 @@ def document_page(ref: DocumentRef, content: str, error: Optional[str]) -> str:
         f"<h1>{escape(ref.filename)}.{escape(ref.extension)}</h1>"
         f"<p>{schema_note}</p>"
         f"{error_html}"
-        '<form method="post">'
-        f"<textarea name=\"content\">{escape(content)}</textarea><br><br>"
-        '<button type="submit">Save</button>'
-        "</form>"
+        '<div class="diff-panes">'
+        '<div class="pane"><h3>Original</h3><div class="gutter-row">'
+        '<pre id="orig-gutter" class="gutter"></pre>'
+        f'<pre id="orig-pane" class="pane-content" onscroll="syncGutters()">{escape(state.original)}</pre>'
+        "</div></div>"
+        '<div class="pane"><h3>Current</h3>'
+        '<form method="post"><div class="gutter-row">'
+        '<pre id="cur-gutter" class="gutter"></pre>'
+        f'<textarea id="edit-content" name="content" oninput="paintGutters({error_line or "null"})" '
+        f'onscroll="syncGutters()">{escape(state.content)}</textarea>'
+        "</div>"
+        '<button type="submit">Save</button></form>'
+        "</div></div>"
+        f"<script>const ORIGINAL_CONTENT = {json.dumps(state.original)};{_DIFF_GUTTER_JS}"
+        f"paintGutters({error_line or 'null'});</script>"
     )
 
 

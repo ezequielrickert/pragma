@@ -134,6 +134,17 @@ def _original_path(where: SiteOutput, ref: DocumentRef) -> Optional[str]:
     return str(matches[-1]) if matches else None
 
 
+def original_content(where: SiteOutput, ref: DocumentRef) -> Optional[str]:
+    """The crawl's own original content for `ref`, ignoring any
+    customized copy - the other half of the diff view
+    `interactive/pages.py::document_page` shows the current content
+    against (ticket #155). `None` when this site never produced one.
+    Details: docs/dev/interactive/customization.md#original_content
+    """
+    original = _original_path(where, ref)
+    return Path(original).read_text(encoding="utf-8") if original else None
+
+
 def customized_path(where: SiteOutput, ref: DocumentRef) -> str:
     """Where an edited copy of `ref` lives - always this one path,
     overwritten on every save, never one file per edit (ADR-0031 point
