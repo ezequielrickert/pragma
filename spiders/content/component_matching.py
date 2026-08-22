@@ -20,6 +20,13 @@ def is_element_not_found(exc: Exception) -> bool:
 
 def component_identity(component: Dict[str, Any]) -> tuple:
     """Content-based identity, stable across a DOM remount that reassigns ids.
+
+    `form` is the ancestor `<form>`'s own name/id/accessible-label
+    (`discover_components.js`'s `formIdentity`), never a DOM path - a path
+    is exactly the kind of thing a remount can change, which used to make
+    this field (and so this whole identity tuple) drift across same-page
+    rediscovery passes within one crawl visit, breaking `Frontier`'s
+    already-interacted check (issue #170, root-caused by #167).
     Details: docs/dev/spiders/content/component_matching.md#component_identity
     """
     return (

@@ -90,6 +90,45 @@ overriding a real choice" calculus wiki/graph-based-crawl-tracking.md
 already documents, applied to a session-local heuristic instead of a
 cross-run one.
 
+## _canonical_paths
+
+page_key -> {`component_identity()` tuple: the `path` it was first seen
+under on that page}. Separate from `_interacted_identities` above -
+that set is about whether to *re-offer* a component for interaction;
+this map is about what `path` to *persist* for one, once its identity is
+already known on this page. A same-page reveal can compute a drifted
+`nth-of-type` path for a physical instance already recorded here even
+when the identity itself is stable (issue #170) - the first path this
+identity was ever recorded under stays canonical for the rest of the
+page's `record_inventory` calls, so a later drift never reaches the
+graph store.
+
+## canonicalize_inventory
+
+What every `record_inventory` call site (`visitor.py`'s
+`_record_discovery`, `outcomes.py`'s `transition_to_new_state` and
+`handle_same_page_reveal`, `recovery.py`'s `_reconcile_frontier`) routes
+its components through before handing them to the sink - never the raw
+list. Rewrites each component's `path` to its `_canonical_paths` entry,
+leaving every other field (and the original dict) untouched.
+
+Chosen over teaching `database/ladybug/component.py`'s `HAS_COMPONENT`
+`MERGE` to tolerate a drifted-but-same-instance path (the second
+question #170 posed): that MERGE staying literal-path-keyed is what lets
+it correctly record two *genuinely* different physical positions of a
+canonical component as two edges: teaching it to collapse "close enough"
+paths would risk collapsing those too. Pinning the path before it ever
+reaches the store keeps that MERGE's contract simple and puts the
+identity-vs-drift judgment in the one place (`Frontier`) that already
+owns `component_identity()`-based reasoning.
+
+Deliberately never mutates `component["path"]` in place, and every
+caller keeps using the original components list (not this method's
+return value) for anything except the `record_inventory` call itself -
+the live `path` is still what a frontier item needs to actually target
+the real element for a click/fill; only the copy persisted to the graph
+store is pinned to the canonical one.
+
 ## is_excluded
 
 Single-component check used by `outcomes.py`'s

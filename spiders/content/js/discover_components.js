@@ -223,6 +223,14 @@
         if (svgTitle && svgTitle.textContent.trim()) return svgTitle.textContent.trim();
         return '';
     };
+    // A form's own name/id/accessible-label - never its `gp()` path. The
+    // path is nth-of-type-derived, so it drifts whenever a same-page reveal
+    // shifts sibling structure between rediscovery passes, which used to
+    // change `form` for the same physical field across one crawl visit and
+    // break component_identity()'s "stable across a DOM remount" guarantee
+    // (issue #170; root-caused by #167 as the interact-once regression's
+    // cause). A form's own attributes don't move when its siblings do.
+    const formIdentity = (f) => f.getAttribute('name') || f.id || getAccessibleLabel(f) || '';
     const selector = 'button, a, input, select, textarea, ' +
         '[role="button"], [role="option"], [role="menuitem"], ' +
         '[role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], ' +
@@ -267,7 +275,7 @@
             text: el.innerText.trim() || getAccessibleLabel(el) || (el.textContent || '').trim(),
             path: gp(el),
             discovery_layer: layerOf(el),
-            form: el.closest('form') ? gp(el.closest('form')) : '',
+            form: el.closest('form') ? formIdentity(el.closest('form')) : '',
             input_type: el.getAttribute('type') || '',
             placeholder: el.getAttribute('placeholder') || '',
             label: getLabel(el),

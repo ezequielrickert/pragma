@@ -65,7 +65,9 @@ class NavigationRecovery:
                 await self.sink.record_interaction(page_key, dropped_path, "click", value="", resulting_url="")
 
         if self.sink:
-            await self.sink.record_inventory(page_key, fresh_state.components, fresh_state.links)
+            await self.sink.record_inventory(
+                page_key, self.frontier_state.canonicalize_inventory(page_key, fresh_state.components), fresh_state.links
+            )
         self._enqueue_links(fresh_state.links)
 
     async def recover_stale_frontier(

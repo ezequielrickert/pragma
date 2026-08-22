@@ -26,6 +26,9 @@ class Frontier:
         # page_key -> identities ever interacted with, regardless of path.
         # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_interacted_identities
         self._interacted_identities: Dict[str, Set[tuple]] = {}
+        # page_key -> {identity: the path it was first recorded under}.
+        # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_canonical_paths
+        self._canonical_paths: Dict[str, Dict[tuple, str]] = {}
 
     def _excluded_identities(self, page_key: str) -> Set[tuple]:
         return self._navigation_trigger_identities | self._interacted_identities.get(page_key, set())
@@ -67,3 +70,27 @@ class Frontier:
     def mark_interacted_identity(self, page_key: str, component: Dict[str, Any]) -> None:
         """Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#mark_interacted_identity"""
         self._interacted_identities.setdefault(page_key, set()).add(component_identity(component))
+
+    def canonicalize_inventory(
+        self, page_key: str, components: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """`components`, each pinned to the `path` its content identity was
+        first recorded under on this page - what every `record_inventory`
+        call should persist instead of a component's own live `path`.
+
+        A same-page reveal can compute a different `nth-of-type`-derived
+        path for a physical instance this page already recorded, even once
+        `component_identity()` itself is drift-immune (#170): pinning the
+        path here means database/ladybug/component.py's `path`-keyed
+        `HAS_COMPONENT` `MERGE` still only ever sees one edge for that
+        instance, instead of minting a spurious extra one per drifted
+        reveal. Deliberately doesn't touch `component["path"]` itself -
+        callers still need the live path to target the real element for
+        interaction; only the copies handed to the graph store are pinned.
+        Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#canonicalize_inventory
+        """
+        canonical = self._canonical_paths.setdefault(page_key, {})
+        return [
+            {**component, "path": canonical.setdefault(component_identity(component), component.get("path", ""))}
+            for component in components
+        ]

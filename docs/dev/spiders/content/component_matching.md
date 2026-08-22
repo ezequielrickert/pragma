@@ -37,6 +37,17 @@ layout reasons); `(tag, role, name, form, text)` is already what
 `discover_components.js` extracts for every component, so this needs no
 new discovery data.
 
+`form` is the ancestor `<form>`'s own name/id/accessible-label
+(`discover_components.js`'s `formIdentity`), not a DOM path - it used to be
+`gp(el.closest('form'))`, an `nth-of-type`-derived path exactly as
+remount-sensitive as `path` itself, which broke this function's "stable
+across a remount" claim for any component inside a `<form>` whose sibling
+structure shifted between two same-page rediscovery passes. Traced to a
+real bug (issue #170, root-caused by #167): the "Neurología" sidebar filter
+button on `mapadeprofesionales.com` got clicked 4 times in one crawl visit
+because its drifting `form` field kept producing a "new" identity that
+`Frontier.is_excluded()` hadn't seen yet.
+
 ## component_signature
 
 Stable, order-independent fingerprint of a component snapshot's *shape* -

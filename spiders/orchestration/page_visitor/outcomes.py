@@ -63,7 +63,9 @@ class InteractionOutcomes:
             await self.sink.record_page_arrival(
                 new_page_key, description=new_state.description, title=new_state.title
             )
-            await self.sink.record_inventory(new_page_key, new_state.components, new_state.links)
+            await self.sink.record_inventory(
+                new_page_key, self.frontier_state.canonicalize_inventory(new_page_key, new_state.components), new_state.links
+            )
             await self.sink.record_text_content(new_page_key, new_state.text_content)
             await self.sink.record_state_styles(new_page_key, new_state.pseudo_styles)
         self._enqueue_links(new_state.links)
@@ -156,10 +158,19 @@ class InteractionOutcomes:
         frontier: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         """Response to an interaction that changed the DOM without navigating.
+
+        `record_inventory` gets `new_state.components` through
+        `frontier_state.canonicalize_inventory` first, not raw: a component
+        already recorded on this page can compute a different `nth-of-type`
+        path on a later reveal (sibling structure shifted), and without
+        pinning it to its first-seen path the store's `path`-keyed
+        `HAS_COMPONENT` `MERGE` would see it as a second instance (#170).
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_same_page_reveal
         """
         if self.sink:
-            await self.sink.record_inventory(page_key, new_state.components, new_state.links)
+            await self.sink.record_inventory(
+                page_key, self.frontier_state.canonicalize_inventory(page_key, new_state.components), new_state.links
+            )
         self._enqueue_links(new_state.links)
 
         # Attribute newly-revealed option-family components to the trigger.
