@@ -159,7 +159,9 @@ class PageVisitor:
         if not self.sink:
             return
         await self.sink.record_page_arrival(page_key, description=state.description, title=state.title)
-        await self.sink.record_inventory(page_key, state.components, state.links)
+        await self.sink.record_inventory(
+            page_key, self._frontier.canonicalize_inventory(page_key, state.components), state.links
+        )
         await self.sink.record_text_content(page_key, state.text_content)
         await self.sink.record_state_styles(page_key, state.pseudo_styles)
         await self.sink.record_accessibility_snapshot(page_key, state.aria_snapshot_yaml, state.axtree_json)
