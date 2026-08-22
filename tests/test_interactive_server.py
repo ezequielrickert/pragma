@@ -193,3 +193,48 @@ def test_a_model_failure_shows_a_real_error_and_does_not_keep_the_unanswered_tur
     # A retried message must not see a stale, already-failed turn ahead of it.
     client.post("/document/gherkin.feature/chat", data={"message": "hello again"})
     assert [m["content"] for m in agent.seen_messages] == ["hello again"]
+
+
+def test_tokens_page_shows_a_color_picker_per_core_color_token(tmp_path):
+    _write_original(tmp_path, "tokens", "json",
+                     '{"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}')
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/tokens.json").get_data(as_text=True)
+
+    assert 'type="color"' in html
+    assert 'value="#2d7737"' in html
+    assert "core.color.surface-1" in html
+
+
+def test_a_non_tokens_page_shows_no_color_form(tmp_path):
+    _write_original(tmp_path, "gherkin", "feature", "Feature: x\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+
+    assert 'class="color-tokens"' not in html
+
+
+def test_saving_colors_patches_the_customized_tokens_json_and_redirects(tmp_path):
+    _write_original(tmp_path, "tokens", "json",
+                     '{"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}')
+    client = _app(tmp_path).test_client()
+
+    response = client.post("/document/tokens.json/colors", data={"token:core.color.surface-1": "#0000ff"})
+
+    assert response.status_code == 302
+    saved = (tmp_path / "customized" / f"{SITE}_tokens.json").read_text(encoding="utf-8")
+    assert '"$value": "#0000ff"' in saved
+
+
+def test_the_raw_text_editor_still_works_on_the_tokens_page_alongside_the_color_form(tmp_path):
+    """Coexistence, not replacement - map #146's own decision for Phase 2."""
+    _write_original(tmp_path, "tokens", "json",
+                     '{"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}')
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/tokens.json").get_data(as_text=True)
+
+    assert "<textarea" in html
+    assert 'type="color"' in html
