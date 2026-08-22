@@ -34,6 +34,13 @@ fabricated zero.
 concern's own outputs, each in turn linking to its own Phase B render
 (`dashboard/renderer_audit.renderer_for` picks generic or Redoc).
 
+**A dedicated Graph card** (ticket #163, map #159), alongside the
+concern grid rather than inside it - `export.json` rendered as a real
+explorable graph (`dashboard/graph_renderer.py`) instead of buried under
+the `export` concern's own raw-JSON detail page, which still exists
+unchanged. Reads "not available this run" the same way a KPI tile does
+when `export.json` wasn't produced.
+
 Details: docs/dev/dashboard/shell.md#module
 """
 from __future__ import annotations
@@ -46,6 +53,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from core.documents import ProducedDocument
 from utils.io import write_output
 from .generic_template import render_generic_page
+from .graph_renderer import render_graph_page
 from .redoc_renderer import render_redoc_page
 from .renderer_audit import renderer_for
 
@@ -70,6 +78,8 @@ h1 { margin: 0 0 4px; }
 .card:hover { border-color: var(--accent); }
 .card .name { font-weight: 600; font-size: 15px; color: var(--text); }
 .card .meta { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+.card.unavailable { cursor: default; }
+.card.unavailable:hover { border-color: var(--border); }
 ul.files { list-style: none; padding: 0; }
 ul.files li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-left: 8px; }
@@ -107,19 +117,31 @@ class DashboardRunContext:
     out_dir: str
 
 
-def _source_json(documents: Sequence[Tuple[ProducedDocument, str]], name: str) -> Optional[Dict[str, Any]]:
-    """The parsed JSON content of `name`'s own `kind="source"` output, or
-    `None` when this run never produced one - a config-disabled or
+def _source_content(documents: Sequence[Tuple[ProducedDocument, str]], name: str) -> Optional[str]:
+    """The raw text of `name`'s own `kind="source"` output, or `None`
+    when this run never produced one - a config-disabled or
     degraded-to-off document, not an error.
-    Details: docs/dev/dashboard/shell.md#_source_json
+    Details: docs/dev/dashboard/shell.md#_source_content
     """
     for document, content in documents:
         if document.name == name and document.kind == "source":
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                return None
+            return content
     return None
+
+
+def _source_json(documents: Sequence[Tuple[ProducedDocument, str]], name: str) -> Optional[Dict[str, Any]]:
+    """`_source_content`'s own text, parsed - `None` for a document this
+    run never produced, same as `_source_content`, plus `None` for one
+    that isn't valid JSON.
+    Details: docs/dev/dashboard/shell.md#_source_json
+    """
+    content = _source_content(documents, name)
+    if content is None:
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return None
 
 
 def _kpi_tile(label: str, value: Any) -> str:
@@ -169,6 +191,29 @@ def _render_document_page(document: ProducedDocument, content: str) -> str:
     return render_generic_page(document, content)
 
 
+def _graph_card(available: bool) -> str:
+    """The landing page's own top-level Graph card (ticket #163, map
+    #159) - alongside the per-concern grid, not inside it, per the
+    map's own charting decision (a dedicated card, not buried under the
+    `export` concern's own detail page). `export.json` still gets its
+    usual concern card too (`renderer_audit.py` never changed) - this is
+    an additional, more discoverable way in, not a replacement.
+    `available` follows the same "not available this run" posture every
+    KPI tile already uses for a document a config turned off, rather
+    than a broken link.
+    Details: docs/dev/dashboard/shell.md#_graph_card
+    """
+    if not available:
+        return (
+            '<div class="card unavailable"><div class="name">Graph</div>'
+            '<div class="meta">not available this run</div></div>'
+        )
+    return (
+        '<a class="card" href="graph.html"><div class="name">Graph</div>'
+        '<div class="meta">Explore the crawl\'s own graph</div></a>'
+    )
+
+
 def _concern_card(name: str, documents: Sequence[ProducedDocument]) -> str:
     file_word = "file" if len(documents) == 1 else "files"
     return (
@@ -199,7 +244,7 @@ def _concern_page(name: str, documents: Sequence[ProducedDocument], site: str) -
 
 @dataclass(frozen=True)
 class _LandingData:
-    """The four values `_landing_page` needs, bundled per this codebase's
+    """The five values `_landing_page` needs, bundled per this codebase's
     own "four-plus arguments become a dataclass" rule (the same one
     `generators/requirements.py::_RequirementFacts` already follows).
     """
@@ -208,10 +253,12 @@ class _LandingData:
     concerns: Dict[str, List[ProducedDocument]]
     kpi_context: KpiContext
     site: str
+    graph_available: bool
 
 
 def _landing_page(data: _LandingData) -> str:
-    cards = "".join(_concern_card(name, docs) for name, docs in sorted(data.concerns.items()))
+    concern_cards = "".join(_concern_card(name, docs) for name, docs in sorted(data.concerns.items()))
+    cards = _graph_card(data.graph_available) + concern_cards
     return (
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(data.site)} - Pragma Dashboard</title>'
@@ -228,7 +275,8 @@ def build_dashboard(
     documents: Sequence[Tuple[ProducedDocument, str]], kpi_context: KpiContext, site: str
 ) -> Dict[str, str]:
     """`{relative_path: html}` for every page this run's dashboard needs -
-    one per-document render, one per concern, and the landing page.
+    one per-document render, one per concern, the Graph page (when
+    `export.json` was produced this run), and the landing page.
     Details: docs/dev/dashboard/shell.md#build_dashboard
     """
     concerns: Dict[str, List[ProducedDocument]] = {}
@@ -237,8 +285,14 @@ def build_dashboard(
             continue
         concerns.setdefault(document.name, []).append(document)
 
-    landing_data = _LandingData(documents=documents, concerns=concerns, kpi_context=kpi_context, site=site)
+    export_content = _source_content(documents, "export")
+    landing_data = _LandingData(
+        documents=documents, concerns=concerns, kpi_context=kpi_context, site=site,
+        graph_available=export_content is not None,
+    )
     pages: Dict[str, str] = {"dashboard/index.html": _landing_page(landing_data)}
+    if export_content is not None:
+        pages["dashboard/graph.html"] = render_graph_page(export_content, site)
     for name, docs in concerns.items():
         pages[f"dashboard/concern/{name}.html"] = _concern_page(name, docs, site)
     for document, content in documents:
