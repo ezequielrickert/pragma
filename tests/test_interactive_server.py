@@ -1,6 +1,7 @@
 """Unit tests for interactive/server.py - Flask's own test client,
 never a real bound socket. ServerThread's real make_server()/thread
 lifecycle is exercised separately, not through these route tests."""
+import json
 import time
 from unittest.mock import Mock
 
@@ -261,3 +262,44 @@ def test_the_raw_text_editor_still_works_on_the_tokens_page_alongside_the_color_
 
     assert "<textarea" in html
     assert 'type="color"' in html
+
+
+_REQUIREMENT = {
+    "id": "REQ-a4f9000001", "ears_pattern": "event_driven", "syntax_text": "WHEN x, THE SYSTEM SHALL y",
+    "confidence": "observed", "derived_from": [], "coverage_ref": {"run_id": "RUN-1"},
+    "links": {"screens": [], "endpoints": [], "scenarios": [], "data_entities": [], "depends_on": []},
+    "hitl_status": "unreviewed", "open_questions": [],
+}
+
+
+def test_the_requirements_page_shows_the_generic_review_form(tmp_path):
+    _write_original(tmp_path, "requirements", "json", json.dumps({"requirements": [_REQUIREMENT]}))
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/requirements.json").get_data(as_text=True)
+
+    assert 'class="generic-form"' in html
+    assert "REQ-a4f9000001" in html
+    assert "<select" in html  # hitl_status, schema-driven, not hand-picked
+    assert "<textarea" in html  # both the raw-text editor and open_questions use one
+
+
+def test_saving_generic_form_fields_patches_the_customized_requirements_json(tmp_path):
+    _write_original(tmp_path, "requirements", "json", json.dumps({"requirements": [_REQUIREMENT]}))
+    client = _app(tmp_path).test_client()
+
+    response = client.post("/document/requirements.json/fields", data={"entry:0:hitl_status": "approved"})
+
+    assert response.status_code == 302
+    saved = (tmp_path / "customized" / f"{SITE}_requirements.json").read_text(encoding="utf-8")
+    assert '"hitl_status": "approved"' in saved
+    assert '"id": "REQ-a4f9000001"' in saved  # untouched fields survive
+
+
+def test_a_document_with_no_generic_form_spec_shows_no_generic_form_panel(tmp_path):
+    _write_original(tmp_path, "gherkin", "feature", "Feature: x\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+
+    assert 'class="generic-form"' not in html

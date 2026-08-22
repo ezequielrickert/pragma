@@ -38,6 +38,13 @@ form content on a failed POST) and bundle the two into a `pages.DocumentEditStat
 `interactive/pages.py::document_page` owns the actual diff/gutter rendering; this module's own job
 is unchanged, gathering the strings a page needs, not rendering them.
 
+**Generic form (ADR-0034, ticket #158).** `requirements.json` gets a schema-driven review panel
+alongside the raw-text editor - `pages.generic_form_panel` renders `""` for every other document,
+so nothing else is affected. The new `save_fields` route parses each submitted
+`entry:<index>:<field>` key (`_parse_entry_updates`) into a per-row update dict and hands it to
+`interactive/generic_form.py::save_generic_form` - this module still only parses form data, that
+module still owns knowing what a field's real widget/value is.
+
 ## create_app
 
 One Flask app for one site's interactive session. `out_dir`/`site` (bundled as a `SiteOutput`),

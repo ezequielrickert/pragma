@@ -87,3 +87,21 @@ one's.
 this ADR locks is that concept's first real, concrete instantiation. Building the actual renderer
 (the widget table as code, the path-allowlist data structure, the add/remove-row routes) is
 separate implementation work this ADR doesn't itself specify.
+
+**Update** (found while implementing this ADR, [ticket #158](https://github.com/ezequielrickert/pragma/issues/158)):
+
+- **`browser-support-matrix.json` was never a real case.** Its own generator
+  (`generators/browser_support_matrix.py::BrowserSupportMatrixDocument.generate`) always raises
+  `NotImplementedError` - it's registered only so `manifest.json` can carry it as `status: "off"`
+  (ADR-0018/ADR-0027's "reserved, not live" posture), so no real crawl ever produces this document.
+  This ADR checked the schema and the field's own HITL language, not whether the generator behind
+  it is actually live - `requirements.json`'s `hitl_status`/`open_questions` is the only real case
+  as of #158. `business_reason` stays true, real HITL language for a future case, not a live one -
+  adding it back is one `GENERIC_FORM_SPECS` entry once that generator ships for real, no new
+  machinery.
+- **Add/remove-row (point 5) doesn't apply to `requirements.json` and isn't built.** Its rows are
+  generated from crawl output, never authored by a human through this form - a reviewer approves or
+  questions an existing requirement, never adds a synthetic one. Point 5's decision (a server
+  round-trip, zero JS) stands for whenever a real keyed-dict or human-authored array-of-objects
+  case exists; building it now, against no real case, would be exactly the speculative generality
+  this ADR argued against elsewhere.
