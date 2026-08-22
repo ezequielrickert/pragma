@@ -38,8 +38,9 @@ Decided:
 the grounding pipeline tries, in order: (a) `export.json`'s own graph, when the edited document
 has real node coverage there (`tokens`, `catalog`/`custom-elements`, `data-model`, `prd`,
 `architecture`'s CALM/`Modulo` side); (b) another already-generated document's own real,
-structured citation field, when the edited document has one (`risk-register`'s `service_ref` into
-`architecture.cyclonedx.json`, `content-inventory`'s `component_ref`/`screens`, `change-log`'s
+structured citation field, when the edited document has one (`risk-register`'s `service` name into
+`architecture.cyclonedx.json`'s own `externalServices[].name`, `content-inventory`'s
+`component_ref`/`screens`, `change-log`'s
 short-hash ids, `decisions.adr`'s `REQ-` reference); (c) nothing, honestly, when neither applies
 (`gherkin`, `flows`, free prose, or a `usability`/`accessibility` finding whose own `where` field
 carries no structured id).

@@ -13,8 +13,8 @@ from generators.graph_export import (
     _modulo_nodes,
     _populate_usa_token,
     _requisito_nodes,
-    _token_nodes,
     build_export_graph,
+    token_nodes,
 )
 
 SITE = "export-test-site"
@@ -198,7 +198,7 @@ def test_token_nodes_are_keyed_by_their_own_dtcg_path():
         "semantic": {},
     }
 
-    nodes = _token_nodes(tokens_document)
+    nodes = token_nodes(tokens_document)
 
     assert nodes == {"core.color.text-1": {"id": "core.color.text-1", "type": "Token", "label": "core.color.text-1"}}
 
@@ -209,7 +209,7 @@ def test_token_nodes_recurse_through_nested_groups():
         "semantic": {"color": {"brand": {"$type": "color", "$value": "{core.color.text-1}"}}},
     }
 
-    nodes = _token_nodes(tokens_document)
+    nodes = token_nodes(tokens_document)
 
     assert set(nodes) == {"core.typography.type-1", "semantic.color.brand"}
 
