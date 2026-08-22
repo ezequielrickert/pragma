@@ -220,9 +220,9 @@ Also write `data/output/{slug}_graph_{timestamp}.json` - the full crawl graph
 (pages, edges, component ledger, text content) as structured JSON,
 alongside the prose PRD and the ASCII component tree - for a downstream
 tool that wants to consume the crawl's facts as data instead of
-documents meant for a person to read. Off by default so existing
-`out_dir` layouts don't suddenly grow an extra file per run without
-opting in. See `generators/graph_export.py`.
+documents meant for a person to read. On by default since the static
+dashboard's own Graph card (`dashboard/`) renders this file - set
+`false` to skip it. See `generators/graph_export.py`.
 
 ## tree_ascii
 
