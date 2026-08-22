@@ -28,8 +28,11 @@ document, the source wins and the view is regenerated.
 
 **Customized document** (from the "Interactive dashboard" map):
 A document a user has deliberately edited through the interactive dashboard,
-living under `data/output/<slug>/customized/` — one per original document,
-always reflecting the latest edit, never a version history. Neither a
+living flat under `data/output/customized/{slug}_{filename}.{extension}` —
+matching the rest of `data/output/`'s own naming convention, not a per-site
+subdirectory (corrected from what ADR-0031 first said, while implementing
+it) — one per original document, always reflecting the latest edit, never a
+version history. Neither a
 Source document nor a View document: not the source of truth (the crawled
 original still is that — customization never overwrites it), and not a
 deterministic render either (a human's own intervention, not a template
@@ -127,6 +130,16 @@ A schema field that's present and typed but not yet populated with real data, be
 has no instrumentation for it yet (e.g. `coverage.roles`, `coverage.blockers`). Distinct from a
 dropped field: reserved means "the shape is locked so later documents can reference it now," dropped
 means "no plan exists yet, don't pretend otherwise." See `docs/adr/0001-coverage-schema-scope.md`.
+
+**HITL-fillable field**:
+A schema field a human reviewer, not the pipeline, is expected to populate — `requirements.json`'s
+`hitl_status`/`open_questions` (ADR-0009) and `browser-support-matrix.json`'s `business_reason`
+are the only real instances today. Distinct from a field the pipeline merely flags for a human's
+attention without expecting them to fill anything in return (`content-inventory.json`'s
+`requires_review` is a computed heuristic, not this — nobody edits it). The interactive
+dashboard's generic form (map "Interactive dashboard", ADR-0034) renders exactly this field set
+as real inputs; every other field in the same document stays read-only even inside an otherwise
+editable row.
 
 **The graph**:
 The live property-graph store (`database/ladybug/`, backed by Kùzu) that every crawl writes into
