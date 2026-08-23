@@ -282,6 +282,58 @@ def test_component_families_two_families_with_identical_properties_stay_distinct
     }
 
 
+def test_component_family_subgroups_round_trip(store) -> None:
+    """Issue #171: `subgroups` is written as a `VARIANT_OF.subgroup` int
+    per member (`component_family.py`'s own docstring has why), not a
+    node property - this pins that the round trip reconstructs the same
+    partition it was given, not just the same flat `member_paths`."""
+    # Distinct `text` keeps these two content-derived ids distinct (#134) -
+    # otherwise both blank buttons collapse onto one `Component` row and
+    # this test can't tell two subgroups apart from one.
+    store.record_component("https://x/a", "button#filled", text="Filled")
+    store.record_component("https://x/a", "button#bordered", text="Bordered")
+
+    families = [
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=("btn",),
+            member_paths=(("https://x/a", "button#filled"), ("https://x/a", "button#bordered")),
+            purpose="", subgroups=((("https://x/a", "button#filled"),), (("https://x/a", "button#bordered"),)),
+        )
+    ]
+    store.record_component_families(families)
+
+    got = store.get_component_families()
+
+    assert len(got) == 1
+    assert set(got[0].subgroups) == {
+        (("https://x/a", "button#filled"),), (("https://x/a", "button#bordered"),),
+    }
+
+
+def test_a_family_recorded_without_subgroups_reads_back_as_one_whole_group(store) -> None:
+    """A caller that never ran the sub-cluster pass (`subgroups=()`, the
+    dataclass default) leaves every `VARIANT_OF` edge at the column's own
+    default (`0`) - which reads back as a single subgroup holding every
+    member, per `get_component_families`'s own documented reasoning for
+    why that isn't a lossy round trip."""
+    store.record_component("https://x/a", "button#go", text="Go")
+    store.record_component("https://x/a", "button#stop", text="Stop")
+    store.record_component_families([
+        ComponentFamily(
+            tag="button", component_type="button", common_classes=(),
+            member_paths=(("https://x/a", "button#go"), ("https://x/a", "button#stop")),
+            purpose="",
+        )
+    ])
+
+    got = store.get_component_families()
+
+    assert len(got) == 1
+    assert got[0].subgroups == (
+        (("https://x/a", "button#go"), ("https://x/a", "button#stop")),
+    )
+
+
 def test_record_component_families_is_a_full_rebuild(store) -> None:
     store.record_component("https://x/a", "button#go")
     store.record_component_families(

@@ -153,6 +153,20 @@ class ComponentFamily:
             per that module's own docstring) - it's filled in afterward
             by `component_family_narrator.narrate_family_purposes`, an
             explicitly separate, impure step that needs an `Agent`.
+        subgroups: `member_paths` partitioned into finer visual/structural
+            clusters - a second, tighter cosine-similarity pass over the
+            same leaf feature vectors, run only *within* this family
+            (`analysis/component_matching_pipeline.py::_subgroup_leaf_
+            vectors`, `thresholds.leaf_subgroup`, issue #171). A pattern
+            with both bordered and borderless members, say, comes back as
+            two subgroups rather than one - unsupervised: no framework
+            variant name is assigned, only which members' extracted
+            properties actually cluster together (#165's constraint).
+            Every member lands in exactly one subgroup, including a
+            singleton for an outlier; `()` for a family whose subgroups
+            were never computed (a family built before this field
+            existed, or by a caller that skips the pass). Sorted by size
+            descending, so the dominant look reads first.
     """
 
     tag: str
@@ -160,6 +174,7 @@ class ComponentFamily:
     common_classes: Tuple[str, ...]
     member_paths: Tuple[Tuple[str, str], ...]
     purpose: str = ""
+    subgroups: Tuple[Tuple[Tuple[str, str], ...], ...] = ()
 
 
 @dataclass(frozen=True)

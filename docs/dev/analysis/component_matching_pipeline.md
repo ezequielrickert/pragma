@@ -32,7 +32,20 @@ whichever cluster member sorts first by `(page_url, path)`.
 `ComponentFamily` per family-tier cluster - same bucketing/union-find
 shape as `_leaf_merge_groups`, at `thresholds.leaf_family` instead, run
 *after* exact collapse so every cluster is a genuine "similar, not
-identical" grouping.
+identical" grouping. Also runs `_subgroup_leaf_vectors` over each
+family's own members before building the `ComponentFamily`, filling in
+its `subgroups` field (issue #171).
+
+## _subgroup_leaf_vectors
+
+Partitions one family's members into finer sub-clusters by pairwise
+leaf-vector cosine similarity `>= thresholds.leaf_subgroup` - the same
+union-find mechanism `_leaf_merge_groups`/`_build_leaf_families` use one
+tier up, reused on the vectors those two already computed rather than
+recomputed. Unsupervised: groups by which extracted properties actually
+cluster together, never by a framework's variant vocabulary (#165's
+constraint). Every member lands in exactly one sub-cluster, including a
+singleton for an outlier.
 
 ## _dedup_composite_roots
 

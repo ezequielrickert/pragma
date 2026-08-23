@@ -153,11 +153,50 @@ def _build_leaf_families(
                 continue
             member_paths = tuple(sorted({(m["page_url"], m["path"]) for m in members}))
             common_classes = _common_classes(members)
+            member_vectors = [vectors[m] for m in cluster]
+            subgroups = _subgroup_leaf_vectors(members, member_vectors, config.thresholds.leaf_subgroup)
             families.append(ComponentFamily(
                 tag=tag, component_type=component_type, common_classes=common_classes,
-                member_paths=member_paths, purpose="",
+                member_paths=member_paths, purpose="", subgroups=subgroups,
             ))
     return families
+
+
+def _subgroup_leaf_vectors(
+    members: List[Dict[str, Any]], member_vectors: List[List[float]], threshold: float,
+) -> Tuple[Tuple[Tuple[str, str], ...], ...]:
+    """Partition one `ComponentFamily`'s `members` into sub-clusters by
+    pairwise leaf-vector cosine similarity `>= threshold` - the same
+    union-find mechanism `_leaf_merge_groups`/`_build_leaf_families` use
+    one tier up, reused rather than reimplemented (issue #171, #165's
+    "reuse the existing machinery" constraint). `member_vectors` are
+    `_build_leaf_families`'s own already-computed vectors for this
+    cluster, positionally aligned with `members` - no recomputation.
+
+    Unsupervised: a sub-cluster is whichever members' extracted
+    properties (`leaf_feature_vector`'s css_class/style/geometry blocks -
+    text plays no part, that function excludes it entirely) actually
+    cluster together, never a name drawn from any framework's variant
+    vocabulary. Every member lands in exactly one sub-cluster, including
+    a singleton for an outlier the rest of the family doesn't share close
+    enough properties with - this partitions `members`, it doesn't filter
+    them. Two ledger entries for the same already-canonical id can never
+    land in different sub-clusters (identical content -> identical
+    vector -> similarity 1.0), so grouping directly on `(page_url, path)`
+    pairs is safe even though the caller dedupes those the same way for
+    `member_paths`.
+    Details: docs/dev/analysis/component_matching_pipeline.md#_subgroup_leaf_vectors
+    """
+    union_find = UnionFind(len(members))
+    for a in range(len(members)):
+        for b in range(a + 1, len(members)):
+            if cosine_similarity(member_vectors[a], member_vectors[b]) >= threshold:
+                union_find.union(a, b)
+    subgroups = [
+        tuple(sorted({(members[m]["page_url"], members[m]["path"]) for m in cluster}))
+        for cluster in union_find.groups()
+    ]
+    return tuple(sorted(subgroups, key=lambda group: (-len(group), group)))
 
 
 def _common_classes(members: List[Dict[str, Any]]) -> Tuple[str, ...]:
