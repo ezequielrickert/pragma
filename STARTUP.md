@@ -31,28 +31,77 @@ python -c "import ladybug as lb; lb.Connection(lb.Database('')); print('engine O
 
 Redo it after recreating the venv: it lands in `site-packages`.
 
-Then run:
+Then run one of these. No server to start first - `graph_store: ladybug` (or
+`memory`) is embedded, nothing to run before the crawl itself; on disk it
+lands in `data/sites/<slug>.lbdb`. Interpreter name varies by machine (eze:
+`python3`, juli: `python`) - the examples below use `python`, swap as needed.
+
+Every command past the first refers to a site by its **slug** - the host
+part of the URL, as `static` first wrote it (`https://example.com` ->
+`example.com`).
+
+## One shot: crawl a site and generate everything
 
 ```bash
-# No server to start - graph_store: ladybug (or memory) is embedded, nothing
-# to run before the crawl itself. On disk it lands in data/sites/<slug>.lbdb.
-#eze: 
-python3 cli.py https://example.com
-#juli:
+# Static-crawl the site, cluster components into families, run the dynamic
+# (click/fill) pass, then generate every document + the dashboard - all in
+# one run.
 python cli.py https://example.com
 ```
 
-Documents + dashboard, once a site is crawled:
+## Or, phase by phase
+
+Useful to inspect state between phases, or re-run just one with different
+flags - state persists in `data/sites/<slug>.lbdb` between runs (pass
+`--fresh` to purge it and start over).
 
 ```bash
-# One shot: crawl + cluster + interact + generate every document, dashboard included.
-python cli.py https://example.com
+# 1. Scout-only crawl: HTML/CSS/routes into the graph store, no clicking or
+#    filling anything.
+python cli.py static https://example.com
 
-# Or, if a site is already crawled (data/sites/<slug>.lbdb exists), regenerate just the
-# documents/dashboard without re-crawling - faster when only generator code changed.
-python cli.py docs <slug>
+# 2. Group the discovered components into reusable families (LLM-narrated).
+python cli.py cluster example.com
 
-# Either way, the dashboard always lands at <out_dir>/dashboard/index.html (out_dir
-# defaults to data/output, override with --out). Static HTML - open it directly in a
+# 3. Interact: click/fill, resuming from static's frontier and sampling per
+#    family instead of hitting every instance.
+python cli.py dynamic https://example.com
+
+# static -> cluster -> dynamic chained in one call - stops there, never
+# generates documents (that stays the separate `docs` step below).
+python cli.py crawl https://example.com
+```
+
+## Documents + dashboard, once a site is crawled
+
+```bash
+# Generate every document + the dashboard from an already-crawled site - no
+# re-crawl. Faster than the one-shot above when only generator code changed.
+python cli.py docs example.com
+
+# The dashboard always lands at <out_dir>/dashboard/index.html (out_dir
+# defaults to data/output, override with --out). Static HTML, including the
+# Graph card (export.json's graph, explorable) - open it directly in a
 # browser, no server needed.
 ```
+
+## Interactive editor + chat, once documents exist
+
+A separate, editable local tool - not the static dashboard above. Serves the
+site's already-generated documents with a raw-text editor (plus real forms
+for some, e.g. `tokens.json`'s color picker) and a chat panel grounded in
+each document's real citations.
+
+```bash
+# Defaults to http://127.0.0.1:5050 (--host/--port to change).
+python cli.py interactive example.com
+
+# --agent local needs `python cli.py config` run once (API key/model) for
+# real chat replies; the default (or explicit --agent mock) still runs the
+# editor/chat end to end, just with canned stub replies.
+python cli.py interactive example.com --agent local
+```
+
+Stop it with Ctrl+C, or the in-chat "finalizar" button - either shuts the
+server down cleanly. Chat history is in-memory only, gone once the session
+ends.
