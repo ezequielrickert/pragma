@@ -139,6 +139,18 @@ stream cannot see a form whose inputs arrived across two visits.
 node with no provenance, and a raise here means the derivation produced an
 unsupported assertion - a bug to fix, not a document to degrade.
 
+## _apply_rules
+
+One `Rule` per declared single-field constraint, plus one per `<select>`'s
+declared option set (`generators/rules.py::build_rules`) - the semantic
+tier's fourth writer, alongside `_apply_data_model`/`_apply_screens`/
+`_apply_flows`. Must run after `_apply_data_model`: `record_rules`'s
+`GOVERNS(Rule->Field)` edge is resolved through the `Field`/`EDITS` data
+`record_entities` writes, over the same component population. Same
+no-error-handling reasoning: `record_rules` raises on a rule with no
+`derived_from`, which `build_rules` always sets from the constraint's own
+source component.
+
 ## _apply_screens
 
 One `Screen` per finished `Page` (`generators/screens.py::build_screens`),

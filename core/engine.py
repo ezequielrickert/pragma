@@ -20,6 +20,7 @@ from generators.data_model import build_entities
 from generators.flows import build_flows
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
+from generators.rules import build_rules
 from generators.screen_narrator import build_page_context, narrate_screens, screen_signature
 from generators.screens import build_screens
 from analysis.component_matching_pipeline import apply_component_matching
@@ -64,6 +65,34 @@ def _apply_data_model(graph_store: Any, run_id: str) -> None:
     field_count = sum(len(entity.fields) for entity in entities)
     print(f"Deduced {len(entities)} entity/entities with {field_count} field(s) from forms.")
     graph_store.record_entities(entities, run_id=run_id)
+
+
+def _apply_rules(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Rule` per declared single-field
+    constraint, plus one per `<select>`'s declared option set
+    (`generators/rules.py::build_rules`) - the semantic tier's fourth
+    writer, alongside `_apply_data_model`/`_apply_screens`/`_apply_flows`.
+
+    Must run after `_apply_data_model`: `record_rules`'s `GOVERNS(Rule->
+    Field)` edge is resolved through the `Field`/`EDITS` data
+    `record_entities` writes, over the same component population - see
+    `database/ladybug/rule.py`'s own module docstring.
+
+    Args:
+        graph_store: same store the crawl wrote to.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`.
+
+    Returns:
+        None. `record_rules` refuses any rule with no `derived_from`,
+        which `build_rules` always sets from the constraint's own
+        source component - see `_apply_data_model`'s own docstring for
+        why that leaves this pass no error handling of its own.
+    Details: docs/dev/core/engine.md#_apply_rules
+    """
+    rules = build_rules(flat_component_ledger(graph_store))
+    print(f"Deduced {len(rules)} rule(s) from the constraints forms declared.")
+    graph_store.record_rules(rules, run_id=run_id)
 
 
 def _apply_screens(graph_store: Any, agent: Agent, run_id: str) -> None:
@@ -370,6 +399,8 @@ class Engine:
         apply_graph_projection(graph_store, route_shape(url))
         print("Deducing the data model from the forms found...")
         _apply_data_model(graph_store, run_id)
+        print("Deriving rules from the constraints forms declared...")
+        _apply_rules(graph_store, run_id)
         print("Deriving screens from the pages the crawl finished...")
         _apply_screens(graph_store, self.agent, run_id)
         print("Deriving flows from the traces the crawl walked...")

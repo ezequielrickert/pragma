@@ -30,6 +30,7 @@ from .data_contracts import (  # noqa: F401 - re-exported, see module docstring 
     SemanticEntity,
     SemanticField,
     SemanticFlow,
+    SemanticRule,
     SemanticScreen,
     VisitStep,
 )
