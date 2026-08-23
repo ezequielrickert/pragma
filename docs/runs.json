@@ -33,6 +33,43 @@
       "timestamp": "20260822T210309Z",
       "tree_path": "docs/www.grubi.com.ar__tree.axtree_20260822T210309Z.json",
       "url": "https://www.grubi.com.ar/"
+    },
+    {
+      "components_total": 69,
+      "components_unexplored": 23,
+      "document_paths": {
+        "accessibility": "docs/www.grubi.com.ar__accessibility_20260823T174436Z.md",
+        "architecture": "docs/www.grubi.com.ar__architecture_20260823T174436Z.md",
+        "catalog": "docs/www.grubi.com.ar__catalog_20260823T174436Z.md",
+        "change-log": "docs/www.grubi.com.ar__change-log_20260823T174436Z.md",
+        "confidence-summary": "docs/www.grubi.com.ar__confidence-summary_20260823T174436Z.md",
+        "content-inventory": "docs/www.grubi.com.ar__content-inventory_20260823T174436Z.md",
+        "coverage": "docs/www.grubi.com.ar__coverage_20260823T174436Z.md",
+        "data-model": "docs/www.grubi.com.ar__data-model_20260823T174436Z.md",
+        "evidence-log": "docs/www.grubi.com.ar__evidence-log_20260823T174436Z.jsonl",
+        "export": "docs/www.grubi.com.ar__export_20260823T174436Z.json",
+        "flows": "docs/www.grubi.com.ar__flows_20260823T174436Z.md",
+        "gherkin": "docs/www.grubi.com.ar__gherkin_20260823T174436Z.feature",
+        "glossary": "docs/www.grubi.com.ar__glossary_20260823T174436Z.md",
+        "master": "docs/www.grubi.com.ar__manifest_20260823T174436Z.json",
+        "performance-baseline": "docs/www.grubi.com.ar__performance-baseline_20260823T174436Z.md",
+        "prd": "docs/www.grubi.com.ar__prd_20260823T174436Z.md",
+        "redaction-log": "docs/www.grubi.com.ar__redaction-log_20260823T174436Z.jsonl",
+        "risk-register": "docs/www.grubi.com.ar__risk-register_20260823T174436Z.md",
+        "test-plan": "docs/www.grubi.com.ar__test-plan_20260823T174436Z.md",
+        "tokens": "docs/www.grubi.com.ar__tokens_20260823T174436Z.md",
+        "tree": "docs/www.grubi.com.ar__tree.axtree_20260823T174436Z.json",
+        "usability": "docs/www.grubi.com.ar__usability_20260823T174436Z.md"
+      },
+      "export_path": "docs/www.grubi.com.ar__export_20260823T174436Z.json",
+      "graph_store": "LadybugGraphStore",
+      "master_path": "docs/www.grubi.com.ar__manifest_20260823T174436Z.json",
+      "pages_finished": 18,
+      "pages_total": 37,
+      "prd_path": "docs/www.grubi.com.ar__prd_20260823T174436Z.md",
+      "timestamp": "20260823T174436Z",
+      "tree_path": "docs/www.grubi.com.ar__tree.axtree_20260823T174436Z.json",
+      "url": "https://www.grubi.com.ar/"
     }
   ],
   "www.stjohns.edu.ar": [

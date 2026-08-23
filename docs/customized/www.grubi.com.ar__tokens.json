@@ -1,0 +1,1046 @@
+{
+  "core": {
+    "color": {
+      "surface-1": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 66,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#ffffff"
+      },
+      "surface-2": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 30,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#4835d4"
+      },
+      "surface-3": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 29,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#000000"
+      },
+      "surface-4": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 28,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#f3f4f6"
+      },
+      "surface-5": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 14,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#0f6e56"
+      },
+      "surface-6": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 8,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#1d4ed8"
+      },
+      "surface-7": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#16a34a"
+      },
+      "text-1": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 196,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#6b7280"
+      },
+      "text-10": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#475569"
+      },
+      "text-2": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 110,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#0f172a"
+      },
+      "text-3": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 67,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#ffffff"
+      },
+      "text-4": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 44,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#15803d"
+      },
+      "text-5": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 32,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#1f2937"
+      },
+      "text-6": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 30,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#374151"
+      },
+      "text-7": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 29,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#111827"
+      },
+      "text-8": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 27,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#9ca3af"
+      },
+      "text-9": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "#c7b28e"
+      }
+    },
+    "interaction-state": {
+      "focus-border-color-3": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 15,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(39 176 255/var(--tw-border-opacity,1))"
+      },
+      "focus-border-color-4": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 13,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(33 212 138/var(--tw-border-opacity,1))"
+      },
+      "focus-box-shadow-1": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 240,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "box-shadow",
+        "$value": "var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)"
+      },
+      "focus-outline-2": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 28,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "outline",
+        "$value": "rgba(0, 0, 0, 0) solid 2px"
+      },
+      "hover-background-color-10": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 28,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgba(0, 0, 0, 0.3)"
+      },
+      "hover-background-color-13": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 15,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(243 244 246/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-14": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 15,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(39 176 255/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-16": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 10,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(255 255 255/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-19": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 8,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(32 144 208/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-21": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 2,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(17 24 39/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-23": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(34 197 94/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-7": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 44,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(229 231 235/var(--tw-bg-opacity,1))"
+      },
+      "hover-background-color-9": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 29,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(22 101 52/var(--tw-bg-opacity,1))"
+      },
+      "hover-border-color-17": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 10,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgba(33, 212, 138, 0.3)"
+      },
+      "hover-border-color-22": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 2,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(33 212 138/var(--tw-border-opacity,1))"
+      },
+      "hover-box-shadow-18": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 10,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "box-shadow",
+        "$value": "var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)"
+      },
+      "hover-color-11": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 16,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(219 39 119/var(--tw-text-opacity,1))"
+      },
+      "hover-color-12": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 16,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(37 99 235/var(--tw-text-opacity,1))"
+      },
+      "hover-color-15": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 15,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(255 255 255/var(--tw-text-opacity,1))"
+      },
+      "hover-color-20": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 8,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(39 176 255/var(--tw-text-opacity,1))"
+      },
+      "hover-color-5": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 257,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(22 163 74/var(--tw-text-opacity,1))"
+      },
+      "hover-color-6": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 134,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(33 212 138/var(--tw-text-opacity,1))"
+      },
+      "hover-color-8": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 32,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "color",
+        "$value": "rgb(0 0 0/var(--tw-text-opacity,1))"
+      }
+    },
+    "typography": {
+      "type-1": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 2,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "20px",
+          "fontWeight": "700"
+        }
+      },
+      "type-10": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 12,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "14px",
+          "fontWeight": "600"
+        }
+      },
+      "type-11": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 25,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "14px",
+          "fontWeight": "700"
+        }
+      },
+      "type-12": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 4,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "14px",
+          "fontWeight": "900"
+        }
+      },
+      "type-13": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "12px",
+          "fontWeight": "400"
+        }
+      },
+      "type-14": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "12px",
+          "fontWeight": "700"
+        }
+      },
+      "type-15": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 1,
+              "is_system_candidate": false
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "12px",
+          "fontWeight": "900"
+        }
+      },
+      "type-2": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 3,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "18px",
+          "fontWeight": "700"
+        }
+      },
+      "type-3": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 30,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "18px",
+          "fontWeight": "900"
+        }
+      },
+      "type-4": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 165,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "16px",
+          "fontWeight": "400"
+        }
+      },
+      "type-5": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 13,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "16px",
+          "fontWeight": "500"
+        }
+      },
+      "type-6": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 30,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "16px",
+          "fontWeight": "700"
+        }
+      },
+      "type-7": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 23,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "16px",
+          "fontWeight": "900"
+        }
+      },
+      "type-8": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 195,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "14px",
+          "fontWeight": "400"
+        }
+      },
+      "type-9": {
+        "$extensions": {
+          "pragma": {
+            "source": {
+              "css_variables": [],
+              "inline_style_count": 0,
+              "selectors": [],
+              "stylesheets": []
+            },
+            "usage_frequency": {
+              "count": 32,
+              "is_system_candidate": true
+            }
+          }
+        },
+        "$type": "typography",
+        "$value": {
+          "fontSize": "14px",
+          "fontWeight": "500"
+        }
+      }
+    }
+  },
+  "semantic": {}
+}
