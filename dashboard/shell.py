@@ -21,8 +21,11 @@ job of assembling the landing/concern/document pages around it).
 
 **A card per concern** (`DOCUMENT_REGISTRY` name, e.g. `"prd"`,
 `"openapi"`), each linking to a detail page listing every one of that
-concern's own outputs, each in turn linking to its own Phase B render
+concern's own outputs as a card too (ticket #177, map #172 - was a bare
+`<ul>`), each in turn linking to its own Phase B render
 (`dashboard/renderer_audit.renderer_for` picks generic or Redoc).
+`document_context.py`'s own real explanation surfaces on that concern
+page directly, before a reviewer opens any specific file.
 
 **A dedicated Graph card** (ticket #163, map #159), alongside the
 concern grid rather than inside it - `export.json` rendered as a real
@@ -41,6 +44,7 @@ from typing import Dict, List, Sequence, Tuple
 
 from core.documents import ProducedDocument
 from utils.io import write_output
+from .document_context import render_context_section
 from .generic_template import render_generic_page
 from .graph_renderer import render_graph_page
 from .kpi_section import KpiContext, kpi_section, source_content
@@ -74,12 +78,13 @@ h1 { margin: 0 0 4px; }
 .card .meta { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
 .card.unavailable { cursor: default; }
 .card.unavailable:hover { border-color: var(--border); }
-ul.files { list-style: none; padding: 0; }
-ul.files li { padding: 8px 0; border-bottom: 1px solid var(--border); }
-.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; margin-left: 8px; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
 .badge.source { background: var(--accent-dim); color: #b9c9ff; }
 .badge.view { background: #2c3a2e; color: var(--ok); }
 .badge.rule-catalog, .badge.projection { background: #3a2c1e; color: #fbbf24; }
+.context { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+.context h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: var(--text-dim); }
+.context .example { margin: 12px 0 0; padding: 12px; background: var(--panel-2); border-radius: 6px; font-size: 12px; overflow-x: auto; }
 """
 
 
@@ -145,13 +150,23 @@ def _concern_card(name: str, documents: Sequence[ProducedDocument]) -> str:
     )
 
 
-def _concern_page(name: str, documents: Sequence[ProducedDocument], site: str) -> str:
-    title = documents[0].title
-    items = "".join(
-        f'<li><a href="../document/{_document_slug(document)}.html">{escape(document.filename)}</a>'
-        f'<span class="badge {escape(document.kind)}">{escape(document.kind)}</span></li>'
-        for document in documents
+def _file_card(document: ProducedDocument) -> str:
+    return (
+        f'<a class="card" href="../document/{_document_slug(document)}.html">'
+        f'<div class="name">{escape(document.filename)}</div>'
+        f'<div class="meta"><span class="badge {escape(document.kind)}">{escape(document.kind)}</span></div></a>'
     )
+
+
+def _concern_page(name: str, documents: Sequence[ProducedDocument], site: str) -> str:
+    """The list of one concern's own outputs - a card per file (was a
+    bare `<ul>`), with `document_context.py`'s own "what this document is
+    typically used for" explanation surfaced here, before a reviewer
+    opens any specific file, not only after (ticket #177, map #172).
+    Details: docs/dev/dashboard/shell.md#_concern_page
+    """
+    title = documents[0].title
+    cards = "".join(_file_card(document) for document in documents)
     return (
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(title)} - {escape(site)}</title>'
@@ -159,7 +174,8 @@ def _concern_page(name: str, documents: Sequence[ProducedDocument], site: str) -
         f'<div class="breadcrumb"><a href="../index.html">&larr; {escape(site)}</a></div>'
         f"<h1>{escape(title)}</h1>"
         f'<p>{escape(documents[0].purpose)}</p>'
-        f'<ul class="files">{items}</ul>'
+        f"{render_context_section(documents[0])}"
+        f'<div class="grid">{cards}</div>'
         "</main></body></html>\n"
     )
 

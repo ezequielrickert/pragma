@@ -95,7 +95,7 @@ def test_master_is_excluded_from_per_document_renders_too():
     assert not any(key.startswith("dashboard/document/manifest") for key in pages)
 
 
-def test_a_concern_page_lists_every_one_of_its_own_outputs():
+def test_a_concern_page_lists_every_one_of_its_own_outputs_as_a_card():
     documents = [
         (_document("prd", "source", filename="requirements"), "{}"),
         (_document("prd", "view", filename="prd"), "# PRD"),
@@ -104,9 +104,32 @@ def test_a_concern_page_lists_every_one_of_its_own_outputs():
     pages = build_dashboard(documents, _kpi(), SITE)
 
     concern_page = pages["dashboard/concern/prd.html"]
-    assert "requirements" in concern_page
-    assert "prd" in concern_page
+    assert 'href="../document/requirements.source.html"' in concern_page
+    assert 'href="../document/prd.view.html"' in concern_page
+    assert '<div class="name">requirements</div>' in concern_page
+    assert '<span class="badge source">source</span>' in concern_page
     assert 'href="../index.html"' in concern_page  # breadcrumb back to the landing page
+
+
+def test_a_concern_page_explains_what_the_document_is_typically_used_for():
+    """document_context.py's own real explanation, surfaced here before a
+    reviewer opens any specific file - not only after, the way it already
+    showed on the document's own detail page (ticket #145)."""
+    documents = [(_document("prd", "source", filename="requirements"), "{}")]
+
+    pages = build_dashboard(documents, _kpi(), SITE)
+
+    concern_page = pages["dashboard/concern/prd.html"]
+    assert "About this document" in concern_page
+    assert "Requirements extracted in EARS syntax" in concern_page
+
+
+def test_a_concern_with_no_real_context_entry_shows_no_placeholder():
+    documents = [(_document("not-a-real-registry-name", "source", filename="x"), "{}")]
+
+    pages = build_dashboard(documents, _kpi(), SITE)
+
+    assert "About this document" not in pages["dashboard/concern/not-a-real-registry-name.html"]
 
 
 def test_every_produced_document_gets_its_own_rendered_page():
