@@ -43,6 +43,7 @@ from .network import _LadybugNetworkMixin
 from .options import _LadybugOptionsMixin
 from .page import _LadybugPageMixin
 from .raw_query import _LadybugRawQueryMixin
+from .rule import _LadybugRuleMixin
 from .screen import _LadybugScreenMixin
 from .search import _LadybugSearchMixin
 from .semantic import _LadybugSemanticMixin
@@ -110,7 +111,8 @@ class LadybugGraphStore(
     _LadybugAnalysisMixin, _LadybugNetworkMixin,
     _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugContainerForestMixin, _LadybugContainerMergeMixin,
     _LadybugRawQueryMixin, _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
-    _LadybugScreenMixin, _LadybugFlowMixin, _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
+    _LadybugScreenMixin, _LadybugFlowMixin, _LadybugRuleMixin, _LadybugStateStyleMixin,
+    _LadybugAccessibilitySnapshotMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 

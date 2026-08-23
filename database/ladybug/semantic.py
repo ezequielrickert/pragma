@@ -12,15 +12,17 @@ assertion into the same database the observation tier lives in. That is the
 whole point of the tier split: a reader has to be able to tell a fact from a
 deduction, and follow the deduction back.
 
-`Screen` and `Flow` now have writers too - `screen.py::record_screens` and
-`flow.py::record_flows`, this module's siblings. `DERIVED_FROM` is a rel
-table all three modules write into (`FROM Screen TO Page`, `FROM Flow TO
-Interaction`, alongside this module's `FROM Entity/Field TO Component`),
+`Screen`, `Flow` and `Rule` now have writers too - `screen.py::record_screens`,
+`flow.py::record_flows` and `rule.py::record_rules`, this module's
+siblings. `DERIVED_FROM` is a rel table all four modules write into
+(`FROM Screen TO Page`, `FROM Flow TO Interaction`, `FROM Rule TO
+Component`, alongside this module's `FROM Entity/Field TO Component`),
 so this module's own cleanup below is scoped to `Entity`/`Field` sources
 rather than a blanket delete - see `screen.py`'s module docstring for the
-full reasoning. `Rule` alone still has no writer, and stays frozen for the
-reason `research/plan-generacion-de-documentos.md` Fase 7 froze it - its
-value was almost entirely the human-in-the-loop review that is out of scope.
+full reasoning. `rule.py::record_rules` writes only `kind="declared"`
+rows (issue #190) - the human-in-the-loop review
+`research/plan-generacion-de-documentos.md` Fase 7 originally froze the
+tier over stays out of scope for `kind="inferred"`.
 
 Details: docs/dev/database/ladybug/semantic.md#module
 """

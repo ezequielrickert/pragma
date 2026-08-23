@@ -95,6 +95,12 @@ class ComponentFacts:
     name: str = ""
     disabled: bool = False
     required: bool = False
+    pattern: str = ""
+    min: str = ""
+    max: str = ""
+    minlength: str = ""
+    maxlength: str = ""
+    step: str = ""
     form: str = ""
     color: str = ""
     background_color: str = ""
@@ -465,3 +471,41 @@ class SemanticFlow:
     step_count: int
     outcome: str
     derived_from: Tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SemanticRule:
+    """One declared, single-field constraint - the semantic tier's most
+    granular claim, per 'Research Rule provenance split and statement
+    granularity' (issue #190). Always sourced from exactly one
+    `Component`, unlike `SemanticEntity`/`SemanticField`/`SemanticFlow`,
+    which can cite several - a constraint lives on one control, not a
+    set of them.
+
+    `kind="declared"`/`confidence=1.0` for every `SemanticRule` this
+    project writes so far: read straight off markup, no model call, no
+    human review. `kind="inferred"` is a reserved value #190 explicitly
+    left out of scope - nothing in this codebase produces one yet.
+
+    Fields:
+        statement: terse, machine-style constraint text - `"min=18"`,
+            `"pattern=^[0-9]{4}$"`, `"required"`, `"one of: [a, b, c]"` -
+            mirroring `generators/data_model.py::_validation`'s own
+            convention, one `SemanticRule` per constraint rather than
+            that function's one combined string.
+        kind: `"declared"` for every row this tier writes today.
+        confidence: `1.0` for every `"declared"` row - a markup
+            assertion is either present or it isn't, nothing to hedge.
+        derived_from: the `(page_url, path)` of the single `Component`
+            this constraint was read off - both this Rule's
+            `DERIVED_FROM` target and, via that `Component`'s own
+            `EDITS`-linked `Field`, its `GOVERNS` target. Never empty;
+            `record_rules` refuses to write a Rule without it, same
+            rule the tier's other writers enforce for their own
+            `derived_from`.
+    """
+
+    statement: str
+    kind: str
+    confidence: float
+    derived_from: Tuple[str, str]
