@@ -64,13 +64,13 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .popover button:disabled { opacity: .35; cursor: default; }
 
 .drawer { width: 0; overflow: hidden; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); transition: width .18s ease; }
-.drawer.open { width: 360px; }
-.drawer-inner { width: 360px; height: 100%; overflow-y: auto; padding: 18px; position: relative; }
+.drawer.open { width: max(500px, 50vw); }
+.drawer-inner { width: 100%; height: 100%; overflow-y: auto; padding: 18px; position: relative; }
 .drawer-close { position: absolute; top: 14px; right: 14px; cursor: pointer; color: var(--text-dim); font-size: 18px; }
 .type-badge { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 700; margin-bottom: 8px; }
 .detail-head h2 { font-size: 18px; margin: 0 0 4px; }
 .detail-head .id { font-size: 11px; color: var(--text-dim); word-break: break-all; margin-bottom: 8px; }
-.ego-graph { width: 100%; height: 180px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; margin: 10px 0 2px; }
+.ego-graph { width: 100%; height: 340px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; margin: 10px 0 2px; }
 .ego-caption { text-align: center; font-size: 10px; color: var(--text-dim); margin-bottom: 12px; }
 .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 .param-grid .k { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin-bottom: 2px; }
@@ -147,10 +147,19 @@ function nodeEdges(nodeId) {
   return { outgoing, incoming };
 }
 
+// A node's real label (a page title, a component's own rendered text, a
+// long #state:-fragment URL) can run far longer than fits legibly next to
+// a 22px dot - truncated on the canvas, never on data: the full label
+// still shows untruncated in the detail drawer once a node is clicked.
+const LABEL_MAX_LENGTH = 26;
+function truncateLabel(label) {
+  return label.length > LABEL_MAX_LENGTH ? `${label.slice(0, LABEL_MAX_LENGTH - 1)}…` : label;
+}
+
 const CY_STYLE = [
   { selector: "node", style: {
       "background-color": ele => FAMILY_COLORS[ele.data("type")] || "#8b93a7",
-      "label": "data(label)", "font-size": 9, "color": "#e4e7ee",
+      "label": ele => truncateLabel(ele.data("label")), "font-size": 9, "color": "#e4e7ee",
       "text-outline-width": 2, "text-outline-color": "#0f1115",
       "width": 22, "height": 22, "text-valign": "bottom", "text-margin-y": 4,
       "min-zoomed-font-size": 7,
@@ -164,12 +173,24 @@ const CY_STYLE = [
   { selector: ".selected-node", style: { "border-width": 3, "border-color": "#fff", "width": 30, "height": 30 } },
 ];
 
+// cose's own real default is nodeRepulsion: 400000 - this file previously
+// set 9000 (44x weaker), which is the real cause nodes rendered stacked
+// directly on top of each other on a real crawl's denser hub cluster
+// (several Pantalla nodes sharing many Componente nodes): far too weak a
+// repulsive force to push a moderately dense subgraph apart. nodeOverlap
+// adds a dedicated post-layout overlap-removal pass on top, for the
+// isolated (edge-less) nodes cose's own force simulation alone won't
+// necessarily separate. One shared constant, not four separately-tunable
+// copies (buildGraph/expandNode/showAllNodes/resetToOverview each ran
+// their own layout before this).
+const COSE_LAYOUT = { name: "cose", padding: 40, nodeRepulsion: 400000, idealEdgeLength: 90, nodeOverlap: 20 };
+
 function initCy(containerId) {
   return cytoscape({
     container: document.getElementById(containerId),
     elements: graphToElements(),
     style: CY_STYLE,
-    layout: { name: "cose", animate: false, padding: 40, nodeRepulsion: 9000, idealEdgeLength: 70 },
+    layout: { ...COSE_LAYOUT, animate: false },
     minZoom: 0.15, maxZoom: 4,
   });
 }
@@ -269,7 +290,7 @@ function renderEgoGraph(nodeId, outgoing, incoming, panel) {
     container: document.getElementById(panel.egoContainerId),
     elements, style: CY_STYLE,
     layout: { name: "concentric", concentric: n => n.data("center"), levelWidth: () => 1, minNodeSpacing: 40, padding: 20 },
-    userZoomingEnabled: false, userPanningEnabled: false, boxSelectionEnabled: false,
+    minZoom: 0.3, maxZoom: 4, boxSelectionEnabled: false,
   });
   egoCy.on("tap", "node", evt => { if (evt.target.id() !== nodeId) window[panel.jumpFn](evt.target.id()); });
   const remaining = neighborIds.length - shown.length;
@@ -293,7 +314,7 @@ function buildGraph() {
   cy = initCy("cy");
   cy.nodes().forEach(n => n.toggleClass("hidden-node", !visibleIds.has(n.id())));
   recomputeEdgeVisibility(cy);
-  cy.layout({ name: "cose", animate: false, padding: 40, nodeRepulsion: 9000, idealEdgeLength: 70 }).run();
+  cy.layout({ ...COSE_LAYOUT, animate: false }).run();
 
   const counts = familyCounts();
   document.getElementById("legend").innerHTML = Object.keys(FAMILY_COLORS).map(type => {
@@ -351,7 +372,7 @@ function expandNode(nodeId) {
   const neighborIds = new Set([...outgoing, ...incoming].map(e => e.id));
   for (const id of neighborIds) visibleIds.add(id);
   syncVisibility();
-  cy.layout({ name: "cose", animate: false, padding: 40, nodeRepulsion: 9000, idealEdgeLength: 70 }).run();
+  cy.layout({ ...COSE_LAYOUT, animate: false }).run();
   const revealed = cy.nodes().filter(n => neighborIds.has(n.id())).union(cy.getElementById(nodeId));
   if (revealed.length) cy.animate({ fit: { eles: revealed, padding: 100 } }, { duration: 300 });
 }
@@ -359,13 +380,13 @@ function expandNode(nodeId) {
 function showAllNodes() {
   visibleIds = new Set(nodesById.keys());
   syncVisibility();
-  cy.layout({ name: "cose", animate: true, animationDuration: 400, padding: 40, nodeRepulsion: 9000, idealEdgeLength: 70 }).run();
+  cy.layout({ ...COSE_LAYOUT, animate: true, animationDuration: 400 }).run();
 }
 
 function resetToOverview() {
   visibleIds = structuralNodeIds();
   syncVisibility();
-  cy.layout({ name: "cose", animate: true, animationDuration: 400, padding: 40, nodeRepulsion: 9000, idealEdgeLength: 70 }).run();
+  cy.layout({ ...COSE_LAYOUT, animate: true, animationDuration: 400 }).run();
   closeDrawer();
 }
 
@@ -379,8 +400,25 @@ function updateVisibilityHint() {
 function openDetail(nodeId) {
   if (!visibleIds.has(nodeId)) { visibleIds.add(nodeId); syncVisibility(); }
   selectNode(cy, nodeId);
+  const drawer = document.getElementById("drawer");
+  const alreadyOpen = drawer.classList.contains("open");
+  // Open the drawer BEFORE rendering the ego-graph into it - cytoscape
+  // reads its container's real dimensions at construction time, and a
+  // still-closed (width: 0) drawer would size it wrong. When the drawer
+  // is opening fresh, its own CSS width transition still has to finish
+  // first - resize/fit once that transition really ends, not just next
+  // frame (the transition takes 180ms, well past one frame).
+  drawer.classList.add("open");
   renderNodeDetail(nodeId, { detailEl: document.getElementById("detail"), ...DETAIL_PANEL });
-  document.getElementById("drawer").classList.add("open");
+  if (alreadyOpen) {
+    if (egoCy) requestAnimationFrame(() => { egoCy.resize(); egoCy.fit(undefined, 20); });
+  } else {
+    drawer.addEventListener("transitionend", function onOpen(e) {
+      if (e.propertyName !== "width") return;
+      drawer.removeEventListener("transitionend", onOpen);
+      if (egoCy) { egoCy.resize(); egoCy.fit(undefined, 20); }
+    });
+  }
 }
 function closeDrawer() { document.getElementById("drawer").classList.remove("open"); }
 
