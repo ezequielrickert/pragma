@@ -17,7 +17,7 @@ Details: docs/dev/database/ladybug/component_family.md#module
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from core.interfaces import ComponentFamily
 from ._component_lookup import resolve_component_ids
@@ -37,6 +37,16 @@ class _LadybugComponentFamilyMixin:
         built from `(page_url, path)` alone any more). A pair that doesn't
         resolve to a real `Component` is silently skipped, matching
         `GraphStore.record_component_families`'s own documented contract.
+
+        `family.subgroups` (issue #171) is written as an `int` `subgroup`
+        property on each member's `VARIANT_OF` edge - its index into
+        `subgroups` - rather than as a property on the `ComponentFamily`
+        node itself: a nested list-of-lists doesn't fit a Kùzu column, and
+        a sub-cluster is inherently a per-membership fact anyway (which
+        group *this* component landed in), the same shape `HAS_OPTION`'s
+        `seq` property already uses for a per-edge ordinal. A member
+        absent from every subgroup (an empty/unset `subgroups`) gets the
+        column's own default, `0`.
         Details: docs/dev/database/ladybug/component_family.md#record_component_families
         """
         def op(conn) -> None:
@@ -45,18 +55,23 @@ class _LadybugComponentFamilyMixin:
             conn.execute("MATCH (f:ComponentFamily) DETACH DELETE f")
             rows = []
             for family in families:
+                subgroup_of = {
+                    member_path: index
+                    for index, subgroup in enumerate(family.subgroups)
+                    for member_path in subgroup
+                }
                 by_page: Dict[str, List[str]] = {}
                 for page_url, path in family.member_paths:
                     by_page.setdefault(page_url, []).append(path)
-                member_ids = [
-                    component_id
+                members = [
+                    {"id": component_id, "subgroup": subgroup_of.get((page_url, path), 0)}
                     for page_url, paths in by_page.items()
-                    for component_id in resolve_component_ids(conn, page_url, paths).values()
+                    for path, component_id in resolve_component_ids(conn, page_url, paths).items()
                 ]
                 rows.append({
                     "tag": family.tag, "component_type": family.component_type,
                     "common_classes": list(family.common_classes), "purpose": family.purpose,
-                    "members": member_ids,
+                    "members": members,
                 })
             if not rows:
                 return
@@ -67,10 +82,10 @@ class _LadybugComponentFamilyMixin:
                     tag: r.tag, component_type: r.component_type,
                     common_classes: r.common_classes, purpose: r.purpose
                 })
-                WITH f, r.members AS member_ids
-                UNWIND member_ids AS member_id
-                MATCH (c:Component {id: member_id})
-                CREATE (c)-[:VARIANT_OF]->(f)
+                WITH f, r.members AS members
+                UNWIND members AS m
+                MATCH (c:Component {id: m.id})
+                CREATE (c)-[:VARIANT_OF {subgroup: m.subgroup}]->(f)
                 """,
                 {"rows": rows},
             )
@@ -97,25 +112,47 @@ class _LadybugComponentFamilyMixin:
         keyed by that value. Cypher's own grouping has no such problem -
         it distinguishes two nodes by identity regardless of whether
         their properties are identical.
+
+        `subgroups` is rebuilt by re-grouping each member's `VARIANT_OF.
+        subgroup` int (issue #171) - the inverse of how `record_component_
+        families` wrote it. A family recorded before that field existed
+        (or by a caller that never ran the sub-cluster pass) has every
+        edge at the column default, `0`, which comes back as one
+        subgroup holding every member - a reasonable reading of "no
+        finer split known", not a lossy round-trip: nothing this store
+        ever wrote as `()` distinguishably becomes `()` again, since an
+        unpartitioned family and a family with exactly one partition
+        mean the same thing to a reader either way. `v.subgroup` is
+        `CAST` to `STRING` inside the query - Kùzu's `LIST` needs one
+        element type throughout, and this list already mixes in two
+        `STRING` columns (`page.url`, `e.path`).
         Details: docs/dev/database/ladybug/component_family.md#get_component_families
         """
         def op(conn) -> List[ComponentFamily]:
             rows = conn.execute(
                 """
-                MATCH (c:Component)-[:VARIANT_OF]->(f:ComponentFamily)
+                MATCH (c:Component)-[v:VARIANT_OF]->(f:ComponentFamily)
                 MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
-                WITH f, collect(DISTINCT [page.url, e.path]) AS member_paths
-                RETURN f.tag, f.component_type, f.common_classes, f.purpose, member_paths
+                WITH f, collect(DISTINCT [page.url, e.path, CAST(v.subgroup AS STRING)]) AS member_rows
+                RETURN f.tag, f.component_type, f.common_classes, f.purpose, member_rows
                 """
             )
             families = []
-            for tag, component_type, common_classes, purpose, member_paths in rows:
-                members = tuple(sorted((page_url, path) for page_url, path in member_paths))
+            for tag, component_type, common_classes, purpose, member_rows in rows:
+                members = tuple(sorted((page_url, path) for page_url, path, _ in member_rows))
+                by_subgroup: Dict[int, List[Tuple[str, str]]] = {}
+                for page_url, path, subgroup in member_rows:
+                    by_subgroup.setdefault(int(subgroup), []).append((page_url, path))
+                subgroups = tuple(sorted(
+                    (tuple(sorted(set(paths))) for paths in by_subgroup.values()),
+                    key=lambda group: (-len(group), group),
+                ))
                 families.append(
                     ComponentFamily(
                         tag=tag, component_type=component_type,
                         common_classes=tuple(common_classes),
                         member_paths=members, purpose=purpose or "",
+                        subgroups=subgroups,
                     )
                 )
             return families

@@ -51,6 +51,18 @@ class MatchingThresholds:
 
     leaf_family: float = 0.55
     leaf_exact: float = 0.985
+    # Where a family's members split into visual/structural sub-clusters
+    # (issue #171) - strictly between `leaf_family` (already-together) and
+    # `leaf_exact` (already-collapsed-to-one-row), so a sub-cluster is
+    # neither. Calibrated empirically against `mapadeprofesionales.com
+    # .lbdb`'s real button family: 0.90 is where a genuine bg-color split
+    # (indigo vs. white vs. transparent) first emerges cleanly, without
+    # the singleton-heavy over-fragmentation 0.95+ produces on the same
+    # family. The doctor-card family's border-color variants only
+    # separate above ~0.94 - a known ceiling, not a bug: `border-extra-N`
+    # is an opaque custom-theme token (#168), so it moves the vector only
+    # slightly relative to bg-color's three real RGB channels.
+    leaf_subgroup: float = 0.90
     composite_family: float = 0.5
     composite_exact: float = 0.9
 

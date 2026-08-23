@@ -34,6 +34,11 @@ leaf_weights:
 thresholds:
   leaf_family: 0.55
   leaf_exact: 0.985
+  # Sub-cluster a family's own members by shared extracted properties
+  # (issue #171) - calibrated the same way, against the same dataset's
+  # button family (see analysis/component_matching_config.py's own
+  # comment for the numbers).
+  leaf_subgroup: 0.90
   composite_family: 0.5
   composite_exact: 0.9
 
