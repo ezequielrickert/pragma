@@ -12,10 +12,15 @@ assertion into the same database the observation tier lives in. That is the
 whole point of the tier split: a reader has to be able to tell a fact from a
 deduction, and follow the deduction back.
 
-`Screen`, `Flow` and `Rule` still have no writer. `Rule` stays frozen for the
-reason `research/plan-generacion-de-documentos.md` Fase 7 froze it - its value
-was almost entirely the human-in-the-loop review that is out of scope - and
-the other two have no consumer asking for them yet.
+`Screen` now has a writer too - `screen.py::record_screens`, this module's
+sibling. `DERIVED_FROM` is a rel table both modules write into (`FROM
+Screen TO Page` alongside this module's `FROM Entity/Field TO Component`),
+so this module's own cleanup below is scoped to `Entity`/`Field` sources
+rather than a blanket delete - see `screen.py`'s module docstring for the
+full reasoning. `Flow` and `Rule` still have no writer; `Rule` stays frozen
+for the reason `research/plan-generacion-de-documentos.md` Fase 7 froze it -
+its value was almost entirely the human-in-the-loop review that is out of
+scope - and `Flow` has no consumer asking for it yet.
 
 Details: docs/dev/database/ladybug/semantic.md#module
 """
@@ -65,8 +70,15 @@ class _LadybugSemanticMixin:
 
         def op(conn) -> None:
             # Edges first: Ladybug refuses to delete a node that still has
-            # relationships attached.
-            for table in ("DERIVED_FROM", "HAS_FIELD", "EDITS"):
+            # relationships attached. DERIVED_FROM is scoped to Entity/Field
+            # sources, not a blanket delete - see this module's own
+            # docstring and screen.py's for why: the table also carries
+            # Screen's provenance now, and a blanket delete here would wipe
+            # that out too. HAS_FIELD/EDITS stay blanket - both are
+            # schema-exclusive to this module's own writes.
+            conn.execute("MATCH (:Entity)-[r:DERIVED_FROM]->() DELETE r")
+            conn.execute("MATCH (:Field)-[r:DERIVED_FROM]->() DELETE r")
+            for table in ("HAS_FIELD", "EDITS"):
                 conn.execute(f"MATCH ()-[r:{table}]->() DELETE r")
             conn.execute("MATCH (f:Field) DELETE f")
             conn.execute("MATCH (e:Entity) DELETE e")

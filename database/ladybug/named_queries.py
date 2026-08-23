@@ -175,6 +175,49 @@ class _LadybugNamedQueriesMixin:
 
         return self._call(op)
 
+    def screen_shared_families(self, screen_a: str, screen_b: str) -> List[Dict[str, Any]]:
+        """Every `ComponentFamily` two Screens share a member of - the
+        query helper 'Define Screen semantics and derivation algorithm'
+        (issue #188) specified in place of a new Screen-to-Screen edge:
+        component reuse across Screens is a query over `RENDERS` +
+        `HAS_COMPONENT` + `VARIANT_OF`, not stored data, the same
+        reasoning that keeps Screen-to-Screen navigation a query over
+        `NAVIGATES_TO` rather than a duplicate edge.
+
+        Args:
+            screen_a: the `page_url` of one Screen - a Screen's own
+                identity, since the tier is 1:1 with `Page`
+                (`screen.py::record_screens`).
+            screen_b: the `page_url` of the other Screen.
+
+        Returns:
+            One dict per shared family (`tag`/`component_type`/
+            `common_classes`/`purpose`), sorted by `tag` then
+            `component_type`. `[]` if the two Screens share no
+            `ComponentFamily` member, or either `page_url` names no
+            Screen at all.
+        Details: docs/dev/database/ladybug/named_queries.md#screen_shared_families
+        """
+        def op(conn) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                """
+                MATCH (:Screen)-[:RENDERS]->(:Page {url: $a})-[:HAS_COMPONENT]->
+                      (:Component)-[:VARIANT_OF]->(fa:ComponentFamily)
+                MATCH (:Screen)-[:RENDERS]->(:Page {url: $b})-[:HAS_COMPONENT]->
+                      (:Component)-[:VARIANT_OF]->(fb:ComponentFamily)
+                WHERE fa.id = fb.id
+                RETURN DISTINCT fa.tag, fa.component_type, fa.common_classes, fa.purpose
+                ORDER BY fa.tag, fa.component_type
+                """,
+                {"a": screen_a, "b": screen_b},
+            )
+            return [
+                {"tag": tag, "component_type": component_type, "common_classes": common_classes, "purpose": purpose}
+                for tag, component_type, common_classes, purpose in rows
+            ]
+
+        return self._call(op)
+
     def unexplored(self) -> List[Dict[str, Any]]:
         """Parity shim for `get_pending()` under the named-query surface -
         pages the frontier still owes a visit.

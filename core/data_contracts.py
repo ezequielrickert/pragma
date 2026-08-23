@@ -384,3 +384,37 @@ class SemanticEntity:
     description: str
     fields: Tuple[SemanticField, ...]
     derived_from: Tuple[Tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class SemanticScreen:
+    """One rendered UI screen - the semantic tier's view of a `Page`, 1:1
+    (`database/ladybug/screen.py::build_screens`'s only clustering rule -
+    see that module's docstring for why Screen stays 1:1 rather than
+    grouping several Pages together).
+
+    Fields:
+        page_url: the `Page.url` this Screen renders. Also its provenance:
+            unlike `SemanticEntity`/`SemanticField` (derived from
+            `Component`s), a Screen's `DERIVED_FROM` edge points straight
+            at the one `Page` it stands for - the grouping itself is
+            100% deterministic, so there is nothing else to cite. Never
+            empty; `record_screens` refuses to write one without it, same
+            rule `record_entities` enforces for `derived_from`.
+        route_pattern: the base `route_shape` of `page_url`, with any
+            `#state:...` synthetic-state suffix stripped - so a route's
+            distinct in-page states (a list/map toggle, say) stay separate
+            Screens that share one `route_pattern`.
+        name: a short human-readable label, or `""` if never narrated -
+            filled in by `screen_narrator.narrate_screens`, an explicitly
+            separate, impure step needing an `Agent`. `build_screens`
+            itself never sets this, the same split
+            `component_family_narrator.py` uses for `ComponentFamily.purpose`.
+        purpose: one-sentence description of what a person does on this
+            screen, or `""` under the same narration split as `name`.
+    """
+
+    page_url: str
+    route_pattern: str
+    name: str = ""
+    purpose: str = ""

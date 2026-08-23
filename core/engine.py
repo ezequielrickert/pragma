@@ -19,6 +19,8 @@ from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
 from generators.data_model import build_entities
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
+from generators.screen_narrator import build_page_context, narrate_screens, screen_signature
+from generators.screens import build_screens
 from analysis.component_matching_pipeline import apply_component_matching
 from analysis.graph_projection_apply import apply_graph_projection
 from utils.io import generate_docs_index, record_run_manifest, write_output
@@ -61,6 +63,43 @@ def _apply_data_model(graph_store: Any, run_id: str) -> None:
     field_count = sum(len(entity.fields) for entity in entities)
     print(f"Deduced {len(entities)} entity/entities with {field_count} field(s) from forms.")
     graph_store.record_entities(entities, run_id=run_id)
+
+
+def _apply_screens(graph_store: Any, agent: Agent, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Screen` per finished `Page`
+    (`generators/screens.py::build_screens`), narrated with a name/purpose
+    (`generators/screen_narrator.py::narrate_screens`), and written back
+    with its provenance - the semantic tier's second writer, alongside
+    `_apply_data_model` above.
+
+    Args:
+        graph_store: same store the crawl wrote to.
+        agent: shared across every narration step in a run, same instance
+            `apply_component_matching` already narrates component families
+            with.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`.
+
+    Returns:
+        None. `record_screens` refuses any screen with no `page_url`,
+        which `build_screens` always sets from a real `Page.url` - see
+        `_apply_data_model`'s own docstring for why that leaves this pass
+        no error handling of its own.
+    Details: docs/dev/core/engine.md#_apply_screens
+    """
+    screens = build_screens(graph_store.get_progress_table_rows())
+    # Read before record_screens wipes them - a screen unchanged since the
+    # last run keeps its name/purpose rather than buying them again, same
+    # reasoning apply_component_matching's own narration cache follows.
+    known_purposes = {
+        screen_signature(existing): (existing.name, existing.purpose)
+        for existing in graph_store.get_screens()
+        if existing.name or existing.purpose
+    }
+    page_context = build_page_context(graph_store.get_page_titles(), graph_store.get_page_descriptions())
+    narrated = narrate_screens(agent, screens, page_context, known_purposes)
+    print(f"Deduced {len(narrated)} screen(s) from the pages the crawl finished.")
+    graph_store.record_screens(narrated, run_id=run_id)
 
 
 @dataclass
@@ -302,6 +341,8 @@ class Engine:
         apply_graph_projection(graph_store, route_shape(url))
         print("Deducing the data model from the forms found...")
         _apply_data_model(graph_store, run_id)
+        print("Deriving screens from the pages the crawl finished...")
+        _apply_screens(graph_store, self.agent, run_id)
 
         run_timestamp = _timestamp()
         # `run_id`, not `run_timestamp`: coverage.json's own run_id (ADR-0001)
