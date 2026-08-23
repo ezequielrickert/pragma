@@ -28,6 +28,15 @@ the `export` concern's own detail page, which still exists unchanged
 too - this is additional, not a replacement). Reads "not available this
 run" the same way a KPI tile does when `export.json` wasn't produced.
 
+## _concern_page
+
+A card per file (ticket #177, map #172 - was a bare `<ul>`), plus
+`document_context.py`'s own real "what is this document typically used
+for" explanation surfaced here, before a reviewer opens any specific
+file - not only after, the way it already showed on the document's own
+detail page (ticket #145). One shared rendering (`render_context_section`)
+for both.
+
 ## _document_slug
 
 `filename` alone collides for a source/view pair sharing one stem
