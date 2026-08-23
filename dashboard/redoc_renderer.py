@@ -57,16 +57,35 @@ body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; backgrou
 """
 
 
+def render_redoc_embed(content: str) -> str:
+    """The Redoc-rendered spec itself - a container div, the spec
+    embedded inline, the CDN script, and the `init()` call - with no
+    surrounding page chrome, so a caller with its own page shell (the
+    interactive dashboard's own view mode, ticket #178) can drop this in
+    directly rather than getting a second `<html>`/`<head>` nested inside
+    its own. `render_redoc_page` is this plus the static dashboard's own
+    header/breadcrumb/context chrome around it - one real conversion, not
+    two.
+    Details: docs/dev/dashboard/redoc_renderer.md#render_redoc_embed
+    """
+    spec_json = json.dumps(yaml.safe_load(content))
+    return (
+        '<div id="redoc-container"></div>'
+        f'<script id="spec-data" type="application/json">{spec_json}</script>'
+        f'<script src="{_REDOC_SCRIPT}"></script>'
+        "<script>Redoc.init(JSON.parse(document.getElementById('spec-data').textContent), {}, "
+        "document.getElementById('redoc-container'));</script>"
+    )
+
+
 def render_redoc_page(document: ProducedDocument, content: str) -> str:
     """One self-contained static HTML page for `document`, rendered
     through Redoc - `content` is `openapi.yaml`'s raw YAML text, already
-    read by the caller, parsed here into the JSON object Redoc's own
-    `init()` API takes. The breadcrumb back to the document's own
+    read by the caller. The breadcrumb back to the document's own
     concern page uses `document.name`/`.title` directly, the same pair
     `dashboard/shell.py` groups documents by concern with.
     Details: docs/dev/dashboard/redoc_renderer.md#render_redoc_page
     """
-    spec_json = json.dumps(yaml.safe_load(content))
     return (
         "<!doctype html>\n"
         f'<html lang="en"><head><meta charset="utf-8"><title>{escape(document.title)}</title>'
@@ -76,10 +95,6 @@ def render_redoc_page(document: ProducedDocument, content: str) -> str:
         f'<h1>{escape(document.title)}</h1>'
         f'<p class="purpose">{escape(document.purpose)}</p>'
         f"{render_context_section(document)}</div>"
-        f'<div id="redoc-container"></div>'
-        f'<script id="spec-data" type="application/json">{spec_json}</script>'
-        f'<script src="{_REDOC_SCRIPT}"></script>'
-        "<script>Redoc.init(JSON.parse(document.getElementById('spec-data').textContent), {}, "
-        "document.getElementById('redoc-container'));</script>"
+        f"{render_redoc_embed(content)}"
         "</body></html>\n"
     )

@@ -16,6 +16,15 @@ own data module's accessor (`token_form.color_tokens`,
 `generic_form.form_entries`) to know what to render, the same way a
 route handler would, just one call removed from it.
 
+**View/edit split** (ticket #178): every document opens in a read-only
+view by default (`document_view_page`) - the same rendered output the
+static dashboard already produces for that file type. An "Edit" link
+leads to the diff-gutter editor on a separate `/edit` sub-route
+(`document_page`). `document_view_page`'s renderer dispatch is the
+same three cases `dashboard/generic_template.py` + `dashboard/
+redoc_renderer.py` already use: Markdown → `render_markdown`,
+`openapi` → `render_redoc_embed`, everything else → `<pre>`.
+
 Details: docs/dev/interactive/pages.md#module
 """
 from __future__ import annotations
@@ -27,6 +36,9 @@ from typing import Dict, List, Optional
 
 import jsonschema
 from flask import url_for
+
+from dashboard.generic_template import render_markdown
+from dashboard.redoc_renderer import render_redoc_embed
 
 from .customization import DocumentRef, SiteOutput, available_documents, schema_path_for
 from .generic_form import ENTRY_FIELD_PREFIX, FormEntry, FormField, Widget, form_entries, has_generic_form
@@ -53,6 +65,22 @@ textarea { width: 100%; min-height: 400px; background: var(--panel); color: var(
 button { background: var(--accent); color: white; border: none; border-radius: 6px;
   padding: 8px 18px; font-size: 14px; cursor: pointer; }
 .finalizar { background: var(--danger); }
+.view-actions { margin-bottom: 16px; }
+.view-actions a.edit-link { display: inline-block; background: var(--accent); color: white;
+  border-radius: 6px; padding: 8px 18px; font-size: 14px; }
+.view-body { margin-top: 8px; }
+.view-body pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.view-body .markdown-body { line-height: 1.7; }
+.view-body .markdown-body table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+.view-body .markdown-body th, .view-body .markdown-body td { border: 1px solid var(--border);
+  padding: 6px 10px; text-align: left; }
+.view-body .markdown-body th { background: var(--panel); }
+.view-body .markdown-body code { background: var(--panel); padding: 1px 5px; border-radius: 4px;
+  font-size: 13px; }
+.view-body .markdown-body pre code { background: none; padding: 0; }
+.view-body .markdown-body blockquote { border-left: 3px solid var(--border); margin: 0;
+  padding-left: 14px; color: var(--text-dim); }
 .chat { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
 .chat .turn { padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; }
 .chat .turn.user { background: var(--panel); }
@@ -142,14 +170,14 @@ def page(title: str, body: str) -> str:
 
 def landing_page(where: SiteOutput) -> str:
     items = "".join(
-        f'<li><a href="{url_for("edit_document", filename=ref.filename, extension=ref.extension)}">'
+        f'<li><a href="{url_for("view_document", filename=ref.filename, extension=ref.extension)}">'
         f"{escape(ref.filename)}.{escape(ref.extension)}</a></li>"
         for ref in available_documents(where)
     )
     return (
         f"<h1>{escape(where.site)}</h1>"
-        '<p>Every document this crawl produced, editable below. Editing writes a customized '
-        "copy - the original crawl output is never touched.</p>"
+        '<p>Every document this crawl produced. Open one to read it; click Edit to customise '
+        "it - edits write a separate copy and never touch the original crawl output.</p>"
         f'<ul class="documents">{items}</ul>'
         '<form method="post" action="/finalizar" onsubmit="return confirm(\'Finalizar sesión?\')">'
         '<button class="finalizar" type="submit">Finalizar</button></form>'
@@ -205,6 +233,30 @@ def _approximate_line_for_path(content: str, path: List[str]) -> Optional[int]:
     return None
 
 
+def document_view_page(ref: DocumentRef, content: str, renderer: str) -> str:
+    """The read-only view for `ref` - the default surface when opening a
+    document (ticket #178). `renderer` is the verdict from
+    `dashboard.renderer_audit.renderer_for`, the same three cases the
+    static dashboard already dispatches on: `"redoc"` for `openapi`,
+    `"generic"` for everything else (Markdown rendered to HTML, raw
+    content in a `<pre>` for all other extensions).
+    Details: docs/dev/interactive/pages.md#document_view_page
+    """
+    edit_url = url_for("edit_document", filename=ref.filename, extension=ref.extension)
+    if renderer == "redoc":
+        body = render_redoc_embed(content)
+    elif ref.extension == "md":
+        body = f'<div class="markdown-body">{render_markdown(content)}</div>'
+    else:
+        body = f"<pre>{escape(content)}</pre>"
+    return (
+        f'<p><a href="{url_for("index")}">\u2190 Back</a></p>'
+        f"<h1>{escape(ref.filename)}.{escape(ref.extension)}</h1>"
+        f'<div class="view-actions"><a class="edit-link" href="{edit_url}">Edit</a></div>'
+        f'<div class="view-body">{body}</div>'
+    )
+
+
 def document_page(ref: DocumentRef, state: DocumentEditState) -> str:
     error_html = f'<div class="error">{escape(state.failure.message)}</div>' if state.failure else ""
     error_line = _approximate_line_for_path(state.content, state.failure.path) if state.failure else None
@@ -213,8 +265,9 @@ def document_page(ref: DocumentRef, state: DocumentEditState) -> str:
         if schema_path_for(ref.filename)
         else "No schema known for this document - saved as-is, unvalidated."
     )
+    view_url = url_for("view_document", filename=ref.filename, extension=ref.extension)
     return (
-        f'<p><a href="{url_for("index")}">&larr; {escape(ref.filename)}.{escape(ref.extension)}</a></p>'
+        f'<p><a href="{view_url}">\u2190 {escape(ref.filename)}.{escape(ref.extension)}</a></p>'
         f"<h1>{escape(ref.filename)}.{escape(ref.extension)}</h1>"
         f"<p>{schema_note}</p>"
         f"{error_html}"

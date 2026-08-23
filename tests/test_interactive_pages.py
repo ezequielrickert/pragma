@@ -68,3 +68,25 @@ def test_document_page_with_a_failure_shows_the_message_and_the_approximate_line
 
     assert "$value" in html and "is a required property" in html  # escape() turns ' into &#x27;
     assert "paintGutters(1)" in html
+
+
+def test_document_view_page_renders_based_on_renderer():
+    from interactive.pages import document_view_page
+    app = create_app("unused", "example.com", Mock())
+    with app.test_request_context():
+        # Markdown
+        html_md = document_view_page(DocumentRef("prd", "md"), "# Hello\n- world", "generic")
+        assert "<h1>Hello</h1>" in html_md
+        assert "<li>world</li>" in html_md
+        assert 'class="edit-link"' in html_md
+
+        # OpenAPI (redoc)
+        html_openapi = document_view_page(DocumentRef("openapi", "yaml"), "openapi: 3.0.0\n", "redoc")
+        assert "redoc-container" in html_openapi
+        assert 'class="edit-link"' in html_openapi
+
+        # Generic pre-formatted
+        html_feature = document_view_page(DocumentRef("gherkin", "feature"), "Feature: raw", "generic")
+        assert "<pre>Feature: raw</pre>" in html_feature
+        assert 'class="edit-link"' in html_openapi
+
