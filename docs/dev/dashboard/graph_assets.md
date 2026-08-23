@@ -28,3 +28,18 @@ emitted by any generator) render dimmed in the legend rather than being
 silently absent, confirmed readable in ticket #162's own prototype.
 `SCRIPT` carries two placeholders, `__FAMILY_COLORS__`/`__RESERVED_TYPES__`,
 substituted with real JSON by `graph_renderer.render_graph_page`.
+
+**Canvas/detail-view mechanics, ticket #174 (map #172).** `COSE_LAYOUT` is
+one shared constant (was four separately-tunable copies) with
+`nodeRepulsion: 400000` - cose's own real default; this file previously set
+`9000` (44x weaker), the actual cause of nodes rendering stacked on a real
+crawl's denser hub cluster. `truncateLabel` caps a node's on-canvas label at
+`LABEL_MAX_LENGTH` - the full label always still shows untruncated once a
+node is clicked (the detail drawer never truncates). The drawer is
+`max(500px, 50vw)` instead of a fixed 360px, and its own ego-graph is taller
+(340px, was 180px) with pan/zoom actually enabled (previously forced off).
+`openDetail` opens the drawer *before* rendering the ego-graph into it -
+cytoscape reads its container's real dimensions at construction time, and
+resizes/fits again once the drawer's own CSS width transition genuinely
+finishes (a `transitionend` listener, not a fixed delay) rather than
+whatever size a still-animating container happened to have.
