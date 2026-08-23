@@ -59,7 +59,7 @@ def test_get_document_shows_the_effective_content_in_a_textarea(tmp_path):
     _write_original(tmp_path, "gherkin", "feature", "Feature: original\n")
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    html = client.get("/document/gherkin.feature/edit").get_data(as_text=True)
 
     assert "Feature: original" in html
     assert "<textarea" in html
@@ -75,7 +75,7 @@ def test_get_document_wires_the_real_original_alongside_the_customized_current(t
     save_customized(SiteOutput(str(tmp_path), SITE), DocumentRef("gherkin", "feature"), "Feature: edited\n")
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    html = client.get("/document/gherkin.feature/edit").get_data(as_text=True)
     original_pane = html.split('id="orig-pane"')[1].split("</pre>")[0]
     editable_content = html.split('id="edit-content"')[1].split("</textarea>")[0]
 
@@ -96,9 +96,10 @@ def test_post_valid_content_saves_and_redirects(tmp_path):
     _write_original(tmp_path, "gherkin", "feature", "Feature: original\n")
     client = _app(tmp_path).test_client()
 
-    response = client.post("/document/gherkin.feature", data={"content": "Feature: edited\n"})
+    response = client.post("/document/gherkin.feature/edit", data={"content": "Feature: edited\n"})
 
     assert response.status_code == 302
+    assert response.headers["Location"] == "/document/gherkin.feature"
     saved = (tmp_path / "customized" / f"{SITE}_gherkin.feature").read_text(encoding="utf-8")
     assert saved == "Feature: edited\n"
 
@@ -107,7 +108,7 @@ def test_post_content_that_breaks_the_schema_shows_the_real_error_and_does_not_s
     _write_original(tmp_path, "coverage", "json", "{}")
     client = _app(tmp_path).test_client()
 
-    response = client.post("/document/coverage.json", data={"content": "{}"})
+    response = client.post("/document/coverage.json/edit", data={"content": "{}"})
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -125,7 +126,7 @@ def test_editing_a_document_that_is_already_customized_edits_the_customized_copy
     save_customized(SiteOutput(str(tmp_path), SITE), DocumentRef("gherkin", "feature"), "Feature: already customized\n")
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    html = client.get("/document/gherkin.feature/edit").get_data(as_text=True)
     editable_content = html.split('id="edit-content"')[1].split("</textarea>")[0]
 
     assert "Feature: already customized" in editable_content
@@ -224,7 +225,7 @@ def test_tokens_page_shows_a_color_picker_per_core_color_token(tmp_path):
                      '{"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}')
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/tokens.json").get_data(as_text=True)
+    html = client.get("/document/tokens.json/edit").get_data(as_text=True)
 
     assert 'type="color"' in html
     assert 'value="#2d7737"' in html
@@ -235,7 +236,7 @@ def test_a_non_tokens_page_shows_no_color_form(tmp_path):
     _write_original(tmp_path, "gherkin", "feature", "Feature: x\n")
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    html = client.get("/document/gherkin.feature/edit").get_data(as_text=True)
 
     assert 'class="color-tokens"' not in html
 
@@ -258,7 +259,7 @@ def test_the_raw_text_editor_still_works_on_the_tokens_page_alongside_the_color_
                      '{"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}')
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/tokens.json").get_data(as_text=True)
+    html = client.get("/document/tokens.json/edit").get_data(as_text=True)
 
     assert "<textarea" in html
     assert 'type="color"' in html
@@ -276,7 +277,7 @@ def test_the_requirements_page_shows_the_generic_review_form(tmp_path):
     _write_original(tmp_path, "requirements", "json", json.dumps({"requirements": [_REQUIREMENT]}))
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/requirements.json").get_data(as_text=True)
+    html = client.get("/document/requirements.json/edit").get_data(as_text=True)
 
     assert 'class="generic-form"' in html
     assert "REQ-a4f9000001" in html
@@ -300,6 +301,43 @@ def test_a_document_with_no_generic_form_spec_shows_no_generic_form_panel(tmp_pa
     _write_original(tmp_path, "gherkin", "feature", "Feature: x\n")
     client = _app(tmp_path).test_client()
 
-    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+    html = client.get("/document/gherkin.feature/edit").get_data(as_text=True)
 
     assert 'class="generic-form"' not in html
+
+
+def test_view_mode_renders_markdown_to_html_for_md_document(tmp_path):
+    _write_original(tmp_path, "prd", "md", "# PRD Requirements\n- Must support read-only view.")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/prd.md").get_data(as_text=True)
+
+    assert "PRD Requirements" in html
+    assert "Must support read-only view." in html
+    assert "<li>" in html
+    assert 'class="edit-link"' in html
+    assert "<textarea" not in html
+
+
+def test_view_mode_renders_redoc_for_openapi(tmp_path):
+    _write_original(tmp_path, "openapi", "yaml", "openapi: 3.0.0\ninfo:\n  title: Test API\n  version: 1.0\npaths: {}\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/openapi.yaml").get_data(as_text=True)
+
+    assert "redoc-container" in html
+    assert "Test API" in html
+    assert 'class="edit-link"' in html
+    assert "<textarea" not in html
+
+
+def test_view_mode_renders_pre_escaped_for_generic_files(tmp_path):
+    _write_original(tmp_path, "gherkin", "feature", "Feature: x\n  Scenario: <escaped>\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/gherkin.feature").get_data(as_text=True)
+
+    assert "<pre>Feature: x\n  Scenario: &lt;escaped&gt;\n</pre>" in html
+    assert 'class="edit-link"' in html
+    assert "<textarea" not in html
+

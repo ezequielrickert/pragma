@@ -24,7 +24,7 @@ those - it's nearly every `view`/`projection` document this pipeline
 produces (`prd.md`, `catalog.md`, `tokens.md`, `decisions.adr/*.md`,
 ...), not a rare exotic format with no good renderer, so leaving it in
 the generic `<pre>` fallback showed a reviewer raw `#`/`>`/`| --- |`
-syntax instead of the prose/tables it was meant to be. `_render_markdown`
+syntax instead of the prose/tables it was meant to be. `render_markdown`
 converts it to real HTML (`markdown`, `tables`/`fenced_code` extensions -
 GFM-style tables and code fences are what this pipeline's own Markdown
 generators actually emit) for any document whose `path` ends in `.md`,
@@ -116,11 +116,14 @@ def _is_markdown(document: ProducedDocument) -> bool:
     return document.path.endswith(".md")
 
 
-def _render_markdown(content: str) -> str:
+def render_markdown(content: str) -> str:
     """Markdown-to-HTML, then sanitized - see the module docstring's
     own "Sanitized, not trusted" section for why the second step isn't
-    optional here.
-    Details: docs/dev/dashboard/generic_template.md#_render_markdown
+    optional here. Public since ticket #178: the interactive dashboard's
+    own view mode reuses this exact conversion for a `.md` document
+    rather than a second one - "the same rendering the static dashboard
+    already gives" only holds if it's literally the same function.
+    Details: docs/dev/dashboard/generic_template.md#render_markdown
     """
     html = markdown.markdown(content, extensions=_MARKDOWN_EXTENSIONS)
     return bleach.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRIBUTES, strip=True)
@@ -135,7 +138,7 @@ def render_generic_page(document: ProducedDocument, content: str) -> str:
     Details: docs/dev/dashboard/generic_template.md#render_generic_page
     """
     body = (
-        f'<div class="markdown-body">{_render_markdown(content)}</div>'
+        f'<div class="markdown-body">{render_markdown(content)}</div>'
         if _is_markdown(document)
         else f"<pre>{escape(content)}</pre>"
     )

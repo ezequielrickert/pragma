@@ -65,6 +65,17 @@ update dict and hands it to `generic_form.save_generic_form` - this
 module still only parses form data, `interactive/generic_form.py` still
 owns knowing what a field's real widget/value is.
 
+**View/edit split** (ticket #178): every document opens in a read-only
+view (`view_document`, GET `/document/<filename>.<extension>`) that
+shows the same rendered output the static dashboard already gives.
+`edit_document` (GET/POST `/document/<filename>.<extension>/edit`)
+is the diff-gutter editor, only reachable via the "Edit" link on the
+view page. A successful save redirects back to the view page, not the
+editor - the reviewer returns to the rendered result, not to the raw
+diff, after each save. `dashboard.renderer_audit.renderer_for` drives
+the view dispatch, so the interactive and static dashboards stay in
+sync automatically.
+
 Details: docs/dev/interactive/server.md#module
 """
 from __future__ import annotations
@@ -76,6 +87,8 @@ import jsonschema
 import yaml
 from flask import Flask, current_app, redirect, request, url_for
 from werkzeug.serving import BaseWSGIServer, make_server
+
+from dashboard.renderer_audit import renderer_for
 
 from core.interfaces import Agent
 
@@ -118,7 +131,16 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
     def index():
         return pages.page(f"{site} - Interactive Dashboard", pages.landing_page(where))
 
-    @app.route("/document/<filename>.<extension>", methods=["GET", "POST"])
+    @app.route("/document/<filename>.<extension>")
+    def view_document(filename: str, extension: str):
+        ref = DocumentRef(filename=filename, extension=extension)
+        content = effective_content(where, ref)
+        if content is None:
+            return pages.page("Not found", f"<p>No document named {filename}.{extension} for {site}.</p>"), 404
+        body = pages.document_view_page(ref, content, renderer_for(filename))
+        return pages.page(f"{filename}.{extension} - {site}", body)
+
+    @app.route("/document/<filename>.<extension>/edit", methods=["GET", "POST"])
     def edit_document(filename: str, extension: str):
         ref = DocumentRef(filename=filename, extension=extension)
         failure = None
@@ -130,7 +152,7 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
                 path = list(exc.absolute_path) if isinstance(exc, jsonschema.ValidationError) else []
                 failure = pages.ValidationFailure(message=pages.validation_error_message(exc), path=path)
             else:
-                return redirect(url_for("edit_document", filename=filename, extension=extension))
+                return redirect(url_for("view_document", filename=filename, extension=extension))
         else:
             content = effective_content(where, ref)
             if content is None:
