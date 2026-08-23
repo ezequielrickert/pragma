@@ -8,41 +8,16 @@ per-document render and one per-concern detail page. "Variant C" from
 the validated prototype (`prototype/dashboard-80`) - no persistent
 sidebar or top bar, the landing page carries the navigation.
 
-**Why KPI numbers come from two different places.** Pages/components
-counts come from the caller's own already-computed `KpiContext` -
-`core/docs_engine.py`/`core/engine.py` both already compute
-`finished_pages`/`total_pages`/`unexplored_components`/`total_components`
-locally for `record_run_manifest`; `coverage.json`'s own serialized
-JSON shape doesn't expose `components_explored` at all (only
-`interactions.detected`, a different number - total known components,
-not "how many were interacted with"), so there's no file to read this
-pair from anyway. Endpoints and requirement confidence, by contrast, do
-have a real dedicated source document each (`coverage.json`,
-`confidence-summary.json`) - read from there, never recomputed.
-
-## KpiContext
-
-The two counts `coverage.json` can't supply, passed through from the
-caller rather than re-derived.
+**The KPI row itself lives in `dashboard/kpi_section.py`** (split out
+once this file crossed file-size-audit's WATCH threshold, ticket #176) -
+`KpiContext`/`source_content`/`source_json` re-export or import from
+there; see `docs/dev/dashboard/kpi_section.md`.
 
 ## DashboardRunContext
 
 `write_dashboard`'s own bundle - `kpi_context` plus `site`/`out_dir`,
 kept out of `KpiContext` itself since those two are about identity and
 location, not metrics.
-
-## _source_content
-
-The raw text of a `kind="source"` document, or `None` when a config
-turned it off this run - the same "maybe absent" signal `manifest.json`'s
-own `status: "off"` already encodes. `_source_json` is this, parsed;
-the Graph card (`_graph_card`/`build_dashboard`) needs the raw text
-itself, not a parsed dict, since `render_graph_page` embeds it directly.
-
-## _source_json
-
-`_source_content`'s own text, parsed - `None` for the same "never
-produced this run" case, plus `None` for text that isn't valid JSON.
 
 ## _graph_card
 
@@ -52,12 +27,6 @@ decision (a dedicated card, more discoverable than being buried under
 the `export` concern's own detail page, which still exists unchanged
 too - this is additional, not a replacement). Reads "not available this
 run" the same way a KPI tile does when `export.json` wasn't produced.
-
-## _kpi_section
-
-The crawl-wide metrics row (ADR-0016 point 4): pages/components from
-the caller's own counts, endpoints from `coverage.json`, requirement
-confidence from `confidence-summary.json`.
 
 ## _document_slug
 

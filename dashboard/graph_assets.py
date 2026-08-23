@@ -309,8 +309,28 @@ function structuralNodeIds() {
   return new Set([...nodesById.values()].filter(n => n.type === "Pantalla" || n.type === "Modulo").map(n => n.id));
 }
 
+function nodeIdsOfType(type) {
+  return new Set([...nodesById.values()].filter(n => n.type === type).map(n => n.id));
+}
+
+// The landing page's own KPI tiles (dashboard/shell.py::_kpi_tile) link
+// here as graph.html?family=<Type> - a real node type this run's
+// export.json actually has coverage for (ADR-0002), not an invented one.
+// Falls back to the ordinary structural-families default whenever the
+// param is absent, unknown, or names a family with zero real nodes this
+// run (a linked-through-but-empty view would be a worse landing than the
+// familiar default).
+function initialVisibleIds() {
+  const family = new URLSearchParams(location.search).get("family");
+  if (family) {
+    const ids = nodeIdsOfType(family);
+    if (ids.size) return ids;
+  }
+  return structuralNodeIds();
+}
+
 function buildGraph() {
-  visibleIds = structuralNodeIds();
+  visibleIds = initialVisibleIds();
   cy = initCy("cy");
   cy.nodes().forEach(n => n.toggleClass("hidden-node", !visibleIds.has(n.id())));
   recomputeEdgeVisibility(cy);

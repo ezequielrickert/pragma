@@ -29,6 +29,14 @@ silently absent, confirmed readable in ticket #162's own prototype.
 `SCRIPT` carries two placeholders, `__FAMILY_COLORS__`/`__RESERVED_TYPES__`,
 substituted with real JSON by `graph_renderer.render_graph_page`.
 
+**`?family=<Type>` (ticket #176, map #172).** `initialVisibleIds` reads
+this URL param on load - the landing page's own KPI tiles
+(`dashboard/kpi_section.py`) link here pre-filtered to their own real
+node family. Falls back to the ordinary structural-families default
+whenever the param is absent, names an unknown type, or names a family
+with zero real nodes this run - a linked-through-but-empty view would be
+a worse landing than the familiar default.
+
 **Canvas/detail-view mechanics, ticket #174 (map #172).** `COSE_LAYOUT` is
 one shared constant (was four separately-tunable copies) with
 `nodeRepulsion: 400000` - cose's own real default; this file previously set
