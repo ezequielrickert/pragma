@@ -17,10 +17,11 @@ writing an unsupported assertion. `schema.py` had already stated the rule in a
 comment; a rule that lives only in a comment is one a future writer breaks by
 accident, and the write is the single place it cannot be forgotten.
 
-`Screen`, `Flow` and `Rule` still have no writer. `Rule` stays frozen for the
-reason `research/plan-generacion-de-documentos.md` Fase 7 froze it - its value
-was almost entirely the human-in-the-loop review that is out of scope - and
-the other two have no consumer asking for them.
+`Screen` (`screen.py::record_screens`) and `Flow` (`flow.py::record_flows`)
+have writers of their own now. `Rule` alone still has none, and stays frozen
+for the reason `research/plan-generacion-de-documentos.md` Fase 7 froze it -
+its value was almost entirely the human-in-the-loop review that is out of
+scope.
 
 ## _ladybugsemanticmixin
 

@@ -231,7 +231,7 @@ def flow_findings(flow: Any) -> List[Finding]:
     ]
     # `unattributable-outcome` used to be the second rule here, firing on
     # transitions whose outcome was "mixed". That outcome no longer exists:
-    # a Request now hangs off its own Interaction, so `_request_outcome`
+    # a Request now hangs off its own Interaction, so `request_outcome`
     # returns only OK/ERROR/UNKNOWN and each click of one control keeps its
     # own result. The rule described a limitation of the storage, and the
     # storage stopped having it - deleted rather than left as a branch that

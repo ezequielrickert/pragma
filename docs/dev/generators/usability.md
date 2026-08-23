@@ -84,7 +84,7 @@ transitions whose outcome was `"mixed"`, meaning one control led to several
 screens whose requests disagreed and there was no way to tell which request
 belonged to which move. That was true when requests were pooled onto the
 `Component`. A `Request` now hangs off its own `Interaction` with
-`visit_id`/`step_seq`, so `user_flows._request_outcome` returns only
+`visit_id`/`step_seq`, so `user_flows.request_outcome` returns only
 `OK`/`ERROR`/`UNKNOWN` and each click of one control keeps its own result.
 
 The rule described a limitation of the storage layer; the storage layer

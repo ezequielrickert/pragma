@@ -37,6 +37,7 @@ from .composite_family import _LadybugCompositeFamilyMixin
 from .containment import _LadybugContainmentMixin
 from .container_forest import _LadybugContainerForestMixin
 from .container_merge import _LadybugContainerMergeMixin
+from .flow import _LadybugFlowMixin
 from .named_queries import _LadybugNamedQueriesMixin
 from .network import _LadybugNetworkMixin
 from .options import _LadybugOptionsMixin
@@ -109,7 +110,7 @@ class LadybugGraphStore(
     _LadybugAnalysisMixin, _LadybugNetworkMixin,
     _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugContainerForestMixin, _LadybugContainerMergeMixin,
     _LadybugRawQueryMixin, _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
-    _LadybugScreenMixin, _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
+    _LadybugScreenMixin, _LadybugFlowMixin, _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -127,8 +128,8 @@ class LadybugGraphStore(
     `options.py` (Option), `containment.py` (Container),
     `state_styles.py` (StateStyle - declared :hover/:focus values),
     `semantic.py` (Entity/Field - the semantic tier, provenance enforced
-    at the write), `screen.py` (Screen - the semantic tier's other
-    writer, same provenance discipline), and the retrieval surface split
+    at the write), `screen.py` and `flow.py` (Screen/Flow - the semantic
+    tier's other writers, same provenance discipline), and the retrieval surface split
     three ways by concern:
     `raw_query.py` (`raw()`, `schema_card()`), `named_queries.py` (the named query
     library and its `query()` dispatcher), `search.py` (FTS) - same

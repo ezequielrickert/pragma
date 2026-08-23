@@ -124,14 +124,21 @@ def _is_failure(request: Dict[str, Any]) -> bool:
     return bool(request.get("failed")) or (isinstance(status, int) and status >= 400)
 
 
-def _request_outcome(requests: Sequence[Dict[str, Any]]) -> Tuple[str, Optional[int], str]:
+def request_outcome(requests: Sequence[Dict[str, Any]]) -> Tuple[str, Optional[int], str]:
     """`(outcome, status, endpoint)` for the requests behind one transition.
 
     A failed or `>= 400` request wins over a successful one: a screen that
     answers 201 for most inputs and 422 for some is interesting *because*
     of the 422, and a transition summarised by its happy path would hide
     exactly the branch worth documenting.
-    Details: docs/dev/generators/user_flows.md#_request_outcome
+
+    Public (not `_request_outcome`, its name before issue #192): the same
+    bucketing `generators/flows.py::build_flows` needs for `Flow.outcome`,
+    per 'Define Flow semantics and derivation algorithm' (#189) - reusing
+    it here rather than re-deriving the identical rank/status logic keeps
+    the two documents from ever disagreeing on what "this transition
+    failed" means.
+    Details: docs/dev/generators/user_flows.md#request_outcome
     """
     if not requests:
         return UNKNOWN, None, ""
@@ -181,7 +188,7 @@ def build_flow_graph(edges: Sequence[Dict[str, str]], components: Sequence[Dict[
         component = by_key.get((from_state, path))
         trigger = _trigger_label(component, path)
         requests = _requests_for_move(component, to_state)
-        outcome, status, endpoint = _request_outcome(requests)
+        outcome, status, endpoint = request_outcome(requests)
         key = (from_state, to_state, trigger, edge.get("action", ""))
         # An error outcome seen on any repeat of the same move wins - the
         # run where the form was rejected is the informative one.

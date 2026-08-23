@@ -418,3 +418,50 @@ class SemanticScreen:
     route_pattern: str
     name: str = ""
     purpose: str = ""
+
+
+@dataclass(frozen=True)
+class SemanticFlow:
+    """One user journey - the semantic tier's view of one `Trace`
+    (`generators/traces.py::Trace`, one crawl `visit_id`), per 'Define Flow
+    semantics and derivation algorithm' (issue #189). One `Flow` per
+    `Trace`, not deduplicated across visits that walked the same page
+    sequence - see issue #195.
+
+    Unlike `SemanticScreen`, both `name` and `goal` are set by
+    `generators/flows.py::build_flows` itself: the derivation research
+    (issue #186) found the cascade fully templatable from data already on
+    the `Trace`, so there is no separate narration step needing an `Agent`.
+
+    Fields:
+        visit_id: the `Trace.visit_id` this Flow represents. Not stored as
+            a `Flow` node property (the schema has none) - it is only the
+            key `generators/flows.py::build_flows` used to find this
+            trace's own steps, not part of what a Flow *is*.
+        name: short label - terminal-endpoint CRUD phrase (e.g. `"Create
+            order"`), else the terminal `route_shape` (e.g.
+            `"shop.example/account/settings"`), else the generic
+            `"{step_count}-step flow from {start_page}"` fallback - first
+            tier with something to say wins.
+        goal: a fuller templated sentence built from whichever tier fired
+            for `name`.
+        step_count: `len(trace.steps)`.
+        outcome: the terminal step's fired-request status, bucketed via
+            `generators/user_flows.py::request_outcome`'s `OK`/`ERROR`/
+            `UNKNOWN` constants - no separate taxonomy for Flow.
+        derived_from: one `step_seq` per `TraceStep` in the trace, in
+            trace order - `record_flows` uses each to find the matching
+            `Interaction` node (`{visit_id, step_seq}` together identify
+            it; `visit_id` itself is this Flow's own key, so only the
+            varying half needs repeating here). Never empty;
+            `record_flows` refuses to write a Flow without one, same rule
+            `record_entities`/`record_screens` enforce for their own
+            `derived_from`.
+    """
+
+    visit_id: str
+    name: str
+    goal: str
+    step_count: int
+    outcome: str
+    derived_from: Tuple[int, ...]

@@ -139,6 +139,25 @@ stream cannot see a form whose inputs arrived across two visits.
 node with no provenance, and a raise here means the derivation produced an
 unsupported assertion - a bug to fix, not a document to degrade.
 
+## _apply_screens
+
+One `Screen` per finished `Page` (`generators/screens.py::build_screens`),
+narrated with a name/purpose (`generators/screen_narrator.py::narrate_screens`),
+written back with its provenance - the semantic tier's second writer,
+alongside `_apply_data_model` above. Same no-error-handling reasoning:
+`record_screens` raises on a screen with no `page_url`, which `build_screens`
+always sets from a real `Page.url`.
+
+## _apply_flows
+
+One `Flow` per trace the crawl walked (`generators/flows.py::build_flows`),
+written back with its provenance - the semantic tier's third writer,
+alongside `_apply_data_model` and `_apply_screens` above. No narration step,
+unlike `_apply_screens`: the derivation research (issue #186) found
+`Flow.name`/`goal` fully templatable, so this pass needs no `Agent`. Same
+no-error-handling reasoning: `record_flows` raises on a flow with no
+`derived_from`, which `build_flows` always sets from the trace's own steps.
+
 ## known-purposes
 
 Family purposes are read **before** `record_component_families` wipes them.

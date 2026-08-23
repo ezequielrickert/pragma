@@ -12,15 +12,15 @@ assertion into the same database the observation tier lives in. That is the
 whole point of the tier split: a reader has to be able to tell a fact from a
 deduction, and follow the deduction back.
 
-`Screen` now has a writer too - `screen.py::record_screens`, this module's
-sibling. `DERIVED_FROM` is a rel table both modules write into (`FROM
-Screen TO Page` alongside this module's `FROM Entity/Field TO Component`),
+`Screen` and `Flow` now have writers too - `screen.py::record_screens` and
+`flow.py::record_flows`, this module's siblings. `DERIVED_FROM` is a rel
+table all three modules write into (`FROM Screen TO Page`, `FROM Flow TO
+Interaction`, alongside this module's `FROM Entity/Field TO Component`),
 so this module's own cleanup below is scoped to `Entity`/`Field` sources
 rather than a blanket delete - see `screen.py`'s module docstring for the
-full reasoning. `Flow` and `Rule` still have no writer; `Rule` stays frozen
-for the reason `research/plan-generacion-de-documentos.md` Fase 7 froze it -
-its value was almost entirely the human-in-the-loop review that is out of
-scope - and `Flow` has no consumer asking for it yet.
+full reasoning. `Rule` alone still has no writer, and stays frozen for the
+reason `research/plan-generacion-de-documentos.md` Fase 7 froze it - its
+value was almost entirely the human-in-the-loop review that is out of scope.
 
 Details: docs/dev/database/ladybug/semantic.md#module
 """

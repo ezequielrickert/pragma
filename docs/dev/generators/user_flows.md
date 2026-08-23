@@ -34,12 +34,15 @@ The document is careful about how it phrases them, though: a dead end can
 equally be a screen whose exits the crawl never reached, and the coverage
 document is what tells the two apart.
 
-## _request_outcome
+## request_outcome
 
 A failure outranks a success on the same control. A screen answering 201
 for most inputs and 422 for some is interesting *because* of the 422, and
 summarising it by the happy path hides exactly the branch worth
 documenting.
+
+Public since issue #192 (was `_request_outcome`) - `generators/flows.py`'s
+`Flow.outcome` bucketing reuses this rather than re-deriving it.
 
 ## mixed
 
