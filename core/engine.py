@@ -17,6 +17,7 @@ from spiders.orchestration.graph_sink import GraphStoreSink
 from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
 from generators.data_model import build_entities
+from generators.flows import build_flows
 from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
 from generators.screen_narrator import build_page_context, narrate_screens, screen_signature
@@ -100,6 +101,34 @@ def _apply_screens(graph_store: Any, agent: Agent, run_id: str) -> None:
     narrated = narrate_screens(agent, screens, page_context, known_purposes)
     print(f"Deduced {len(narrated)} screen(s) from the pages the crawl finished.")
     graph_store.record_screens(narrated, run_id=run_id)
+
+
+def _apply_flows(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Flow` per trace the crawl walked
+    (`generators/flows.py::build_flows`), written back with its provenance
+    - the semantic tier's third writer, alongside `_apply_data_model` and
+    `_apply_screens` above.
+
+    No narration step, unlike `_apply_screens`: the derivation research
+    (issue #186) found `Flow.name`/`goal` fully templatable, so this pass
+    needs no `Agent`.
+
+    Args:
+        graph_store: same store the crawl wrote to.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`/`_apply_screens`.
+
+    Returns:
+        None. `record_flows` refuses any flow with no `derived_from`,
+        which `build_flows` always sets from the trace's own steps - see
+        `_apply_data_model`'s own docstring for why that leaves this pass
+        no error handling of its own.
+    Details: docs/dev/core/engine.md#_apply_flows
+    """
+    components = flat_component_ledger(graph_store)
+    flows = build_flows(components, graph_store.get_inferred_requests())
+    print(f"Deduced {len(flows)} flow(s) from the traces the crawl walked.")
+    graph_store.record_flows(flows, run_id=run_id)
 
 
 @dataclass
@@ -343,6 +372,8 @@ class Engine:
         _apply_data_model(graph_store, run_id)
         print("Deriving screens from the pages the crawl finished...")
         _apply_screens(graph_store, self.agent, run_id)
+        print("Deriving flows from the traces the crawl walked...")
+        _apply_flows(graph_store, run_id)
 
         run_timestamp = _timestamp()
         # `run_id`, not `run_timestamp`: coverage.json's own run_id (ADR-0001)

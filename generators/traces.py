@@ -34,6 +34,13 @@ class TraceStep:
     value: str
     resulting_url: str
     requests: Tuple[Dict[str, Any], ...]
+    # The interaction's own position within its visit, as `build_traces`
+    # already grouped and sorted by - see `generators/flows.py::build_flows`,
+    # which needs the real value back to find this step's `Interaction`
+    # node (`{visit_id, step_seq}`), not a position recomputed after the
+    # fact (steps a visit skipped, e.g. an unstamped one filtered out
+    # upstream, would desync a recomputed index from the real one).
+    step_seq: int
 
     @property
     def navigated(self) -> bool:
@@ -124,6 +131,7 @@ def build_traces(components: Sequence[Dict[str, Any]]) -> List[Trace]:
                         value=interaction.get("value", ""),
                         resulting_url=interaction.get("resulting_url", ""),
                         requests=tuple(requests_for(component, visit_id, step_seq)),
+                        step_seq=step_seq,
                     ),
                 )
             )
