@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Graph Explorer — Ladybug Pipeline</title>
+  <meta name="description" content="Internal debugging tool for exploring the Ladybug pipeline's export.json graph" />
+  <link rel="stylesheet" href="./src/layout/styles.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main-content" id="graph-content">
+      <!-- Graph page content rendered by graph-page.js -->
+    </main>
+  </div>
+
+  <script type="module">
+    import { initShell } from "./src/layout/shell.js";
+    import { initGraphPage } from "./src/graph/graph-page.js";
+
+    initShell("graph");
+    initGraphPage();
+  </script>
+</body>
+</html>
