@@ -42,6 +42,7 @@ from .network import _LadybugNetworkMixin
 from .options import _LadybugOptionsMixin
 from .page import _LadybugPageMixin
 from .raw_query import _LadybugRawQueryMixin
+from .screen import _LadybugScreenMixin
 from .search import _LadybugSearchMixin
 from .semantic import _LadybugSemanticMixin
 from .state_styles import _LadybugStateStyleMixin
@@ -108,7 +109,7 @@ class LadybugGraphStore(
     _LadybugAnalysisMixin, _LadybugNetworkMixin,
     _LadybugOptionsMixin, _LadybugContainmentMixin, _LadybugContainerForestMixin, _LadybugContainerMergeMixin,
     _LadybugRawQueryMixin, _LadybugNamedQueriesMixin, _LadybugSearchMixin, _LadybugSemanticMixin,
-    _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
+    _LadybugScreenMixin, _LadybugStateStyleMixin, _LadybugAccessibilitySnapshotMixin,
 ):
     """Owns one Ladybug database, scoped to exactly one site.
 
@@ -126,7 +127,9 @@ class LadybugGraphStore(
     `options.py` (Option), `containment.py` (Container),
     `state_styles.py` (StateStyle - declared :hover/:focus values),
     `semantic.py` (Entity/Field - the semantic tier, provenance enforced
-    at the write), and the retrieval surface split three ways by concern:
+    at the write), `screen.py` (Screen - the semantic tier's other
+    writer, same provenance discipline), and the retrieval surface split
+    three ways by concern:
     `raw_query.py` (`raw()`, `schema_card()`), `named_queries.py` (the named query
     library and its `query()` dispatcher), `search.py` (FTS) - same
     split-by-concern shape the retired DuckDB backend used, for the same

@@ -267,9 +267,11 @@ CREATE NODE TABLE IF NOT EXISTS CompositeFamily(
 
 # Semantic tier - what the application means, not just what it renders.
 # Every node here must carry at least one DERIVED_FROM edge back to the
-# observations that support it - semantic.py::record_entities enforces that
-# by raising, rather than trusting this comment. Entity/Field have a writer
-# (generators/data_model.py, D14); Screen/Flow/Rule do not yet.
+# observations that support it - semantic.py::record_entities and
+# screen.py::record_screens enforce that by raising, rather than trusting
+# this comment. Entity/Field have a writer (generators/data_model.py, D14);
+# Screen has one too (generators/screens.py + screen_narrator.py); Flow/Rule
+# do not yet.
 _SEMANTIC_DDL = """
 CREATE NODE TABLE IF NOT EXISTS Screen(
     id SERIAL PRIMARY KEY,
