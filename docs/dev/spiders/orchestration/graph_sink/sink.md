@@ -249,6 +249,16 @@ identically whether it is being queued or recorded.
 `None` disables the check, preserving the pre-scope behaviour for callers that
 never pass it - tests, mostly.
 
+## first_party_hosts
+
+Extra hosts treated as first-party alongside `base_url`'s own
+same-domain-or-subdomain check - a site's own API can live on a domain the
+frontend doesn't share (a decoupled backend, e.g. a Supabase project host),
+which `is_in_scope` alone can never recognize as "this site" no matter how
+`allow_subdomains` is set. Stored as a `frozenset` for the same O(1) membership
+check `is_in_scope` gets from its own comparison. Empty by default: no site
+needs this until its own config names a host.
+
 ## external_page_status
 
 The status for a link target the frontier will never visit because it points off

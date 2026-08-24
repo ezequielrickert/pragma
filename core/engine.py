@@ -212,6 +212,7 @@ class Engine:
         prefetch: bool = False,
         block_images: bool = True,
         allow_subdomains: bool = False,
+        first_party_hosts: Optional[List[str]] = None,
         debug_logs_keep_last: Optional[int] = None,
         export_json: bool = False,
         interaction_timeout_seconds: Optional[float] = 10.0,
@@ -238,6 +239,8 @@ class Engine:
         # Scope boundary for MechanicalCrawler's URL frontier.
         # Details: docs/dev/core/engine.md#__init__-allow_subdomains
         self.allow_subdomains = allow_subdomains
+        # Extra first-party hosts for GraphStoreSink - see PragmaConfig.first_party_hosts.
+        self.first_party_hosts = first_party_hosts or []
         self.tree_ascii = tree_ascii
         self.max_visits_per_route_shape = max_visits_per_route_shape
         # False skips the per-fillable-field AI call entirely.
@@ -292,6 +295,7 @@ class Engine:
             prefetch=config.prefetch,
             block_images=config.block_images,
             allow_subdomains=config.allow_subdomains,
+            first_party_hosts=config.first_party_hosts,
             debug_logs_keep_last=config.debug_logs_keep_last,
             export_json=config.export_json,
             interaction_timeout_seconds=config.interaction_timeout_seconds,
@@ -319,6 +323,7 @@ class Engine:
         # Details: docs/dev/core/engine.md#sink-scope
         sink = GraphStoreSink(
             self.graph_store, base_url=url, allow_subdomains=self.allow_subdomains, run_id=run_id,
+            first_party_hosts=self.first_party_hosts,
         )
 
         debug_log: Optional[CrawlDebugLog] = None
