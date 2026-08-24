@@ -1,6 +1,5 @@
 """Which components are eligible for `PageVisitor`'s interaction frontier,
-and why some get excluded even though they're still visible and
-unvisited.
+and the exact-path canonicalization every reveal needs.
 Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#module
 """
 from __future__ import annotations
@@ -12,64 +11,47 @@ from ..interaction_tracker import InteractionTracker
 
 
 class Frontier:
-    """Owns the per-page navigation-trigger and interacted-identity sets,
-    and the eligibility rule built from them - replaces two near-identical
-    list comprehensions that used to live inline in `PageVisitor.visit()`
-    and `_transition_to_new_state`.
+    """Owns the interaction-eligibility rule and the per-page canonical-path
+    map - replaces two near-identical list comprehensions that used to live
+    inline in `PageVisitor.visit()` and `_transition_to_new_state`.
+
+    Used to also track content-identity dedup (a component proven to
+    navigate away, or already interacted with, excluded every other
+    same-identity instance from ever being attempted - issue #214's
+    "Conectar" case: every repeated card's connect/favorite/share button
+    shares one identity by `tag`/`role`/`name`/`form`/`text`, so one
+    instance's outcome silently decided every other card's for it,
+    site-wide). Dropped in favor of exact-path tracking only
+    (`InteractionTracker.is_interacted`) - every distinct DOM node gets its
+    own real attempt now, at the cost of the site-wide nav-menu dedup this
+    used to buy (confirmed live on austral.edu.ar: a persistent nav menu
+    present on every page was being fully re-explored per page, dominating
+    real crawl time on a site whose nav items number in the hundreds -
+    `tests/test_mechanical_loop.py::test_site_wide_nav_link_is_reattempted_per_page`
+    now documents that traded-off cost instead of guarding against it).
     Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier
     """
 
     def __init__(self) -> None:
-        # Identities proven to navigate away, site-wide - not page_key-keyed.
-        # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities
-        self._navigation_trigger_identities: Set[tuple] = set()
-        # page_key -> identities ever interacted with, regardless of path.
-        # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_interacted_identities
-        self._interacted_identities: Dict[str, Set[tuple]] = {}
         # page_key -> {identity: the path it was first recorded under}.
         # Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#_canonical_paths
         self._canonical_paths: Dict[str, Dict[tuple, str]] = {}
 
-    def _excluded_identities(self, page_key: str) -> Set[tuple]:
-        return self._navigation_trigger_identities | self._interacted_identities.get(page_key, set())
-
-    def is_excluded(self, page_key: str, component: Dict[str, Any]) -> bool:
-        """Whether `component`'s content identity is a proven navigation
-        trigger or already-interacted identity for `page_key` - the single-
-        component check `_handle_same_page_reveal`'s append loop uses.
-        Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#is_excluded
-        """
-        return component_identity(component) in self._excluded_identities(page_key)
-
     def eligible(
         self, page_key: str, components: List[Dict[str, Any]], tracker: InteractionTracker
     ) -> Tuple[List[Dict[str, Any]], Set[str]]:
-        """Build a fresh interaction frontier from `components`: visible,
-        not already interacted (per `tracker`), and not excluded (per
-        `is_excluded`). Returns the frontier plus the set of paths it
-        contains, since every caller needs both.
+        """Build a fresh interaction frontier from `components`: visible and
+        not already interacted (per `tracker`, exact-path). Returns the
+        frontier plus the set of paths it contains, since every caller
+        needs both.
         Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#eligible
         """
-        excluded = self._excluded_identities(page_key)
         frontier = [
             c for c in components
-            if c.get("visible")
-            and not tracker.is_interacted(page_key, c.get("path"))
-            and component_identity(c) not in excluded
+            if c.get("visible") and not tracker.is_interacted(page_key, c.get("path"))
         ]
         seen_paths = {c.get("path") for c in frontier}
         return frontier, seen_paths
-
-    def mark_navigation_trigger(self, component: Dict[str, Any]) -> None:
-        """Remember `component`'s content identity as a proven one-way door,
-        site-wide - not scoped to whichever page_key it was proven on.
-        Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#mark_navigation_trigger
-        """
-        self._navigation_trigger_identities.add(component_identity(component))
-
-    def mark_interacted_identity(self, page_key: str, component: Dict[str, Any]) -> None:
-        """Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#mark_interacted_identity"""
-        self._interacted_identities.setdefault(page_key, set()).add(component_identity(component))
 
     def canonicalize_inventory(
         self, page_key: str, components: List[Dict[str, Any]]
@@ -87,6 +69,13 @@ class Frontier:
         reveal. Deliberately doesn't touch `component["path"]` itself -
         callers still need the live path to target the real element for
         interaction; only the copies handed to the graph store are pinned.
+
+        Purely a graph-store bookkeeping concern, unlike the interaction-
+        skipping identity dedup this module used to also do (see the class
+        docstring) - two different professionals' otherwise-identical
+        "Conectar" buttons still get pinned to their own separate paths
+        here (distinct DOM instances, distinct `Component` nodes); this
+        only re-stabilizes one instance's path across reveals of *itself*.
         Details: docs/dev/spiders/orchestration/page_visitor/frontier.md#canonicalize_inventory
         """
         canonical = self._canonical_paths.setdefault(page_key, {})

@@ -46,7 +46,9 @@ structure shifted between two same-page rediscovery passes. Traced to a
 real bug (issue #170, root-caused by #167): the "Neurología" sidebar filter
 button on `mapadeprofesionales.com` got clicked 4 times in one crawl visit
 because its drifting `form` field kept producing a "new" identity that
-`Frontier.is_excluded()` hadn't seen yet.
+`Frontier`'s content-identity dedup (since removed, issue #214 - see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`)
+hadn't seen yet.
 
 ## component_signature
 

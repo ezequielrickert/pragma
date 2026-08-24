@@ -311,12 +311,14 @@ cascading reveal - A reveals B, an interaction inside B reveals C - would
 spuriously report B's own already-revealed content as "new" again when C
 appears).
 
-## visit-content-identity-exclusions
+## visit-initial-frontier
 
-See `docs/dev/spiders/orchestration/page_visitor/frontier.md` for why a
-freshly-reloaded page's own churned selectors can't be caught by the path
-check alone - `Frontier.eligible()` is what applies both the
-navigation-trigger and interacted-identity exclusions here.
+Builds this pass's starting frontier from the page's own initial
+component snapshot via `Frontier.eligible()` - visible, not already
+interacted by exact `path`. Used to also apply content-identity
+exclusions here (a freshly-reloaded page's own churned selectors) - see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier` for
+why issue #214 removed them.
 
 ## visit-page_url
 
@@ -335,9 +337,9 @@ since that branch doesn't change the literal URL by definition.
 Checked right after `fillable` is determined, before the static-href
 check or any click/fill - a skipped component never reaches either.
 Marks the component interacted the same way a real click/fill does
-(`tracker.mark_interacted`, `_frontier.mark_interacted_identity`) so
-this pass never reconsiders it; `FamilySampler.should_interact` does its
-own logging, so there's nothing further to report here.
+(`tracker.mark_interacted`) so this pass never reconsiders it;
+`FamilySampler.should_interact` does its own logging, so there's nothing
+further to report here.
 
 ## visit-exact-reuse-skip
 
@@ -394,13 +396,19 @@ over a bounded-worst-case runtime (see
 `docs/dev/spiders/orchestration/mechanical_loop/config.md#module`'s note
 on why `element_budget`/`max_passes_per_page` no longer exist). The loop
 terminates when the frontier itself is exhausted (`idx == len(frontier)`)
-or one of the three `break` paths below fires - convergence for an
-ordinary page comes entirely from `Frontier`'s content-identity dedup
-(`docs/dev/spiders/orchestration/page_visitor/frontier.md`), not from any
-cap in this file. A page whose DOM genuinely regenerates distinct new
-component identities forever (an infinite-scroll or live-chat-style feed)
-has no backstop here and will not terminate - an accepted, not a
-mitigated, tradeoff.
+or one of the three `break` paths below fires.
+
+**Update - issue #214:** convergence for an ordinary page used to come
+from `Frontier`'s content-identity dedup recognizing a repeated reveal as
+already-handled - removed (see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`) so
+every genuinely-distinct, identically-labeled sibling gets a real
+attempt. A page whose DOM genuinely regenerates distinct new component
+identities forever (an infinite-scroll or live-chat-style feed, or now
+also a same-page widget re-rendering under a churning path - previously
+caught by this dedup) has no backstop here and will not terminate - an
+accepted, deferred tradeoff, not a mitigated one; see map #211's Not yet
+specified for the follow-up.
 
 ## visit-guards
 

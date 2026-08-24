@@ -89,10 +89,9 @@ run exists for the site; `DynamicEngine` falls back to leaving this
 
 `interact()` still has to call `discover_page()` a second time - the
 browser tab necessarily moved off every page since the earlier
-`scout_only` run, and per
-`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
-a component's own path/selector churns across separate `discover_page()`
-reloads, so a `scout()`-cached component can't drive a live click here.
+`scout_only` run, and a component's own path/selector churns across
+separate `discover_page()` reloads, so a `scout()`-cached component
+can't drive a live click here.
 The real saving `interact()` captures instead: it skips the six sink
 bookkeeping writes (`record_page_arrival`/`record_inventory`/
 `record_text_content`/`record_state_styles`/`record_page_network`/

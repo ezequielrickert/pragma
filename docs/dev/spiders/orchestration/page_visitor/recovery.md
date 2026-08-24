@@ -159,11 +159,20 @@ complete.
 Called from `visit`'s except-block for a failure that isn't the
 stale-remount case - see `check_for_silent_navigation` above for the
 real symptom this fixes. Performs the check and, if it confirms a silent
-navigation, all the same bookkeeping the success-branch's navigation case
-does (enqueue the destination, mark `interrupted_by_navigation`,
-remember the content identity via `Frontier.mark_navigation_trigger`,
-record the edge) - kept as its own method purely to keep `visit` itself
-from growing an even deeper nested branch.
+navigation, the same bookkeeping the success-branch's navigation case
+does (enqueue the destination, mark `interrupted_by_navigation`, record
+the edge) - kept as its own method purely to keep `visit` itself from
+growing an even deeper nested branch.
+
+**Update - issue #214:** used to also remember the component's content
+identity as a proven navigation trigger here
+(`Frontier.mark_navigation_trigger`) - removed along with the rest of
+that mechanism, see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`. A
+churning nav link whose click fails this way is now re-attempted once
+per resume instead of once ever - a known, accepted regression
+(`test_failed_click_that_silently_navigated_is_detected_and_not_retried_after_resume`
+is skipped), not fixed here.
 
 Returns whether `visit`'s interaction loop should stop (`True`) -
 mirroring the success branch's own `break`.

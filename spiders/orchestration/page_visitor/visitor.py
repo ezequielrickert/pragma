@@ -251,10 +251,10 @@ class PageVisitor:
         """`pragma dynamic`'s own resume mode (`MechanicalCrawlerConfig.
         interact_only`), run against a page an earlier, separate `scout()`
         pass already left `"Scouted"`: re-navigates (`discover_page()`
-        again - the tab necessarily moved since that earlier pass, and per
-        `frontier.md#_navigation_trigger_identities` a component's own
-        path/selector churns across separate `discover_page()` reloads, so
-        a component cached from that pass can't drive a live click here)
+        again - the tab necessarily moved since that earlier pass, and a
+        component's own path/selector churns across separate
+        `discover_page()` reloads, so a component cached from that pass
+        can't drive a live click here)
         straight into building and draining the interaction frontier.
         Deliberately skips the six sink writes and `enqueue_links` -
         `scout()` already did both for this page.
@@ -292,7 +292,7 @@ class PageVisitor:
         # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-known-components
         known_components: List[Dict[str, Any]] = state.components
 
-        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-content-identity-exclusions
+        # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-initial-frontier
         frontier, seen_paths_this_pass = self._frontier.eligible(page_key, state.components, self.tracker)
         idx = 0
 
@@ -330,7 +330,6 @@ class PageVisitor:
                     self._exact_reuse_index.skipped.append((page_key, path))
                     print(f"  exact-reuse-skipped: {component.get('tag', '')!r} on {page_key} (already interacted)")
                     self.tracker.mark_interacted(page_key, path)
-                    self._frontier.mark_interacted_identity(page_key, component)
                     continue
                 # Flipped synchronously, before the first `await` below -
                 # closes the race a concurrent worker on a sibling page
@@ -345,7 +344,6 @@ class PageVisitor:
                 # pass never reconsiders it.
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-family-sampling-skip
                 self.tracker.mark_interacted(page_key, path)
-                self._frontier.mark_interacted_identity(page_key, component)
                 continue
 
             if not fillable:
@@ -360,10 +358,9 @@ class PageVisitor:
                 target_url = resolve_href(page_url, href)
                 if target_url is not None and self._is_known(target_url):
                     await self._outcomes.skip_known_link(
-                        page_key, route_shape(target_url), component, path
+                        page_key, route_shape(target_url), path
                     )
                     self.tracker.mark_interacted(page_key, path)
-                    self._frontier.mark_interacted_identity(page_key, component)
                     continue
 
             try:
@@ -381,7 +378,6 @@ class PageVisitor:
                 self.errors.append(failed)
                 result.interactions.append(failed)
                 self.tracker.mark_interacted(page_key, path)  # don't retry a proven-broken target forever
-                self._frontier.mark_interacted_identity(page_key, component)
                 if self.sink:
                     await self.sink.record_interaction(
                         page_key, path, failed.action, value="", resulting_url="", step=visit_step.take()
@@ -407,7 +403,7 @@ class PageVisitor:
                     # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-except-silent-nav-check
                     silent_navigation_checked_since_success = True
                     if await self._recovery.handle_possible_silent_navigation(
-                        url, session_id, page_key, page_literal, component, path, failed, result
+                        url, session_id, page_key, page_literal, path, failed, result
                     ):
                         break
 
@@ -422,7 +418,6 @@ class PageVisitor:
             silent_navigation_checked_since_success = False
             consecutive_unexplained_failures = 0
             self.tracker.mark_interacted(page_key, path)
-            self._frontier.mark_interacted_identity(page_key, component)
             new_literal = clean_url(new_state.url)
             new_key = route_shape(new_state.url)
             interaction.resulting_url = new_literal
@@ -452,7 +447,7 @@ class PageVisitor:
                 # other way (its own future visit, via the enqueue below).
                 # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-physical-navigation-branch
                 await self._outcomes.handle_physical_navigation(
-                    page_key, new_key, new_state, component, path, interaction, result, reuse_entry=reuse_entry
+                    page_key, new_key, new_state, path, interaction, result, reuse_entry=reuse_entry
                 )
                 fresh_state = await self._recovery.return_to_origin(
                     url, session_id, page_key, page_literal, page_url, frontier, idx, result, seen_paths_this_pass
