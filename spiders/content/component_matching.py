@@ -4,6 +4,7 @@ crawl loop. Details: docs/dev/spiders/content/component_matching.md#module
 from __future__ import annotations
 
 import hashlib
+from collections import defaultdict, deque
 from typing import Any, Dict, List
 
 # "type into" vs "click" target tags/input_types.
@@ -71,21 +72,25 @@ def remap_stale_frontier(
     Details: docs/dev/spiders/content/component_matching.md#remap_stale_frontier
     """
     fresh_paths = {c.get("path") for c in fresh_components}
-    identity_map: Dict[tuple, str] = {}
+    identity_pool: Dict[tuple, "deque[str]"] = defaultdict(deque)
     for c in fresh_components:
-        identity_map.setdefault(component_identity(c), c.get("path"))
+        identity_pool[component_identity(c)].append(c.get("path"))
 
     remapped: List[Dict[str, Any]] = []
     dropped: List[str] = []
     for component in remaining:
         path = component.get("path")
+        identity = component_identity(component)
         if path in fresh_paths:
             remapped.append(component)
+            pool = identity_pool.get(identity)
+            if pool and path in pool:
+                pool.remove(path)
             continue
-        new_path = identity_map.get(component_identity(component))
-        if new_path:
+        pool = identity_pool.get(identity)
+        if pool:
             updated = dict(component)
-            updated["path"] = new_path
+            updated["path"] = pool.popleft()
             remapped.append(updated)
         else:
             dropped.append(path)
