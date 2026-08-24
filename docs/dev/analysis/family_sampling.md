@@ -2,44 +2,55 @@
 
 ## module
 
-Family-aware interaction sampling for `pragma dynamic`. `pragma cluster`
+Family-aware component indexing for `pragma dynamic`. `pragma cluster`
 groups repeating components (navbar links, footer buttons, ...) into
-`ComponentFamily` patterns; `pragma dynamic` reads that grouping back
-here to skip redundant interaction on components already known to belong
-to a repeating family, sampling only `max_samples` instances per family
-instead of clicking/filling every one - the whole point of resuming from
-`static` + `cluster` output instead of re-discovering the site from
-scratch.
+`ComponentFamily` patterns; `pragma dynamic` used to read that grouping
+back here to skip redundant interaction, sampling only `max_samples`
+instances per family instead of clicking/filling every one.
+
+**Update - issue #215, the skip dropped:** the same shape of bug #214
+found in `Frontier`'s content-identity dedup
+(`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`) - a
+family groups components by structural/content similarity, which can't
+tell "the same repeating boilerplate control" apart from "a genuinely
+distinct sibling that happens to render the same way." Live verification
+on mapadeprofesionales.com found exactly that: every repeated
+professional card's own "Conectar"/favorite/share button clusters into
+one `button/button` family, so only the first `max_samples` cards' worth
+of those buttons ever got a real click. `should_interact` now always
+returns `True` - every family member gets a real interaction attempt.
+The family index itself (`pragma cluster`'s own `ComponentFamily`
+records, and `_index_family_members` below) is untouched; only the
+*skip* is gone, per the same standing direction as #214.
 
 ## default_max_samples_per_family
 
-`3`, not `2` - the ticket's own "2-3 instances" call, resolved toward 3
-so a family whose second sample happened to be atypical (a disabled
-state, an empty search box) still has a third to compare it against.
+`3` - no longer consulted by `should_interact` (issue #215), kept only
+for `FamilySampler.__init__`'s existing signature/callers. A future
+convergence signal (map #211's Not yet specified) may reintroduce a use
+for it.
 
 ## skippedinstance
 
-One component the sampler decided not to interact with, kept as data
-rather than only a print line - a caller (a run summary, a test) can
-inspect what got skipped without scraping stdout.
+One component the sampler would have skipped under the old
+max-samples-per-family rule - kept as a type for `FamilySampler.skipped`'s
+sake, though issue #215 means nothing ever populates it now.
 
 ## familysampler
 
-Caps how many members of each `ComponentFamily` a dynamic run actually
-interacts with. Built once per run from `pragma cluster`'s output;
-`should_interact` is called once per component the interact sweep
-encounters live, via `PageVisitor._family_sampler`
+Indexes each component's `pragma cluster` family membership. Built once
+per run from `pragma cluster`'s output; `should_interact` is called once
+per component the interact sweep encounters live, via
+`PageVisitor._family_sampler`
 (`docs/dev/spiders/orchestration/page_visitor/visitor.md#_family_sampler`).
 
 ## should_interact
 
-A component with no known family (never clustered, or clustering never
-ran for this site) always returns `True` - sampling only ever narrows a
-crawl that already has a family to sample from, never blocks one that
-doesn't. Once a family's count passes `max_samples`, every further
-instance is recorded into `self.skipped` and logged, one line per
-skipped component - the ticket's own "logging every skipped instance"
-requirement.
+Always `True` (issue #215) - see this file's own module note above for
+why. Still looks up and counts family membership (`_member_family`,
+`_sample_counts`) even though nothing gates on it any more, purely as
+bookkeeping a future convergence signal could build on without
+re-deriving the lookup from scratch.
 
 ## _index_family_members
 

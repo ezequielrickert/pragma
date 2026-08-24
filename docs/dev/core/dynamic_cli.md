@@ -18,5 +18,6 @@ interaction-only run would defeat the entire point of resuming from it.
 `pragma dynamic <url>`: interact, don't scout or analyze - see
 `DynamicEngine` for what that means in practice. Reports which mode the
 run actually took (`resumed from static` vs. `independent full
-discovery`) and, when any family sampling happened, how many families
-and how many already-sampled instances got skipped.
+discovery`) and, when `pragma cluster` found any families, how many -
+every member gets a real interaction attempt now (issue #215), so
+there's nothing skipped left to report.

@@ -96,11 +96,12 @@ def run_dynamic_command(argv: list) -> None:
             f"{result.pages_finished}/{result.pages_total} page(s) for {result.site}."
         )
         if result.families_sampled:
+            # "Sampled" is a historical name (issue #215 dropped the actual
+            # sample-and-skip cap - see analysis/family_sampling.py's own
+            # module docstring) - every family member gets a real attempt now,
+            # so there's nothing to report skipping here any more.
             noun = "family" if result.families_sampled == 1 else "families"
-            print(
-                f"Sampled {result.families_sampled} known component {noun}, "
-                f"skipped {result.instances_skipped} already-sampled instance(s)."
-            )
+            print(f"Found {result.families_sampled} known component {noun}, interacted with every member.")
         if result.exact_reuse_skipped:
             print(
                 f"Skipped {result.exact_reuse_skipped} exact-tier reuse instance(s) "
