@@ -210,6 +210,18 @@ class DocumentEditState:
     failure: Optional[ValidationFailure]
 
 
+@dataclass(frozen=True)
+class DocumentViewState:
+    """Everything `document_view_page` needs to render - `content` and optional
+    `original` (diff source) bundled to maintain python-clean-code's F1 limit
+    of max 3 args.
+    Details: docs/dev/interactive/pages.md#documentviewstate
+    """
+
+    content: str
+    original: Optional[str] = None
+
+
 def validation_error_message(exc: Exception) -> str:
     if isinstance(exc, jsonschema.ValidationError):
         return f"Schema validation failed at {list(exc.absolute_path) or '(root)'}: {exc.message}"
@@ -233,27 +245,46 @@ def _approximate_line_for_path(content: str, path: List[str]) -> Optional[int]:
     return None
 
 
-def document_view_page(ref: DocumentRef, content: str, renderer: str) -> str:
+def document_view_page(ref: DocumentRef, state: DocumentViewState, renderer: str) -> str:
     """The read-only view for `ref` - the default surface when opening a
     document (ticket #178). `renderer` is the verdict from
     `dashboard.renderer_audit.renderer_for`, the same three cases the
     static dashboard already dispatches on: `"redoc"` for `openapi`,
     `"generic"` for everything else (Markdown rendered to HTML, raw
     content in a `<pre>` for all other extensions).
+    If `state.original` is provided (ticket #181), it renders a two-column side-by-side
+    comparison of original and content (customized/current).
     Details: docs/dev/interactive/pages.md#document_view_page
     """
     edit_url = url_for("edit_document", filename=ref.filename, extension=ref.extension)
-    if renderer == "redoc":
-        body = render_redoc_embed(content)
-    elif ref.extension == "md":
-        body = f'<div class="markdown-body">{render_markdown(content)}</div>'
+
+    def _render_body(text: str, suffix: str = "") -> str:
+        if renderer == "redoc":
+            return render_redoc_embed(text, suffix=suffix)
+        elif ref.extension == "md":
+            return f'<div class="markdown-body">{render_markdown(text)}</div>'
+        else:
+            return f"<pre>{escape(text)}</pre>"
+
+    if state.original is not None:
+        body = (
+            '<div class="diff-panes">'
+            '<div class="pane"><h3>Original</h3>'
+            f'<div class="view-body">{_render_body(state.original, suffix="-orig")}</div>'
+            '</div>'
+            '<div class="pane"><h3>Current</h3>'
+            f'<div class="view-body">{_render_body(state.content, suffix="-curr")}</div>'
+            '</div>'
+            '</div>'
+        )
     else:
-        body = f"<pre>{escape(content)}</pre>"
+        body = f'<div class="view-body">{_render_body(state.content)}</div>'
+
     return (
         f'<p><a href="{url_for("index")}">\u2190 Back</a></p>'
         f"<h1>{escape(ref.filename)}.{escape(ref.extension)}</h1>"
         f'<div class="view-actions"><a class="edit-link" href="{edit_url}">Edit</a></div>'
-        f'<div class="view-body">{body}</div>'
+        f"{body}"
     )
 
 

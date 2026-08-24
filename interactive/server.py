@@ -93,7 +93,7 @@ from dashboard.renderer_audit import renderer_for
 from core.interfaces import Agent
 
 from . import pages
-from .customization import DocumentRef, SiteOutput, effective_content, original_content, save_customized
+from .customization import DocumentRef, SiteOutput, customized_path, effective_content, original_content, save_customized
 from .generic_form import ENTRY_FIELD_PREFIX, save_generic_form
 from .grounding import grounding_for, system_instruction_for
 from .token_form import save_color_tokens
@@ -137,7 +137,11 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
         content = effective_content(where, ref)
         if content is None:
             return pages.page("Not found", f"<p>No document named {filename}.{extension} for {site}.</p>"), 404
-        body = pages.document_view_page(ref, content, renderer_for(filename))
+        from pathlib import Path
+        is_customized = Path(customized_path(where, ref)).exists()
+        original = original_content(where, ref) if is_customized else None
+        state = pages.DocumentViewState(content=content, original=original)
+        body = pages.document_view_page(ref, state, renderer_for(filename))
         return pages.page(f"{filename}.{extension} - {site}", body)
 
     @app.route("/document/<filename>.<extension>/edit", methods=["GET", "POST"])
