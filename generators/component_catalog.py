@@ -74,6 +74,15 @@ class CatalogVariant:
     background_color: str
     count: int
     example_text: str
+    color: str = ""
+    font_size: str = ""
+    font_weight: str = ""
+    border_radius: str = ""
+    border_color: str = ""
+    border_width: str = ""
+    box_shadow: str = ""
+    width: str = ""
+    height: str = ""
 
 
 @dataclass(frozen=True)
@@ -173,6 +182,31 @@ def _props(members: List[Dict[str, Any]]) -> Tuple[CatalogProp, ...]:
     return tuple(props)
 
 
+def _preview_dimension(value: Any) -> str:
+    """Ledger `width`/`height` are numbers; preview CSS wants px strings."""
+    if value in ("", None):
+        return ""
+    if isinstance(value, (int, float)):
+        rounded = int(value)
+        return f"{rounded}px" if rounded > 0 else ""
+    return str(value)
+
+
+def _preview_style_from_member(member: Dict[str, Any]) -> Dict[str, str]:
+    """Representative per-instance style facts for one variant group."""
+    return {
+        "color": member.get("color") or "",
+        "font_size": member.get("font_size") or "",
+        "font_weight": member.get("font_weight") or "",
+        "border_radius": member.get("border_radius") or "",
+        "border_color": member.get("border_color") or "",
+        "border_width": member.get("border_width") or "",
+        "box_shadow": member.get("box_shadow") or "",
+        "width": _preview_dimension(member.get("width")),
+        "height": _preview_dimension(member.get("height")),
+    }
+
+
 def _variants(members: List[Dict[str, Any]], common_classes: Sequence[str]) -> Tuple[CatalogVariant, ...]:
     """Group members by what visually distinguishes them from their siblings.
 
@@ -194,6 +228,7 @@ def _variants(members: List[Dict[str, Any]], common_classes: Sequence[str]) -> T
             background_color=background,
             count=len(group),
             example_text=next((m.get("text") or "" for m in group if m.get("text")), ""),
+            **_preview_style_from_member(group[0]),
         )
         for (modifiers, background), group in grouped.items()
     ]

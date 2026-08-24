@@ -51,6 +51,11 @@ can express the same distinction either way - a `btn-danger` class or a
 hardcoded red. Grouping on only one of them merges variants that a reader
 can plainly see are different.
 
+Each variant also carries representative preview style facts from one real
+instance in the group (`color`, typography, border, shadow, `width`/`height`)
+for `dashboard/component_preview.py`'s live CSS renderer (ticket #182) - not
+as props, same discipline as `background_color`.
+
 ## CatalogEntry
 
 ## member_paths

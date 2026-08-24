@@ -26,6 +26,10 @@ def test_component_facts_maps_attributes_and_style():
             "font_weight": "700",
             "display": "inline-block",
             "position": "static",
+            "border_radius": "8px",
+            "border_color": "rgb(0, 80, 160)",
+            "border_width": "1px",
+            "box_shadow": "0 2px 4px rgba(0, 0, 0, 0.2)",
         },
     }
     facts = component_facts(comp)
@@ -46,6 +50,10 @@ def test_component_facts_maps_attributes_and_style():
         font_weight="700",
         display="inline-block",
         position="static",
+        border_radius="8px",
+        border_color="rgb(0, 80, 160)",
+        border_width="1px",
+        box_shadow="0 2px 4px rgba(0, 0, 0, 0.2)",
     )
 
 

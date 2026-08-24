@@ -188,6 +188,10 @@
             font_weight: s.fontWeight,
             display: s.display,
             position: s.position,
+            border_radius: s.borderRadius,
+            border_color: s.borderColor,
+            border_width: s.borderWidth,
+            box_shadow: s.boxShadow,
         };
     };
     const getLabel = (e) => {

@@ -52,4 +52,8 @@ def component_facts(comp: Dict[str, Any]) -> ComponentFacts:
         font_weight=style.get("font_weight", ""),
         display=style.get("display", ""),
         position=style.get("position", ""),
+        border_radius=style.get("border_radius", ""),
+        border_color=style.get("border_color", ""),
+        border_width=style.get("border_width", ""),
+        box_shadow=style.get("box_shadow", ""),
     )
