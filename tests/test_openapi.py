@@ -115,6 +115,28 @@ def test_identical_schemas_are_shared_through_a_ref():
     assert len(document["components"]["schemas"]) == 1
 
 
+def test_a_path_segment_with_punctuation_still_produces_a_valid_schema_name():
+    """A coordinate pair inlined into the path (mapadeprofesionales.com's
+    Mapbox geocoding calls) names a schema after the last segment, e.g.
+    `-58.37723,-34.61315.json` - the comma isn't legal in an OpenAPI
+    component name (`^[a-zA-Z0-9._-]+$`) and used to abort the whole
+    document instead of just that one operation."""
+    shape = json.dumps({"lat": "number", "lng": "number"})
+    document = _document(
+        _request(
+            endpoint="api.mapbox.com/geocoding/v5/mapbox.places/-58.37723,-34.61315.json",
+            response_shape=shape,
+        )
+    )
+
+    schema_names = document["components"]["schemas"].keys()
+    assert schema_names
+    for name in schema_names:
+        assert "," not in name
+
+    openapi_spec_validator.validate(document)
+
+
 def test_operation_ids_follow_the_crud_mapping():
     document = _document(
         _request(method="POST", endpoint="api.example.com/orders", status_codes=(201,)),
