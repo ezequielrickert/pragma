@@ -57,7 +57,6 @@ class GraphStoreSink:
         base_url: Optional[str] = None,
         allow_subdomains: bool = False,
         run_id: str = "",
-        first_party_hosts: Optional[List[str]] = None,
     ) -> None:
         self.graph_store = graph_store
         # The same two values `UrlFrontier` gates on, so a link is judged
@@ -67,13 +66,6 @@ class GraphStoreSink:
         # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#base_url
         self.base_url = base_url
         self.allow_subdomains = allow_subdomains
-        # Extra hosts to treat as first-party alongside the same-domain-or-
-        # subdomain check above - a site's own API can live on a domain the
-        # frontend doesn't share (a decoupled backend, e.g. a Supabase
-        # project host), which `is_in_scope` alone can never recognize as
-        # "this site" no matter how `allow_subdomains` is set.
-        # Details: docs/dev/spiders/orchestration/graph_sink/sink.md#first_party_hosts
-        self.first_party_hosts = frozenset(first_party_hosts or ())
         # Identifies this crawl to record_navigation_edge's run_id - "" for
         # any caller that doesn't track one (tests, mostly), which every
         # GraphStore backend accepts as "no provenance recorded".
@@ -110,36 +102,17 @@ class GraphStoreSink:
             return
         await self._write(self.graph_store.record_page_metadata, page_key, metadata)
 
-    def _mark_party(self, requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Stamp `is_first_party` onto each already-filtered request dict,
-        by the same `base_url`/`allow_subdomains` host check `record_inventory`
-        already applies to link targets - reused rather than introducing a
-        second notion of "this site". `GraphStore` reads the stamp to decide
-        whether a request earns its own `Request` node or only bumps its
-        `Endpoint`'s `call_count` - see `database/ladybug/network.py`.
-        Details: docs/dev/spiders/orchestration/graph_sink/sink.md#_mark_party
-        """
-        return [{**r, "is_first_party": self._is_first_party_host(r.get("host", ""))} for r in requests]
-
-    def _is_first_party_host(self, host: str) -> bool:
-        """No `base_url` configured means no scope was ever declared -
-        treated as first-party, the same permissive default `record_inventory`'s
-        own off-site check already applies when `self.base_url` is falsy.
-        A host on `first_party_hosts` is first-party regardless of domain -
-        this site's own decoupled backend, not a genuine third-party call."""
-        return (
-            not self.base_url
-            or is_in_scope(host, self.base_url, self.allow_subdomains)
-            or host in self.first_party_hosts
-        )
-
     async def record_page_network(self, page_key: str, requests: List[Dict[str, Any]]) -> None:
         """Requests the page's own load fired, with no component to blame.
+        Every request is recorded in full - `GraphStore` no longer receives
+        an `is_first_party` stamp from this sink, so `LadybugGraphStore`'s
+        own default (every request earns a full `Request` node) applies
+        uniformly, first-party host or not.
         Details: docs/dev/spiders/orchestration/graph_sink/sink.md#record_page_network
         """
         if not requests:
             return
-        await self._write(self.graph_store.record_page_network, page_key, self._mark_party(requests))
+        await self._write(self.graph_store.record_page_network, page_key, requests)
 
     async def record_text_content(self, page_key: str, text_content: List[Dict[str, Any]]) -> None:
         """Full static-text inventory, called once per page visit (not per reveal).
@@ -393,9 +366,7 @@ class GraphStoreSink:
             ]
         write_path, source_path = self._resolve_write_path(page_key, path)
         payload = [{**r, "source_path": source_path} for r in requests] if source_path else requests
-        await self._write(
-            self.graph_store.record_component_network, page_key, write_path, self._mark_party(payload)
-        )
+        await self._write(self.graph_store.record_component_network, page_key, write_path, payload)
 
     async def record_revealed_options(self, page_key: str, trigger_path: str, revealed: List[Dict[str, Any]]) -> None:
         """Attach a before/after-diff-detected set of revealed options to the trigger.
