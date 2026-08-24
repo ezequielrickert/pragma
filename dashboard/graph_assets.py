@@ -99,11 +99,11 @@ FAMILY_COLORS = {
 RESERVED_TYPES = ("Escenario", "Hallazgo")
 
 SCRIPT = """
-const PREDICATES = ["contiene", "navega_a", "dispara", "consume", "usa_token", "depende_de", "implementa", "cubre"];
+const PREDICATES = ["contiene", "navega_a", "dispara", "consume", "usa_token", "depende_de", "implementa", "cubre", "deriva_de"];
 const PREDICATE_LABELS = {
   contiene: "contains", navega_a: "navigates to", dispara: "triggers",
   consume: "calls", usa_token: "uses token", depende_de: "depends on",
-  implementa: "implements", cubre: "covers",
+  implementa: "implements", cubre: "covers", deriva_de: "derives from",
 };
 const FAMILY_COLORS = __FAMILY_COLORS__;
 const RESERVED_TYPES = new Set(__RESERVED_TYPES__);
