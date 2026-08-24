@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 from analysis.exact_reuse_index import ExactReuseIndex
@@ -75,6 +75,7 @@ class DynamicEngine:
         crawl_budget: Optional[CrawlBudget] = None,
         page_concurrency: int = 4,
         allow_subdomains: bool = False,
+        first_party_hosts: Optional[List[str]] = None,
         block_images: bool = True,
         page_timeout_seconds: float = 15.0,
         navigation_watchdog_seconds: float = 60.0,
@@ -96,6 +97,8 @@ class DynamicEngine:
         self.crawl_budget = crawl_budget or CrawlBudget()
         self.page_concurrency = page_concurrency
         self.allow_subdomains = allow_subdomains
+        # Extra first-party hosts for GraphStoreSink - see PragmaConfig.first_party_hosts.
+        self.first_party_hosts = first_party_hosts or []
         self.block_images = block_images
         self.page_timeout_seconds = page_timeout_seconds
         self.navigation_watchdog_seconds = navigation_watchdog_seconds
@@ -137,6 +140,7 @@ class DynamicEngine:
             crawl_budget=CrawlBudget(**config.crawl_budget),
             page_concurrency=config.page_concurrency,
             allow_subdomains=config.allow_subdomains,
+            first_party_hosts=config.first_party_hosts,
             block_images=config.block_images,
             page_timeout_seconds=config.page_timeout_seconds,
             navigation_watchdog_seconds=config.navigation_watchdog_seconds,
@@ -196,6 +200,7 @@ class DynamicEngine:
 
         sink = GraphStoreSink(
             self.graph_store, base_url=url, allow_subdomains=self.allow_subdomains, run_id=_timestamp(),
+            first_party_hosts=self.first_party_hosts,
         )
         fill_value_fn = (
             make_ai_fill_value_fn(self.agent) if self.ai_fill_values else default_placeholder_fill_value
