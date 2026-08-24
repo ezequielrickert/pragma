@@ -269,6 +269,9 @@ def test_the_view_reports_error_branches_and_dead_ends():
         def get_inferred_requests(self):
             return []
 
+        def get_flows(self):
+            return []
+
     view = FlowsDocument().outputs(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )[2].content
@@ -292,6 +295,9 @@ def test_a_crawl_with_no_navigation_says_so_instead_of_drawing_nothing():
         def get_inferred_requests(self):
             return []
 
+        def get_flows(self):
+            return []
+
     view = FlowsDocument().outputs(
         DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
     )[2].content
@@ -312,6 +318,9 @@ def test_generate_returns_xstate_arazzo_and_view_outputs():
             return {"/shop": {"div > button": _component()}}
 
         def get_inferred_requests(self):
+            return []
+
+        def get_flows(self):
             return []
 
     outputs = FlowsDocument().outputs(
