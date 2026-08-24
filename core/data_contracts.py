@@ -108,6 +108,10 @@ class ComponentFacts:
     font_weight: str = ""
     display: str = ""
     position: str = ""
+    border_radius: str = ""
+    border_color: str = ""
+    border_width: str = ""
+    box_shadow: str = ""
 
 
 @dataclass(frozen=True)

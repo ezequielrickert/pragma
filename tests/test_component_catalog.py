@@ -171,6 +171,32 @@ def test_identical_members_collapse_into_one_variant():
     assert catalog[0].variants[0].count == 2
 
 
+def test_variants_carry_representative_preview_style_facts():
+    catalog = build_catalog(
+        [_family(["a"])],
+        [_member(
+            "a",
+            color="rgb(255, 255, 255)",
+            background_color="#ff0000",
+            font_size="16px",
+            font_weight="700",
+            border_radius="8px",
+            border_color="rgb(0, 0, 0)",
+            border_width="2px",
+            box_shadow="0 1px 2px rgba(0,0,0,0.3)",
+            width=120,
+            height=40,
+        )],
+    )
+
+    variant = catalog[0].variants[0]
+    assert variant.color == "rgb(255, 255, 255)"
+    assert variant.border_radius == "8px"
+    assert variant.box_shadow == "0 1px 2px rgba(0,0,0,0.3)"
+    assert variant.width == "120px"
+    assert variant.height == "40px"
+
+
 # --- atomic level ---
 
 def test_an_indivisible_tag_is_reported_as_an_atom():
