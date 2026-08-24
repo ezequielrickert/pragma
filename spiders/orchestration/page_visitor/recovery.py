@@ -97,6 +97,7 @@ class NavigationRecovery:
         session_id: str,
         page_key: str,
         page_literal: str,
+        page_url: str,
         frontier: List[Dict[str, Any]],
         idx: int,
         result: "PageVisitResult",
@@ -118,14 +119,19 @@ class NavigationRecovery:
 
         Returns the fresh `PageState` to become the pass's new baseline
         (`known_components`/`page_literal`), or `None` if the return
-        didn't land where expected - either `go_back` itself raised, or it
-        returned cleanly but the session isn't actually back on
-        `page_literal` (nothing left in this tab's history to go back to,
-        or a client-side router swallowed the `popstate` event). Either way
-        the caller has no live page left it can safely keep interacting
-        with under `page_key`, and must fall back to the ordinary
-        interrupted path (stop, requeue the origin for a later pass, which
-        gets there via a real `discover_page` instead).
+        didn't land where expected even after `_reload_origin` below has
+        had its own attempt. `go_back` itself raising is treated as fatal
+        outright - a session that couldn't even execute `history.back()`
+        is presumed dead, not worth a further request - but `go_back`
+        returning cleanly on the wrong page (nothing left in this tab's
+        history to go back to, or a client-side router swallowing the
+        `popstate` event, e.g. a crashed SPA's error boundary that a route
+        change alone doesn't clear) means the session is still alive, so a
+        hard reload of `page_literal` is worth the one extra request
+        before giving up on the pass entirely - see `_reload_origin`. Takes
+        `page_url` (the origin's real, schemed URL, as opposed to
+        `page_literal`'s stripped form) purely to hand to that fallback -
+        `go_back` itself needs no navigable URL, only a live session.
         Details: docs/dev/spiders/orchestration/page_visitor/recovery.md#return_to_origin
         """
         try:
@@ -136,10 +142,44 @@ class NavigationRecovery:
         if clean_url(fresh_state.url) != page_literal:
             print(
                 f"Warning: go_back landed on {fresh_state.url!r}, not {page_literal!r} - "
+                f"reloading {page_key!r} directly before giving up."
+            )
+            fresh_state = await self._reload_origin(session_id, page_key, page_literal, page_url)
+            if fresh_state is None:
+                return None
+        await self._reconcile_frontier(page_key, frontier, idx, fresh_state, result, seen_paths_this_pass)
+        return fresh_state
+
+    async def _reload_origin(
+        self, session_id: str, page_key: str, page_literal: str, page_url: str
+    ) -> Optional[PageState]:
+        """`return_to_origin`'s last-resort fallback for a `go_back` that
+        landed somewhere other than `page_literal`: a real `discover_page`
+        navigation, deliberately not attempted as the first resort (see
+        `return_to_origin`'s own docstring for why `go_back` alone is
+        cheaper and the common case) but worth the one extra request once
+        `go_back` has already proven history navigation alone won't get
+        the session home - a crashed client-side router can strand a page
+        on the wrong URL, or on the right URL but still rendering its
+        error-boundary UI, in a way a route change alone can't clear.
+
+        Navigates to `page_url` (the real, schemed URL) rather than
+        `page_literal` (`clean_url`'s stripped form, kept only for the
+        landing check below) - `discover_page` needs an actual navigable
+        address.
+        Details: docs/dev/spiders/orchestration/page_visitor/recovery.md#_reload_origin
+        """
+        try:
+            fresh_state = await self.crawler.discover_page(page_url, session_id=session_id)
+        except Exception as exc:
+            print(f"Warning: reload fallback for {page_key!r} also failed: {exc}")
+            return None
+        if clean_url(fresh_state.url) != page_literal:
+            print(
+                f"Warning: reload fallback landed on {fresh_state.url!r}, not {page_literal!r} - "
                 f"abandoning this pass for {page_key!r}."
             )
             return None
-        await self._reconcile_frontier(page_key, frontier, idx, fresh_state, result, seen_paths_this_pass)
         return fresh_state
 
     async def check_for_silent_navigation(
