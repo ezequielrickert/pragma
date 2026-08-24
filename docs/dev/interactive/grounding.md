@@ -60,3 +60,24 @@ every turn (guide, cite only what's listed, say plainly when nothing is) plus wh
 facts `grounding_for` resolves for the document currently open. Rebuilt fresh on every call, never
 cached across turns of the same conversation - grounding is a property of what's being edited
 right now, not of the conversation's own history, and the user can switch documents mid-chat.
+
+## SourcedGroundingFact
+
+A `GroundingFact` plus the `DocumentRef` it came from - global chat uses the source to name and
+link the real document without auto-navigating (ADR-0035).
+
+## select_grounding_documents
+
+Deterministic router for the persistent global chat: scores each produced `(filename, extension)`
+against the user's message tokens and optional `context_ref` (the document currently open in the
+content panel). Returns up to three refs - never every handler at once. See ADR-0035.
+
+## grounding_for_documents
+
+Runs `grounding_for` for each selected ref and tags every fact with its source document.
+
+## system_instruction_for_global
+
+Q&A standing instruction for the global chat panel - cites sourced facts, includes
+`/document/{filename}.{extension}` paths when pointing at a specific document, never assumes the
+browser navigates there.

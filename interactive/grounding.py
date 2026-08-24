@@ -4,6 +4,11 @@ ADR-0032's tiered model - never invented, always traced to
 real citation field, both already on disk (the interactive server has
 no live graph-store connection, ticket #151).
 
+Per-document edit chat calls `grounding_for` + `system_instruction_for`
+for the document open in the editor. The persistent global chat (ADR-
+0035, ticket #179) routes first with `select_grounding_documents`, then
+aggregates via `grounding_for_documents` + `system_instruction_for_global`.
+
 **Tier A** (`export.json`'s graph): `tokens`/`custom-elements` - both
 cite a `Token` by its real DTCG alias. `custom-elements.json`'s own
 `x-tokens.color` already carries that alias literally in its
@@ -37,12 +42,14 @@ Details: docs/dev/interactive/grounding.md#module
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from dashboard.document_context import context_for
 from generators.graph_export import token_nodes
 
-from .customization import DocumentRef, SiteOutput, effective_content
+from .customization import DocumentRef, SiteOutput, available_documents, effective_content
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,39 @@ class GroundingFact:
     """
 
     statement: str
+
+
+@dataclass(frozen=True)
+class SourcedGroundingFact:
+    """A grounding fact plus the document it came from - so global chat
+    can cite and link without auto-navigating (ADR-0035).
+    Details: docs/dev/interactive/grounding.md#sourcedgroundingfact
+    """
+
+    source: DocumentRef
+    statement: str
+
+
+# Filename -> `document_context.py` registry name. Explicit, not guessed.
+_FILENAME_REGISTRY_ALIASES: Dict[str, str] = {
+    "custom-elements": "catalog",
+    "catalog": "catalog",
+    "flows.xstate": "flows",
+    "flows.arazzo": "flows",
+    "tree.aria": "tree",
+    "tree.axtree": "tree",
+    "accessibility-rules": "accessibility",
+    "accessibility.earl": "accessibility",
+    "accessibility.sarif": "accessibility",
+    "usability-rules": "usability",
+    "usability.earl": "usability",
+    "usability.sarif": "usability",
+    "architecture.calm": "architecture",
+    "architecture.cyclonedx": "architecture",
+    "openapi.raw": "openapi",
+}
+
+_ROUTING_TOKEN = re.compile(r"[a-z0-9]{3,}", re.IGNORECASE)
 
 
 def _load_json(where: SiteOutput, ref: DocumentRef) -> Optional[Any]:
@@ -146,6 +186,74 @@ def grounding_for(where: SiteOutput, ref: DocumentRef) -> List[GroundingFact]:
     return handler(where) if handler else []
 
 
+def _registry_name(ref: DocumentRef) -> str:
+    return _FILENAME_REGISTRY_ALIASES.get(ref.filename, ref.filename)
+
+
+def _routing_tokens(ref: DocumentRef) -> set[str]:
+    """Tokens a user message might match against this document."""
+    tokens = {ref.filename.lower(), _registry_name(ref).lower()}
+    tokens.update(part for part in ref.filename.replace(".", "-").split("-") if len(part) >= 3)
+    context = context_for(_registry_name(ref))
+    if context is not None:
+        tokens.update(match.group(0).lower() for match in _ROUTING_TOKEN.finditer(context.explanation))
+    return tokens
+
+
+def _routing_score(message: str, ref: DocumentRef) -> int:
+    message_tokens = {match.group(0).lower() for match in _ROUTING_TOKEN.finditer(message)}
+    if not message_tokens:
+        return 0
+    doc_tokens = _routing_tokens(ref)
+    overlap = len(message_tokens & doc_tokens)
+    if ref.filename.lower() in message.lower():
+        overlap += 2
+    return overlap
+
+
+def select_grounding_documents(
+    where: SiteOutput,
+    message: str,
+    *,
+    context_ref: Optional[DocumentRef] = None,
+    limit: int = 3,
+) -> List[DocumentRef]:
+    """Up to `limit` produced documents whose grounding handlers should
+    run this turn (ADR-0035) - deterministic token overlap, never a
+    blind aggregate of every handler.
+    Details: docs/dev/interactive/grounding.md#select_grounding_documents
+    """
+    produced = available_documents(where)
+    if not produced:
+        return []
+    scored = sorted(
+        ((ref, _routing_score(message, ref)) for ref in produced),
+        key=lambda item: (-item[1], item[0].filename, item[0].extension),
+    )
+    selected: List[DocumentRef] = []
+    if context_ref is not None and context_ref in produced:
+        selected.append(context_ref)
+    for ref, score in scored:
+        if score <= 0 or ref in selected:
+            continue
+        selected.append(ref)
+        if len(selected) >= limit:
+            break
+    return selected[:limit]
+
+
+def grounding_for_documents(where: SiteOutput, refs: Sequence[DocumentRef]) -> List[SourcedGroundingFact]:
+    """Real facts from each selected document, each tagged with its
+    source - the global chat's grounding input (ADR-0035).
+    Details: docs/dev/interactive/grounding.md#grounding_for_documents
+    """
+    facts: List[SourcedGroundingFact] = []
+    for ref in refs:
+        for fact in grounding_for(where, ref):
+            facts.append(SourcedGroundingFact(source=ref, statement=fact.statement))
+    return facts
+
+
 _STANDING_INSTRUCTION = (
     "You are helping someone edit {filename}.{extension} for a site this crawl already "
     "documented. Guide them through the change rather than just executing it: point out real "
@@ -167,4 +275,38 @@ def system_instruction_for(ref: DocumentRef, facts: List[GroundingFact]) -> str:
     if not facts:
         return f"{header}\n\nNo real grounding facts are available for this document."
     bullet_list = "\n".join(f"- {fact.statement}" for fact in facts)
+    return f"{header}\n\nReal facts you can cite:\n{bullet_list}"
+
+
+_GLOBAL_STANDING_INSTRUCTION = (
+    "You are helping someone review documents from a site this crawl already documented. "
+    "Answer their question using only the real facts listed below - never invent a "
+    "consequence or dependency you can't point to. When a fact comes from a specific "
+    "document and that document is relevant to your answer, name it and include the path "
+    "`/document/{filename}.{extension}` so they can open it themselves - never assume the "
+    "browser will navigate there for them. If no facts are listed, say plainly that no "
+    "real dependency data exists for this question; don't guess."
+)
+
+
+def system_instruction_for_global(
+    refs: Sequence[DocumentRef],
+    facts: Sequence[SourcedGroundingFact],
+) -> str:
+    """Standing instruction for the persistent global chat panel
+    (ADR-0035) - Q&A across routed documents, not edit guidance for one.
+    Details: docs/dev/interactive/grounding.md#system_instruction_for_global
+    """
+    if not refs:
+        return (
+            f"{_GLOBAL_STANDING_INSTRUCTION}\n\n"
+            "No documents were selected for grounding this turn."
+        )
+    doc_list = ", ".join(f"{ref.filename}.{ref.extension}" for ref in refs)
+    header = f"{_GLOBAL_STANDING_INSTRUCTION}\n\nDocuments considered this turn: {doc_list}."
+    if not facts:
+        return f"{header}\n\nNo real grounding facts are available for those documents."
+    bullet_list = "\n".join(
+        f"- [{fact.source.filename}.{fact.source.extension}] {fact.statement}" for fact in facts
+    )
     return f"{header}\n\nReal facts you can cite:\n{bullet_list}"

@@ -5,7 +5,13 @@ live store - the interactive server has none."""
 import json
 
 from interactive.customization import DocumentRef, SiteOutput
-from interactive.grounding import grounding_for
+from interactive.grounding import (
+    SourcedGroundingFact,
+    grounding_for,
+    grounding_for_documents,
+    select_grounding_documents,
+    system_instruction_for_global,
+)
 
 SITE = "example.com"
 
@@ -123,3 +129,53 @@ def test_grounding_for_an_unhandled_document_is_honestly_empty_not_fabricated(tm
     _write(tmp_path, "gherkin", "feature", "Feature: whatever\n")
 
     assert grounding_for(_where(tmp_path), DocumentRef("gherkin", "feature")) == []
+
+
+def test_select_grounding_documents_matches_message_tokens(tmp_path):
+    _write(tmp_path, "risk-register", "json", [{"service": "payments-api", "description": "x"}])
+    _write(tmp_path, "tokens", "json", {"core": {}, "semantic": {}})
+
+    refs = select_grounding_documents(
+        _where(tmp_path),
+        "What risks exist on external services?",
+    )
+
+    assert DocumentRef("risk-register", "json") in refs
+
+
+def test_select_grounding_documents_includes_context_ref_as_hint(tmp_path):
+    _write(tmp_path, "tokens", "json", {"core": {}, "semantic": {}})
+    _write(tmp_path, "risk-register", "json", [{"service": "payments-api", "description": "x"}])
+    tokens = DocumentRef("tokens", "json")
+
+    refs = select_grounding_documents(
+        _where(tmp_path),
+        "What risks exist on external services?",
+        context_ref=tokens,
+    )
+
+    assert tokens in refs
+    assert DocumentRef("risk-register", "json") in refs
+
+
+def test_grounding_for_documents_tags_each_fact_with_its_source(tmp_path):
+    _write(tmp_path, "risk-register", "json", [
+        {"service": "payments-api", "description": "Discloses X-Powered-By."},
+    ])
+
+    facts = grounding_for_documents(_where(tmp_path), [DocumentRef("risk-register", "json")])
+
+    assert len(facts) == 1
+    assert facts[0].source == DocumentRef("risk-register", "json")
+    assert "payments-api" in facts[0].statement
+
+
+def test_system_instruction_for_global_includes_document_paths(tmp_path):
+    ref = DocumentRef("risk-register", "json")
+    facts = [SourcedGroundingFact(source=ref, statement="Risk on service 'payments-api': leak.")]
+
+    instruction = system_instruction_for_global([ref], facts)
+
+    assert "risk-register.json" in instruction
+    assert "`/document/{filename}.{extension}`" in instruction
+    assert "payments-api" in instruction
