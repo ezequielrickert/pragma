@@ -7,7 +7,7 @@ only registered on the app `create_app` builds."""
 from unittest.mock import Mock
 
 from interactive.customization import DocumentRef
-from interactive.pages import DocumentEditState, ValidationFailure, _approximate_line_for_path, document_page
+from interactive.pages import DocumentEditState, DocumentViewState, ValidationFailure, _approximate_line_for_path, document_page
 from interactive.server import create_app
 
 REF = DocumentRef("gherkin", "feature")
@@ -75,18 +75,50 @@ def test_document_view_page_renders_based_on_renderer():
     app = create_app("unused", "example.com", Mock())
     with app.test_request_context():
         # Markdown
-        html_md = document_view_page(DocumentRef("prd", "md"), "# Hello\n- world", "generic")
+        html_md = document_view_page(DocumentRef("prd", "md"), DocumentViewState("# Hello\n- world"), "generic")
         assert "<h1>Hello</h1>" in html_md
         assert "<li>world</li>" in html_md
         assert 'class="edit-link"' in html_md
 
         # OpenAPI (redoc)
-        html_openapi = document_view_page(DocumentRef("openapi", "yaml"), "openapi: 3.0.0\n", "redoc")
+        html_openapi = document_view_page(DocumentRef("openapi", "yaml"), DocumentViewState("openapi: 3.0.0\n"), "redoc")
         assert "redoc-container" in html_openapi
         assert 'class="edit-link"' in html_openapi
 
         # Generic pre-formatted
-        html_feature = document_view_page(DocumentRef("gherkin", "feature"), "Feature: raw", "generic")
+        html_feature = document_view_page(DocumentRef("gherkin", "feature"), DocumentViewState("Feature: raw"), "generic")
         assert "<pre>Feature: raw</pre>" in html_feature
         assert 'class="edit-link"' in html_openapi
+
+
+def test_document_view_page_renders_diff_summary():
+    from interactive.pages import document_view_page
+    app = create_app("unused", "example.com", Mock())
+    with app.test_request_context():
+        # Markdown diff
+        html_md = document_view_page(
+            DocumentRef("prd", "md"),
+            DocumentViewState(content="# Current\n", original="# Original\n"),
+            "generic"
+        )
+        assert 'class="diff-panes"' in html_md
+        assert "<h3>Original</h3>" in html_md
+        assert "<h3>Current</h3>" in html_md
+        assert "<h1>Original</h1>" in html_md
+        assert "<h1>Current</h1>" in html_md
+
+        # Redoc diff
+        html_openapi = document_view_page(
+            DocumentRef("openapi", "yaml"),
+            DocumentViewState(
+                content="openapi: 3.0.0\ninfo:\n  title: Current API\n",
+                original="openapi: 3.0.0\ninfo:\n  title: Original API\n"
+            ),
+            "redoc"
+        )
+        assert 'class="diff-panes"' in html_openapi
+        assert "redoc-container-orig" in html_openapi
+        assert "redoc-container-curr" in html_openapi
+
+
 

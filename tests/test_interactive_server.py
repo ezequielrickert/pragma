@@ -341,3 +341,19 @@ def test_view_mode_renders_pre_escaped_for_generic_files(tmp_path):
     assert 'class="edit-link"' in html
     assert "<textarea" not in html
 
+
+def test_view_mode_shows_diff_summary_when_customized_exists(tmp_path):
+    _write_original(tmp_path, "prd", "md", "# Original PRD\n")
+    # Save a customized copy
+    save_customized(SiteOutput(str(tmp_path), SITE), DocumentRef("prd", "md"), "# Customized PRD\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/document/prd.md").get_data(as_text=True)
+
+    assert 'class="diff-panes"' in html
+    assert "Original" in html
+    assert "Current" in html
+    assert "<h1>Original PRD</h1>" in html
+    assert "<h1>Customized PRD</h1>" in html
+
+

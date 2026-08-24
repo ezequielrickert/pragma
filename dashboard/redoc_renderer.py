@@ -57,7 +57,7 @@ body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; backgrou
 """
 
 
-def render_redoc_embed(content: str) -> str:
+def render_redoc_embed(content: str, suffix: str = "") -> str:
     """The Redoc-rendered spec itself - a container div, the spec
     embedded inline, the CDN script, and the `init()` call - with no
     surrounding page chrome, so a caller with its own page shell (the
@@ -69,12 +69,14 @@ def render_redoc_embed(content: str) -> str:
     Details: docs/dev/dashboard/redoc_renderer.md#render_redoc_embed
     """
     spec_json = json.dumps(yaml.safe_load(content))
+    container_id = f"redoc-container{suffix}"
+    spec_id = f"spec-data{suffix}"
     return (
-        '<div id="redoc-container"></div>'
-        f'<script id="spec-data" type="application/json">{spec_json}</script>'
+        f'<div id="{container_id}"></div>'
+        f'<script id="{spec_id}" type="application/json">{spec_json}</script>'
         f'<script src="{_REDOC_SCRIPT}"></script>'
-        "<script>Redoc.init(JSON.parse(document.getElementById('spec-data').textContent), {}, "
-        "document.getElementById('redoc-container'));</script>"
+        f"<script>Redoc.init(JSON.parse(document.getElementById('{spec_id}').textContent), {{}}, "
+        f"document.getElementById('{container_id}'));</script>"
     )
 
 
