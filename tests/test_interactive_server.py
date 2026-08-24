@@ -44,6 +44,13 @@ def _write_original(tmp_path, filename, extension, content):
     (tmp_path / f"{SITE}_{filename}_20260101T000000Z.{extension}").write_text(content, encoding="utf-8")
 
 
+def _write_original_in_run_dir(tmp_path, filename, extension, content, timestamp="20260101T000000Z"):
+    """Write a file in the new per-run subdirectory layout: <out_dir>/<slug>_<ts>/<slug>_<name>_<ts>.<ext>."""
+    run_dir = tmp_path / f"{SITE}_{timestamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / f"{SITE}_{filename}_{timestamp}.{extension}").write_text(content, encoding="utf-8")
+
+
 def test_index_lists_every_available_document(tmp_path):
     _write_original(tmp_path, "tokens", "json", "{}")
     _write_original(tmp_path, "gherkin", "feature", "Feature: x\n")
@@ -53,6 +60,18 @@ def test_index_lists_every_available_document(tmp_path):
 
     assert "tokens.json" in html
     assert "gherkin.feature" in html
+
+
+def test_index_lists_documents_from_per_run_subdirectory(tmp_path):
+    """New layout: each crawl run's docs live inside <slug>_<timestamp>/."""
+    _write_original_in_run_dir(tmp_path, "tokens", "json", "{}")
+    _write_original_in_run_dir(tmp_path, "prd", "md", "# PRD\n")
+    client = _app(tmp_path).test_client()
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert "tokens.json" in html
+    assert "prd.md" in html
 
 
 def test_get_document_shows_the_effective_content_in_a_textarea(tmp_path):
