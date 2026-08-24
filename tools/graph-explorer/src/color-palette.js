@@ -18,12 +18,12 @@ export const FAMILY_COLORS = {
   Requisito:  "#22d3ee",
   Escenario:  "#6b7280",
   Hallazgo:   "#6b7280",
-  Flujo:      "#6b7280",
-  Estado:     "#6b7280",
+  Flujo:      "#f43f5e",
+  Estado:     "#14b8a6",
 };
 
 /** Types present in the schema but not yet populated by any generator. */
-export const RESERVED_TYPES = new Set(["Escenario", "Hallazgo", "Flujo", "Estado"]);
+export const RESERVED_TYPES = new Set(["Escenario", "Hallazgo"]);
 
 /** All node types in display order. */
 export const NODE_TYPES = [
