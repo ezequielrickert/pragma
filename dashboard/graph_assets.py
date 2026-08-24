@@ -93,9 +93,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 FAMILY_COLORS = {
     "Pantalla": "#5b8cff", "Componente": "#4ade80", "Endpoint": "#fb923c", "Token": "#f472b6",
     "Modulo": "#a78bfa", "Entidad": "#fbbf24", "Requisito": "#22d3ee",
-    "Escenario": "#6b7280", "Hallazgo": "#6b7280", "Flujo": "#6b7280", "Estado": "#6b7280",
+    "Flujo": "#f43f5e", "Estado": "#14b8a6",
+    "Escenario": "#6b7280", "Hallazgo": "#6b7280",
 }
-RESERVED_TYPES = ("Escenario", "Hallazgo", "Flujo", "Estado")
+RESERVED_TYPES = ("Escenario", "Hallazgo")
 
 SCRIPT = """
 const PREDICATES = ["contiene", "navega_a", "dispara", "consume", "usa_token", "depende_de", "implementa", "cubre"];

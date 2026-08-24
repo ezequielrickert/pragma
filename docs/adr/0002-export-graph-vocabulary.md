@@ -15,12 +15,13 @@ cite this vocabulary). It is not built to be independently queryable; Kùzu rema
 Following `coverage`'s reserved-field pattern (ADR-0001): the node/edge vocabulary is locked now, in
 full, but only `Pantalla`, `Componente`, `Endpoint` and the edges `contiene`/`navega_a`/`dispara`/
 `consume` are populated from real Kùzu queries today (`get_edges`, `get_component_ledger`,
-`get_inferred_requests`). `Modulo`, `Entidad`, `Requisito`, `Escenario`, `Hallazgo`, `Token`,
-`Flujo`/`Estado` and the edges `implementa`/`viola`/`deriva_de`/`depende_de`/`usa_token`/`cubre` are
-reserved — present in `export.context.jsonld` and `export.schema.json`'s `type` enum, absent from
-`@graph` until their source ticket (architecture #72, data-model #73, prd #74, tokens #69, usability
-#75 / accessibility #76, gherkin #77, flows #78) resolves and that document's generator starts
-emitting them.
+`get_inferred_requests`). `Modulo`, `Entidad`, `Requisito`, `Escenario`, `Hallazgo`, `Token` and the
+edges `implementa`/`viola`/`depende_de`/`usa_token`/`cubre` are reserved — present in
+`export.context.jsonld` and `export.schema.json`'s `type` enum, absent from `@graph` until their
+source ticket (architecture #72, data-model #73, prd #74, tokens #69, usability #75 / accessibility
+#76, gherkin #77) resolves and that document's generator starts emitting them. `Flujo`/`Estado` and
+the `deriva_de` edge graduated out of that reserved set in ticket #204, once `Flow` (issue #192)
+landed for the derivation source they populate from.
 
 `export.context.jsonld` graduates out of the map's fog now rather than waiting for the new-document
 wave — an inline `@context` that later needs its own file would be a breaking change to every

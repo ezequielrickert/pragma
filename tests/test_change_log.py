@@ -34,6 +34,9 @@ class _EmptyStore:
     def get_inferred_requests(self):
         return []
 
+    def get_flows(self):
+        return []
+
     def get_edges(self):
         return []
 
