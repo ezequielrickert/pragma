@@ -56,11 +56,11 @@ the specific case of a real `<a href>` component whose destination
 `visit`'s own pre-click check
 (`docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-static-href-check`)
 already resolved and found already-known, *before* any click happened.
-Same edge-recording and identity-exclusion as the followed-link case, but
-there is no `new_state`/`interaction` to build a `ComponentInteraction`
-from - nothing was attempted, so nothing goes into `result.interactions`
-either, the same discipline every other silently-skipped component
-(excluded/churning-widget) already follows.
+Same edge-recording as the followed-link case, but there is no
+`new_state`/`interaction` to build a `ComponentInteraction` from -
+nothing was attempted, so nothing goes into `result.interactions` either,
+the same discipline every other skipped-without-attempting component
+follows.
 
 ## handle_physical_navigation
 
@@ -77,11 +77,10 @@ something *not* already known. A real, physical browser navigation
 already happened by the time this runs; unlike `skip_known_link`, there's
 no way to avoid it after the fact, only to decide what to do about it.
 
-Always records the edge and the navigation-trigger identity (below) -
-that bookkeeping is true regardless of where the click led. Enqueues the
-destination only if `is_known_url(new_state.url)` says the crawl doesn't
-already have a place for it (queued, in flight, or visited already) -
-nothing to add otherwise, it's already accounted for.
+Always records the edge - that bookkeeping is true regardless of where
+the click led. Enqueues the destination only if `is_known_url(new_state.url)`
+says the crawl doesn't already have a place for it (queued, in flight, or
+visited already) - nothing to add otherwise, it's already accounted for.
 
 When `reuse_entry` is given (`analysis/exact_reuse_index.py::ReuseEntry`,
 issue #140), the real navigation edge just recorded is also inferred
@@ -117,17 +116,6 @@ whenever it was first discovered; an unknown one gets one for free from
 its own future `discover_page()` visit, same as before). The only thing
 that changed is the *origin* no longer pays for a second full render just
 because the destination happened to be new.
-
-## handle_physical_navigation-identity
-
-Remember this component's *content* identity, not just its path, as a
-proven one-way door out of this page_key via `Frontier.mark_navigation_trigger`
-- see
-`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`.
-A persistent, site-wide element (a main-nav link) always leads to the
-same place regardless of which page you click it from or what selector
-it happens to render with this time, so this is safe to remember
-permanently for this page_key, not just for this one pass.
 
 ## handle_physical_navigation-self-loop
 
@@ -171,9 +159,12 @@ pass's* frontier - no numeric ceiling on how large it can grow (see
 `transition_to_new_state-frontier-rebuild`: a state transition earlier
 in this same pass can have already swapped it.
 
-The skipped-as-churning-widget branch (via `Frontier.is_excluded`):
-confirmed live on austral.edu.ar (libro_UA30 book viewer) - a same-page
-widget re-renders under a fresh path on every interaction, so the
-path-based checks above never recognize it as the one just clicked - see
-`docs/dev/spiders/orchestration/page_visitor/frontier.md#_interacted_identities`
-for the tradeoff this accepts.
+**Update - issue #214:** used to also drop a candidate via
+`Frontier.is_excluded` (content-identity dedup) here - removed along with
+the rest of that mechanism, see
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`. A
+same-page widget that re-renders under a fresh path on every interaction
+(confirmed live on austral.edu.ar, the libro_UA30 book viewer) is no
+longer recognized as the one just clicked and gets re-offered forever -
+a known, accepted regression (`test_churning_same_page_widget_converges_instead_of_looping_forever`
+is skipped), not fixed here.

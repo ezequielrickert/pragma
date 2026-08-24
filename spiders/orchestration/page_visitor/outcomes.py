@@ -76,7 +76,7 @@ class InteractionOutcomes:
         return new_page_key, frontier, seen_paths_this_pass
 
     async def skip_known_link(
-        self, page_key: str, target_key: str, component: Dict[str, Any], path: str
+        self, page_key: str, target_key: str, path: str
     ) -> None:
         """Record a static `<a href>` component's destination without ever
         clicking it - its raw `href` attribute resolved (via
@@ -87,15 +87,13 @@ class InteractionOutcomes:
         with one - anti-bot false positives, target load, a failed
         `return_to_origin`) for no new information.
 
-        Same edge-recording and identity-exclusion bookkeeping
-        `handle_physical_navigation` does for a *followed* known-
-        destination link - deliberately does not touch `tracker`/append to
-        `result.interactions`, though: `visit`'s caller does that (same as
-        every other skipped-without-attempting component), since no click
-        actually happened here to record.
+        Same edge-recording bookkeeping `handle_physical_navigation` does
+        for a *followed* known-destination link - deliberately does not
+        touch `tracker`/append to `result.interactions`, though: `visit`'s
+        caller does that (same as every other skipped-without-attempting
+        component), since no click actually happened here to record.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#skip_known_link
         """
-        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             await self.sink.record_navigation_edge(page_key, target_key, path, "click")
 
@@ -104,19 +102,17 @@ class InteractionOutcomes:
         page_key: str,
         new_key: str,
         new_state: PageState,
-        component: Dict[str, Any],
         path: str,
         interaction: "ComponentInteraction",
         result: "PageVisitResult",
         reuse_entry: Optional[ReuseEntry] = None,
     ) -> None:
         """Bookkeeping for an interaction whose literal result URL differs
-        from the page - always records the edge and excludes the component
-        from future frontier builds on this page (a proven one-way door
-        either way), and enqueues the destination for its own separate
-        future visit when it isn't already known to this crawl (queued, in
-        flight, or visited) - a known destination needs no separate entry,
-        it's already accounted for.
+        from the page - always records the edge, and enqueues the
+        destination for its own separate future visit when it isn't
+        already known to this crawl (queued, in flight, or visited) - a
+        known destination needs no separate entry, it's already accounted
+        for.
 
         `reuse_entry` is this component's `ExactReuseIndex` entry, when it
         has one - the real navigation edge just recorded is also inferred
@@ -133,9 +129,6 @@ class InteractionOutcomes:
         made here.
         Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation
         """
-        # Remember this component's content identity as a proven one-way door.
-        # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-identity
-        self.frontier_state.mark_navigation_trigger(component)
         if self.sink:
             # A same-route_shape self-loop here is legitimate, not a bug.
             # Details: docs/dev/spiders/orchestration/page_visitor/outcomes.md#handle_physical_navigation-self-loop
@@ -189,8 +182,6 @@ class InteractionOutcomes:
                 continue
             if self.tracker.is_interacted(page_key, cpath):
                 continue
-            if self.frontier_state.is_excluded(page_key, candidate):
-                continue  # churning widget - see doc anchor above for the accepted tradeoff
             seen_paths_this_pass.add(cpath)
             frontier.append(candidate)
 

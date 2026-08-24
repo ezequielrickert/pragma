@@ -147,8 +147,10 @@ Like `_resume_urls`, what this returns is `route_shape()`-derived (every
 literal URL - a shape with no opaque token segments collapses to the
 same string either way, which is the case for every real site this
 matters for; see
-`docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities`
-for the one place a shape/literal distinction genuinely bites.
+`docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier`'s
+"History" section for the one place a shape/literal distinction
+genuinely bit (now historical - the mechanism it bit has since been
+removed, issue #214).
 
 ## _run_sweep
 

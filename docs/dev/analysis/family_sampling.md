@@ -46,9 +46,9 @@ requirement.
 A family's own `member_paths` only carries `(page_key, path)` - `path`
 is a live DOM selector that churns across separate `discover_page()`
 reloads (see
-docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities),
-so it can't be matched directly against a fresh interact-sweep
-component. `component_identity` is what survives that reload; this
+docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier's
+"History" section), so it can't be matched directly against a fresh
+interact-sweep component. `component_identity` is what survives that reload; this
 resolves each member's stored path back to the identity its ledger
 record had at clustering time, via `components` (the same flat ledger
 `pragma cluster` clustered from) - reconciled through each member's
