@@ -13,7 +13,7 @@
     "generated_at": { "type": "string", "format": "date-time" },
     "@graph": {
       "type": "array",
-      "description": "Node types populated from real Kùzu queries today: Pantalla, Componente, Endpoint. Reserved (present in the vocabulary, absent from @graph until their source ticket resolves): Modulo (#72), Entidad (#73), Requisito (#74), Escenario (#77), Hallazgo (#75/#76), Token (#69), Flujo/Estado (#78).",
+      "description": "Node types populated from real Kùzu queries today: Pantalla, Componente, Endpoint. Reserved (present in the vocabulary, absent from @graph until their source ticket resolves): Modulo (#72), Entidad (#73), Requisito (#74), Escenario (#77), Hallazgo (#75/#76), Token (#69).",
       "items": {
         "type": "object",
         "required": ["id", "type"],

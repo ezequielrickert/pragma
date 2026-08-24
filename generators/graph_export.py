@@ -12,10 +12,12 @@ ADR-0007; `Entidad`/`depende_de` since ticket #103, ADR-0008 point 5;
 `Requisito`/`implementa`/`cubre` since ticket #104, ADR-0009 point 5;
 `usa_token` since ticket #126, `catalog`'s own `x-tokens` DTCG alias
 citations reused directly - ADR-0002 point 5's own "wire population
-edges as those tickets land"); `Escenario`/`Hallazgo`/`Flujo`/`Estado`
-stay reserved - present in `schemas/export.schema.json`'s `type` enum
-and `schemas/export.context.jsonld`, absent from `@graph` until their
-own document's ticket starts emitting them. `Requisito`'s own
+edges as those tickets land"); `Flujo`/`Estado` and `deriva_de` since
+ticket #204, once `Flow` (issue #192) landed for them to read from -
+`Escenario`/`Hallazgo` stay reserved - present in
+`schemas/export.schema.json`'s `type` enum and
+`schemas/export.context.jsonld`, absent from `@graph` until their own
+document's ticket starts emitting them. `Requisito`'s own
 `depende_de` edge between requirements stays empty too -
 `links.depends_on` is reserved in `requirements.json` itself,
 `generators/requirements.py` has no dependency-detection rule yet.
@@ -36,6 +38,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
 from core.graph_metrics import compute_graph_metrics
+from core.interfaces import SemanticFlow
 from core.registry import DOCUMENT_REGISTRY
 from utils.schema_validation import validate_against_schema
 from utils.short_hash import short_hash
@@ -44,7 +47,9 @@ from .component_catalog import catalog_for
 from .custom_elements import color_token_alias_by_value, x_tokens
 from .data_model import build_data_model_document
 from .design_tokens import build_tokens_document
+from .ledger import flat_component_ledger
 from .requirements import build_requirements_document
+from .traces import Trace, build_traces
 
 _SCHEMA_PATH = "schemas/export.schema.json"
 
@@ -252,6 +257,58 @@ def _requisito_nodes(
     return requisitos
 
 
+def _step_page_index(traces: Iterable[Trace]) -> Dict[Tuple[str, int], str]:
+    """`(visit_id, step_seq) -> page_url` for every step of every trace -
+    the same `(visit_id, step_seq)` correlation `database/ladybug/flow.py`
+    itself matches `Interaction` nodes by, recovered here from
+    `build_traces`'s own `TraceStep.step_seq` rather than a recomputed
+    position (see that field's own docstring for why a recomputed index
+    would desync).
+    Details: docs/dev/generators/graph_export.md#_step_page_index
+    """
+    return {
+        (trace.visit_id, step.step_seq): step.page_url
+        for trace in traces
+        for step in trace.steps
+    }
+
+
+def _flujo_and_estado_nodes(
+    flows: Iterable[SemanticFlow], step_pages: Dict[Tuple[str, int], str], pantallas: Dict[str, Node],
+) -> Tuple[Dict[str, Node], Dict[str, Node]]:
+    """One `Flujo` per `store.get_flows()` row and one `Estado` per step it
+    walked, `Flujo` `contiene`-ing its own `Estado`s in step order and each
+    `Estado` `deriva_de`-ing the `Pantalla` for its step's page - ADR-0002's
+    locked predicate set, reused rather than extended. No natural key
+    exists for a `Flow` in Kùzu itself (`database/ladybug/flow.py`'s own
+    docstring), so `Flujo`/`Estado` ids are derived here the same way
+    `_screen_id`-shaped ids are elsewhere in this module: a deterministic
+    hash of the identity that does exist (`visit_id`, and `visit_id:step_seq`).
+    A step whose page never made it into `@graph` (an `External` page - see
+    module docstring) still gets its `Estado`, just no `deriva_de` edge,
+    the same "never dangle toward an absent node" rule `_populate_navega_a`
+    follows.
+    Details: docs/dev/generators/graph_export.md#_flujo_and_estado_nodes
+    """
+    flujos: Dict[str, Node] = {}
+    estados: Dict[str, Node] = {}
+    for flow in flows:
+        flujo_id = f"FLOW-{short_hash(flow.visit_id)}"
+        flujo = flujos.setdefault(flujo_id, {"id": flujo_id, "type": "Flujo", "label": flow.name})
+        for step_seq in flow.derived_from:
+            estado_id = f"EST-{short_hash(f'{flow.visit_id}:{step_seq}')}"
+            page_url = step_pages.get((flow.visit_id, step_seq))
+            estados[estado_id] = {
+                "id": estado_id, "type": "Estado",
+                "label": route_shape(page_url) if page_url else estado_id,
+            }
+            _add_edge(flujo, "contiene", estado_id)
+            pantalla = pantallas.get(page_url)
+            if pantalla is not None:
+                _add_edge(estados[estado_id], "deriva_de", pantalla["id"])
+    return flujos, estados
+
+
 def _add_edge(node: Node, predicate: str, target_id: str) -> None:
     targets = node.setdefault(predicate, [])
     if target_id not in targets:
@@ -376,6 +433,8 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
     modulos = _modulo_nodes(pantallas, root)
     entidades = _entidad_nodes(build_data_model_document(request), endpoints)
     requisitos = _requisito_nodes(build_requirements_document(request), pantallas, endpoints, entidades)
+    traces = build_traces(flat_component_ledger(store))
+    flujos, estados = _flujo_and_estado_nodes(store.get_flows(), _step_page_index(traces), pantallas)
 
     _populate_contiene(pantallas, component_ledger, location_to_id)
     _populate_navega_a(pantallas, componentes, store.get_edges(), location_to_id)
@@ -386,6 +445,7 @@ def build_export_graph(request: DocumentRequest) -> Dict[str, Any]:
         (
             *pantallas.values(), *componentes.values(), *endpoints.values(), *tokens.values(),
             *modulos.values(), *entidades.values(), *requisitos.values(),
+            *flujos.values(), *estados.values(),
         ),
         key=lambda node: (node["type"], node["id"]),
     )

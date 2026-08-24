@@ -5,17 +5,21 @@ store's read surface)."""
 import json
 
 from core.documents import DocumentRequest
+from core.interfaces import SemanticFlow, VisitStep
 from database.ladybug.store import LadybugGraphStore
 from generators.component_catalog import CatalogEntry, CatalogVariant
 from generators.graph_export import (
     _build_location_index,
     _entidad_nodes,
+    _flujo_and_estado_nodes,
     _modulo_nodes,
     _populate_usa_token,
     _requisito_nodes,
     build_export_graph,
     token_nodes,
 )
+from utils.short_hash import short_hash
+from utils.urls import route_shape
 
 SITE = "export-test-site"
 
@@ -136,8 +140,6 @@ def test_endpoints_are_populated_with_dispara_and_consume_kept_apart():
     """A component-triggered call is dispara; a page-load call with no
     component involved is consume - InferredRequest's own triggered_by/
     loaded_by split, never conflated."""
-    from core.interfaces import VisitStep
-
     store = _store()
     store.upsert_page("example.com/", status="Finished")
     store.upsert_page("example.com/cart", status="Finished")
@@ -294,6 +296,54 @@ def test_a_citation_with_no_matching_node_is_silently_skipped():
     requisitos = _requisito_nodes(requirements_document, pantallas={}, endpoints={}, entidades={})
 
     assert "REQ-abc" in requisitos
+
+
+def test_flujo_contiene_its_estados_in_step_order_and_estado_deriva_de_its_pantalla():
+    pantallas = {"shop/": {"id": "shop/", "type": "Pantalla"}}
+    step_pages = {("v1", 1): "shop/", ("v1", 2): "shop/cart"}
+    flow = SemanticFlow(
+        visit_id="v1", name="Buy", goal="Buy (POST shop/api/cart)",
+        step_count=2, outcome="OK", derived_from=(1, 2),
+    )
+
+    flujos, estados = _flujo_and_estado_nodes([flow], step_pages, pantallas)
+
+    flujo_id = f"FLOW-{short_hash('v1')}"
+    assert flujos[flujo_id]["type"] == "Flujo"
+    assert flujos[flujo_id]["label"] == "Buy"
+    first_estado_id, second_estado_id = flujos[flujo_id]["contiene"]
+    assert first_estado_id == f"EST-{short_hash('v1:1')}"
+    assert second_estado_id == f"EST-{short_hash('v1:2')}"
+    assert estados[first_estado_id]["label"] == route_shape("shop/")
+    assert estados[first_estado_id]["deriva_de"] == ["shop/"]
+    # step 2's page ("shop/cart") never made it into `pantallas` - its
+    # Estado still exists, just with no dangling deriva_de edge.
+    assert "deriva_de" not in estados[second_estado_id]
+
+
+def test_flow_writer_output_becomes_flujo_and_estado_nodes_in_the_full_export():
+    store = _store()
+    store.upsert_page("example.com/", status="Finished")
+    store.record_component("example.com/", "button.buy", tag="button")
+
+    step = VisitStep(visit_id="v1").take()
+    store.record_component_interaction("example.com/", "button.buy", "click", step=step)
+    store.record_flows(
+        [SemanticFlow(
+            visit_id="v1", name="Buy", goal="Buy (POST example.com/api/cart)",
+            step_count=1, outcome="OK", derived_from=(step.seq,),
+        )],
+        run_id="run1",
+    )
+
+    document = build_export_graph(_request(store))
+
+    flujo = _node(document, f"FLOW-{short_hash('v1')}")
+    assert flujo["type"] == "Flujo"
+    assert flujo["label"] == "Buy"
+    estado = _node(document, flujo["contiene"][0])
+    assert estado["type"] == "Estado"
+    assert estado["deriva_de"] == ["example.com/"]
 
 
 def _catalog_entry(member_paths, variants=()):

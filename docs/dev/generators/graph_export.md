@@ -6,12 +6,13 @@
 docs/adr/0002 (ticket #97) - replaces this module's original flat JSON
 dump entirely, not just its serialization. `Pantalla`/`Componente`/
 `Endpoint` nodes populated from real graph-store queries, connected by
-`contiene`/`navega_a`/`dispara`/`consume`/`usa_token` edges (the last
-since ticket #126); `Escenario`/`Hallazgo`/`Flujo`/`Estado` stay
-reserved - present in `schemas/export.schema.json`'s `type` enum,
-absent from `@graph` until their own document's ticket populates them.
-`Modulo`/`Entidad`/`Requisito`/`Token` are populated too - see each
-node-builder's own section below for which ticket did it.
+`contiene`/`navega_a`/`dispara`/`consume`/`usa_token`/`deriva_de` edges
+(the last two since ticket #204); `Escenario`/`Hallazgo` stay reserved -
+present in `schemas/export.schema.json`'s `type` enum, absent from
+`@graph` until their own document's ticket populates them.
+`Modulo`/`Entidad`/`Requisito`/`Token`/`Flujo`/`Estado` are populated
+too - see each node-builder's own section below for which ticket did
+it.
 
 Kùzu remains the query engine; this is a portable, git-diffable export
 for downstream interop (`usability`'s EARL findings cite this vocabulary
@@ -112,6 +113,30 @@ citation (`SCR-<hash>`) is matched against `pantallas` by recomputing
 `short_hash` per known page url, since `pantallas` is keyed by the raw
 url, not the hash. Built from the same `build_requirements_document`
 call `requirements.json` itself makes.
+
+## _step_page_index
+
+`(visit_id, step_seq) -> page_url` for every step of every `Trace` -
+`database/ladybug/flow.py` itself matches `Interaction` nodes by this
+same pair, so it doubles as the correlation `_flujo_and_estado_nodes`
+needs to find which page each `Flow` step happened on. Built from
+`build_traces`'s own `TraceStep.step_seq`, not a recomputed position -
+see that field's own docstring for why the real value has to round-trip.
+
+## _flujo_and_estado_nodes
+
+One `Flujo` per `store.get_flows()` row and one `Estado` per step it
+walked - `Flujo` `contiene`-ing its own `Estado`s in step order, each
+`Estado` `deriva_de`-ing the `Pantalla` for its step's page (ADR-0002's
+locked predicate set, populated since ticket #204, once `Flow` - issue
+#192 - landed for them to read from). No natural key exists for a `Flow`
+in Kùzu itself (`database/ladybug/flow.py`'s own docstring), so ids are
+derived here the same way `_screen_id`-shaped ids are elsewhere in this
+module: a deterministic hash of the identity that does exist (`visit_id`,
+and `visit_id:step_seq`). A step whose page never made it into `@graph`
+(an `External` page) still gets its `Estado`, just no `deriva_de` edge -
+the same "never dangle toward an absent node" rule `_populate_navega_a`
+follows.
 
 ## _populate_contiene
 
