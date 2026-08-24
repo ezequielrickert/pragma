@@ -1,7 +1,7 @@
 """Unit tests for generators/flows_arazzo.py - the Arazzo workflow half
 of docs/adr/0014 and the folded-in sequence diagrams (point 4)."""
 from core.documents import DocumentRequest
-from core.interfaces import InferredRequest
+from core.interfaces import InferredRequest, SemanticFlow
 from generators.flows_arazzo import build_arazzo_document, render_flows_sequence_diagrams
 
 PAGE = "shop.example/cart"
@@ -38,16 +38,27 @@ def _inferred_request(**overrides):
     return InferredRequest(**defaults)
 
 
+def _semantic_flow(name="Pay for cart", goal="Complete checkout", visit_id="v1", step_count=1, outcome="OK"):
+    return SemanticFlow(
+        visit_id=visit_id, name=name, goal=goal, step_count=step_count,
+        outcome=outcome, derived_from=(1,),
+    )
+
+
 class _Store:
-    def __init__(self, ledger, inferred_requests=()):
+    def __init__(self, ledger, inferred_requests=(), flows=()):
         self._ledger = ledger
         self._inferred_requests = list(inferred_requests)
+        self._flows = list(flows)
 
     def get_component_ledger(self):
         return self._ledger
 
     def get_inferred_requests(self):
         return self._inferred_requests
+
+    def get_flows(self):
+        return self._flows
 
 
 def _checkout_trace():
@@ -61,8 +72,10 @@ def _checkout_trace():
     }
 
 
-def _request_for(ledger, inferred_requests=()):
-    return DocumentRequest(graph_store=_Store(ledger, inferred_requests), site="shop.example", agent=None)
+def _request_for(ledger, inferred_requests=(), flows=()):
+    return DocumentRequest(
+        graph_store=_Store(ledger, inferred_requests, flows), site="shop.example", agent=None
+    )
 
 
 # --- build_arazzo_document ---
@@ -139,6 +152,34 @@ def test_source_descriptions_point_at_the_real_openapi_document():
     assert document["sourceDescriptions"] == [{"name": "openapi", "url": "./openapi.yaml", "type": "openapi"}]
 
 
+def test_a_matching_flow_supplies_the_workflow_summary():
+    inferred = [_inferred_request(triggered_by=((PAGE, "div>pay"),))]
+    flows = [_semantic_flow(goal="Complete checkout")]
+
+    document = build_arazzo_document(_request_for(_checkout_trace(), inferred, flows))
+
+    assert document["workflows"][0]["summary"] == "Complete checkout"
+
+
+def test_workflow_id_stays_the_machine_id_even_when_a_flow_matches():
+    """A display label is not something anything should be citing -
+    workflowId must not shift just because #192 wrote a Flow row."""
+    inferred = [_inferred_request(triggered_by=((PAGE, "div>pay"),))]
+    flows = [_semantic_flow()]
+
+    document = build_arazzo_document(_request_for(_checkout_trace(), inferred, flows))
+
+    assert document["workflows"][0]["workflowId"] == "flow-v1"
+
+
+def test_no_matching_flow_omits_the_summary_rather_than_guessing():
+    inferred = [_inferred_request(triggered_by=((PAGE, "div>pay"),))]
+
+    document = build_arazzo_document(_request_for(_checkout_trace(), inferred, flows=()))
+
+    assert "summary" not in document["workflows"][0]
+
+
 # --- render_flows_sequence_diagrams ---
 
 def test_every_observable_trace_gets_its_own_diagram_section():
@@ -164,3 +205,19 @@ def test_no_traces_says_so_rather_than_an_empty_section():
     section = render_flows_sequence_diagrams(_request_for({}, []))
 
     assert "No ordered interaction traces" in section
+
+
+def test_a_matching_flow_s_name_becomes_the_diagram_heading():
+    inferred = [_inferred_request(triggered_by=((PAGE, "div>pay"),))]
+    flows = [_semantic_flow(name="Pay for cart")]
+
+    section = render_flows_sequence_diagrams(_request_for(_checkout_trace(), inferred, flows))
+
+    assert "### Pay for cart" in section
+    assert f"### {PAGE} -> shop.example/receipt" not in section
+
+
+def test_no_matching_flow_falls_back_to_the_mechanical_start_end_title():
+    section = render_flows_sequence_diagrams(_request_for(_checkout_trace(), inferred_requests=[]))
+
+    assert f"### {PAGE} -> shop.example/receipt" in section

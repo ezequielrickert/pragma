@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.documents import DocumentRequest
-from core.interfaces import InferredRequest
+from core.interfaces import InferredRequest, SemanticFlow
 from .ledger import flat_component_ledger
 from .openapi import operation_id_for
 from .traces import Trace, TraceStep, build_traces, render_sequence_diagram
@@ -118,23 +118,43 @@ def _workflow_id(trace: Trace) -> str:
     return f"flow-{trace.visit_id}"
 
 
-def _arazzo_workflow(trace: Trace, store: Any) -> Optional[Dict[str, Any]]:
+def _flows_by_visit(store: Any) -> Dict[str, SemanticFlow]:
+    """`Flow` (#192) already derives a richer `name`/`goal` for the
+    identical trace than this module would re-derive on its own - one
+    lookup keyed by `visit_id`, built once per document so neither
+    `_diagram_title` nor `_arazzo_workflow` re-queries per trace.
+    """
+    return {flow.visit_id: flow for flow in store.get_flows()}
+
+
+def _arazzo_workflow(
+    trace: Trace, store: Any, flows_by_visit: Dict[str, SemanticFlow]
+) -> Optional[Dict[str, Any]]:
     """One workflow per trace, or `None` when the trace fired nothing that
     correlates to a real operation - an empty `steps` array describes no
     call sequence at all, so the trace is excluded rather than emitted as
     a workflow with nothing in it.
+
+    `summary` (Arazzo's optional per-workflow field) carries the matching
+    `Flow.goal` when one was written for this `visit_id`; `workflowId`
+    stays the machine id `_workflow_id` derives - a display label is not
+    something anything should be citing.
     Details: docs/dev/generators/flows_arazzo.md#_arazzo_workflow
     """
     operations = _step_operations(store, trace)
     if not operations:
         return None
-    return {
+    workflow: Dict[str, Any] = {
         "workflowId": _workflow_id(trace),
         "steps": [
             _arazzo_step(number, step, inferred)
             for number, (step, inferred) in enumerate(operations, 1)
         ],
     }
+    flow = flows_by_visit.get(trace.visit_id)
+    if flow is not None:
+        workflow["summary"] = flow.goal
+    return workflow
 
 
 def build_arazzo_document(request: DocumentRequest) -> Dict[str, Any]:
@@ -143,10 +163,11 @@ def build_arazzo_document(request: DocumentRequest) -> Dict[str, Any]:
     Details: docs/dev/generators/flows_arazzo.md#build_arazzo_document
     """
     store = request.graph_store
+    flows_by_visit = _flows_by_visit(store)
     workflows = [
         workflow
         for trace in _observable_traces(request)
-        if (workflow := _arazzo_workflow(trace, store)) is not None
+        if (workflow := _arazzo_workflow(trace, store, flows_by_visit)) is not None
     ]
     return {
         "arazzo": ARAZZO_VERSION,
@@ -156,11 +177,17 @@ def build_arazzo_document(request: DocumentRequest) -> Dict[str, Any]:
     }
 
 
-def _diagram_title(trace: Trace) -> str:
-    """A deterministic title from the trace's own start/end - no model
-    call. `flows.md` is a mechanically rendered view; the narrated titles
-    `gherkin.py`'s scenarios carry belong to that document, not this one.
+def _diagram_title(trace: Trace, flows_by_visit: Dict[str, SemanticFlow]) -> str:
+    """The matching `Flow.name` when one was written for this `visit_id`;
+    the mechanical `start -> end` title only when no `Flow` row exists
+    (should not happen once #192 always writes one, but keeps this
+    function total). No model call either way - `flows.md` is a
+    mechanically rendered view; the narrated titles `gherkin.py`'s
+    scenarios carry belong to that document, not this one.
     """
+    flow = flows_by_visit.get(trace.visit_id)
+    if flow is not None:
+        return flow.name
     return f"{trace.start_page} -> {trace.end_page}" if trace.end_page != trace.start_page else trace.start_page
 
 
@@ -185,6 +212,7 @@ def render_flows_sequence_diagrams(request: DocumentRequest) -> str:
         "either source document.",
         "",
     ]
+    flows_by_visit = _flows_by_visit(request.graph_store)
     for trace in traces:
-        lines += [f"### {_diagram_title(trace)}", "", render_sequence_diagram(trace), ""]
+        lines += [f"### {_diagram_title(trace, flows_by_visit)}", "", render_sequence_diagram(trace), ""]
     return "\n".join(lines)

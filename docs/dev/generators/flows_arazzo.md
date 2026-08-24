@@ -50,12 +50,23 @@ to some plausible-sounding value, when `_observed_status` found nothing -
 see the module docstring for why the second, `jsonpath`-typed criterion
 never appears at all.
 
+## _flows_by_visit
+
+One `store.get_flows()` call per document, indexed by `visit_id`, so
+`_arazzo_workflow` and `_diagram_title` both read the `Flow` (#192)
+already derived for a trace instead of each re-deriving (or re-querying)
+its own label.
+
 ## _arazzo_workflow
 
 `None` when a trace produced zero step/operation correlations - an empty
 `steps` array would describe no call sequence at all, so the trace is
 excluded from `flows.arazzo.json` entirely (it can still appear in the
 sequence-diagram section, which doesn't require a citable operation).
+`summary` (Arazzo's optional per-workflow field) carries the matching
+`Flow.goal` when `_flows_by_visit` has one for this trace's `visit_id`,
+omitted otherwise. `workflowId` never shifts to a `Flow`-derived value -
+it's a stable machine id anything can cite, not a display label.
 
 ## build_arazzo_document
 
@@ -66,11 +77,15 @@ in a linked OpenAPI document, so `operationId` alone (via
 
 ## _diagram_title
 
-A deterministic `start -> end` title, not a narrated one. `flows.md` is a
-mechanically rendered view (ADR-0009's own "never hand-authored in
-parallel" discipline, applied here); the narrated titles `gherkin.py`'s
-scenarios carry belong to that document, which is explicit about calling
-a model for exactly one thing. This document calls no model at all.
+The matching `Flow.name` when `_flows_by_visit` has one for this trace's
+`visit_id` - the same richer, deterministic label `flows.arazzo.json`'s
+own `summary` now uses. Falls back to the mechanical `start -> end` title
+only when no `Flow` row exists (shouldn't happen once #192 always writes
+one; keeps the function total regardless). No model call either way:
+`flows.md` is a mechanically rendered view (ADR-0009's own "never
+hand-authored in parallel" discipline, applied here); the narrated titles
+`gherkin.py`'s scenarios carry belong to that document, which is explicit
+about calling a model for exactly one thing.
 
 ## render_flows_sequence_diagrams
 
