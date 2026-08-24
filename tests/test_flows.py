@@ -15,7 +15,7 @@ from generators.screens import build_screens
 
 PAGE = "shop.example/cart"
 RECEIPT = "shop.example/receipt"
-ENDPOINT = "shop.example/api/checkout"
+ENDPOINT = "shop.example/api/orders"
 
 
 def _component(path, interactions, requests=(), page_url=PAGE):
@@ -32,7 +32,7 @@ def _interaction(action="click", resulting_url="", visit_id="v1", step_seq=1):
     }
 
 
-def _request(status=201, visit_id="v1", step_seq=1, failed=False, method="POST", path="/checkout"):
+def _request(status=201, visit_id="v1", step_seq=1, failed=False, method="POST", path="/orders"):
     return {
         "method": method, "url": f"https://{ENDPOINT}{path}", "path": path, "status": status,
         "failed": failed, "visit_id": visit_id, "step_seq": step_seq,
@@ -56,8 +56,48 @@ def test_a_correlated_terminal_request_names_the_flow_after_its_operation():
 
     flow = build_flows(components, inferred)[0]
 
-    assert flow.name == "Create checkout"
-    assert flow.goal == "Create checkout (POST shop.example/api/checkout)"
+    assert flow.name == "Create order"
+    assert flow.goal == "Create order (POST shop.example/api/orders)"
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_name"),
+    [
+        ("/account/logout", "Log out"),
+        ("/checkout", "Purchase"),
+        ("/auth/signup", "Sign up"),
+        ("/auth/login", "Log in"),
+        ("/products/search", "Search"),
+        ("/cart/items/remove", "Delete"),
+    ],
+)
+def test_a_taxonomy_keyword_in_the_endpoint_overrides_the_crud_verb_phrase(path, expected_name):
+    endpoint = f"shop.example/api{path}"
+    components = [_component("div>pay", [_interaction()], [_request(path=path)])]
+    inferred = [_inferred_request(endpoint=endpoint, triggered_by=((PAGE, "div>pay"),))]
+
+    flow = build_flows(components, inferred)[0]
+
+    assert flow.name == expected_name
+    assert flow.goal == f"{expected_name} (POST {endpoint})"
+
+
+def test_taxonomy_override_applies_regardless_of_http_method():
+    endpoint = "shop.example/api/session/logout"
+    components = [_component("div>pay", [_interaction()], [_request(method="GET", path="/session/logout")])]
+    inferred = [_inferred_request(method="GET", endpoint=endpoint, triggered_by=((PAGE, "div>pay"),))]
+
+    flow = build_flows(components, inferred)[0]
+
+    assert flow.name == "Log out"
+
+
+def test_taxonomy_override_does_not_apply_to_the_tier_2_route_shape_fallback():
+    components = [_component("div>pay", [_interaction(resulting_url="shop.example/checkout")])]
+
+    flow = build_flows(components, [])[0]
+
+    assert flow.name == "shop.example/checkout"
 
 
 def test_no_correlated_request_falls_back_to_the_terminal_route():
