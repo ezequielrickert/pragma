@@ -11,11 +11,18 @@ this pipeline settled on.
 `unwanted_behavior` comes from an observed failure status code - also
 `"observed"`. `optional_feature` comes from `data-model.json`'s own
 `nullable` fields - a declared-markup heuristic, so `"inferred"`, not
-`"observed"`. `state_driven` stays unused: pragma has no state-detection
-instrumentation (the same gap `coverage.json`'s own UI-state dimension
-dropped, docs/adr/0001), so nothing here can back a WHILE-clause
-honestly. `confidence: "assumed"` is never emitted either - pragma has
-no extraction rule based on convention rather than observation.
+`"observed"`. A second, `ubiquitous`-pattern batch comes from
+`SemanticRule` (`database/ladybug/rule.py`, issue #193) - a declared
+markup constraint (`required`, `min=18`, ...) whose `GOVERNS` edge
+resolved to a real `Field`/`Entity` - also `"inferred"`, the same
+declared-markup-not-observed-traffic split `optional_feature` draws;
+`Rule.kind="inferred"` rows (cross-field logic, human-reviewed) stay out
+of scope here per #190/#193, and none exist yet regardless. `state_driven`
+stays unused: pragma has no state-detection instrumentation (the same gap
+`coverage.json`'s own UI-state dimension dropped, docs/adr/0001), so
+nothing here can back a WHILE-clause honestly. `confidence: "assumed"` is
+never emitted either - pragma has no extraction rule based on convention
+rather than observation.
 
 Details: docs/dev/generators/requirements.md#module
 """
@@ -182,6 +189,55 @@ def _optional_feature_requirements(data_model_document: Dict[str, Any], run_id: 
     return requirements
 
 
+def _rule_based_requirements(
+    rules: Sequence[Any],
+    rule_field_entities: Dict[Tuple[str, str, str], Tuple[str, str]],
+    run_id: str,
+) -> List[Dict[str, Any]]:
+    """THE SYSTEM SHALL enforce a declared markup constraint - one
+    requirement per `SemanticRule` whose `GOVERNS` edge resolved to a
+    real `Field`/`Entity`. `record_rules`'s `GOVERNS` is best-effort (its
+    own docstring); a Rule with no resolved Field simply isn't in
+    `rule_field_entities` and is silently skipped here, the same stance
+    the writer itself takes rather than erroring.
+
+    Only `kind="declared"` rows are ever turned into a requirement -
+    `kind="inferred"` (cross-field logic, human-reviewed) is out of
+    scope per #190/#193 and must never be implied as covered here, even
+    though nothing in this codebase produces one yet.
+    Details: docs/dev/generators/requirements.md#_rule_based_requirements
+    """
+    requirements = []
+    for rule in rules:
+        if rule.kind != "declared":
+            continue
+        page_url, path = rule.derived_from
+        resolved = rule_field_entities.get((page_url, path, rule.statement))
+        if resolved is None:
+            continue
+        field_name, entity_name = resolved
+        facts = _RequirementFacts(
+            ears_pattern="ubiquitous",
+            syntax_text=f"THE SYSTEM SHALL enforce {rule.statement} on {field_name}",
+            trigger=f"{rule.statement} on {field_name}", target=entity_name,
+            confidence="inferred",
+            links={**_NO_LINKS, "screens": [_screen_id(page_url)], "data_entities": [entity_name]},
+        )
+        requirements.append(_requirement(facts, run_id))
+    return requirements
+
+
+def _rule_field_entities_by_key(rows: Sequence[Dict[str, str]]) -> Dict[Tuple[str, str, str], Tuple[str, str]]:
+    """`{(page_url, path, statement): (field, entity)}` from
+    `LadybugGraphStore.get_rule_field_entities()`'s row shape - the
+    lookup key `_rule_based_requirements` needs to match a `SemanticRule`
+    (identified by its own `derived_from` plus `statement`) back to the
+    `Field`/`Entity` its `GOVERNS` edge resolved to.
+    Details: docs/dev/generators/requirements.md#_rule_field_entities_by_key
+    """
+    return {(row["page_url"], row["path"], row["statement"]): (row["field"], row["entity"]) for row in rows}
+
+
 def build_requirements_document(request: DocumentRequest) -> Dict[str, Any]:
     """The full `requirements.json` payload: every EARS pattern this
     crawl has real support for, deduplicated by `id` (the same
@@ -192,6 +248,8 @@ def build_requirements_document(request: DocumentRequest) -> Dict[str, Any]:
     run_id = request.settings.get("run_id", "")
     inferred_requests = request.graph_store.get_inferred_requests()
     data_model_document = build_data_model_document(request)
+    rules = request.graph_store.get_rules()
+    rule_field_entities = _rule_field_entities_by_key(request.graph_store.get_rule_field_entities())
 
     requirements: Dict[str, Dict[str, Any]] = {}
     for requirement in (
@@ -199,6 +257,7 @@ def build_requirements_document(request: DocumentRequest) -> Dict[str, Any]:
         + _ubiquitous_requirements(inferred_requests, run_id)
         + _unwanted_behavior_requirements(inferred_requests, run_id)
         + _optional_feature_requirements(data_model_document, run_id)
+        + _rule_based_requirements(rules, rule_field_entities, run_id)
     ):
         requirements[requirement["id"]] = requirement
 

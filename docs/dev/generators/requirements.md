@@ -13,10 +13,14 @@ Fully deterministic, no model call anywhere.
 `unwanted_behavior` comes from an observed failure status code - also
 `"observed"`. `optional_feature` comes from `data-model.json`'s own
 `nullable` fields - a declared-markup heuristic, so `"inferred"`, not
-`"observed"`. `state_driven` stays unused: pragma has no state-detection
-instrumentation, so nothing here can back a WHILE-clause honestly.
-`confidence: "assumed"` is never emitted either - pragma has no
-extraction rule based on convention rather than observation.
+`"observed"`. A second, `ubiquitous`-pattern batch comes from
+`SemanticRule` (issue #193) - a declared markup constraint whose
+`GOVERNS` edge resolved to a real `Field`/`Entity` - also `"inferred"`;
+`Rule.kind="inferred"` rows stay out of scope per #190/#193. `state_driven`
+stays unused: pragma has no state-detection instrumentation, so nothing
+here can back a WHILE-clause honestly. `confidence: "assumed"` is never
+emitted either - pragma has no extraction rule based on convention
+rather than observation.
 
 Retiring `graph_prd_synthesizer.py` also retired `prd_synth_batch_size`
 (`core/config.py`/`core/engine.py`/`core/docs_engine.py`) - a
@@ -68,6 +72,24 @@ WHERE a declared-optional field is provided, THE SYSTEM SHALL accept it
 - `nullable` fields only, from `data-model.json`'s own entities
 (`generators/data_model.py::build_data_model_document`, imported
 directly rather than re-derived).
+
+## _rule_based_requirements
+
+THE SYSTEM SHALL enforce a declared markup constraint - one requirement
+per `SemanticRule` whose `GOVERNS` edge resolved to a real `Field`/
+`Entity` (`database/ladybug/rule.py::get_rule_field_entities`). A Rule
+with no resolved Field is silently skipped, the same best-effort stance
+`record_rules` itself takes for `GOVERNS`. Only `kind="declared"` rows
+ever become a requirement - `kind="inferred"` stays out of scope per
+#190/#193.
+
+## _rule_field_entities_by_key
+
+`{(page_url, path, statement): (field, entity)}` from
+`get_rule_field_entities()`'s row shape - the lookup key
+`_rule_based_requirements` needs to match a `SemanticRule` (identified by
+its own `derived_from` plus `statement`) back to the `Field`/`Entity` its
+`GOVERNS` edge resolved to.
 
 ## build_requirements_document
 

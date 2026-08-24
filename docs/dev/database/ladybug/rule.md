@@ -68,3 +68,15 @@ Every `Rule` with its source `Component`'s `(page_url, path)`, ordered by
 `(page_url, path, statement)`. Rebuilt into the same `SemanticRule` shape
 `build_rules` produces, same round-trip property `get_screens`/`get_flows`
 maintain for their own semantic types.
+
+## get_rule_field_entities
+
+Every `Rule` whose `GOVERNS` edge resolved to a real `Field` and that
+`Field`'s owning `Entity` - `[{"page_url", "path", "statement", "field",
+"entity"}, ...]`. The shape `generators/requirements.py`'s
+`_rule_based_requirements` (issue #203) needs to text- and link- a
+Rule-based requirement, without threading raw Cypher into a generator -
+the same dict-row convention `named_queries.py::callers_of` uses.
+`GOVERNS` is best-effort (`_write_rule`'s own docstring): a Rule whose
+`GOVERNS` edge never resolved simply doesn't appear here, the same
+silent-absence stance the writer itself takes.

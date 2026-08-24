@@ -22,6 +22,12 @@ class _Store:
     def get_inferred_requests(self):
         return []
 
+    def get_rules(self):
+        return []
+
+    def get_rule_field_entities(self):
+        return []
+
 
 def _request(ledger):
     return DocumentRequest(graph_store=_Store(ledger), site="shop.example", agent=None, settings={"run_id": "RUN-1"})
