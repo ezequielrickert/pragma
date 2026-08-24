@@ -90,6 +90,48 @@ def _migrate_interaction_blocked_columns(conn) -> None:
                 raise
 
 
+_VARIANT_OF_SUBGROUP_MIGRATION = (
+    "ALTER TABLE VARIANT_OF ADD subgroup INT64 DEFAULT 0",
+)
+
+
+def _migrate_variant_of_subgroup_column(conn) -> None:
+    """Add `VARIANT_OF.subgroup` to a database opened before issue #171.
+    """
+    for statement in _VARIANT_OF_SUBGROUP_MIGRATION:
+        try:
+            conn.execute(statement)
+        except RuntimeError as exc:
+            if "already has property" not in str(exc):
+                raise
+
+
+def _migrate_component_table_columns(conn) -> None:
+    """Add any missing `ComponentFacts` columns to `Component` table dynamically,
+    handling schemas from older .lbdb databases.
+    """
+    from core.interfaces import ComponentFacts
+
+    res = conn.execute("CALL table_info('Component') RETURN *")
+    existing = set()
+    while res.has_next():
+        row = res.get_next()
+        existing.add(row[1])
+
+    for name, field in ComponentFacts.__dataclass_fields__.items():
+        if name == "element_id":
+            continue
+        if name not in existing:
+            val_type = "BOOLEAN DEFAULT false" if isinstance(field.default, bool) else "STRING DEFAULT ''"
+            try:
+                conn.execute(f"ALTER TABLE Component ADD {name} {val_type}")
+            except RuntimeError as exc:
+                if "already has property" not in str(exc):
+                    raise
+
+
+
+
 def _resolve_path(directory: Optional[str], site: str) -> str:
     """Where this site's database lives - `<directory>/<slug(site)>.lbdb`,
     or Ladybug's own in-memory sentinel (`""`) when `directory` is `None`.
@@ -156,6 +198,8 @@ class LadybugGraphStore(
         self._writer = LadybugWriter(self.path)
         self._writer.call(lambda conn: conn.execute(DDL))
         self._writer.call(_migrate_interaction_blocked_columns)
+        self._writer.call(_migrate_variant_of_subgroup_column)
+        self._writer.call(_migrate_component_table_columns)
         self._touch_site()
 
     def _touch_site(self) -> None:
