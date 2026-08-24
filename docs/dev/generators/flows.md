@@ -37,11 +37,32 @@ along the way. Sorted by `(method, endpoint)` when more than one candidate
 correlates, so the choice is reproducible rather than dependent on read
 order.
 
+## _GOAL_VERB_TAXONOMY
+
+Closed goal-verb taxonomy (issue #196): a keyword-to-phrase table that
+overrides tier-1's raw CRUD-verb phrase whenever the terminal request's
+`endpoint` case-insensitively contains one of a phrase's keywords,
+regardless of HTTP method - `logout`/`signout` -> "Log out",
+`checkout`/`pay` -> "Purchase", `signup`/`register` -> "Sign up",
+`login`/`signin` -> "Log in", `search` -> "Search", `delete`/`remove` ->
+"Delete", first match wins in that order. Local to this module, never
+shared with `generators/openapi.py`'s `operation_id_for`/`_summary` -
+changing those would change already-emitted `openapi.yaml` content, a
+separate decision.
+
+## _goal_verb_override
+
+The taxonomy phrase for an endpoint string, or `None` if no keyword
+matches - a thin lookup over `_GOAL_VERB_TAXONOMY`.
+
 ## _name_and_goal
 
-The `(name, goal)` cascade: terminal-endpoint CRUD phrase, else terminal
-`route_shape`, else the generic step-count fallback - first tier with
-something to say wins, per issue #189's resolution.
+The `(name, goal)` cascade: terminal-endpoint CRUD phrase (subject to the
+`_GOAL_VERB_TAXONOMY` override), else terminal `route_shape`, else the
+generic step-count fallback - first tier with something to say wins, per
+issue #189's resolution. The taxonomy override applies only within tier 1,
+unconditionally, per issue #196's resolution; tier 2's `route_shape`
+fallback is untouched.
 
 `Trace.end_page` always resolves to something (it falls back to
 `start_page` itself when nothing navigated), so the tier gate asks the

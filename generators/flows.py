@@ -26,6 +26,35 @@ from utils.urls import route_shape
 
 _WORD_RE = re.compile(r"[A-Z][a-z]*|[a-z]+")
 
+# Closed goal-verb taxonomy (issue #196): overrides tier-1's raw CRUD-verb
+# phrase whenever the terminal request's `endpoint` case-insensitively
+# contains one of a phrase's keywords, regardless of HTTP method. First
+# match wins, in this priority order - local to this module, deliberately
+# never shared with `generators/openapi.py`'s `operation_id_for`/`_summary`
+# (changing those would change already-emitted `openapi.yaml` content, a
+# separate decision).
+# Details: docs/dev/generators/flows.md#_GOAL_VERB_TAXONOMY
+_GOAL_VERB_TAXONOMY: Tuple[Tuple[Tuple[str, ...], str], ...] = (
+    (("logout", "signout"), "Log out"),
+    (("checkout", "pay"), "Purchase"),
+    (("signup", "register"), "Sign up"),
+    (("login", "signin"), "Log in"),
+    (("search",), "Search"),
+    (("delete", "remove"), "Delete"),
+)
+
+
+def _goal_verb_override(endpoint: str) -> Optional[str]:
+    """The taxonomy phrase for `endpoint`, or `None` if no keyword
+    matches - first row in `_GOAL_VERB_TAXONOMY` order wins.
+    Details: docs/dev/generators/flows.md#_goal_verb_override
+    """
+    lowered = endpoint.lower()
+    for keywords, phrase in _GOAL_VERB_TAXONOMY:
+        if any(keyword in lowered for keyword in keywords):
+            return phrase
+    return None
+
 
 def _terminal_step(trace: Trace) -> Optional[TraceStep]:
     """The trace's last step, or `None` for an empty trace - the one
@@ -79,7 +108,8 @@ def _name_and_goal(trace: Trace, inferred_requests: Sequence[InferredRequest]) -
     """
     terminal_request = _terminal_request(trace, inferred_requests)
     if terminal_request is not None:
-        name = _humanized(operation_id_for(terminal_request))
+        override = _goal_verb_override(terminal_request.endpoint)
+        name = override if override is not None else _humanized(operation_id_for(terminal_request))
         goal = f"{name} ({terminal_request.method} {terminal_request.endpoint})"
         return name, goal
 
