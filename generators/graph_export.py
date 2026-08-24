@@ -103,7 +103,14 @@ def _componente_nodes(component_ledger: Dict[str, Dict[str, Dict[str, Any]]]) ->
         for path, record in components.items():
             node_id = record["id"]
             if node_id not in nodes:
-                nodes[node_id] = {"id": node_id, "type": "Componente", "label": record.get("text") or record.get("tag") or path}
+                nodes[node_id] = {
+                    "id": node_id,
+                    "type": "Componente",
+                    "label": record.get("text") or record.get("tag") or path,
+                    "tag": record.get("tag"),
+                    "role": record.get("role"),
+                    "category": record.get("category"),
+                }
     return nodes
 
 
@@ -117,7 +124,13 @@ def _endpoint_nodes(inferred_requests: Iterable[Any]) -> Dict[str, Node]:
     nodes = {}
     for request in inferred_requests:
         node_id = f"{request.method} {request.endpoint}"
-        nodes[node_id] = {"id": node_id, "type": "Endpoint", "label": node_id}
+        nodes[node_id] = {
+            "id": node_id,
+            "type": "Endpoint",
+            "label": node_id,
+            "method": request.method,
+            "path": request.endpoint
+        }
     return nodes
 
 
@@ -134,7 +147,13 @@ def _walk_token_groups(group: Dict[str, Any], path_prefix: str) -> Dict[str, Nod
     for key, value in group.items():
         node_id = f"{path_prefix}.{key}"
         if "$value" in value:
-            nodes[node_id] = {"id": node_id, "type": "Token", "label": node_id}
+            nodes[node_id] = {
+                "id": node_id,
+                "type": "Token",
+                "label": node_id,
+                "value": value.get("$value"),
+                "type_property": value.get("$type"),
+            }
         else:
             nodes.update(_walk_token_groups(value, node_id))
     return nodes
@@ -166,11 +185,11 @@ def _modulo_nodes(pantallas: Dict[str, Node], root: Optional[str]) -> Dict[str, 
     metrics = compute_graph_metrics(list(pantallas.values()), root=root)
     modules: Dict[str, Node] = {}
     for assignment in metrics.node_modules:
-        module = modules.setdefault(
+        modules.setdefault(
             assignment.module_id,
             {"id": assignment.module_id, "type": "Modulo", "label": assignment.module_label or assignment.module_id},
         )
-        _add_edge(module, "contiene", assignment.node_id)
+        _add_edge(modules[assignment.module_id], "contiene", assignment.node_id)
     return modules
 
 
@@ -185,7 +204,12 @@ def _entidad_nodes(data_model_document: Dict[str, Any], endpoints: Dict[str, Nod
     """
     entidades: Dict[str, Node] = {}
     for entity_name, entity in data_model_document["entities"].items():
-        entidades[entity_name] = {"id": entity_name, "type": "Entidad", "label": entity_name}
+        entidades[entity_name] = {
+            "id": entity_name,
+            "type": "Entidad",
+            "label": entity_name,
+            "fields": entity.get("fields", {})
+        }
         for field in entity["fields"].values():
             for endpoint_id in field["observed_in"]["api_endpoints"]:
                 endpoint = endpoints.get(endpoint_id)

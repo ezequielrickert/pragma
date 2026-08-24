@@ -19,6 +19,7 @@ import {
   FAMILY_COLORS,
   colorForType,
   typeBadgeHtml,
+  nodeBadgeHtml,
 } from "./color-palette.js";
 
 /**
@@ -40,7 +41,7 @@ export function renderNodeDetail(nodeId, container) {
     <div class="detail-header">
       <button class="detail-close" onclick="this.closest('.drawer').classList.remove('open')" title="Close">✕</button>
       ${renderBreadcrumb()}
-      ${typeBadgeHtml(node.type)}
+      ${nodeBadgeHtml(node)}
       <h2 class="detail-title">${escHtml(node.label || node.id)}</h2>
       <div class="detail-id"><code>${escHtml(node.id)}</code></div>
       ${renderConfidence(node)}
@@ -171,10 +172,11 @@ function renderEdgeGroups(outgoing, incoming) {
           const targetNode = store.getNode(id);
           if (!targetNode) return "";
           const color = FAMILY_COLORS[targetNode.type] || "#6b7280";
+          const subType = targetNode.tag || targetNode.role || targetNode.category || targetNode.method || targetNode.type_property || targetNode.type;
           return `
             <div class="edge-card" data-node-id="${escAttr(id)}" title="${escAttr(targetNode.label || id)}">
               <div class="edge-card-name">${escHtml(targetNode.label || id)}</div>
-              <div class="edge-card-type" style="color:${color}">${targetNode.type}</div>
+              <div class="edge-card-type" style="color:${color}">${subType}</div>
             </div>
           `;
         })

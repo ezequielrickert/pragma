@@ -15,7 +15,7 @@
 
 import { store } from "../graph-store.js";
 import { selectionState } from "../selection-state.js";
-import { NODE_TYPES, FAMILY_COLORS, RESERVED_TYPES, typeBadgeHtml } from "../color-palette.js";
+import { NODE_TYPES, FAMILY_COLORS, RESERVED_TYPES, typeBadgeHtml, nodeBadgeHtml } from "../color-palette.js";
 import { renderNodeDetail, attachDetailClickHandlers } from "../node-detail.js";
 
 /* ── Module-level state ── */
@@ -48,8 +48,8 @@ const COLUMNS = [
     key: "type",
     header: "Type",
     cssClass: "col-type",
-    get: (n) => n.type,
-    render: (n) => typeBadgeHtml(n.type),
+    get: (n) => (n.tag || n.role || n.category || n.method || n.type_property || n.type).toLowerCase(),
+    render: (n) => nodeBadgeHtml(n),
   },
   {
     key: "id",
