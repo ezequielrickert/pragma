@@ -37,7 +37,15 @@ class MechanicalCrawlerConfig:
     max_requeue_attempts: int = 3
     # See PragmaConfig.page_concurrency for why this default isn't 1 anymore.
     page_concurrency: int = 4
-    state_transition_overlap_threshold: float = 0.5
+    # Raised from 0.5 during ticket #194's tuning pass. The corpus's only
+    # real sample (a mapadeprofesionales.com list -> login-gated map
+    # toggle) measured component_overlap_ratio = 0.90, which this value
+    # still doesn't cross - going high enough to catch it risked false-
+    # positiving on ordinary DOM churn, untested on other sites. 0.71 is
+    # a deliberate middle ground between that and the old 0.5, not a
+    # value known to split any real transition yet.
+    # Details: docs/dev/spiders/orchestration/mechanical_loop/config.md#state_transition_overlap_threshold
+    state_transition_overlap_threshold: float = 0.71
     base_url: Optional[str] = None
     allow_subdomains: bool = False
     # Visits per worker tab before it's closed and rebuilt from scratch.

@@ -32,9 +32,13 @@ graph-store module uses) instead of a long constructor argument list.
   known components surviving a same-URL DOM change, `PageVisitor` treats
   it as an in-page *state transition* (a new graph node) rather than an
   ordinary reveal - see `component_matching.component_overlap_ratio`'s
-  doc for the empanad.app case this exists for. 0.5 is deliberately
-  generous - a real reveal barely touches the ratio at all, so this only
-  fires on a genuine near-total replace.
+  doc for the empanad.app case this exists for. Raised from 0.5 to 0.71
+  during ticket #194's tuning pass, a deliberate middle ground between
+  the old default and the corpus's only real sample (a
+  mapadeprofesionales.com list -> login-gated map toggle, measured at
+  0.90 - a value this threshold still doesn't cross; going that high
+  risked false-positiving on ordinary DOM churn, untested on other
+  sites).
 - `base_url`: Scope boundary for the URL frontier (see
   `frontier.md#enqueue-scope-gate`) - `is_in_scope()` compares hosts
   only. `None` (default) means "use `crawl_site()`'s own start_url" -
