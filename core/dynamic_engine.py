@@ -1,20 +1,24 @@
-"""The `pragma dynamic` entry point: resume-from-DB, family-aware
-interaction over a site.
+"""The `pragma dynamic` entry point: resume-from-DB interaction over a
+site.
 
 Deliberately its own class, not a mode on `Engine` - `Engine._run_async`
 still fuses discovery and interaction into one pass with no resume
 capability. `DynamicEngine` resumes from whatever `pragma static` (and,
 if it ran, `pragma cluster`) already wrote: when the graph store has
-pages left `"Scouted"`, this interacts with exactly those, skipping
-redundant clicks/fills two ways - a canonical `Component` reused across
-pages is interacted with once, ever, its outcome inferred onto every
-other page it renders on (`analysis/exact_reuse_index.py::
-ExactReuseIndex`, issue #140), while a merely similar, genuinely distinct
-component belonging to a known family is sample-and-skip capped instead
-(`analysis/family_sampling.py::FamilySampler`). When it doesn't - no
-prior `pragma static` run for this site - it falls back to independent
-full discovery+interaction, the same fused behavior `Engine` has always
-run. Details: docs/dev/core/dynamic_engine.md#module
+pages left `"Scouted"`, this interacts with exactly those. A canonical
+`Component` reused across pages is still interacted with once, ever, its
+outcome inferred onto every other page it renders on
+(`analysis/exact_reuse_index.py::ExactReuseIndex`, issue #140) - that's
+the same node, not a merely similar one. A merely similar, genuinely
+distinct component belonging to a known family used to be sample-and-skip
+capped (`analysis/family_sampling.py::FamilySampler`) - issue #215
+dropped that cap, the same shape of bug #214 found in `Frontier`'s own
+content-identity dedup, so every family member now gets a real attempt;
+`FamilySampler` still indexes membership, it just never skips on the
+strength of it. When there's no prior `pragma static` run for this site,
+this falls back to independent full discovery+interaction, the same
+fused behavior `Engine` has always run.
+Details: docs/dev/core/dynamic_engine.md#module
 """
 from __future__ import annotations
 
@@ -174,10 +178,11 @@ class DynamicEngine:
 
     async def run(self, url: str) -> DynamicRunResult:
         """Interact with `url`'s site: resumes from whatever `pragma
-        static` left `"Scouted"` when there is any, sampling known
-        families rather than trusting every instance; falls back to a
-        fused independent discovery+interaction crawl (today's `Engine`
-        behavior) when the graph store has nothing scouted yet.
+        static` left `"Scouted"` when there is any, interacting with
+        every instance regardless of family membership (issue #215);
+        falls back to a fused independent discovery+interaction crawl
+        (today's `Engine` behavior) when the graph store has nothing
+        scouted yet.
         Details: docs/dev/core/dynamic_engine.md#run
         """
         site = self.site or urlparse(url).netloc

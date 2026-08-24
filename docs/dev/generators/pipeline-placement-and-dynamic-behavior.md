@@ -44,14 +44,24 @@ to enforce "interact once, ever" on the exact tier: the interact sweep checks th
 already checks today, before acting on any component, and it's now correctly answering the
 right question.
 
-`analysis/family_sampling.py::FamilySampler` keeps its current sample-and-skip-the-rest behavior
+**Update - issue #215:** `analysis/family_sampling.py::FamilySampler` no longer samples-and-skips
+at all - `should_interact` always returns `True`, dropped for the same reason issue #214 dropped
+`Frontier`'s content-identity dedup (a family/identity match can't tell a genuinely distinct
+sibling apart from redundant boilerplate; mapadeprofesionales.com's repeated professional cards
+each have their own "Conectar"/favorite/share button, clustered into one family). The paragraph
+below describes this section's original plan - keeping the sample-and-skip behavior "unchanged
+in spirit" while migrating its matching to the embedding pipeline - which #215 has since
+superseded for the family tier; whoever picks this section up should re-derive it against
+`FamilySampler`'s current (skip-free) shape rather than the one described below.
+
+`analysis/family_sampling.py::FamilySampler` used to keep its sample-and-skip-the-rest behavior
 **unchanged in spirit** for the family tier — family members are genuinely different objects,
 worth sampling more than one of to see behavioral variation, exactly as `DEFAULT_MAX_SAMPLES_
-PER_FAMILY = 3` already reflects. What changes mechanically: `_index_family_members` needs to
-resolve against the new `ComponentFamily` records (sourced from the embedding pipeline) instead
-of Jaccard-built ones, and its `component_identity()`-based lookup (built to survive a live DOM
-selector churning across page reloads) needs reconciling with the new canonical component id —
-an implementation detail for whoever builds this, not a design fork.
+PER_FAMILY = 3` already reflects. What would have changed mechanically: `_index_family_members`
+needs to resolve against the new `ComponentFamily` records (sourced from the embedding pipeline)
+instead of Jaccard-built ones, and its `component_identity()`-based lookup (built to survive a
+live DOM selector churning across page reloads) needs reconciling with the new canonical
+component id — an implementation detail for whoever builds this, not a design fork.
 
 ## Closing the loop: inferring behavior across every page a canonical component appears on
 
