@@ -42,6 +42,12 @@ class StubStore:
     def get_inferred_requests(self):
         return []
 
+    def get_rules(self):
+        return []
+
+    def get_rule_field_entities(self):
+        return []
+
     def get_edges(self):
         return list(self._edges)
 

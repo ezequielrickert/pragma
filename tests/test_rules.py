@@ -225,3 +225,32 @@ def test_recording_entities_does_not_wipe_rule_provenance(store) -> None:
     store.record_entities(build_entities([]), run_id="run-1")
 
     assert [r.statement for r in store.get_rules()] == ["required"]
+
+
+# --- get_rule_field_entities ---
+
+
+def test_a_governed_rule_reports_its_field_and_entity(store) -> None:
+    entity = SemanticEntity(
+        name="checkout", description="d",
+        fields=(SemanticField(
+            name="email", data_type="email", required=True, validation="required",
+            observed_values=(), derived_from=((PAGE, "input#a"),),
+        ),),
+        derived_from=((PAGE, "input#a"),),
+    )
+    store.record_entities([entity], run_id="run-1")
+    store.record_rules(build_rules([_input("input#a", required=True)]), run_id="run-1")
+
+    rows = store.get_rule_field_entities()
+
+    assert rows == [{
+        "page_url": PAGE, "path": "input#a", "statement": "required",
+        "field": "email", "entity": "checkout",
+    }]
+
+
+def test_an_ungoverned_rule_reports_no_field_entity_row(store) -> None:
+    store.record_rules(build_rules([_input("input#a", required=True)]), run_id="run-1")
+
+    assert store.get_rule_field_entities() == []

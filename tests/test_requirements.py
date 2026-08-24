@@ -5,10 +5,12 @@ import json
 
 from core.documents import DocumentRequest
 from core.interfaces import InferredRequest
+from core.interfaces import SemanticRule
 from generators.requirements import (
     RequirementsDocument,
     _event_driven_requirements,
     _optional_feature_requirements,
+    _rule_based_requirements,
     requirement_id,
     _ubiquitous_requirements,
     _unwanted_behavior_requirements,
@@ -108,13 +110,52 @@ def test_a_required_field_produces_no_optional_feature_requirement():
     assert _optional_feature_requirements(_data_model_document(nullable=False), run_id="R1") == []
 
 
+# --- rule_based ---
+
+def _rule(statement="required", derived_from=("shop/checkout", "input#email")):
+    return SemanticRule(statement=statement, kind="declared", confidence=1.0, derived_from=derived_from)
+
+
+def test_a_governed_rule_becomes_a_rule_based_requirement():
+    rule = _rule()
+    rule_field_entities = {("shop/checkout", "input#email", "required"): ("email", "checkout")}
+
+    requirements = _rule_based_requirements([rule], rule_field_entities, run_id="R1")
+
+    assert len(requirements) == 1
+    req = requirements[0]
+    assert req["ears_pattern"] == "ubiquitous"
+    assert req["confidence"] == "inferred"
+    assert req["syntax_text"] == "THE SYSTEM SHALL enforce required on email"
+    assert req["links"]["data_entities"] == ["checkout"]
+    assert req["links"]["screens"][0].startswith("SCR-")
+
+
+def test_an_ungoverned_rule_produces_no_rule_based_requirement():
+    """GOVERNS is best-effort (record_rules's own stance) - a Rule whose
+    edge never resolved to a Field/Entity is silently skipped, not an
+    error."""
+    assert _rule_based_requirements([_rule()], {}, run_id="R1") == []
+
+
+def test_an_inferred_kind_rule_is_never_turned_into_a_requirement():
+    """kind='inferred' stays out of scope per #190/#193 even if some
+    future writer starts producing one."""
+    rule = SemanticRule(statement="required", kind="inferred", confidence=0.6, derived_from=("shop/checkout", "input#email"))
+    rule_field_entities = {("shop/checkout", "input#email", "required"): ("email", "checkout")}
+
+    assert _rule_based_requirements([rule], rule_field_entities, run_id="R1") == []
+
+
 # --- assembly, dedup, and confidence never "assumed" ---
 
 class _StubStore:
-    def __init__(self, inferred_requests=(), pages=(), edges=()):
+    def __init__(self, inferred_requests=(), pages=(), edges=(), rules=(), rule_field_entities=()):
         self._inferred_requests = inferred_requests
         self._pages = pages
         self._edges = edges
+        self._rules = rules
+        self._rule_field_entities = rule_field_entities
 
     def get_inferred_requests(self):
         return list(self._inferred_requests)
@@ -127,6 +168,12 @@ class _StubStore:
 
     def get_edges(self):
         return list(self._edges)
+
+    def get_rules(self):
+        return list(self._rules)
+
+    def get_rule_field_entities(self):
+        return list(self._rule_field_entities)
 
 
 def _request(store, target=""):
@@ -198,3 +245,18 @@ def test_an_empty_crawl_produces_no_requirements_not_an_error():
     document = build_requirements_document(_request(_StubStore()))
 
     assert document["requirements"] == []
+
+
+def test_build_requirements_document_wires_rule_based_requirements():
+    store = _StubStore(
+        rules=[_rule()],
+        rule_field_entities=[{
+            "page_url": "shop/checkout", "path": "input#email",
+            "statement": "required", "field": "email", "entity": "checkout",
+        }],
+    )
+
+    document = build_requirements_document(_request(store))
+
+    assert [r["ears_pattern"] for r in document["requirements"]] == ["ubiquitous"]
+    assert document["requirements"][0]["confidence"] == "inferred"

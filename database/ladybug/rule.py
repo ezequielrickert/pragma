@@ -37,7 +37,7 @@ Details: docs/dev/database/ladybug/rule.md#module
 """
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import Dict, List, Sequence
 
 from core.interfaces import SemanticRule
 from ._component_lookup import resolve_component_ids, stub_component_id
@@ -120,6 +120,37 @@ class _LadybugRuleMixin:
             """,
             {"statement": rule.statement, "component_id": component_id},
         )
+
+    def get_rule_field_entities(self) -> List[Dict[str, str]]:
+        """Every `Rule` whose `GOVERNS` edge resolved to a real `Field`
+        and that `Field`'s owning `Entity` -
+        `[{"page_url", "path", "statement", "field", "entity"}, ...]`.
+
+        The shape `generators/requirements.py::_rule_based_requirements`
+        (issue #203) needs to text- and link- a Rule-based requirement,
+        without threading raw Cypher into a generator - the same
+        dict-row convention `named_queries.py::callers_of` uses.
+        `GOVERNS` is best-effort (`_write_rule`'s own docstring): a Rule
+        whose `GOVERNS` edge never resolved simply doesn't appear here,
+        the same silent-absence stance the writer itself takes.
+        Details: docs/dev/database/ladybug/rule.md#get_rule_field_entities
+        """
+        def op(conn) -> List[Dict[str, str]]:
+            rows = conn.execute(
+                """
+                MATCH (r:Rule)-[:GOVERNS]->(f:Field)<-[:HAS_FIELD]-(e:Entity)
+                MATCH (r)-[:DERIVED_FROM]->(c:Component)
+                MATCH (page:Page)-[edge:HAS_COMPONENT]->(c)
+                RETURN DISTINCT page.url, edge.path, r.statement, f.name, e.name
+                ORDER BY page.url, edge.path, r.statement
+                """
+            )
+            return [
+                {"page_url": page_url, "path": path, "statement": statement, "field": field, "entity": entity}
+                for page_url, path, statement, field, entity in rows
+            ]
+
+        return self._call(op)
 
     def get_rules(self) -> List[SemanticRule]:
         """Every `Rule` with its source `Component`'s `(page_url, path)`,
