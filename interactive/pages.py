@@ -176,6 +176,10 @@ def landing_page(where: SiteOutput) -> str:
     )
     return (
         f"<h1>{escape(where.site)}</h1>"
+        '<div style="margin-bottom: 24px; padding: 12px; background: #1a202c; border: 1px solid #2d3748; border-radius: 6px;">'
+        '<a href="/graph" style="font-weight: bold; color: #63b3ed; text-decoration: none;">'
+        '🔍 Launch Graph Explorer (Live Kùzu Database Mode)</a>'
+        '</div>'
         '<p>Every document this crawl produced. Open one to read it; click Edit to customise '
         "it - edits write a separate copy and never touch the original crawl output.</p>"
         f'<ul class="documents">{items}</ul>'

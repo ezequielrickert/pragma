@@ -79,6 +79,8 @@ export function initShell(activePage) {
     loadedEl.style.display = "";
     document.getElementById("loaded-name").textContent = store.filename;
     updateStats();
+  } else {
+    tryFetchLiveApi();
   }
 
   document.addEventListener("graph-loaded", () => {
@@ -102,12 +104,16 @@ function setupFileLoader() {
     if (e.target.files.length > 0) loadFile(e.target.files[0]);
   });
 
-  // Load another
+  // Load another / Refresh
   loadAnother.addEventListener("click", () => {
-    document.getElementById("loaded-file").style.display = "none";
-    dropZone.style.display = "";
-    fileInput.value = "";
-    fileInput.click();
+    if (store.filename === "Live Database (Kùzu)") {
+      tryFetchLiveApi();
+    } else {
+      document.getElementById("loaded-file").style.display = "none";
+      dropZone.style.display = "";
+      fileInput.value = "";
+      fileInput.click();
+    }
   });
 
   // Drag and drop
@@ -184,4 +190,33 @@ function updateStats() {
     </div>
     <div class="stats-types">${typePills}</div>
   `;
+}
+
+/** Attempt to connect to the live Kùzu API. */
+function tryFetchLiveApi() {
+  const dropZone = document.getElementById("drop-zone");
+  const dropText = dropZone ? dropZone.querySelector(".drop-text") : null;
+  const dropSubtext = dropZone ? dropZone.querySelector(".drop-subtext") : null;
+
+  if (dropText) {
+    dropText.textContent = "Connecting to live Kùzu...";
+    if (dropSubtext) dropSubtext.style.display = "none";
+  }
+
+  fetch("/api/graph")
+    .then((res) => {
+      if (!res.ok) throw new Error("HTTP error " + res.status);
+      return res.json();
+    })
+    .then((doc) => {
+      if (!doc["@graph"]) throw new Error("Missing @graph array");
+      store.load(doc, "Live Database (Kùzu)", true);
+    })
+    .catch((err) => {
+      console.log("Live API connection unavailable, falling back to drop zone:", err.message);
+      if (dropText) {
+        dropText.textContent = "Drop export.json";
+        if (dropSubtext) dropSubtext.style.display = "";
+      }
+    });
 }

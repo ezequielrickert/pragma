@@ -357,3 +357,32 @@ def test_view_mode_shows_diff_summary_when_customized_exists(tmp_path):
     assert "<h1>Customized PRD</h1>" in html
 
 
+
+def test_api_graph_route(tmp_path):
+    client = _app(tmp_path).test_client()
+
+    response = client.get("/api/graph")
+
+    assert response.status_code == 200
+    data = json.loads(response.get_data(as_text=True))
+    assert "@context" in data
+    assert "@graph" in data
+
+
+def test_serve_graph_explorer_pages_and_assets(tmp_path):
+    client = _app(tmp_path).test_client()
+
+    # Get /graph (should redirect to /index.html)
+    resp = client.get("/graph")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/index.html"
+
+    # Get /index.html
+    resp = client.get("/index.html")
+    assert resp.status_code == 200
+    assert "Graph Explorer" in resp.get_data(as_text=True)
+
+    # Get /lists.html
+    resp = client.get("/lists.html")
+    assert resp.status_code == 200
+    assert "Graph Explorer" in resp.get_data(as_text=True)

@@ -85,7 +85,7 @@ from typing import Dict, List, Tuple
 
 import jsonschema
 import yaml
-from flask import Flask, current_app, redirect, request, url_for
+from flask import Flask, current_app, redirect, request, url_for, jsonify, send_from_directory
 from werkzeug.serving import BaseWSGIServer, make_server
 
 from dashboard.renderer_audit import renderer_for
@@ -120,8 +120,15 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
     request-global state - this app is never reused across sites.
     Details: docs/dev/interactive/server.md#create_app
     """
+    import os
+    from database.ladybug.store import LadybugGraphStore
+
     app = Flask(__name__)
     where = SiteOutput(out_dir=out_dir, site=site)
+    store = LadybugGraphStore(site=site, directory=out_dir)
+
+    explorer_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../tools/graph-explorer/dist"))
+
     # One in-memory conversation per document, gone when the session
     # ends - never written to disk (map #146's own "chat history: in-
     # memory only" decision).
@@ -211,6 +218,38 @@ def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
         server_thread: "ServerThread" = current_app.config["SERVER_THREAD"]
         threading.Thread(target=server_thread.shutdown).start()
         return pages.page("Finalizado", "<h1>Sesión finalizada.</h1><p>Podés cerrar esta pestaña.</p>")
+
+    @app.route("/api/graph")
+    def api_graph():
+        from core.documents import DocumentRequest
+        from generators.graph_export import build_export_graph
+        doc_request = DocumentRequest(
+            graph_store=store,
+            site=site,
+            agent=agent,
+            settings={"target": site},
+        )
+        try:
+            graph_data = build_export_graph(doc_request)
+            return jsonify(graph_data)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/graph")
+    def serve_graph_redirect():
+        return redirect("/index.html")
+
+    @app.route("/index.html")
+    def serve_graph_index():
+        return send_from_directory(explorer_dist, "index.html")
+
+    @app.route("/lists.html")
+    def serve_graph_lists():
+        return send_from_directory(explorer_dist, "lists.html")
+
+    @app.route("/assets/<path:filename>")
+    def serve_graph_assets(filename):
+        return send_from_directory(os.path.join(explorer_dist, "assets"), filename)
 
     return app
 

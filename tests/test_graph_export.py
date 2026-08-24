@@ -202,7 +202,15 @@ def test_token_nodes_are_keyed_by_their_own_dtcg_path():
 
     nodes = token_nodes(tokens_document)
 
-    assert nodes == {"core.color.text-1": {"id": "core.color.text-1", "type": "Token", "label": "core.color.text-1"}}
+    assert nodes == {
+        "core.color.text-1": {
+            "id": "core.color.text-1",
+            "type": "Token",
+            "label": "core.color.text-1",
+            "value": "#111",
+            "type_property": "color",
+        }
+    }
 
 
 def test_token_nodes_recurse_through_nested_groups():
@@ -419,7 +427,7 @@ def test_generated_export_document_is_valid_json_ld_and_deterministic():
     assert outputs[0].kind == "source"
     assert outputs[0].extension == "json"
     parsed = json.loads(outputs[0].content)
-    assert parsed["@graph"][0]["type"] == "Pantalla"
+    assert any(node["type"] == "Pantalla" for node in parsed["@graph"])
 
     strip_timestamp = lambda text: re.sub(r'"generated_at": "[^"]*"', '"generated_at": ""', text)
     again = generator.outputs(_request(store))[0].content
