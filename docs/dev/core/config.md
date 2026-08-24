@@ -185,18 +185,6 @@ itself crawled further. Off by default: exact host match only. A naive
 last-two-label heuristic when enabled, not a full public-suffix-list
 lookup.
 
-## first_party_hosts
-
-Extra hosts `GraphStoreSink` treats as first-party alongside `url`'s own
-same-domain-or-subdomain check - this site's decoupled backend on a different
-domain (e.g. a Supabase project host), not a genuine third-party integration.
-Empty by default: no site needs this until its config names a host, and every
-host not listed here keeps today's asymmetric-retention behavior (an
-`Endpoint` and a bumped `call_count`, no `Request`). See
-`docs/dev/spiders/orchestration/graph_sink/sink.md#first_party_hosts` for
-where this is read, and `docs/dev/database/ladybug/network.md#_merge_third_party_endpoint`
-for the retention it changes.
-
 ## fresh
 
 Purge this site's previously recorded `graph_store` state before

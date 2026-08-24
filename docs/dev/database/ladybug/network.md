@@ -12,11 +12,20 @@ retired `generators/request_family.py`'s whole-site rebuild pass. A rebuilt
 table has to be re-run after every write to stay true; a read-time
 aggregation cannot be wrong.
 
-**First-party and third-party are retained asymmetrically.** A third-party
-host gets an `Endpoint` and no `Request` at all: per-observation fidelity for
-a call this application does not own is noise. `get_inferred_requests`
-answers "what is this application's own API"; `named_queries.integrations()`
-answers "what does it integrate with".
+**First-party and third-party are retained asymmetrically - a distinction
+`GraphStoreSink` no longer draws.** A third-party host gets an `Endpoint` and
+no `Request` at all: per-observation fidelity for a call this application
+does not own is noise. `get_inferred_requests` answers "what is this
+application's own API"; `named_queries.integrations()` answers "what does it
+integrate with". As of #210, `GraphStoreSink` stops stamping `is_first_party`
+on every request it writes (issue #209's per-site allowlist turned out to be
+overhead, not signal), so every crawl-sourced request takes the first-party
+path here regardless of host - `_merge_third_party_endpoint` is reachable
+only for a caller that stamps `is_first_party: False` directly, which nothing
+in the crawl pipeline does anymore. `integrations()` (and the two document
+sections it feeds - the risk register's third-party inventory and the
+architecture SBOM's external-services list) degrades to permanently empty as
+a result, already covered as a supported empty state by their own tests.
 
 One `conn.execute()` per request rather than an `UNWIND` batch. A page's own
 network traffic is a handful of requests (148 first-party observations across

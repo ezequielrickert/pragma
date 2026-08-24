@@ -108,13 +108,6 @@ class PragmaConfig:
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.
     # Details: docs/dev/core/config.md#allow_subdomains
     allow_subdomains: bool = False
-    # Extra hosts GraphStoreSink treats as first-party alongside `url`'s own
-    # same-domain-or-subdomain check - this site's decoupled backend on a
-    # different domain (e.g. a Supabase project host), not a genuine
-    # third-party integration. Empty means no site needs this today; every
-    # host still not listed here keeps today's asymmetric-retention behavior.
-    # Details: docs/dev/core/config.md#first_party_hosts
-    first_party_hosts: List[str] = field(default_factory=list)
     # Purge this site's previous graph_store state before crawling. Defaults
     # off since resuming became possible: the pending pages a cut-short run
     # leaves behind ARE the crawl's saved progress, and purging on by default

@@ -74,13 +74,6 @@ max_visits_per_route_shape: 1  # backstop for a site that mints a fresh, per-vis
 allow_subdomains: false  # if true, a subdomain (e.g. blog.example.com) counts as in-scope for a crawl
                           # of example.com and its links get queued too (naive last-two-label match,
                           # not a full public-suffix-list lookup)
-# first_party_hosts:     # extra hosts to record as this site's own API, alongside the domain check
-#   - faqqkyevsivbrfzmjbyf.supabase.co  # above - for a decoupled backend that lives on a different
-                          # domain by architecture (e.g. a Supabase project host), not a genuine
-                          # third-party integration. A call to one of these hosts persists Request +
-                          # schema like any same-domain call; every other off-domain host (ad/tracker/
-                          # analytics traffic) keeps today's call_count-only retention. Unset = only
-                          # the domain check above decides.
 # debug_logs_keep_last: 5  # keep only the N most recent data/debug_logs/ run directories for this site+URL,
                        # deleting older ones once a run finishes. unset = unbounded (keep every run
                        # forever, unchanged default) - opt in once data/debug_logs/ disk usage becomes a
