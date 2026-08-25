@@ -13,6 +13,7 @@ from ...content.component_matching import (
     component_overlap_ratio,
     is_element_not_found,
     is_fillable,
+    state_transition_key,
 )
 from ..interaction_tracker import InteractionTracker
 from .frontier import Frontier
@@ -55,6 +56,37 @@ def _blocked_summary(blocked_mutations: List[Dict[str, str]]) -> Tuple[bool, str
         return False, ""
     methods = sorted({m["method"] for m in blocked_mutations})
     return True, ",".join(methods)
+
+
+def is_toggle(component: Dict[str, Any]) -> bool:
+    """True if a component is identified as a toggleable filter/switch element."""
+    tag = (component.get("tag") or "").lower()
+    attrs = component.get("attributes") or {}
+    role = (attrs.get("role") or component.get("role") or "").lower()
+    type_attr = (attrs.get("type") or "").lower()
+    class_attr = (attrs.get("class") or "").lower()
+    text = (component.get("text") or "").lower()
+
+    # 1. Inputs of type checkbox or radio
+    if tag == "input" and type_attr in ("checkbox", "radio"):
+        return True
+
+    # 2. Roles matching switch or checkbox
+    if role in ("switch", "checkbox", "radio"):
+        return True
+
+    # 3. Explicit aria-pressed or aria-checked attributes
+    if "aria-pressed" in attrs or "aria-checked" in attrs:
+        return True
+
+    # 4. Classes or text containing toggle/switch/checkbox/filter keywords
+    keywords = ("toggle", "switch", "checkbox", "filter", "favorito", "favoritos")
+    if any(k in class_attr for k in keywords):
+        return True
+    if any(k in text for k in keywords):
+        return True
+
+    return False
 
 
 class PageVisitor:
@@ -422,20 +454,88 @@ class PageVisitor:
             new_key = route_shape(new_state.url)
             interaction.resulting_url = new_literal
             result.interactions.append(interaction)
-            if self.sink:
-                # One position, shared by the interaction and the requests it
-                # fired - that pairing is the whole point of stamping them.
-                # Details: docs/dev/spiders/orchestration/page_visitor/visitor.md#visit-step
-                step = visit_step.take()
-                blocked, blocked_reason = _blocked_summary(new_state.blocked_mutations)
-                await self.sink.record_interaction(
-                    page_key, path, interaction.action, interaction.value, new_literal, step=step,
-                    blocked=blocked, blocked_reason=blocked_reason,
-                )
-                if new_state.network_requests:
-                    await self.sink.record_component_network(
-                        page_key, path, new_state.network_requests, step=step
+
+            # If it's a toggle button, execute the do-redo (toggle and untoggle) logic
+            is_toggle_button = is_toggle(component) and not fillable
+            print(f"DEBUG: component={component.get('text')}, path={path}, is_toggle={is_toggle(component)}, fillable={fillable}, is_toggle_button={is_toggle_button}")
+            if is_toggle_button:
+                try:
+                    toggled_key = state_transition_key(page_key, new_state.components)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    raise e
+                result.state_transitions.append(toggled_key)
+
+                print("DEBUG: Recording toggle-on to sink...")
+                # 1. Record the toggle-on edge and the toggled state details
+                if self.sink:
+                    step_on = visit_step.take()
+                    blocked_on, blocked_reason_on = _blocked_summary(new_state.blocked_mutations)
+                    await self.sink.record_interaction(
+                        page_key, path, interaction.action, interaction.value, toggled_key, step=step_on,
+                        blocked=blocked_on, blocked_reason=blocked_reason_on
                     )
+                    if new_state.network_requests:
+                        await self.sink.record_component_network(
+                            page_key, path, new_state.network_requests, step=step_on
+                        )
+                    await self.sink.record_navigation_edge(page_key, toggled_key, path, "click")
+                    await self.sink.record_page_arrival(toggled_key, description=new_state.description, title=new_state.title)
+                    await self.sink.record_inventory(
+                        toggled_key, self._frontier.canonicalize_inventory(toggled_key, new_state.components), new_state.links
+                    )
+                    await self.sink.record_text_content(toggled_key, new_state.text_content)
+                    await self.sink.record_state_styles(toggled_key, new_state.pseudo_styles)
+                self._enqueue_links(new_state.links)
+
+                # 2. Revert the toggle by clicking it again
+                print(f"  [Toggle Filter] Reverting toggle on {path}...")
+                try:
+                    reverted_state = await self.crawler.click(url, session_id, path)
+                    print("DEBUG: Revert click succeeded! Recording to sink...")
+                    if self.sink:
+                        step_off = visit_step.take()
+                        blocked_off, blocked_reason_off = _blocked_summary(reverted_state.blocked_mutations)
+                        await self.sink.record_interaction(
+                            toggled_key, path, interaction.action, interaction.value, page_key, step=step_off,
+                            blocked=blocked_off, blocked_reason=blocked_reason_off
+                        )
+                        if reverted_state.network_requests:
+                            await self.sink.record_component_network(
+                                toggled_key, path, reverted_state.network_requests, step=step_off
+                            )
+                        await self.sink.record_navigation_edge(toggled_key, page_key, path, "click")
+                    new_state = reverted_state
+                    new_literal = clean_url(new_state.url)
+                    new_key = route_shape(new_state.url)
+                    print("DEBUG: Revert completed successfully.")
+                except Exception as rev_exc:
+                    print(f"  Warning: failed to revert toggle on {path}: {rev_exc}")
+                    # Try to return to original state
+                    fresh_state = await self._recovery.return_to_origin(
+                        url, session_id, page_key, page_literal, page_url, frontier, idx, result, seen_paths_this_pass
+                    )
+                    if fresh_state is not None:
+                        new_state = fresh_state
+                        new_literal = clean_url(new_state.url)
+                        new_key = route_shape(new_state.url)
+                    else:
+                        result.interrupted_by_navigation = True
+                        break
+            else:
+                # Normal non-toggle interaction: record normally
+                if self.sink:
+                    step = visit_step.take()
+                    blocked, blocked_reason = _blocked_summary(new_state.blocked_mutations)
+                    await self.sink.record_interaction(
+                        page_key, path, interaction.action, interaction.value, new_literal, step=step,
+                        blocked=blocked, blocked_reason=blocked_reason,
+                    )
+                    if new_state.network_requests:
+                        await self.sink.record_component_network(
+                            page_key, path, new_state.network_requests, step=step
+                        )
 
             if new_literal != page_literal:
                 # Real physical navigation. Always resumed in place, known

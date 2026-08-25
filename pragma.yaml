@@ -8,7 +8,7 @@
 # hours. The loader now names any key it does not recognize on startup.
 agent: local
 graph_store: ladybug
-out_dir: docs
+out_dir: data/output
 headless: true
 mode: stateful
 wait_seconds: 5.0

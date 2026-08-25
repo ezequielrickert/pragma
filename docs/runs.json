@@ -72,6 +72,45 @@
       "url": "https://www.grubi.com.ar/"
     }
   ],
+  "www.mapadeprofesionales.com": [
+    {
+      "components_total": 45,
+      "components_unexplored": 13,
+      "document_paths": {
+        "accessibility": "docs/www.mapadeprofesionales.com_accessibility_20260824T193253Z.md",
+        "architecture": "docs/www.mapadeprofesionales.com_architecture_20260824T193253Z.md",
+        "catalog": "docs/www.mapadeprofesionales.com_catalog_20260824T193253Z.md",
+        "change-log": "docs/www.mapadeprofesionales.com_change-log_20260824T193253Z.md",
+        "confidence-summary": "docs/www.mapadeprofesionales.com_confidence-summary_20260824T193253Z.md",
+        "content-inventory": "docs/www.mapadeprofesionales.com_content-inventory_20260824T193253Z.md",
+        "coverage": "docs/www.mapadeprofesionales.com_coverage_20260824T193253Z.md",
+        "data-model": "docs/www.mapadeprofesionales.com_data-model_20260824T193253Z.md",
+        "evidence-log": "docs/www.mapadeprofesionales.com_evidence-log_20260824T193253Z.jsonl",
+        "export": "docs/www.mapadeprofesionales.com_export_20260824T193253Z.json",
+        "flows": "docs/www.mapadeprofesionales.com_flows_20260824T193253Z.md",
+        "gherkin": "docs/www.mapadeprofesionales.com_gherkin_20260824T193253Z.feature",
+        "glossary": "docs/www.mapadeprofesionales.com_glossary_20260824T193253Z.md",
+        "master": "docs/www.mapadeprofesionales.com_manifest_20260824T193253Z.json",
+        "performance-baseline": "docs/www.mapadeprofesionales.com_performance-baseline_20260824T193253Z.md",
+        "prd": "docs/www.mapadeprofesionales.com_prd_20260824T193253Z.md",
+        "redaction-log": "docs/www.mapadeprofesionales.com_redaction-log_20260824T193253Z.jsonl",
+        "risk-register": "docs/www.mapadeprofesionales.com_risk-register_20260824T193253Z.md",
+        "test-plan": "docs/www.mapadeprofesionales.com_test-plan_20260824T193253Z.md",
+        "tokens": "docs/www.mapadeprofesionales.com_tokens_20260824T193253Z.md",
+        "tree": "docs/www.mapadeprofesionales.com_tree.axtree_20260824T193253Z.json",
+        "usability": "docs/www.mapadeprofesionales.com_usability_20260824T193253Z.md"
+      },
+      "export_path": "docs/www.mapadeprofesionales.com_export_20260824T193253Z.json",
+      "graph_store": "LadybugGraphStore",
+      "master_path": "docs/www.mapadeprofesionales.com_manifest_20260824T193253Z.json",
+      "pages_finished": 3,
+      "pages_total": 5,
+      "prd_path": "docs/www.mapadeprofesionales.com_prd_20260824T193253Z.md",
+      "timestamp": "20260824T193253Z",
+      "tree_path": "docs/www.mapadeprofesionales.com_tree.axtree_20260824T193253Z.json",
+      "url": "https://www.mapadeprofesionales.com"
+    }
+  ],
   "www.stjohns.edu.ar": [
     {
       "components_total": 4677,
