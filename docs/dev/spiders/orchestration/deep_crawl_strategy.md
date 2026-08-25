@@ -16,24 +16,40 @@ Not yet wired into any phase command - that's a separate ticket in the same
 map (create-and-wire, per the map's Notes). This module and its tests stand
 alone against duck-typed `CrawlResult` fakes.
 
+The frontier rules themselves now live in `PragmaFrontierMixin` (below),
+extracted per [issue #247](https://github.com/ezequielrickert/pragma/issues/247)
+so `spiders/orchestration/best_first_strategy.py`'s `PragmaBestFirstStrategy`
+can reuse them without duplicating this module's logic - crawl4ai's
+`BFSDeepCrawlStrategy` and `BestFirstCrawlingStrategy` share no common
+ancestor below `DeepCrawlStrategy`, so a mixin is the only way to share this
+without copying it.
+
+## PragmaFrontierMixin
+
+The route-shape visit cap, `clean_url`-based dedup, and redirect-resolved
+identity `UrlFrontier` used to enforce - the part of `PragmaDeepCrawlStrategy`
+(below) that isn't BFS-specific, factored out so `PragmaBestFirstStrategy`
+carries it too. Mixed in *before* the crawl4ai base class in each
+subclass's MRO, so its `super().can_process_url`/`super().link_discovery`
+calls reach that base's own implementation.
+
 ## PragmaDeepCrawlStrategy
 
-Carries the three things `UrlFrontier` enforced that crawl4ai has no native
-equivalent for: the route-shape visit cap, `clean_url`-based dedup, and
-redirect-resolved identity. `CrawlBudget`/exhaustion-stop logic and the
-hand-rolled worker pool are dropped outright, per #236 - not reintroduced
-here.
+`PragmaFrontierMixin` mixed onto crawl4ai's own
+`BFSDeepCrawlStrategy` - unifies the mixin's frontier rules with `CrawlBudget`
+exhaustion-stop logic and the hand-rolled worker pool dropped outright, per
+#236 - not reintroduced here.
 
 ## max_depth
 
 Pragma's own crawl has no depth ceiling - `UrlFrontier` never tracked depth
-at all, only route shape and `max_pages`. `BFSDeepCrawlStrategy.__init__`
-requires a real `int` for `max_depth`, so `sys.maxsize` stands in for
-"unbounded."
+at all, only route shape and `max_pages`. Both crawl4ai base classes'
+`__init__` require a real `int` for `max_depth`, so `sys.maxsize` stands in
+for "unbounded."
 
 ## _seen
 
-`clean_url()` key already counted as seen. `BFSDeepCrawlStrategy`'s own
+`clean_url()` key already counted as seen. Each crawl4ai base class's own
 `visited` set (threaded through `link_discovery`'s parameters) is keyed by
 crawl4ai's `normalize_url_for_deep_crawl`, a different canonicalization than
 pragma's own dedup identity (scheme/`www.`/fragment/trailing-slash
@@ -43,10 +59,11 @@ twin of it, layered on top rather than replacing crawl4ai's own filter.
 ## can_process_url
 
 Runs crawl4ai's own base check first (URL well-formedness, the filter
-chain), then pragma's own scope gate (`utils.urls.is_in_scope`) and route-
-shape cap. Depth 0 (the crawl's own entry point) bypasses both pragma gates,
-matching `UrlFrontier.enqueue(start_url)` never scope-checking the site's own
-starting URL against itself.
+chain - `BFSDeepCrawlStrategy`'s and `BestFirstCrawlingStrategy`'s versions
+are identical), then pragma's own scope gate (`utils.urls.is_in_scope`) and
+route-shape cap. Depth 0 (the crawl's own entry point) bypasses both pragma
+gates, matching `UrlFrontier.enqueue(start_url)` never scope-checking the
+site's own starting URL against itself.
 
 ## prime_route_shape_visits
 
@@ -80,18 +97,20 @@ even though the link that pointed at it (before the redirect) may carry a
 different literal URL and shape.
 
 Counting happens at discovery time, not at completion the way
-`UrlFrontier.record_route_shape_visit` did - crawl4ai's `BFSDeepCrawlStrategy`
-already drains one full BFS level at a time, calling `link_discovery` once
-per completed result within a level in a plain sequential loop (see
-`bfs_strategy.py::_arun_batch`), so there's no concurrent race between two
-same-shape links surfacing in the same level the way `UrlFrontier`'s
-worker-pool design had to tolerate. Counting at discovery is deterministic
-and enforces the cap without depending on which of several already-enqueued
-same-shape candidates happens to finish fetching first.
+`UrlFrontier.record_route_shape_visit` did - both crawl4ai base classes
+already drain one batch/level of results at a time, calling `link_discovery`
+once per completed result in a plain sequential loop (see
+`bfs_strategy.py::_arun_batch`, `bff_strategy.py::_arun_best_first`), so
+there's no concurrent race between two same-shape links surfacing in the
+same batch the way `UrlFrontier`'s worker-pool design had to tolerate.
+Counting at discovery is deterministic and enforces the cap without
+depending on which of several already-enqueued same-shape candidates
+happens to finish fetching first.
 
 ## link_discovery
 
-Two things beyond crawl4ai's own `BFSDeepCrawlStrategy.link_discovery`:
+Two things beyond whichever crawl4ai base class's own `link_discovery` this
+is mixed onto:
 
 1. Marks the just-completed result's own resolved URL seen/counted (see
    `_resolved_url`/`_mark_seen_and_counted`) - this is what makes a redirect
@@ -104,7 +123,7 @@ Two things beyond crawl4ai's own `BFSDeepCrawlStrategy.link_discovery`:
 ## link_discovery-dedup
 
 `next_level` is shared and accumulated across every result in the current
-BFS level - `link_discovery` is called once per completed result, and each
+batch/level - `link_discovery` is called once per completed result, and each
 call appends its own newly discovered links onto the same list. Re-deduping
 the *whole* list on every call would drop earlier calls' own entries the
 moment their key got marked seen by a later call, so this only re-filters

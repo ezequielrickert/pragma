@@ -1,11 +1,13 @@
-"""crawl4ai `DeepCrawlStrategy` subclass carrying the frontier rules
+"""crawl4ai `DeepCrawlStrategy` mixin/subclass carrying the frontier rules
 `UrlFrontier`/`WorkerPacing`/the hand-rolled worker loop in
 `mechanical_loop/loop.py` used to enforce, per issue #236's design: the
 route-shape visit cap, `clean_url`-based dedup, and treating a redirected
 fetch's resolved destination (not the as-requested URL) as the identity a
 dedup/cap decision keys off. Concurrency itself is crawl4ai's own
-`arun`/`arun_many`/dispatcher, driven by `BFSDeepCrawlStrategy`'s own
-level-by-level batch loop - this class only decides which URLs get a turn.
+`arun`/`arun_many`/dispatcher; this mixin only decides which URLs get a
+turn. `PragmaBestFirstStrategy` (best-first ordering over the same rules)
+lives in `spiders/orchestration/best_first_strategy.py`, which reuses
+`PragmaFrontierMixin` from here.
 Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#module
 """
 from __future__ import annotations
@@ -19,8 +21,18 @@ from crawl4ai.models import CrawlResult
 from utils.urls import clean_url, is_in_scope, route_shape
 
 
-class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
-    """Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#pragmadeepcrawlstrategy"""
+class PragmaFrontierMixin:
+    """The frontier rules shared by every pragma deep-crawl strategy,
+    factored out so `PragmaDeepCrawlStrategy` (BFS, below) and
+    `PragmaBestFirstStrategy` (best-first, `best_first_strategy.py`) don't
+    each carry their own copy - crawl4ai's `BFSDeepCrawlStrategy` and
+    `BestFirstCrawlingStrategy` don't share a common ancestor below
+    `DeepCrawlStrategy`, so this can't be expressed as a single shared base
+    class; a mixin placed before the crawl4ai base in each subclass's MRO
+    lets `super()` reach that base's own `can_process_url`/`link_discovery`
+    unchanged.
+    Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#pragmafrontiermixin
+    """
 
     def __init__(
         self,
@@ -31,8 +43,8 @@ class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
     ) -> None:
         # Pragma's own crawl has no depth ceiling - UrlFrontier never
         # tracked depth at all, only route shape and max_pages. sys.maxsize
-        # stands in for "unbounded" since BFSDeepCrawlStrategy.__init__
-        # requires a real int.
+        # stands in for "unbounded" since both crawl4ai base classes'
+        # __init__ require a real int.
         # Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#max_depth
         kwargs.setdefault("max_depth", sys.maxsize)
         super().__init__(**kwargs)
@@ -42,11 +54,12 @@ class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
         # route_shape() key -> completed-visit count - UrlFrontier's own
         # _route_shape_visits, ported unchanged.
         self._route_shape_visits: Dict[str, int] = {}
-        # clean_url() key already counted as seen - BFSDeepCrawlStrategy's
-        # own `visited` set is keyed by crawl4ai's normalize_url_for_deep_crawl,
-        # a different canonicalization than pragma's own dedup identity
-        # (scheme/www/fragment/trailing-slash insensitive); this is the
-        # pragma-keyed twin of it, layered on top rather than replacing it.
+        # clean_url() key already counted as seen - each crawl4ai base
+        # class's own `visited` set is keyed by crawl4ai's
+        # normalize_url_for_deep_crawl, a different canonicalization than
+        # pragma's own dedup identity (scheme/www/fragment/trailing-slash
+        # insensitive); this is the pragma-keyed twin of it, layered on top
+        # rather than replacing it.
         # Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#_seen
         self._seen: Set[str] = set()
 
@@ -124,7 +137,7 @@ class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
         self._mark_seen_and_counted(self._resolved_url(result))
 
         # Only the entries this call appends belong to `result` - next_level
-        # is shared and accumulated across every result in the current BFS
+        # is shared and accumulated across every result in the current
         # level, so re-deduping the whole list on each call would drop
         # earlier calls' own entries the moment their key got marked seen.
         # Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#link_discovery-dedup
@@ -132,3 +145,7 @@ class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
         await super().link_discovery(result, source_url, current_depth, visited, next_level, depths)
         kept = [(url, parent) for url, parent in next_level[before:] if not self._mark_seen_and_counted(url)]
         next_level[before:] = kept
+
+
+class PragmaDeepCrawlStrategy(PragmaFrontierMixin, BFSDeepCrawlStrategy):
+    """Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#pragmadeepcrawlstrategy"""
