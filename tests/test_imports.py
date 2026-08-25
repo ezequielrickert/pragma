@@ -22,6 +22,7 @@ def test_imports():
     importlib.import_module("core.engine")
     importlib.import_module("spiders.browser.crawl4ai_crawler")
     importlib.import_module("spiders.orchestration.mechanical_loop")
+    importlib.import_module("spiders.orchestration.engine_core")
     importlib.import_module("spiders.orchestration.graph_sink")
     importlib.import_module("spiders.content.fill_value_agent")
     importlib.import_module("generators.requirements")

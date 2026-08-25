@@ -17,8 +17,8 @@ from urllib.parse import urlparse
 
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 from spiders.browser.login import ensure_login_session
+from spiders.orchestration.engine_core import SCOUT, CrawlEngineCore, EngineCoreConfig
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.mechanical_loop import CrawlBudget, MechanicalCrawler, MechanicalCrawlerConfig
 from .config import PragmaConfig
 from .graph_store_resolution import resolve_graph_store
 
@@ -51,9 +51,9 @@ class StaticEngine:
         site: str = "",
         headless: bool = True,
         max_pages: Optional[int] = None,
-        crawl_budget: Optional[CrawlBudget] = None,
         page_concurrency: int = 4,
         allow_subdomains: bool = False,
+        max_visits_per_route_shape: int = 1,
         block_images: bool = True,
         page_timeout_seconds: float = 15.0,
         navigation_watchdog_seconds: float = 60.0,
@@ -65,9 +65,9 @@ class StaticEngine:
         self.site = site
         self.headless = headless
         self.max_pages = max_pages
-        self.crawl_budget = crawl_budget or CrawlBudget()
         self.page_concurrency = page_concurrency
         self.allow_subdomains = allow_subdomains
+        self.max_visits_per_route_shape = max_visits_per_route_shape
         self.block_images = block_images
         self.page_timeout_seconds = page_timeout_seconds
         self.navigation_watchdog_seconds = navigation_watchdog_seconds
@@ -95,9 +95,9 @@ class StaticEngine:
             site=site,
             headless=config.headless,
             max_pages=config.max_pages,
-            crawl_budget=CrawlBudget(**config.crawl_budget),
             page_concurrency=config.page_concurrency,
             allow_subdomains=config.allow_subdomains,
+            max_visits_per_route_shape=config.max_visits_per_route_shape,
             block_images=config.block_images,
             page_timeout_seconds=config.page_timeout_seconds,
             navigation_watchdog_seconds=config.navigation_watchdog_seconds,
@@ -133,19 +133,18 @@ class StaticEngine:
             session_cleanup_timeout_seconds=self.session_cleanup_timeout_seconds,
         )
         async with Crawl4AICrawler(crawler_config) as crawler:
-            mechanical = MechanicalCrawler(
+            core = CrawlEngineCore(
                 crawler,
-                config=MechanicalCrawlerConfig(
+                config=EngineCoreConfig(
                     sink=sink,
                     max_pages=self.max_pages,
-                    budget=self.crawl_budget,
                     page_concurrency=self.page_concurrency,
                     base_url=url,
                     allow_subdomains=self.allow_subdomains,
-                    scout_only=True,
+                    max_visits_per_route_shape=self.max_visits_per_route_shape,
                 ),
             )
-            await mechanical.crawl_site(url)
+            await core.run(url, mode=SCOUT)
 
         pages_scouted = len(self.graph_store.get_scouted())
         _, pages_total = self.graph_store.count_visited()

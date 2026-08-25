@@ -108,15 +108,18 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
         async def __aexit__(self, *exc_info):
             return False
 
-    class _FakeMechanicalCrawler:
+    captured_modes = []
+
+    class _FakeCrawlEngineCore:
         def __init__(self, crawler, config=None):
             captured_configs.append(config)
 
-        async def crawl_site(self, start_url):
+        async def run(self, start_url, mode="fused"):
+            captured_modes.append(mode)
             return []
 
     monkeypatch.setattr("core.dynamic_engine.Crawl4AICrawler", _FakeCrawler)
-    monkeypatch.setattr("core.dynamic_engine.MechanicalCrawler", _FakeMechanicalCrawler)
+    monkeypatch.setattr("core.dynamic_engine.CrawlEngineCore", _FakeCrawlEngineCore)
 
     engine = DynamicEngine(
         AGENT_REGISTRY.create("mock"), graph_store, site=site, login_enabled=False, mode="immutable",
@@ -125,7 +128,7 @@ def test_dynamic_resumes_and_wires_a_family_sampler_when_static_and_cluster_alre
 
     assert result.resumed_from_static is True
     assert result.families_sampled == 1
-    assert captured_configs[0].interact_only is True
+    assert captured_modes[0] == "interact"
     assert captured_configs[0].family_sampler is not None
     assert captured_configs[0].exact_reuse_index is not None
     assert captured_crawler_configs[0].mode == "immutable"

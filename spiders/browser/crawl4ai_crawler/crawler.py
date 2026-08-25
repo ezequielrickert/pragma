@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
+from typing import Any, Optional, Tuple
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from crawl4ai.async_configs import CacheMode
@@ -121,6 +121,21 @@ class Crawl4AICrawler:
         """Navigate to `url` and return its `PageState`; no interaction.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_page
         """
+        page_state, _ = await self.discover_page_with_result(url, session_id=session_id)
+        return page_state
+
+    async def discover_page_with_result(
+        self, url: str, session_id: Optional[str] = None
+    ) -> Tuple[PageState, Any]:
+        """`discover_page`, plus crawl4ai's own raw `CrawlResult` alongside
+        the derived `PageState` - `PragmaDeepCrawlStrategy.link_discovery`
+        (issue #241's engine core) needs crawl4ai's own link extraction
+        (`result.links["internal"/"external"]`), which is a different,
+        crawl4ai-native extraction pass from this project's own
+        `PageState.links` (`extract_links.js`, DOM-sourced) - `discover_page`
+        alone throws the raw result away before either caller can see it.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_page_with_result
+        """
         if self._crawler is None:
             raise RuntimeError(
                 "Crawl4AICrawler must be used as an async context manager"
@@ -154,7 +169,7 @@ class Crawl4AICrawler:
         page_state = build_page_state(result, url, data)
         # The requested url, not page_state.url - see _save_markdown for why.
         self._save_markdown(url, result)
-        return page_state
+        return page_state, result
 
     async def _run_with_watchdog(self, url: str, session_id: str, config: CrawlerRunConfig):
         """`self._crawler.arun(...)`, bounded by `navigation_watchdog_seconds` -
