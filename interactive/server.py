@@ -394,7 +394,8 @@ def run_interactive_server(
     print(f"Interactive dashboard for {site_desc} running at http://{host}:{port}/ - Ctrl+C or the "
           "in-page \"Finalizar\" button to stop.")
     try:
-        server_thread.join()
+        while server_thread.is_alive():
+            server_thread.join(timeout=0.5)
     except KeyboardInterrupt:
         server_thread.shutdown()
         server_thread.join()
