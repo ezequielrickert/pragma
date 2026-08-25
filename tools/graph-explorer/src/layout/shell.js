@@ -10,6 +10,7 @@
 import { store } from "../graph-store.js";
 import { selectionState } from "../selection-state.js";
 import { NODE_TYPES, FAMILY_COLORS, RESERVED_TYPES } from "../color-palette.js";
+import { initChatFab } from "./chat-fab.js";
 
 /**
  * Initialize the shell — call once on page load.
@@ -90,6 +91,9 @@ export function initShell(activePage) {
     document.getElementById("loaded-name").textContent = store.filename;
     updateStats();
   });
+
+  // Initialize the persistent global Chat FAB
+  initChatFab();
 }
 
 /** Set up file input and drag-and-drop handlers. */
