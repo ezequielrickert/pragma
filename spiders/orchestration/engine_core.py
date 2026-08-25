@@ -271,8 +271,42 @@ class CrawlEngineCore:
                 components_discovered=len(state.components), links_discovered=len(state.links),
             ))
             return
+        await self._interact_with_resumes(url, session_id, state)
+
+    async def _interact_with_resumes(self, url: str, session_id: str, state: PageState) -> None:
+        """`PageInteractionStep.interact()`, re-fetching and re-running the
+        origin page whenever a navigating click interrupted the pass before
+        its frontier drained - issue #243: `PageInteractionStep` (#236)
+        deliberately dropped the old `MechanicalCrawler`'s follow-up-pass
+        requeue as part of simplifying the interaction step down to "one
+        pass over one already-fetched state," but that requeue was load-
+        bearing for coverage, not just recovery plumbing - without it, any
+        component sitting later in DOM order than the first navigating
+        link on a page (a modal trigger, a share/favorite button on a
+        listing card whose own title link navigates) never got a chance to
+        be interacted with at all. `PageInteractionStep` itself is
+        untouched - it still correctly ends one pass at the first
+        navigation; this decides what happens next.
+
+        Each resume re-fetches the *origin* page fresh (the live session is
+        on the navigated-to page by now) and hands it to another
+        `interact()` call. This terminates on its own, no iteration cap
+        needed: `InteractionTracker` marks a component interacted before
+        `interact()` can ever break on it, so every resume's eligible set
+        (`visible and not yet interacted`) is strictly smaller than the
+        one before - bounded by the page's own finite component count, the
+        same way the old loop's requeue converged.
+        Details: docs/dev/spiders/orchestration/engine_core.md#_interact_with_resumes
+        """
         result = await self.interaction_step.interact(url, session_id, state)
         self.page_results.append(result)
+        while result.interrupted_by_navigation:
+            origin_url = result.resolved_url
+            resumed_state, _ = await self.crawler.discover_page_with_result(origin_url, session_id=session_id)
+            if resumed_state is None:
+                break
+            result = await self.interaction_step.interact(origin_url, session_id, resumed_state)
+            self.page_results.append(result)
 
     def _max_pages_reached(self) -> bool:
         """Whether this run has visited its `max_pages` cap - shared by
