@@ -4,7 +4,7 @@ Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#module
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from ..debug_log import CrawlDebugLog
 
@@ -71,3 +71,7 @@ class Crawl4AICrawlerConfig:
     # until that handler lands.
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#mode
     mode: str = "stateful"
+    # Custom Chromium flags passed to BrowserConfig(extra_args=...).
+    # If None, Crawl4AICrawler defaults to forcing software WebGL rendering
+    # (SwiftShader) so that WebGL-bearing pages do not crash the automated browser.
+    extra_args: Optional[List[str]] = None

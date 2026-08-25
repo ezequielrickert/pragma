@@ -480,3 +480,22 @@ def test_close_session_watchdog_generous_enough_still_succeeds(fixture_server):
     asyncio.run(run())  # must not raise
 
 
+def test_extra_args_default_and_custom():
+    # 1. Test defaults
+    crawler_default = Crawl4AICrawler(Crawl4AICrawlerConfig())
+    assert "--use-gl=angle" in crawler_default.extra_args
+    assert "--use-angle=swiftshader" in crawler_default.extra_args
+
+    # 2. Test custom override
+    custom_flags = ["--disable-extensions", "--no-sandbox"]
+    crawler_custom = Crawl4AICrawler(Crawl4AICrawlerConfig(extra_args=custom_flags))
+    assert crawler_custom.extra_args == custom_flags
+
+    # 3. Test context manager entry and propagation to AsyncWebCrawler
+    async def run():
+        async with Crawl4AICrawler(Crawl4AICrawlerConfig(extra_args=custom_flags)) as crawler:
+            assert crawler._crawler.browser_config.extra_args == custom_flags
+    asyncio.run(run())
+
+
+
