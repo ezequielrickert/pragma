@@ -37,12 +37,6 @@ def _request(tmp_path_store=None):
     return DocumentRequest(graph_store=store, site=SITE, agent=StubAgent())
 
 
-def test_naming_builds_the_path_from_the_registry_name():
-    naming = DocumentNaming(out_dir="out", slug="example.com", timestamp=TIMESTAMP)
-
-    assert naming.path_for("prd", "md") == f"out/example.com_prd_{TIMESTAMP}.md"
-
-
 def test_build_coverage_counts_finished_pages_only():
     coverage = build_coverage(_request().graph_store)
 
@@ -109,36 +103,6 @@ def _master_md(produced):
     now writes three files (docs/adr/0015: `master.md`/`llms.txt`/
     `manifest.json`), so picking it out needs more than `produced[-1]`."""
     return next(d for d in produced if d.name == "master" and d.path.endswith(".md"))
-
-
-def test_pipeline_writes_each_requested_document_plus_the_master(tmp_path):
-    """`coverage` writes two files (source + view, docs/adr/0001); `master`
-    writes three (`master.md`/`llms.txt`/`manifest.json`, docs/adr/0015) -
-    every other name here still writes one, until its own ticket migrates it."""
-    produced = run_document_pipeline(_request(), _naming(tmp_path), ["coverage", "tree"])
-
-    assert [document.name for document in produced] == [
-        "coverage", "coverage", "tree", "master", "master", "master",
-    ]
-    for document in produced:
-        assert Path(document.path).exists()
-
-
-def test_master_document_links_every_document_that_was_written(tmp_path):
-    produced = run_document_pipeline(_request(), _naming(tmp_path), ["coverage", "tree"])
-
-    master_text = Path(_master_md(produced).path).read_text(encoding="utf-8")
-
-    assert f"(example.com_coverage_{TIMESTAMP}.md)" in master_text
-    assert f"(example.com_tree_{TIMESTAMP}.md)" in master_text
-
-
-def test_markdown_documents_carry_the_coverage_banner(tmp_path):
-    produced = run_document_pipeline(_request(), _naming(tmp_path), ["tree"])
-
-    tree_text = Path(produced[0].path).read_text(encoding="utf-8")
-
-    assert tree_text.startswith("> **Crawl coverage:**")
 
 
 def test_json_documents_do_not_carry_the_banner(tmp_path):

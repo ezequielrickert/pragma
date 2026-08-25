@@ -1,18 +1,23 @@
 """Integration coverage for the exact-tier interact-once path -
-`ExactReuseIndex` wired into `PageVisitor` (issue #140): a canonical
-`Component` reused across pages is clicked at most once, its outcome
-inferred onto every other page as a `NAVIGATES_TO` edge instead of a
-second live click. Same fake-crawler approach as test_interact_only.py.
+`ExactReuseIndex` wired into `PageInteractionStep` (issue #140, ported
+through issue #240's own rebuild): a canonical `Component` reused across
+pages is clicked at most once, its outcome inferred onto every other page
+as a `NAVIGATES_TO` edge instead of a second live click. Same fake-crawler
+approach as test_engine_core.py.
+
+Drives the crawl through `CrawlEngineCore` (issue #241), not the retired
+`MechanicalCrawler` (issue #242) - `ExactReuseIndex` wiring itself is
+unchanged, only its harness moved.
 """
 import asyncio
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from analysis.exact_reuse_index import ExactReuseIndex
 from core.interfaces import PageState
 from database.ladybug.store import LadybugGraphStore
 from generators.ledger import flat_component_ledger
+from spiders.orchestration.engine_core import INTERACT, CrawlEngineCore, EngineCoreConfig
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from utils.urls import route_shape
 
 SITE = "shop.example"
@@ -28,6 +33,18 @@ def _nav_link(path: str) -> dict:
     }
 
 
+class _FakeResult:
+    """Just enough of crawl4ai's own `CrawlResult` for
+    `PragmaDeepCrawlStrategy.link_discovery` to work against."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.redirected_url = None
+        self.success = True
+        self.links: Dict[str, List[Dict[str, str]]] = {"internal": [], "external": []}
+        self.metadata: Dict[str, Any] = {}
+
+
 class _TwoPagesSharedNavLinkCrawler:
     """Two pages, each carrying a component with the exact same content
     identity - clicking either one navigates to `SALE`. Which of the two
@@ -39,21 +56,18 @@ class _TwoPagesSharedNavLinkCrawler:
     def __init__(self) -> None:
         self.clicked: List[Tuple[str, str]] = []
 
-    async def discover_page(self, url: str, session_id: str = "") -> PageState:
+    async def discover_page_with_result(self, url: str, session_id: str = ""):
         if url == HOME:
-            return PageState(url=HOME, components=[_nav_link("#nav-home")])
-        if url == CATALOG:
-            return PageState(url=CATALOG, components=[_nav_link("#nav-catalog")])
-        return PageState(url=url, components=[])
+            state = PageState(url=HOME, components=[_nav_link("#nav-home")])
+        elif url == CATALOG:
+            state = PageState(url=CATALOG, components=[_nav_link("#nav-catalog")])
+        else:
+            state = PageState(url=url, components=[])
+        return state, _FakeResult(url)
 
     async def click(self, url: str, session_id: str, selector: str) -> PageState:
         self.clicked.append((url, selector))
         return PageState(url=SALE, components=[])
-
-    async def go_back(self, url: str, session_id: str) -> PageState:
-        if url == HOME:
-            return PageState(url=HOME, components=[_nav_link("#nav-home")])
-        return PageState(url=CATALOG, components=[_nav_link("#nav-catalog")])
 
     async def close_session(self, session_id: str) -> None:
         return None
@@ -78,14 +92,11 @@ def test_exact_reuse_skips_the_second_page_and_infers_its_navigation_edge(tmp_pa
     exact_reuse_index = ExactReuseIndex(flat_component_ledger(store))
     sink = GraphStoreSink(store, base_url=HOME)
     fake = _TwoPagesSharedNavLinkCrawler()
-    mech = MechanicalCrawler(
-        fake,
-        config=MechanicalCrawlerConfig(
-            sink=sink, base_url=HOME, interact_only=True, exact_reuse_index=exact_reuse_index,
-        ),
+    engine = CrawlEngineCore(
+        fake, config=EngineCoreConfig(sink=sink, base_url=HOME, exact_reuse_index=exact_reuse_index),
     )
 
-    asyncio.run(mech.crawl_site(HOME))
+    asyncio.run(engine.run(HOME, mode=INTERACT))
 
     # Exactly one of the two pages' components was ever really clicked -
     # whichever page's worker reached the exact-reuse check first.

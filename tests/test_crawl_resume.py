@@ -7,18 +7,35 @@ re-walking from the entry point, and could only reach a pending page that was
 still linked from that path.
 
 These use a fake crawler rather than a browser - the seam under test is which
-URLs reach the frontier, not what happens once one is fetched.
+URLs reach the frontier, not what happens once one is fetched. Drives the
+crawl through `CrawlEngineCore` (issue #241), not the retired
+`MechanicalCrawler` (issue #242) - `_resume_urls` was ported into it
+unchanged (its own docstring says so), so this file's coverage carries over
+one for one.
 """
 import asyncio
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from core.interfaces import PageState
 from database.ladybug.store import LadybugGraphStore
+from spiders.orchestration.engine_core import CrawlEngineCore, EngineCoreConfig
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
 SITE = "shop.example"
 START = "http://shop.example/"
+
+
+class _FakeResult:
+    """Just enough of crawl4ai's own `CrawlResult` for
+    `PragmaDeepCrawlStrategy.link_discovery` to work against - no links,
+    since every URL here arrives via `_resume_urls`, not link discovery."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.redirected_url = None
+        self.success = True
+        self.links: Dict[str, List[Dict[str, str]]] = {"internal": [], "external": []}
+        self.metadata: Dict[str, Any] = {}
 
 
 class _RecordingCrawler:
@@ -27,9 +44,9 @@ class _RecordingCrawler:
     def __init__(self) -> None:
         self.fetched: List[str] = []
 
-    async def discover_page(self, url: str, session_id: str = "") -> PageState:
+    async def discover_page_with_result(self, url: str, session_id: Optional[str] = None):
         self.fetched.append(url)
-        return PageState(url=url, components=[], links=[])
+        return PageState(url=url, components=[], links=[]), _FakeResult(url)
 
     async def close_session(self, session_id: str) -> None:
         return None
@@ -38,8 +55,8 @@ class _RecordingCrawler:
 def _crawl(store: LadybugGraphStore) -> _RecordingCrawler:
     crawler = _RecordingCrawler()
     sink = GraphStoreSink(store, base_url=START)
-    mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, base_url=START))
-    asyncio.run(mech.crawl_site(START))
+    engine = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, base_url=START))
+    asyncio.run(engine.run(START))
     return crawler
 
 
@@ -98,11 +115,12 @@ def test_the_entry_point_is_still_visited_first():
 
 
 def test_no_sink_means_nothing_to_resume_from():
-    """Without a graph store there is no previous run to read, and crawl_site
-    must still work - it just starts from the entry point alone."""
+    """Without a graph store there is no previous run to read, and
+    `CrawlEngineCore.run` must still work - it just starts from the entry
+    point alone."""
     crawler = _RecordingCrawler()
-    mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(base_url=START))
-    asyncio.run(mech.crawl_site(START))
+    engine = CrawlEngineCore(crawler, config=EngineCoreConfig(base_url=START))
+    asyncio.run(engine.run(START))
 
     assert crawler.fetched == [START]
 

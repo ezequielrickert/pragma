@@ -1,28 +1,47 @@
-"""`MechanicalCrawlerConfig.scout_only` - the mode `pragma static` runs
-under: a single scout sweep, no interact phase, ever. Same fake-crawler
-approach as test_crawl_resume.py - the seam under test is which pages get
-visited and what status they land in, not what a real browser does.
+"""`CrawlEngineCore`'s scout mode - the mode `pragma static` runs under: a
+single scout sweep, no interact phase, ever. Same fake-crawler approach as
+test_crawl_resume.py - the seam under test is which pages get visited and
+what status they land in, not what a real browser does.
+
+Drives the crawl through `CrawlEngineCore` (issue #241), not the retired
+`MechanicalCrawler` (issue #242) - scout mode's own behavior is unchanged,
+only its harness moved. Overlaps `test_engine_core.py`'s own scout-mode
+coverage; kept as its own file since it predates that one and still reads
+cleanly on its own.
 """
 import asyncio
+from typing import Any, Dict, List, Optional
 
 from core.interfaces import PageState
 from database.ladybug.store import LadybugGraphStore
+from spiders.orchestration.engine_core import SCOUT, CrawlEngineCore, EngineCoreConfig
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 
 SITE = "shop.example"
 START = "http://shop.example/"
 
 
+class _FakeResult:
+    """Just enough of crawl4ai's own `CrawlResult` for
+    `PragmaDeepCrawlStrategy.link_discovery` to work against."""
+
+    def __init__(self, url: str, links: Optional[List[Dict[str, str]]] = None) -> None:
+        self.url = url
+        self.redirected_url = None
+        self.success = True
+        self.links: Dict[str, List[Dict[str, str]]] = {"internal": links or [], "external": []}
+        self.metadata: Dict[str, Any] = {}
+
+
 class _ScoutOnlyCrawler:
     """Answers discovery with one link to a second page; has no
     click/fill - an interact phase reaching this crawler at all raises
-    AttributeError, which is exactly the failure a broken `scout_only`
+    AttributeError, which is exactly the failure a broken scout mode
     should produce."""
 
-    async def discover_page(self, url: str, session_id: str = "") -> PageState:
-        links = [] if "cart" in url else [{"href": "http://shop.example/cart", "text": "Cart"}]
-        return PageState(url=url, components=[], links=links)
+    async def discover_page_with_result(self, url: str, session_id: str = ""):
+        links = [] if "cart" in url else [{"href": "http://shop.example/cart"}]
+        return PageState(url=url, components=[], links=[]), _FakeResult(url, links)
 
     async def close_session(self, session_id: str) -> None:
         return None
@@ -32,12 +51,9 @@ def test_scout_only_visits_every_page_but_marks_them_scouted_not_finished():
     store = LadybugGraphStore(SITE)
     store.connect()
     sink = GraphStoreSink(store, base_url=START)
-    mech = MechanicalCrawler(
-        _ScoutOnlyCrawler(),
-        config=MechanicalCrawlerConfig(sink=sink, base_url=START, scout_only=True),
-    )
+    engine = CrawlEngineCore(_ScoutOnlyCrawler(), config=EngineCoreConfig(sink=sink, base_url=START))
 
-    asyncio.run(mech.crawl_site(START))
+    asyncio.run(engine.run(START, mode=SCOUT))
 
     scouted = store.get_scouted()
     assert any("cart" in url for url in scouted)

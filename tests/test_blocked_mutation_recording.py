@@ -8,11 +8,11 @@ Split three ways, cheapest first: the migration itself (a fresh Kùzu table
 missing the columns, no crawl/sink involved), the graph-store write path
 (`LadybugGraphStore.record_component_interaction`, in-memory, no browser -
 same pattern as `tests/test_graph_sink_consolidation.py`), and
-`PageVisitor`'s own `_blocked_summary` helper (pure Python, no store at
-all). The full hooks -> PageState -> sink -> store pipeline is already
-covered at the network layer by `tests/test_mode_gate.py`; this file
-covers what happens to a block *after* the network layer, not whether one
-was correctly triggered.
+`PageInteractionStep`'s own `_blocked_summary` helper (pure Python, no
+store at all). The full hooks -> PageState -> sink -> store pipeline is
+already covered at the network layer by `tests/test_mode_gate.py`; this
+file covers what happens to a block *after* the network layer, not
+whether one was correctly triggered.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from database.ladybug.schema import DDL
 from database.ladybug.store import LadybugGraphStore, _migrate_interaction_blocked_columns
 from database.ladybug.writer import LadybugWriter
 from spiders.orchestration.graph_sink import GraphStoreSink
-from spiders.orchestration.page_visitor.visitor import _blocked_summary
+from spiders.orchestration.page_interaction.step import _blocked_summary
 
 SITE = "blocked-mutation-test-site"
 PAGE = "example.com"
