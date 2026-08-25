@@ -457,17 +457,10 @@ class PageVisitor:
 
             # If it's a toggle button, execute the do-redo (toggle and untoggle) logic
             is_toggle_button = is_toggle(component) and not fillable
-            print(f"DEBUG: component={component.get('text')}, path={path}, is_toggle={is_toggle(component)}, fillable={fillable}, is_toggle_button={is_toggle_button}")
             if is_toggle_button:
-                try:
-                    toggled_key = state_transition_key(page_key, new_state.components)
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    raise e
+                toggled_key = state_transition_key(page_key, new_state.components)
                 result.state_transitions.append(toggled_key)
 
-                print("DEBUG: Recording toggle-on to sink...")
                 # 1. Record the toggle-on edge and the toggled state details
                 if self.sink:
                     step_on = visit_step.take()
@@ -493,7 +486,6 @@ class PageVisitor:
                 print(f"  [Toggle Filter] Reverting toggle on {path}...")
                 try:
                     reverted_state = await self.crawler.click(url, session_id, path)
-                    print("DEBUG: Revert click succeeded! Recording to sink...")
                     if self.sink:
                         step_off = visit_step.take()
                         blocked_off, blocked_reason_off = _blocked_summary(reverted_state.blocked_mutations)
@@ -509,7 +501,6 @@ class PageVisitor:
                     new_state = reverted_state
                     new_literal = clean_url(new_state.url)
                     new_key = route_shape(new_state.url)
-                    print("DEBUG: Revert completed successfully.")
                 except Exception as rev_exc:
                     print(f"  Warning: failed to revert toggle on {path}: {rev_exc}")
                     # Try to return to original state
