@@ -114,6 +114,7 @@ aimed at onboarding rather than a specific line of code.
 | `spiders/content/page_extraction.py` | [page_extraction.md](spiders/content/page_extraction.md) |
 | `spiders/content/payload_capture.py` | [payload_capture.md](spiders/content/payload_capture.md) |
 | `spiders/content/redaction.py` | [redaction.md](spiders/content/redaction.md) |
+| `spiders/orchestration/deep_crawl_strategy.py` | [deep_crawl_strategy.md](spiders/orchestration/deep_crawl_strategy.md) |
 | `spiders/orchestration/graph_sink/component_facts.py` | [component_facts.md](spiders/orchestration/graph_sink/component_facts.md) |
 | `spiders/orchestration/graph_sink/sink.py` | [sink.md](spiders/orchestration/graph_sink/sink.md) |
 | `spiders/orchestration/graph_sink/tracker.py` | [tracker.md](spiders/orchestration/graph_sink/tracker.md) |
