@@ -43,3 +43,37 @@ You can run the entire pipeline with a single command. It will execute the crawl
 
 Once launched, the dashboard will open automatically at:
 **`http://localhost:5173`**
+
+---
+
+## Running phases and servers separately
+
+If you prefer to inspect state between phases, customize configurations, or run servers manually, you can invoke the individual commands:
+
+Every command refers to a site by its **slug/host** (e.g. `example.com` or `www.empanad.app`).
+
+### 1. The Crawl
+```bash
+python cli.py crawl https://example.com
+```
+*Chains the static -> cluster -> dynamic phases and commits the graph state to the database.*
+
+### 2. Document Generation
+```bash
+python cli.py docs example.com
+```
+*Generates the prose documents, OpenAPI specifications, tree, and `export.json` under `data/output/example.com/`.*
+
+### 3. Interactive Flask Backend
+```bash
+python cli.py interactive example.com
+```
+*Serves the backend REST API on `http://127.0.0.1:5050`.*
+
+### 4. Vite Frontend Dev Server
+In a separate terminal:
+```bash
+cd tools/graph-explorer
+npm run dev
+```
+*Launches Vite on `http://localhost:5173` (with proxies redirected to Flask).*
