@@ -783,3 +783,24 @@ button { cursor: pointer; font-family: inherit; }
   transform: scale(0.95);
 }
 
+/* ── Sidebar Site Selector ── */
+.sidebar-selector-wrapper {
+  padding: 0 12px 12px;
+}
+.sidebar-selector {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+.sidebar-selector:focus {
+  border-color: var(--accent);
+}
+
+
