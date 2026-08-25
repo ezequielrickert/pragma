@@ -378,7 +378,7 @@ own identity keeps the interaction surface untouched by construction.
 Create or refresh a text-content record - idempotent upsert, same
 discipline as `record_component`'s descriptive fields, but with no
 interaction state to preserve (none exists for non-interactive text).
-Called once per page visit (see `docs/dev/spiders/orchestration/page_visitor/visitor.md#visit`),
+Called once per page visit (see `spiders/orchestration/engine_core.py::CrawlEngineCore._record_discovery`),
 *not* re-called on same-page reveals the way `record_inventory` now is
 for `Component` - text revealed only by an interaction is a real,
 structurally-symmetric gap to the ghost-node bug, but out of scope for

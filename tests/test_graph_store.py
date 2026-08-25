@@ -1,9 +1,11 @@
-"""Engine <-> graph-store wiring tests - not storage contract tests.
+"""StaticEngine <-> graph-store wiring tests - not storage contract tests.
 
 The contract the store must satisfy (upsert/record/get semantics) lives in
 `tests/test_ladybug_observation.py`/`test_ladybug_read_path.py`. What
-stays here is specific to how `Engine.from_config` wires a chosen backend
-in - `LadybugGraphStore` in-memory mode, since it needs no setup at all.
+stays here is specific to how `StaticEngine.from_config` wires a chosen
+backend in - `LadybugGraphStore` in-memory mode, since it needs no setup
+at all. Retargeted from the retired Legacy Engine (issue #242) onto
+`StaticEngine`, which carries the identical `config.fresh` wiring.
 """
 from typing import Optional
 
@@ -12,7 +14,7 @@ from database.ladybug.store import LadybugGraphStore
 
 class _SpyGraphStore(LadybugGraphStore):
     """Records `reset()` calls without touching disk - exercises
-    `Engine.from_config`'s `PragmaConfig.fresh` wiring directly."""
+    `StaticEngine.from_config`'s `PragmaConfig.fresh` wiring directly."""
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:
         super().__init__(site, directory=None)  # always in-memory, regardless of directory
@@ -23,10 +25,10 @@ class _SpyGraphStore(LadybugGraphStore):
         super().reset()
 
 
-def test_engine_from_config_resets_when_fresh(tmp_path):
+def test_static_engine_from_config_resets_when_fresh(tmp_path):
     from core.config import PragmaConfig
-    from core.engine import Engine
     from core.registry import GRAPH_STORE_REGISTRY
+    from core.static_engine import StaticEngine
 
     GRAPH_STORE_REGISTRY.register("_spy_fresh_test")(_SpyGraphStore)
     # Explicit, like its fresh=False sibling below: purging stopped being the
@@ -38,15 +40,15 @@ def test_engine_from_config_resets_when_fresh(tmp_path):
         graph_store="_spy_fresh_test", fresh=True, out_dir=str(tmp_path),
     )
 
-    engine = Engine.from_config(config)
+    engine = StaticEngine.from_config(config)
     assert isinstance(engine.graph_store, _SpyGraphStore)
     assert engine.graph_store.reset_calls == ["stub.example"]
 
 
-def test_engine_from_config_skips_reset_when_not_fresh(tmp_path):
+def test_static_engine_from_config_skips_reset_when_not_fresh(tmp_path):
     from core.config import PragmaConfig
-    from core.engine import Engine
     from core.registry import GRAPH_STORE_REGISTRY
+    from core.static_engine import StaticEngine
 
     GRAPH_STORE_REGISTRY.register("_spy_no_fresh_test")(_SpyGraphStore)
     config = PragmaConfig(
@@ -54,5 +56,5 @@ def test_engine_from_config_skips_reset_when_not_fresh(tmp_path):
         graph_store="_spy_no_fresh_test", fresh=False, out_dir=str(tmp_path),
     )
 
-    engine = Engine.from_config(config)
+    engine = StaticEngine.from_config(config)
     assert engine.graph_store.reset_calls == []

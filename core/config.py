@@ -98,15 +98,15 @@ class PragmaConfig:
     # Backstop against a site minting a fresh per-visit-token URL.
     # Details: docs/dev/core/config.md#max_visits_per_route_shape
     max_visits_per_route_shape: int = 1
-    # Whether MechanicalCrawler asks `agent` for a realistic fill value.
+    # Whether CrawlEngineCore asks `agent` for a realistic fill value.
     # Details: docs/dev/core/config.md#ai_fill_values
     ai_fill_values: bool = True
-    # How many pages MechanicalCrawler.crawl_site visits concurrently. A
-    # serial (1) crawl pays every page's settle-wait/interaction cost back to
-    # back; raising this is the single biggest wall-clock lever this project
-    # has (see docs/dev/spiders/orchestration/mechanical_loop/loop.md), paired with
-    # MechanicalCrawlerConfig's own memory_ceiling_percent so more workers
-    # don't just trade wall-clock time for the same OOM risk.
+    # How many pages CrawlEngineCore.run visits concurrently. A serial (1)
+    # crawl pays every page's settle-wait/interaction cost back to back;
+    # raising this is the single biggest wall-clock lever this project has
+    # (see `spiders/orchestration/engine_core.py`'s own module docstring
+    # for why this no longer pairs with a memory-ceiling pacer - issue
+    # #241 dropped that outright rather than porting it).
     # Details: docs/dev/core/config.md#page_concurrency
     page_concurrency: int = 4
     # Whether a subdomain counts as in-scope for MechanicalCrawler's frontier.

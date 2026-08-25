@@ -298,8 +298,15 @@ class CrawlEngineCore:
         visited: Set[str] = set()
         depths: Dict[str, int] = {start_url: 0}
         current_level: List[Tuple[str, Optional[str]]] = [(start_url, None)]
+        # depth=1, not 0: `can_process_url`'s own depth==0 case always
+        # admits the entry point unconditionally, and a resumed URL isn't
+        # one - it must clear the same route-shape cap a freshly
+        # discovered link would, the same re-gating `UrlFrontier.enqueue`
+        # used to apply to every resumed URL (issue #242's own test
+        # coverage caught this admitted-uncapped gap during the Legacy
+        # Engine's retirement).
         for url in self._resume_urls():
-            if url not in depths:
+            if url not in depths and await self.strategy.can_process_url(url, 1):
                 current_level.append((url, None))
                 depths[url] = 0
 
