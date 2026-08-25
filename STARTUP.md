@@ -1,15 +1,13 @@
 # Startup
 
-Setup, once per environment:
+Setup once per environment:
 
 ```bash
 pip install -r requirements.txt
 python -m playwright install
 ```
 
-On Windows, also this - the `ladybug` wheel does not ship the native library, and
-without it every `graph_store` fails and `pytest` cannot collect. Tag must match
-the `ladybug==` pin in `requirements.txt`:
+On Windows, run this to install the native `ladybug` library:
 
 ```powershell
 $version = "v0.19.1"
@@ -29,106 +27,19 @@ Copy-Item "$dlls\libssl-3.dll"    (Join-Path $pkg "libssl-3-x64.dll")    -Force
 python -c "import ladybug as lb; lb.Connection(lb.Database('')); print('engine OK')"
 ```
 
-Redo it after recreating the venv: it lands in `site-packages`.
+---
 
-Then run one of these. No server to start first - `graph_store: ladybug` (or
-`memory`) is embedded, nothing to run before the crawl itself; on disk it
-lands in `data/sites/<slug>.lbdb`. Interpreter name varies by machine (eze:
-`python3`, juli: `python`) - the examples below use `python`, swap as needed.
+## Run everything automatically (Crawl + Docs + Interactive Server + SPA)
 
-Every command past the first refers to a site by its **slug** - the host
-part of the URL, as `static` first wrote it (`https://example.com` ->
-`example.com`).
+You can run the entire pipeline with a single command. It will execute the crawl, generate the documentation, spawn the interactive Flask backend and the Vite dev server in new windows, and open your browser automatically.
 
-## One shot: crawl a site and generate everything
+```powershell
+# Run interactively (it will prompt for the URL):
+.\run_all.ps1
 
-```bash
-# Static-crawl the site, cluster components into families, run the dynamic
-# (click/fill) pass, then generate every document + the dashboard - all in
-# one run.
-python cli.py https://example.com
+# Or specify the URL directly:
+.\run_all.ps1 -Url "https://www.empanad.app"
 ```
 
-## Or, phase by phase
-
-Useful to inspect state between phases, or re-run just one with different
-flags - state persists in `data/sites/<slug>.lbdb` between runs (pass
-`--fresh` to purge it and start over).
-
-```bash
-# 1. Scout-only crawl: HTML/CSS/routes into the graph store, no clicking or
-#    filling anything.
-python cli.py static https://example.com
-
-# 2. Group the discovered components into reusable families (LLM-narrated).
-python cli.py cluster example.com
-
-# 3. Interact: click/fill, resuming from static's frontier and sampling per
-#    family instead of hitting every instance.
-python cli.py dynamic https://example.com
-
-# static -> cluster -> dynamic chained in one call - stops there, never
-# generates documents (that stays the separate `docs` step below).
-python cli.py crawl https://example.com
-```
-
-## Documents + dashboard, once a site is crawled
-
-```bash
-# Generate every document + the dashboard from an already-crawled site - no
-# re-crawl. Faster than the one-shot above when only generator code changed.
-python cli.py docs example.com
-
-# The dashboard always lands at <out_dir>/dashboard/index.html (out_dir
-# defaults to data/output, override with --out). Static HTML, including the
-# Graph card (export.json's graph, explorable) - open it directly in a
-# browser, no server needed.
-```
-
-## Interactive editor + chat, once documents exist
-
-A separate, editable local tool - not the static dashboard above. Serves the
-site's already-generated documents with a raw-text editor (plus real forms
-for some, e.g. `tokens.json`'s color picker) and a chat panel grounded in
-each document's real citations.
-
-```bash
-# Defaults to http://127.0.0.1:5050 (--host/--port to change).
-python cli.py interactive example.com
-
-# --agent local needs `python cli.py config` run once (API key/model) for
-# real chat replies; the default (or explicit --agent mock) still runs the
-# editor/chat end to end, just with canned stub replies.
-python cli.py interactive example.com --agent local
-```
-
-Stop it with Ctrl+C, or the in-chat "finalizar" button - either shuts the
-server down cleanly. Chat history is in-memory only, gone once the session
-ends.
-
-## Raw Graph Explorer (Debugging Tool)
-
-An internal debugging tool for developers to explore the raw JSON-LD graph ontology (`export.json`) or query the live database in real-time.
-
-To run with **Live Kùzu Database Mode** (recommended in development, so the UI auto-fetches graph updates from the running backend):
-
-1. **Terminal 1: Start the Flask Backend**
-   Make sure you are in the project's root folder (`pragma`):
-   ```bash
-   # Run the interactive server for your site (starts on http://127.0.0.1:5050)
-   python cli.py interactive www.empanad.app
-   ```
-
-2. **Terminal 2: Start the Vite Dev Server**
-   From the project's root folder (`pragma`), navigate to the explorer directory:
-   ```bash
-   # Navigate to the explorer folder and install dependencies (once)
-   cd tools/graph-explorer
-   npm install
-
-   # Start Vite (runs on http://localhost:5174 and proxies /api to Flask)
-   npm run dev
-   ```
-
-Open `http://localhost:5174` in your browser. It will automatically connect to the live Kùzu database via the Flask proxy. If the backend is not running, the explorer will fall back to letting you drag-and-drop a static `export.json` file.
-
+Once launched, the dashboard will open automatically at:
+**`http://localhost:5173`**
