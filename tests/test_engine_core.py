@@ -56,6 +56,32 @@ class _FakeCrawler:
         return state
 
 
+class _NavigatingFakeCrawler(_FakeCrawler):
+    """Like `_FakeCrawler`, but `click` on `navigating_path` lands on
+    `destination` instead of returning the origin page's own state -
+    reproduces a listing card whose title link navigates while its
+    later-in-DOM-order siblings (a modal trigger, a share/favorite button)
+    stay same-URL.
+    """
+
+    def __init__(
+        self,
+        pages: Dict[str, Tuple[PageState, _FakeResult]],
+        navigating_path: str,
+        destination: PageState,
+    ) -> None:
+        super().__init__(pages)
+        self.navigating_path = navigating_path
+        self.destination = destination
+
+    async def click(self, url: str, session_id: str, path: str) -> PageState:
+        self.clicked.append((url, path))
+        if path == self.navigating_path:
+            return self.destination
+        state, _ = self.pages[url]
+        return state
+
+
 def _store_and_sink():
     store = LadybugGraphStore(SITE)
     store.connect()
@@ -135,6 +161,39 @@ def test_max_pages_stops_discovery_once_the_cap_is_reached():
 
     scouted = store.get_scouted()
     assert len(scouted) == 1
+
+
+def test_a_navigating_click_earlier_in_dom_order_does_not_strand_later_same_url_components():
+    """Issue #243: a listing card's title link navigates away partway
+    through the frontier - the components after it (a modal trigger, a
+    share/favorite button) must still get interacted with via a follow-up
+    pass over the re-fetched origin page, not silently dropped."""
+    nav_link = {"path": "#title-link", "tag": "a", "visible": True, "attributes": {"href": "/detail"}}
+    modal_trigger = {"path": "#open-modal", "tag": "button", "visible": True}
+    favorite_button = {"path": "#favorite", "tag": "button", "visible": True}
+    origin_state = PageState(
+        url=START, components=[nav_link, modal_trigger, favorite_button], links=[]
+    )
+    destination = PageState(url="http://shop.example/detail", components=[], links=[])
+    pages = {START: (origin_state, _FakeResult(START))}
+    store, sink = _store_and_sink()
+    crawler = _NavigatingFakeCrawler(pages, navigating_path="#title-link", destination=destination)
+    core = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, base_url=START))
+
+    asyncio.run(core.run(START, mode=FUSED))
+
+    assert sorted(crawler.clicked) == [
+        (START, "#favorite"),
+        (START, "#open-modal"),
+        (START, "#title-link"),
+    ]
+    # `total` is 2, not 1: recording the navigation edge to `/detail` upserts
+    # a placeholder Page node for it too, same as any navigating click whose
+    # destination falls outside this run's frontier - unrelated to this
+    # test's own concern, which is that the origin page itself finishes.
+    finished, total = store.count_visited()
+    assert finished == 1
+    assert total == 2
 
 
 def test_max_visits_per_route_shape_is_threaded_into_the_frontier():
