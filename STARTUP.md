@@ -113,12 +113,14 @@ An internal debugging tool for developers to explore the raw JSON-LD graph ontol
 To run with **Live Kùzu Database Mode** (recommended in development, so the UI auto-fetches graph updates from the running backend):
 
 1. **Terminal 1: Start the Flask Backend**
+   Make sure you are in the project's root folder (`pragma`):
    ```bash
    # Run the interactive server for your site (starts on http://127.0.0.1:5050)
-   python cli.py interactive example.com
+   python cli.py interactive www.empanad.app
    ```
 
 2. **Terminal 2: Start the Vite Dev Server**
+   From the project's root folder (`pragma`), navigate to the explorer directory:
    ```bash
    # Navigate to the explorer folder and install dependencies (once)
    cd tools/graph-explorer
