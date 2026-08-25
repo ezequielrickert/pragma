@@ -6,6 +6,7 @@ import { store } from "./graph-store.js";
 import { initShell } from "./layout/shell.js";
 import { initGraphPage } from "./graph/graph-page.js";
 import { initListsPage } from "./lists/lists-page.js";
+import { loadDocumentsList, loadDocumentEditor } from "./documents/documents-page.js";
 
 /**
  * Initialize the router.
@@ -204,30 +205,11 @@ function loadListsView() {
 function loadDocumentsListView(site) {
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "";
-  
-  const container = document.getElementById("app-content");
-  container.innerHTML = `
-    <div style="padding: 40px; max-width: 800px; margin: 0 auto;">
-      <h1 style="font-size: 22px; font-weight: 700; margin-bottom: 24px; color: var(--text);">crawled documents</h1>
-      <div id="docs-list" style="display: flex; flex-direction: column; gap: 10px;">
-        <p style="color: var(--text-dim)">Loading documents...</p>
-      </div>
-    </div>
-  `;
-  // Implement document rendering logic in #230
-  document.dispatchEvent(new CustomEvent("route-documents-list", { detail: { site } }));
+  loadDocumentsList(site);
 }
 
 function loadDocumentEditorView(site, filename) {
   const sidebar = document.getElementById("sidebar");
   if (sidebar) sidebar.style.display = "";
-  
-  const container = document.getElementById("app-content");
-  container.innerHTML = `
-    <div style="padding: 40px;">
-      <h1 style="color: var(--text);">Loading Editor for ${filename}...</h1>
-    </div>
-  `;
-  // Implement document editor logic in #230
-  document.dispatchEvent(new CustomEvent("route-document-edit", { detail: { site, filename } }));
+  loadDocumentEditor(site, filename);
 }
