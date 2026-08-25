@@ -4,9 +4,22 @@
 - the seam under test is which pages get discovered/interacted and what
 status they land in, not what a real browser does (test_static_engine.py/
 test_dynamic_engine.py already cover the real-browser path end to end).
+
+Issue #249 moved discovery off a hand-rolled worker pool calling
+`discover_page_with_result` per URL onto `PragmaBestFirstStrategy.arun()`
+(`Crawl4AICrawler.deep_crawl`) for scout/fused mode and `arun_many`
+(`.discover_many`) for interact mode's flat pass - so `_FakeCrawler` now
+plays the `crawler` role `strategy.arun()` itself expects (an `arun_many`
+that answers from its own fixed `pages` map) rather than answering
+`discover_page_with_result` calls `CrawlEngineCore` no longer makes. This
+drives the *real* `PragmaBestFirstStrategy`/`PragmaFrontierMixin` frontier
+logic (`can_process_url`/`link_discovery`/dedup/route-shape cap) against
+canned page fetches, same as before - only the seam moved.
 """
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
+
+from crawl4ai import CrawlerRunConfig
 
 from core.data_contracts import PageState
 from database.ladybug.store import LadybugGraphStore
@@ -20,22 +33,29 @@ CART = "http://shop.example/cart"
 
 class _FakeResult:
     """Just enough of crawl4ai's own `CrawlResult` for
-    `PragmaDeepCrawlStrategy.link_discovery` to work against - `.links` is
-    its own, crawl4ai-native extraction (a different shape from this
-    project's `PageState.links`), not this test's `PageState.links`.
+    `PragmaBestFirstStrategy.link_discovery`/`_arun_best_first` to work
+    against - `.links` is its own, crawl4ai-native extraction (a different
+    shape from this project's `PageState.links`), not this test's
+    `PageState.links`.
     """
 
-    def __init__(self, url: str, links: Optional[List[Dict[str, str]]] = None) -> None:
+    def __init__(self, url: str, links: Optional[List[Dict[str, str]]] = None, success: bool = True) -> None:
         self.url = url
         self.redirected_url = None
-        self.success = True
+        self.success = success
+        self.error_message = "" if success else "fake failure"
         self.links = {"internal": links or [], "external": []}
         self.metadata: Dict[str, Any] = {}
+        self.session_id: Optional[str] = None
 
 
 class _FakeCrawler:
     """A fixed site graph: `pages` maps a URL to `(PageState, FakeResult)`.
-    `click`/`fill` never navigate - every component this test wires is a
+    `arun_many` is the seam `PragmaBestFirstStrategy._arun_best_first`
+    itself calls - `deep_crawl`/`discover_many` (`CrawlEngineCore`'s own
+    call surface) both drive that same real strategy code through it, one
+    fetched-URL-to-`FakeResult` map away from a real browser. `click`/
+    `fill` never navigate - every component this test wires is a
     same-URL no-op, which is all `CrawlEngineCore` needs to see a full
     discover-then-interact pass complete.
     """
@@ -43,12 +63,48 @@ class _FakeCrawler:
     def __init__(self, pages: Dict[str, Tuple[PageState, _FakeResult]]) -> None:
         self.pages = pages
         self.clicked: List[Tuple[str, str]] = []
+        self.closed_session_ids: List[str] = []
+
+    async def arun_many(self, urls: List[str], config: CrawlerRunConfig, dispatcher: Any = None):
+        async def gen():
+            for url in urls:
+                entry = self.pages.get(url)
+                if entry is None:
+                    yield _FakeResult(url, success=False)
+                    continue
+                _, result = entry
+                result.session_id = f"session::{url}"
+                yield result
+        return gen()
+
+    async def deep_crawl(self, start_url: str, strategy):
+        config = CrawlerRunConfig(deep_crawl_strategy=strategy, stream=True)
+        async for result in await strategy.arun(start_url, self, config):
+            session_id = result.session_id or result.url
+            if not result.success:
+                yield None, result, session_id
+                continue
+            state, _ = self.pages[result.url]
+            yield state, result, session_id
+
+    async def discover_many(self, urls: List[str], dispatcher: Any = None):
+        stream = await self.arun_many(urls, CrawlerRunConfig(stream=True), dispatcher)
+        async for result in stream:
+            session_id = result.session_id or result.url
+            if not result.success:
+                yield result.url, None, result, session_id
+                continue
+            state, _ = self.pages[result.url]
+            yield result.url, state, result, session_id
 
     async def discover_page_with_result(self, url: str, session_id: Optional[str] = None):
+        """`_interact_with_resumes`'s own resume-after-navigation re-fetch
+        still calls this directly, unchanged by issue #249 - see that
+        method's docstring."""
         return self.pages[url]
 
     async def close_session(self, session_id: str) -> None:
-        return None
+        self.closed_session_ids.append(session_id)
 
     async def click(self, url: str, session_id: str, path: str) -> PageState:
         self.clicked.append((url, path))
@@ -202,3 +258,45 @@ def test_max_visits_per_route_shape_is_threaded_into_the_frontier():
     )
 
     assert core.strategy.max_visits_per_route_shape == 3
+
+
+def test_every_discovered_pages_session_gets_closed_once_its_pass_is_done():
+    """Issue #249: each page fetched off the native dispatcher gets its own
+    single-use session (no more shared per-worker tab) - `CrawlEngineCore`
+    must close it once done, or a long crawl leaks one browser tab per
+    page for the rest of the run."""
+    pages = {
+        START: (PageState(url=START, components=[], links=[]), _FakeResult(START, [{"href": CART}])),
+        CART: (PageState(url=CART, components=[], links=[]), _FakeResult(CART)),
+    }
+    store, sink = _store_and_sink()
+    crawler = _FakeCrawler(pages)
+    core = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, base_url=START))
+
+    asyncio.run(core.run(START, mode=SCOUT))
+
+    assert sorted(crawler.closed_session_ids) == sorted(f"session::{url}" for url in pages)
+
+
+def test_a_failed_close_session_does_not_stop_the_crawl():
+    """A wedged/timed-out `close_session` (`Crawl4AICrawler`'s own
+    watchdog) must never take the rest of the crawl down with it - ported
+    from the retired `_recycle_session_if_due`'s identical broad `except`."""
+
+    class _RaisingCloseCrawler(_FakeCrawler):
+        async def close_session(self, session_id: str) -> None:
+            raise RuntimeError(f"close_session watchdog: {session_id!r} did not close within 10s")
+
+    pages = {
+        START: (PageState(url=START, components=[], links=[]), _FakeResult(START, [{"href": CART}])),
+        CART: (PageState(url=CART, components=[], links=[]), _FakeResult(CART)),
+    }
+    store, sink = _store_and_sink()
+    core = CrawlEngineCore(
+        _RaisingCloseCrawler(pages), config=EngineCoreConfig(sink=sink, base_url=START)
+    )
+
+    asyncio.run(core.run(START, mode=SCOUT))
+
+    scouted = store.get_scouted()
+    assert len(scouted) == 2

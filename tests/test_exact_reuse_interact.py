@@ -7,10 +7,17 @@ approach as test_engine_core.py.
 
 Drives the crawl through `CrawlEngineCore` (issue #241), not the retired
 `MechanicalCrawler` (issue #242) - `ExactReuseIndex` wiring itself is
-unchanged, only its harness moved.
+unchanged, only its harness moved. Issue #249 moved interact mode's flat
+pass onto `Crawl4AICrawler.discover_many` (`arun_many`+
+`SessionAwareDispatcher`) - both pages are fetched concurrently through
+that one call, same "which worker gets there first is unspecified" property
+this test always relied on, just driven by the dispatcher now instead of a
+hand-rolled worker pool.
 """
 import asyncio
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from crawl4ai import CrawlerRunConfig
 
 from analysis.exact_reuse_index import ExactReuseIndex
 from core.interfaces import PageState
@@ -41,29 +48,47 @@ class _FakeResult:
         self.url = url
         self.redirected_url = None
         self.success = True
+        self.error_message = ""
         self.links: Dict[str, List[Dict[str, str]]] = {"internal": [], "external": []}
         self.metadata: Dict[str, Any] = {}
+        self.session_id: Optional[str] = None
 
 
 class _TwoPagesSharedNavLinkCrawler:
     """Two pages, each carrying a component with the exact same content
     identity - clicking either one navigates to `SALE`. Which of the two
-    pages' workers reaches the exact-reuse check first isn't something a
-    test should assume (`page_concurrency` runs both as concurrent
-    tasks); what's under test is that exactly one of them ever really
-    clicks, not which."""
+    pages' fetches the dispatcher resolves first isn't something a test
+    should assume; what's under test is that exactly one of them ever
+    really clicks, not which."""
 
     def __init__(self) -> None:
         self.clicked: List[Tuple[str, str]] = []
 
-    async def discover_page_with_result(self, url: str, session_id: str = ""):
+    def _state_for(self, url: str) -> PageState:
         if url == HOME:
-            state = PageState(url=HOME, components=[_nav_link("#nav-home")])
-        elif url == CATALOG:
-            state = PageState(url=CATALOG, components=[_nav_link("#nav-catalog")])
-        else:
-            state = PageState(url=url, components=[])
-        return state, _FakeResult(url)
+            return PageState(url=HOME, components=[_nav_link("#nav-home")])
+        if url == CATALOG:
+            return PageState(url=CATALOG, components=[_nav_link("#nav-catalog")])
+        return PageState(url=url, components=[])
+
+    async def arun_many(self, urls: List[str], config: CrawlerRunConfig, dispatcher: Any = None):
+        async def gen():
+            for url in urls:
+                result = _FakeResult(url)
+                result.session_id = f"session::{url}"
+                yield result
+        return gen()
+
+    async def discover_many(self, urls: List[str], dispatcher: Any = None):
+        stream = await self.arun_many(urls, CrawlerRunConfig(stream=True), dispatcher)
+        async for result in stream:
+            session_id = result.session_id or result.url
+            yield result.url, self._state_for(result.url), result, session_id
+
+    async def discover_page_with_result(self, url: str, session_id: str = ""):
+        """`_interact_with_resumes`'s own resume-after-navigation re-fetch
+        still calls this directly, unchanged by issue #249."""
+        return self._state_for(url), _FakeResult(url)
 
     async def click(self, url: str, session_id: str, selector: str) -> PageState:
         self.clicked.append((url, selector))

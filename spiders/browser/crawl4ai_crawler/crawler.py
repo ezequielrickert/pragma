@@ -1,4 +1,21 @@
 """crawl4ai-backed page discovery: navigate, run extraction, return PageState.
+
+**`deep_crawl`/`discover_many` don't wrap fetches in `_run_with_watchdog`,
+so `navigation_watchdog_seconds`/`TargetLoadThrottle` don't apply to them -
+issue #249's own trade-off, not an oversight.** Both hand every URL to
+crawl4ai's own `arun_many`/dispatcher, which owns each individual
+navigation internally; this class never sees a bare `arun()` call to wrap
+per URL the way `discover_page_with_result`'s single-fetch path still
+does (and still applies the watchdog/throttle to, unchanged - `login.py`'s
+precheck and `_interact_with_resumes`'s resume re-fetch both still go
+through it). A wedged navigation inside a streamed batch is no longer
+caught by this project's own hang detector; crawl4ai's dispatcher has its
+own memory-pressure/rate-limiting logic, but it is not the same watchdog
+contract. Revisiting this (a hook-based per-navigation timer, most likely)
+is a follow-up if a live crawl reproduces the austral.edu.ar-style hang
+this way - not attempted here, since neither `_fetch_level`'s worker pool
+nor the watchdog+throttle stack it carried survives this ticket's premise
+that the manual pool itself is what's being retired.
 Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#module
 """
 
@@ -6,10 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional, Tuple
+from typing import Any, AsyncGenerator, List, Optional, Tuple
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from crawl4ai.async_configs import CacheMode
+from crawl4ai.async_dispatcher import BaseDispatcher
+from crawl4ai.deep_crawling.base_strategy import DeepCrawlStrategy
 
 from core.interfaces import PageState
 from ..target_load_throttle import TargetLoadThrottle
@@ -134,6 +153,70 @@ class Crawl4AICrawler:
         page_state, _ = await self.discover_page_with_result(url, session_id=session_id)
         return page_state
 
+    def _discovery_config(
+        self,
+        session_id: Optional[str] = None,
+        deep_crawl_strategy: Optional[DeepCrawlStrategy] = None,
+        stream: bool = False,
+    ) -> CrawlerRunConfig:
+        """The `CrawlerRunConfig` every plain-navigation fetch shares -
+        `discover_page_with_result`'s own single-URL call, `deep_crawl`'s
+        strategy-driven stream, and `discover_many`'s flat concurrent
+        fetch all want identical content-completeness knobs
+        (`scan_full_page`/`flatten_shadow_dom`/network capture/timeout);
+        only `session_id`/`deep_crawl_strategy`/`stream` vary per caller.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_discovery_config
+        """
+        return CrawlerRunConfig(
+            session_id=session_id,
+            cache_mode=CacheMode.BYPASS,
+            wait_for="css:body",
+            # A page's own load fires the API calls a SPA needs to render at
+            # all - not attributable to any one component, but part of the
+            # contract all the same.
+            # Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_page-network-capture
+            capture_network_requests=True,
+            page_timeout=int(self.page_timeout_seconds * 1000),
+            prefetch=self.prefetch,
+            # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#scan_full_page
+            scan_full_page=self.scan_full_page,
+            flatten_shadow_dom=self.flatten_shadow_dom,
+            deep_crawl_strategy=deep_crawl_strategy,
+            stream=stream,
+        )
+
+    def _page_state_from_result(self, requested_url: str, result: Any) -> PageState:
+        """`PageState` for an already-fetched `CrawlResult`, popping the
+        hook stash `before_retrieve_html`/`on_execution_ended` left under
+        `result.session_id` - the shared tail every discovery call ends
+        with, whether it fetched through `discover_page_with_result`'s own
+        single `arun()` or arrived off `deep_crawl`/`discover_many`'s
+        streamed `arun_many()` results. `requested_url`, not
+        `result.url`/`page_state.url`, is what `_save_markdown` keys its
+        debug file on - see that method's own docstring.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_page_state_from_result
+        """
+        session_id = result.session_id or requested_url
+        data = self._hooks.pop(session_id)
+        page_state = build_page_state(result, requested_url, data)
+        self._save_markdown(requested_url, result)
+        return page_state
+
+    def _translate_result(self, result: Any) -> Tuple[Optional[PageState], str]:
+        """`(page_state_or_none, session_id)` for one streamed `CrawlResult` -
+        the per-result step `deep_crawl` and `discover_many` both repeat
+        while walking their own stream, factored out rather than duplicated:
+        a failed fetch logs a warning and translates to `None` instead of
+        raising, so one bad page never takes the rest of a streamed crawl
+        down with it (unlike `discover_page_with_result`'s single-URL raise).
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_translate_result
+        """
+        session_id = result.session_id or result.url
+        if not result.success:
+            print(f"Warning: could not discover {result.url!r}, skipping: {result.error_message}")
+            return None, session_id
+        return self._page_state_from_result(result.url, result), session_id
+
     async def discover_page_with_result(
         self, url: str, session_id: Optional[str] = None
     ) -> Tuple[PageState, Any]:
@@ -151,21 +234,7 @@ class Crawl4AICrawler:
                 "Crawl4AICrawler must be used as an async context manager"
             )
         session_id = session_id or url
-        config = CrawlerRunConfig(
-            session_id=session_id,
-            cache_mode=CacheMode.BYPASS,
-            wait_for="css:body",
-            # A page's own load fires the API calls a SPA needs to render at
-            # all - not attributable to any one component, but part of the
-            # contract all the same.
-            # Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_page-network-capture
-            capture_network_requests=True,
-            page_timeout=int(self.page_timeout_seconds * 1000),
-            prefetch=self.prefetch,
-            # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#scan_full_page
-            scan_full_page=self.scan_full_page,
-            flatten_shadow_dom=self.flatten_shadow_dom,
-        )
+        config = self._discovery_config(session_id=session_id)
         await self._throttle.wait_before_navigation()
         start = asyncio.get_running_loop().time()
         result = await self._run_with_watchdog(url, session_id, config)
@@ -174,12 +243,60 @@ class Crawl4AICrawler:
             raise RuntimeError(
                 f"crawl4ai navigation failed for {url!r}: {result.error_message}"
             )
+        return self._page_state_from_result(url, result), result
 
-        data = self._hooks.pop(session_id)
-        page_state = build_page_state(result, url, data)
-        # The requested url, not page_state.url - see _save_markdown for why.
-        self._save_markdown(url, result)
-        return page_state, result
+    async def deep_crawl(
+        self, start_url: str, strategy: DeepCrawlStrategy
+    ) -> AsyncGenerator[Tuple[Optional[PageState], Any, str], None]:
+        """Streams a whole crawl driven by `strategy` (`PragmaBestFirstStrategy`)
+        through crawl4ai's own `arun()` + dispatcher, replacing
+        `CrawlEngineCore`'s hand-rolled worker pool - issue #249. `strategy`
+        owns every frontier decision (`can_process_url`/`link_discovery`)
+        and, via its own `SessionAwareDispatcher`, the fetch concurrency;
+        this method only translates each streamed `CrawlResult` into the
+        `PageState` shape the rest of the pipeline expects.
+
+        Yields `(page_state_or_none, raw_result, session_id)` per page -
+        `None` state for a failed fetch, logged and skipped rather than
+        raised (a level-loss failure here would otherwise take the whole
+        streamed crawl down with it, unlike `discover_page_with_result`'s
+        single-URL raise). `session_id` is `result.session_id` - the
+        dispatcher's own per-fetch task id (`SessionAwareDispatcher` bakes
+        it onto the per-URL config as of issue #246) - a caller must close
+        it once done with this page: unlike the retired worker pool's
+        stable `f"worker-{n}"` sessions, every page here gets its own
+        single-use browser tab that nothing else will ever reuse, and
+        crawl4ai's own dispatcher never closes it on its own.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#deep_crawl
+        """
+        if self._crawler is None:
+            raise RuntimeError(
+                "Crawl4AICrawler must be used as an async context manager"
+            )
+        config = self._discovery_config(deep_crawl_strategy=strategy, stream=True)
+        async for result in await self._crawler.arun(url=start_url, config=config):
+            state, session_id = self._translate_result(result)
+            yield state, result, session_id
+
+    async def discover_many(
+        self, urls: List[str], dispatcher: BaseDispatcher
+    ) -> AsyncGenerator[Tuple[str, Optional[PageState], Any, str], None]:
+        """`discover_page_with_result` over every URL in `urls` at once,
+        concurrency bounded by `dispatcher` (a `SessionAwareDispatcher`
+        sized to `page_concurrency`) instead of a hand-rolled worker pool -
+        `CrawlEngineCore`'s interact-mode flat pass over already-scouted
+        pages, issue #249. No frontier/strategy involved: `urls` is already
+        the whole known set, nothing left to discover.
+        Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#discover_many
+        """
+        if self._crawler is None:
+            raise RuntimeError(
+                "Crawl4AICrawler must be used as an async context manager"
+            )
+        config = self._discovery_config(stream=True)
+        async for result in await self._crawler.arun_many(urls=urls, config=config, dispatcher=dispatcher):
+            state, session_id = self._translate_result(result)
+            yield result.url, state, result, session_id
 
     async def _run_with_watchdog(self, url: str, session_id: str, config: CrawlerRunConfig):
         """`self._crawler.arun(...)`, bounded by `navigation_watchdog_seconds` -

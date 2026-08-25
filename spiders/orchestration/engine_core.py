@@ -8,55 +8,57 @@ page_visitor/` outright: no `UrlFrontier`, no `WorkerPacing`, no
 `CrawlBudget` - see this module's own docstrings below for what took each
 one's place.
 
-**Why this isn't `crawler.arun(config=CrawlerRunConfig(deep_crawl_strategy=
-PragmaDeepCrawlStrategy(...)))`, despite #239's own docstring saying
-concurrency would come from crawl4ai's own dispatcher.** Checked live
-(`crawl4ai==0.9.2`): `BFSDeepCrawlStrategy._arun_batch` clones ONE
-`CrawlerRunConfig` for the whole batch and calls `crawler.arun_many(urls,
-config=batch_config)`; its dispatcher (`MemoryAdaptiveDispatcher`) passes
-`session_id=task_id` to `crawler.arun()` as a bare keyword argument, which
-`AsyncWebCrawler.arun()` silently drops (`**kwargs` is never read for it) -
-so every concurrent fetch in a batch shares whatever `session_id` the
-original config carried (`None`, falling back to `"default"`). This
-project's own `HookHandlers` stashes each navigation's extraction under
-`config.session_id`, so N concurrent fetches racing to write/pop the same
-`"default"` stash entry silently cross-attributes one page's components to
-another. Real navigation stays safe either way (crawl4ai only reuses a
-Playwright page when `session_id` is truthy and already known), but the
-extraction data is not. Fix applied here: `PragmaDeepCrawlStrategy` still
-owns every frontier decision (`can_process_url`/`link_discovery` - scope,
-dedup, the route-shape cap), called directly against the real crawl4ai
-`CrawlResult` `discover_page_with_result` already returns; concurrency
-comes from this module's own small bounded worker pool, reusing the
-same stable-`session_id`-per-worker-slot scheme `discover_page` has always
-used safely (`f"worker-{n}"`, one browser tab per slot for the run's
-lifetime - proven correct in production today). A real crawl4ai fix would
-let this collapse onto the dispatcher outright; worth revisiting if one
-ships upstream, not attempted here.
+**Now runs on `crawler.arun(config=CrawlerRunConfig(deep_crawl_strategy=
+PragmaBestFirstStrategy(...), stream=True))` directly - issue #249,
+reversing this module's own original call.** Checked live
+(`crawl4ai==0.9.2`) while this module was first built: `BFSDeepCrawlStrategy
+._arun_batch`'s dispatcher (`MemoryAdaptiveDispatcher`) passed
+`session_id=task_id` to `crawler.arun()` as a bare keyword argument that
+`AsyncWebCrawler.arun()` silently dropped, so every concurrent fetch in a
+batch shared one `session_id` and cross-attributed extraction data between
+pages. That's what this module's own hand-rolled worker pool
+(`_fetch_level`, one stable `f"worker-{n}"` session per slot) existed to
+route around. The underlying bug is fixed now, at its own resolution
+point (`SessionAwareDispatcher`, issue #246) rather than worked around
+here, and `PragmaBestFirstStrategy` (issue #247) carries the same
+frontier rules `PragmaDeepCrawlStrategy` always did
+(`can_process_url`/`link_discovery`) plus that fixed dispatcher - so the
+worker pool this module used to own is gone: `Crawl4AICrawler.deep_crawl`
+(scout/fused discovery) and `.discover_many` (interact mode's flat pass)
+both stream straight off crawl4ai's own `arun`/`arun_many`+dispatcher,
+concurrency bounded by `page_concurrency` there instead of here. One
+consequence: every page now gets its own single-use dispatcher-assigned
+session instead of a long-lived per-worker one, so `_close_session_quietly`
+closes each one right after that page's own discovery+interaction pass
+finishes, replacing the old periodic `session_recycle_after` model
+outright (a *shared* tab's own growth was what that guarded against; a
+single-use tab has nothing to grow into). Another: `Crawl4AICrawler
+.deep_crawl`/`.discover_many` don't wrap each navigation in
+`_run_with_watchdog`/`TargetLoadThrottle` the way the retired worker pool's
+own `discover_page_with_result` calls did - see that method's own module
+docstring for the trade-off.
 
 **Memory-ceiling worker pacing is dropped, not ported.** `WorkerPacing`'s
 `memory_ceiling_percent` pause and `target_slowdown_ratio` concurrency
 taper existed because raising `page_concurrency` was otherwise "a faster
 way to reproduce the same OOM" (its own prior docstring). #236's design
 expected crawl4ai's own `MemoryAdaptiveDispatcher` to absorb that job
-instead - which this module can't lean on for the reason above. Dropped
-outright rather than reimplemented: the same "simplify first, rebuild
-controls later only if a real need shows up" call this map's Destination
-already made for per-run budgets, extended here to worker pacing too.
-`TargetLoadThrottle` (backoff/circuit-breaker against a straining target
-server, owned by `Crawl4AICrawler` itself) is untouched and still applies.
+instead, which issue #249 finally hands it. Not reinstated as a separate
+mechanism on top: the same "simplify first, rebuild controls later only
+if a real need shows up" call this map's Destination already made for
+per-run budgets, extended here to worker pacing too.
 Details: docs/dev/spiders/orchestration/engine_core.md#module
 """
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.data_contracts import PageState
 from utils.urls import restore_scheme, route_shape
+from ..browser.crawl4ai_crawler.session_aware_dispatcher import SessionAwareDispatcher
 from ..content.fill_values import default_placeholder_fill_value
-from .deep_crawl_strategy import PragmaDeepCrawlStrategy
+from .best_first_strategy import PragmaBestFirstStrategy
 from .graph_sink import GraphStoreInteractionTracker, GraphStoreSink
 from .interaction_tracker import InMemoryInteractionTracker, InteractionTracker
 from .page_interaction import PageInteractionStep
@@ -91,7 +93,6 @@ class EngineCoreConfig:
     base_url: Optional[str] = None
     allow_subdomains: bool = False
     max_visits_per_route_shape: int = 1
-    session_recycle_after: Optional[int] = 15
     family_sampler: Optional[Any] = None
     exact_reuse_index: Optional[Any] = None
 
@@ -109,15 +110,16 @@ class CrawlEngineCore:
         self.sink = config.sink
         self.max_pages = config.max_pages
         self.page_concurrency = max(1, config.page_concurrency)
-        self.session_recycle_after = config.session_recycle_after
         self.tracker: InteractionTracker = (
             GraphStoreInteractionTracker(config.sink.graph_store) if config.sink is not None
             else InMemoryInteractionTracker()
         )
-        self.strategy = PragmaDeepCrawlStrategy(
+        self.strategy = PragmaBestFirstStrategy(
             base_url=config.base_url,
             allow_subdomains=config.allow_subdomains,
             max_visits_per_route_shape=config.max_visits_per_route_shape,
+            max_pages=float("inf") if config.max_pages is None else config.max_pages,
+            max_session_permit=self.page_concurrency,
         )
         self.interaction_step = PageInteractionStep(
             crawler, self.tracker, config.fill_value_fn,
@@ -128,7 +130,6 @@ class CrawlEngineCore:
         )
         self.page_results: List[PageVisitResult] = []
         self._pages_visited = 0
-        self._visits_since_recycle: Dict[int, int] = {}
 
     def _finished_route_shapes(self) -> List[str]:
         """Route shapes a previous run already sampled - same source and
@@ -168,71 +169,67 @@ class CrawlEngineCore:
             for url in scouted if "{token}" not in url
         ]
 
-    async def _recycle_session_if_due(self, worker_id: int, session_id: str) -> None:
-        """Close `session_id`'s tab once it's carried `session_recycle_after`
-        visits, so crawl4ai rebuilds a fresh one on this worker's next
-        fetch - ported unchanged from `MechanicalCrawler._recycle_session_if_due`.
-        Details: docs/dev/spiders/orchestration/engine_core.md#_recycle_session_if_due
+    async def _close_session_quietly(self, session_id: str) -> None:
+        """Release this page's single-use browser tab once its discovery+
+        interaction pass is fully done. Every page fetched off the native
+        dispatcher (`Crawl4AICrawler.deep_crawl`/`.discover_many`, issue
+        #249) gets its own dispatcher-assigned session that nothing else
+        will ever reuse - unlike the retired worker pool's shared
+        `f"worker-{n}"` sessions, closing it once here, right after, is
+        what stands in for `_recycle_session_if_due`'s old periodic-close
+        model: that one bounded how long a *shared* tab could go without a
+        fresh one, a problem a single-use tab no longer has. Swallows
+        `close_session`'s own failures - ported from that method's
+        identical broad `except`: a wedged/timed-out close must never take
+        the crawl down.
+        Details: docs/dev/spiders/orchestration/engine_core.md#_close_session_quietly
         """
-        if self.session_recycle_after is None:
-            return
-        visits = self._visits_since_recycle.get(worker_id, 0) + 1
-        if visits < self.session_recycle_after:
-            self._visits_since_recycle[worker_id] = visits
-            return
         close = getattr(self.crawler, "close_session", None)
-        if close is not None:
-            try:
-                await close(session_id)
-            except Exception as exc:
-                print(f"Warning: could not recycle session {session_id!r}: {exc}")
-        self._visits_since_recycle[worker_id] = 0
+        if close is None:
+            return
+        try:
+            await close(session_id)
+        except Exception as exc:
+            print(f"Warning: could not close session {session_id!r}: {exc}")
 
-    async def _fetch_level(
-        self, urls: List[str]
-    ) -> List[Tuple[str, Optional[PageState], Optional[Any], str]]:
-        """Fetch every URL in one BFS level, `page_concurrency` workers at
-        a time - each worker owns one stable `session_id` for the whole
-        run (`f"worker-{n}"`), the same scheme `discover_page` has always
-        used safely, sidestepping the session-collision this module's own
-        docstring explains. Returns `(url, page_state_or_none,
-        raw_result_or_none, session_id)` per URL - `session_id` is the live
-        browser tab a caller must reuse to interact with this same page
-        (`None`/`None` state/result for a failed fetch, session_id still
-        meaningful for bookkeeping), so one page's navigation failure never
-        crashes the level.
-        Details: docs/dev/spiders/orchestration/engine_core.md#_fetch_level
+    def _seed_resume_state(self, start_url: str, resume_urls: List[str]) -> Dict[str, Any]:
+        """`PragmaBestFirstStrategy`'s native `resume_state` contract wants
+        a `queue_items` list carrying a `score`/`depth`/`parent_url` per
+        outstanding URL (issue #248's research) - `GraphStore.get_pending()`
+        has none of that, only bare URLs. What this seeds is the same
+        coarser thing `_run_discovery`'s old BFS loop always did with
+        `_resume_urls()`: readmit every pending URL as a fresh depth-1
+        queue entry (the caller re-gates each one through `can_process_url`
+        first - `depth=1, not 0`, so a resumed URL clears the same
+        route-shape cap a freshly discovered link would, per the old loop's
+        own comment on why). A resumed run loses its previous queue
+        *ordering*, not its set of outstanding work; recovering the real
+        ordering would need pragma's graph to persist score/depth/parent_url
+        per page, which issue #248 found it doesn't (new read/write surface
+        on `LadybugGraphStore`, not this ticket's scope).
+
+        `score` is negated: `_arun_best_first` treats a fresh `resume_state`
+        queue as already carrying the negated, min-heap-ready score its own
+        `_on_state_change` callback exports (confirmed against that
+        callback's shape, issue #248) - un-negated here would invert this
+        run's whole priority order against `start_url`'s own entry, which
+        this method scores the exact same way `_arun_best_first` scores it
+        when there's no resume state at all.
+        Details: docs/dev/spiders/orchestration/engine_core.md#_seed_resume_state
         """
-        queue: "asyncio.Queue[str]" = asyncio.Queue()
-        for url in urls:
-            queue.put_nowait(url)
-        results: List[Tuple[str, Optional[PageState], Optional[Any], str]] = []
-        lock = asyncio.Lock()
+        def negated_score(url: str) -> float:
+            return -self.strategy.url_scorer.score(url) if self.strategy.url_scorer else 0
 
-        async def worker(worker_id: int) -> None:
-            session_id = f"worker-{worker_id}"
-            while True:
-                try:
-                    url = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    return
-                try:
-                    state, raw = await self.crawler.discover_page_with_result(url, session_id=session_id)
-                    await self._recycle_session_if_due(worker_id, session_id)
-                    async with lock:
-                        results.append((url, state, raw, session_id))
-                except Exception as exc:
-                    print(f"Warning: could not discover {url!r}, skipping: {exc}")
-                    async with lock:
-                        results.append((url, None, None, session_id))
-                finally:
-                    queue.task_done()
-
-        workers = [
-            asyncio.create_task(worker(i)) for i in range(min(self.page_concurrency, len(urls)))
+        queue_items = [{"score": negated_score(start_url), "depth": 0, "url": start_url, "parent_url": None}]
+        queue_items += [
+            {"score": negated_score(url), "depth": 1, "url": url, "parent_url": None} for url in resume_urls
         ]
-        await asyncio.gather(*workers)
-        return results
+        return {
+            "visited": [],
+            "depths": {start_url: 0, **{url: 1 for url in resume_urls}},
+            "pages_crawled": 0,
+            "queue_items": queue_items,
+        }
 
     async def _record_discovery(self, page_key: str, state: PageState) -> None:
         """The seven sink writes owed for every freshly discovered page -
@@ -321,60 +318,62 @@ class CrawlEngineCore:
         return True
 
     async def _run_discovery(self, start_url: str, mode: DiscoveryMode) -> None:
-        """Level-by-level BFS over the site, deferring every admission/dedup/
-        route-shape decision to `PragmaDeepCrawlStrategy` - the frontier
-        loop `UrlFrontier`+the worker loop in the old `mechanical_loop/
-        loop.py` used to own. `scout`/`fused` only; `interact` mode never
-        calls this (nothing to discover - see `run`).
+        """Streams the whole crawl off `PragmaBestFirstStrategy`'s own
+        best-first traversal (`Crawl4AICrawler.deep_crawl`) instead of the
+        retired level-by-level worker pool - issue #249. `scout`/`fused`
+        only; `interact` mode never calls this (nothing to discover - see
+        `run`).
         Details: docs/dev/spiders/orchestration/engine_core.md#_run_discovery
         """
         self.strategy.prime_route_shape_visits(self._finished_route_shapes())
-        visited: Set[str] = set()
-        depths: Dict[str, int] = {start_url: 0}
-        current_level: List[Tuple[str, Optional[str]]] = [(start_url, None)]
-        # depth=1, not 0: `can_process_url`'s own depth==0 case always
-        # admits the entry point unconditionally, and a resumed URL isn't
-        # one - it must clear the same route-shape cap a freshly
-        # discovered link would, the same re-gating `UrlFrontier.enqueue`
-        # used to apply to every resumed URL (issue #242's own test
-        # coverage caught this admitted-uncapped gap during the Legacy
-        # Engine's retirement).
+        resume_urls: List[str] = []
         for url in self._resume_urls():
-            if url not in depths and await self.strategy.can_process_url(url, 1):
-                current_level.append((url, None))
-                depths[url] = 0
+            # Re-gated through can_process_url the same way the retired BFS
+            # loop's own "depth=1, not 0" comment explained: a resumed URL
+            # isn't the entry point, so it must clear the same route-shape
+            # cap a freshly discovered link would.
+            if url not in resume_urls and await self.strategy.can_process_url(url, 1):
+                resume_urls.append(url)
+        if resume_urls:
+            self.strategy._resume_state = self._seed_resume_state(start_url, resume_urls)
 
-        while current_level:
-            if self._max_pages_reached():
-                break
-            urls = [url for url, _ in current_level]
-            next_level: List[Tuple[str, Optional[str]]] = []
-            for url, state, raw_result, session_id in await self._fetch_level(urls):
-                if state is None or raw_result is None:
+        async for state, result, session_id in self.crawler.deep_crawl(start_url, self.strategy):
+            try:
+                if state is None:
                     continue
                 self._pages_visited += 1
-                depth = depths.get(url, 0)
-                await self.strategy.link_discovery(raw_result, url, depth, visited, next_level, depths)
-                await self._process_page(url, session_id, state, mode)
+                await self._process_page(result.url, session_id, state, mode)
                 if self._max_pages_reached():
-                    next_level = []
                     break
-            current_level = next_level
+            finally:
+                await self._close_session_quietly(session_id)
 
     async def _run_interact(self) -> None:
-        """`interact` mode: no discovery, a flat single-level pass over
-        whatever a previous, separate scout run already left `"Scouted"` -
-        `pragma dynamic`'s own resume mode.
+        """`interact` mode: no discovery, a flat pass over whatever a
+        previous, separate scout run already left `"Scouted"` - `pragma
+        dynamic`'s own resume mode. Genuinely concurrent now (issue #249):
+        `Crawl4AICrawler.discover_many`/`SessionAwareDispatcher` replace
+        the retired `_fetch_level`, which - despite `page_concurrency`
+        being one of this class's own config knobs - only ever ran one
+        worker here (`_fetch_level([url])`, a single URL per call inside a
+        sequential outer loop over `_scouted_urls()`); that knob was dead
+        weight in this mode before this ticket.
         Details: docs/dev/spiders/orchestration/engine_core.md#_run_interact
         """
-        for url in self._scouted_urls():
-            if self._max_pages_reached():
-                break
-            for _, state, _, session_id in await self._fetch_level([url]):
+        urls = self._scouted_urls()
+        if not urls:
+            return
+        if self.max_pages is not None:
+            urls = urls[: self.max_pages]
+        dispatcher = SessionAwareDispatcher(max_session_permit=self.page_concurrency)
+        async for url, state, _, session_id in self.crawler.discover_many(urls, dispatcher):
+            try:
                 if state is None:
                     continue
                 self._pages_visited += 1
                 await self._process_page(url, session_id, state, INTERACT)
+            finally:
+                await self._close_session_quietly(session_id)
 
     async def run(self, start_url: str, mode: DiscoveryMode = FUSED) -> List[PageVisitResult]:
         """Crawl `start_url`'s site under `mode`. Details: docs/dev/spiders/orchestration/engine_core.md#run"""
