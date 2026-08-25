@@ -4,5 +4,6 @@ elsewhere in the codebase keeps working unchanged.
 """
 from .config import Crawl4AICrawlerConfig
 from .crawler import Crawl4AICrawler
+from .session_aware_dispatcher import SessionAwareDispatcher
 
-__all__ = ["Crawl4AICrawler", "Crawl4AICrawlerConfig"]
+__all__ = ["Crawl4AICrawler", "Crawl4AICrawlerConfig", "SessionAwareDispatcher"]
