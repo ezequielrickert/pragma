@@ -18,6 +18,14 @@ def apply_budget_flags(config: PragmaConfig, args: argparse.Namespace) -> None:
     rather than sets. `--full` wins outright: it is the "ignore what the
     YAML says, run the whole thing" escape hatch, so combining it with a
     limit is a contradiction resolved in its favor.
+
+    Only `cli.py`'s bare-URL dispatch (the Legacy Engine's own CLI
+    surface, `core/engine.py::Engine`) still calls this - issue #241
+    deleted the equivalent flags from `static`/`crawl`/`dynamic`
+    (`CrawlEngineCore` dropped `CrawlBudget` outright, per issue #236's
+    design), but the Legacy Engine itself is issue #242's own, separate
+    retirement; this stays until that ticket deletes `core/engine.py`
+    and this function along with it.
     Details: docs/dev/core/cli_shared.md#apply_budget_flags
     """
     if args.full_run:

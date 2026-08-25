@@ -61,6 +61,19 @@ class PragmaDeepCrawlStrategy(BFSDeepCrawlStrategy):
         shape = route_shape(url)
         return self._route_shape_visits.get(shape, 0) < self.max_visits_per_route_shape
 
+    def is_known(self, url: str) -> bool:
+        """Whether `url` already has a place in this crawl - the frontier-
+        level counterpart of the old `UrlFrontier.is_known`, consulted by
+        `PageInteractionStep` before treating a click's static `<a href>`
+        destination as worth a real navigation: a link to a page this crawl
+        already fetched (or has queued for a later level) needs no second
+        pass. `link_discovery`'s own `_seen` set already carries this - a
+        URL only lands in it once `_mark_seen_and_counted` has run for it,
+        whether as a just-fetched result or a freshly discovered link.
+        Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#is_known
+        """
+        return clean_url(url) in self._seen
+
     def prime_route_shape_visits(self, shapes: List[str]) -> None:
         """Carry a previous run's sampled route shapes into this one - ported
         unchanged from `UrlFrontier.prime_route_shape_visits`; see its own

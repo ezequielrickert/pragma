@@ -106,11 +106,16 @@ class PageInteractionStep:
         # Details: docs/dev/spiders/orchestration/page_interaction/step.md#_canonical_paths
         self._canonical_paths: Dict[str, Dict[tuple, str]] = {}
 
-    def _canonicalize(self, page_key: str, components: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def canonicalize_inventory(self, page_key: str, components: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """`components`, each pinned to its content identity's first-seen
         path on `page_key` - what every `record_inventory` call gets,
-        while callers still act on a component's own live `path`.
-        Details: docs/dev/spiders/orchestration/page_interaction/step.md#_canonicalize
+        while callers still act on a component's own live `path`. Public:
+        the engine core's own initial-discovery `record_inventory` call
+        (issue #241) has to canonicalize through the same map this step
+        later reveals against, or a same-URL reveal's canonicalization
+        would establish different canonical paths than the initial write
+        did (issue #170).
+        Details: docs/dev/spiders/orchestration/page_interaction/step.md#canonicalize_inventory
         """
         canonical = self._canonical_paths.setdefault(page_key, {})
         return [
@@ -172,7 +177,9 @@ class PageInteractionStep:
 
         if not self.sink:
             return
-        await self.sink.record_inventory(page_key, self._canonicalize(page_key, new_state.components), new_state.links)
+        await self.sink.record_inventory(
+            page_key, self.canonicalize_inventory(page_key, new_state.components), new_state.links
+        )
         revealed = find_revealed_options(known, new_state.components)
         if revealed:
             await self.sink.record_revealed_options(page_key, path, revealed)

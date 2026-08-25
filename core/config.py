@@ -88,7 +88,11 @@ class PragmaConfig:
     # What one run may do before stopping and leaving the rest Pending for the
     # next one. All-unset means "until the frontier drains", which is what
     # every run did before this existed - a long run is this dict empty, not a
-    # separate mode. Keys: pages, nodes, minutes.
+    # separate mode. Keys: pages, nodes, minutes. Legacy-Engine-only as of
+    # issue #241: `static`/`crawl`/`dynamic` (`CrawlEngineCore`) dropped
+    # per-run budgets outright, per issue #236's design - only `cli.py`'s
+    # bare-URL dispatch (`core/engine.py::Engine`) still reads this, until
+    # issue #242 retires it.
     # Details: docs/dev/core/config.md#crawl_budget
     crawl_budget: Dict[str, Any] = field(default_factory=dict)
     # Backstop against a site minting a fresh per-visit-token URL.

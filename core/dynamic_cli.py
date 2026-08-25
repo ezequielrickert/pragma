@@ -8,7 +8,6 @@ import argparse
 import asyncio
 import sys
 
-from .cli_shared import apply_budget_flags
 from .config import PragmaConfig
 from .dynamic_engine import DynamicEngine, DynamicRunResult
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
@@ -41,17 +40,6 @@ def parse_dynamic_args(argv: list) -> argparse.Namespace:
     parser.add_argument(
         "--page-concurrency", type=int, dest="page_concurrency", help="How many pages to visit at once"
     )
-    parser.add_argument(
-        "--max-pages-per-run", type=int, dest="budget_pages",
-        help="Stop this run after N pages, leaving the rest Pending for the next one",
-    )
-    parser.add_argument(
-        "--max-minutes-per-run", type=float, dest="budget_minutes", help="Stop this run after N minutes",
-    )
-    parser.add_argument(
-        "--full", dest="full_run", action="store_true", default=None,
-        help="Ignore every configured budget and crawl until the frontier drains",
-    )
     parser.add_argument("--headed", action="store_true", help="Run browser with visible UI")
     parser.add_argument(
         "--login", dest="login_enabled", action=argparse.BooleanOptionalAction, default=None,
@@ -73,17 +61,12 @@ def run_dynamic_command(argv: list) -> None:
     Details: docs/dev/core/dynamic_cli.md#run_dynamic_command
     """
     args = parse_dynamic_args(argv)
-    overrides = {
-        k: v
-        for k, v in vars(args).items()
-        if k not in ("url", "config_path", "budget_pages", "budget_minutes", "full_run")
-    }
+    overrides = {k: v for k, v in vars(args).items() if k not in ("url", "config_path")}
     if overrides.pop("headed", False):
         overrides["headless"] = False
     overrides["url"] = args.url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
-    apply_budget_flags(config, args)
 
     try:
         print(f"Starting dynamic interaction for: {config.url}")
