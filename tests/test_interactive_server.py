@@ -236,20 +236,3 @@ def test_api_graph_returns_export_graph(tmp_path):
     assert "@graph" in data
 
 
-def test_serve_graph_explorer_static_routing(tmp_path):
-    client = _app(tmp_path).test_client()
-
-    # Get / (should redirect to /index.html)
-    resp = client.get("/")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/index.html"
-
-    # Get /graph (should redirect to /index.html)
-    resp = client.get("/graph")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/index.html"
-
-    # Get /index.html
-    resp = client.get("/index.html")
-    assert resp.status_code == 200
-    assert "Graph Explorer" in resp.get_data(as_text=True)

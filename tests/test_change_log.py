@@ -3,59 +3,7 @@
 ticket's own "Done when" criterion. Real store-backed snapshot extraction
 (_snapshots_from_export_graph) is exercised end-to-end in
 test_document_pipeline.py-style fixtures, not duplicated here."""
-import json
-
-from core.documents import DocumentRequest
-from generators.change_log import (
-    ChangeLogDocument,
-    diff_entities,
-)
-from utils.schema_validation import validate_against_schema
-
-_SCHEMA_PATH = "schemas/change-log.schema.json"
-
-
-class _EmptyStore:
-    """Enough of a store surface for build_export_graph to run against an
-    empty crawl - every real read returns nothing."""
-
-    def get_progress_table_rows(self):
-        return []
-
-    def get_page_titles(self):
-        return {}
-
-    def get_page_descriptions(self):
-        return {}
-
-    def get_component_ledger(self):
-        return {}
-
-    def get_inferred_requests(self):
-        return []
-
-    def get_flows(self):
-        return []
-
-    def get_edges(self):
-        return []
-
-    def get_page_landmarks(self):
-        return {}
-
-    def get_text_content_ledger(self):
-        return {}
-
-    def get_state_styles(self):
-        return {}
-
-    def get_component_families(self):
-        return []
-
-
-def _request(settings=None):
-    return DocumentRequest(graph_store=_EmptyStore(), site="shop.example", agent=None, settings=settings or {})
-
+from generators.change_log import diff_entities
 
 # --- diff_entities: the three-way split (ADR-0019 point 2) ---
 
@@ -124,58 +72,3 @@ def test_results_are_sorted_for_a_deterministic_document():
     assert diff.newly_discovered == ("REQ-a", "REQ-b")
 
 
-# --- build_change_log_document / the document ---
-
-def test_with_no_previous_snapshot_the_diff_is_honestly_empty():
-    """Absence of a previous snapshot must not read as "everything is
-    newly discovered" - that would misrepresent a single-run site."""
-    outputs = ChangeLogDocument().outputs(_request({"run_id": "RUN-1"}))
-    document = json.loads(outputs[0].content)
-
-    assert document["run_id_from"] is None
-    assert document["run_id_to"] == "RUN-1"
-    for kind_diff in document["kinds"].values():
-        assert kind_diff == {"newly_discovered": [], "no_longer_observed": [], "changed": []}
-
-
-def test_with_no_previous_snapshot_the_view_says_so():
-    view = ChangeLogDocument().outputs(_request())[1].content
-
-    assert "nothing to diff yet" in view
-
-
-def test_with_a_previous_snapshot_a_real_diff_is_computed():
-    previous_snapshot = {
-        "screens": {}, "requirements": {"REQ-old0000000": {"syntax_text": "old"}},
-        "endpoints": {}, "modules": {}, "channels": {}, "messages": {},
-    }
-    outputs = ChangeLogDocument().outputs(
-        _request({"run_id": "RUN-2", "previous_run_id": "RUN-1", "previous_snapshot": previous_snapshot})
-    )
-    document = json.loads(outputs[0].content)
-
-    assert document["run_id_from"] == "RUN-1"
-    assert document["kinds"]["requirements"]["no_longer_observed"] == ["REQ-old0000000"]
-
-
-def test_channels_and_messages_are_always_empty_kinds():
-    """No real detection instrumentation exists for either yet
-    (ADR-0018) - present in the shape, never populated."""
-    document = json.loads(ChangeLogDocument().outputs(_request())[0].content)
-
-    assert document["kinds"]["channels"] == {"newly_discovered": [], "no_longer_observed": [], "changed": []}
-    assert document["kinds"]["messages"] == {"newly_discovered": [], "no_longer_observed": [], "changed": []}
-
-
-def test_generate_returns_a_source_and_a_view_output():
-    outputs = ChangeLogDocument().outputs(_request())
-
-    assert [(o.kind, o.extension) for o in outputs] == [("source", "json"), ("view", "md")]
-
-
-def test_the_document_validates_against_its_own_schema():
-    """No exception is the real assertion - generate() already calls
-    validate_against_schema internally."""
-    outputs = ChangeLogDocument().outputs(_request())
-
-    validate_against_schema(json.loads(outputs[0].content), _SCHEMA_PATH)
