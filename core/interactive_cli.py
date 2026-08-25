@@ -26,7 +26,7 @@ def parse_interactive_args(argv: list) -> argparse.Namespace:
         "no crawling, no graph store connection. Run `pragma docs <site>` (or a full analysis) "
         "first if this site has no documents yet.",
     )
-    parser.add_argument("site", help="Site slug/host to serve, as written by a prior docs/analysis run")
+    parser.add_argument("site", nargs="?", default=None, help="Site slug/host to serve, as written by a prior docs/analysis run (optional)")
     parser.add_argument("--config", "-c", dest="config_path", help="Path to a pragma YAML config file")
     parser.add_argument("--out", "-o", dest="out_dir", help="Output folder the documents were written to")
     parser.add_argument(

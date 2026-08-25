@@ -80,8 +80,10 @@ Details: docs/dev/interactive/server.md#module
 """
 from __future__ import annotations
 
+import os
 import threading
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional
 
 import jsonschema
 import yaml
@@ -91,11 +93,30 @@ from werkzeug.serving import BaseWSGIServer, make_server
 from dashboard.renderer_audit import renderer_for
 
 from core.interfaces import Agent
+from core.config import PragmaConfig
 
-from . import pages
-from .customization import DocumentRef, SiteOutput, customized_path, effective_content, original_content, save_customized
+def validation_error_message(exc: Exception) -> str:
+    if isinstance(exc, jsonschema.ValidationError):
+        return f"Schema validation failed at {list(exc.absolute_path) or '(root)'}: {exc.message}"
+    return f"Could not parse this document: {exc}"
+
+
+def simple_html_page(title: str, body: str) -> str:
+    return (
+        "<!doctype html>\n"
+        f'<html lang="en"><head><meta charset="utf-8"><title>{title}</title>'
+        '<style>body { background: #0f1115; color: #e4e7ee; font-family: sans-serif; padding: 40px; text-align: center; }</style>'
+        f'</head><body>{body}</body></html>\n'
+    )
+from .customization import DocumentRef, SiteOutput, customized_path, effective_content, original_content, save_customized, available_documents, schema_path_for
 from .generic_form import ENTRY_FIELD_PREFIX, save_generic_form
-from .grounding import grounding_for, system_instruction_for
+from .grounding import (
+    grounding_for,
+    system_instruction_for,
+    select_grounding_documents,
+    grounding_for_documents,
+    system_instruction_for_global,
+)
 from .token_form import save_color_tokens
 
 
@@ -113,127 +134,196 @@ def _parse_entry_updates(form: Dict[str, str]) -> Dict[int, Dict[str, str]]:
     return updates
 
 
-def create_app(out_dir: str, site: str, agent: Agent) -> Flask:
-    """One Flask app for one site's interactive session. `where` (an
-    `out_dir`/`site` `SiteOutput`), `agent`, and `chat_history` are all
-    closed over by every route rather than read from Flask's own
-    request-global state - this app is never reused across sites.
+def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional[str] = None) -> Flask:
+    """One Flask app for the interactive session. Dynamic stores are
+    resolved per site slug, and the app serves the static explorer SPA
+    and a clean REST API.
     Details: docs/dev/interactive/server.md#create_app
     """
-    import os
-    from database.ladybug.store import LadybugGraphStore
-
     app = Flask(__name__)
-    where = SiteOutput(out_dir=out_dir, site=site)
-    store = LadybugGraphStore(site=site, directory=out_dir)
-
     explorer_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../tools/graph-explorer/dist"))
 
-    # One in-memory conversation per document, gone when the session
-    # ends - never written to disk (map #146's own "chat history: in-
-    # memory only" decision).
-    chat_history: Dict[Tuple[str, str], List[Dict[str, str]]] = {}
+    # Resolve Kùzu database directory from configuration if not explicitly provided
+    if db_dir is None:
+        config = PragmaConfig.load()
+        ladybug_opts = config.graph_stores.get("ladybug", {})
+        db_dir = ladybug_opts.get("directory", "data/sites")
+        if not os.path.isdir(db_dir) or not list(Path(db_dir).glob("*.lbdb")):
+            if os.path.isdir(out_dir):
+                db_dir = out_dir
+
+    # Cache for LadybugGraphStore instances
+    _stores = {}
+
+    def get_store_for_site(site_slug: str):
+        if not site_slug:
+            raise ValueError("No site slug provided")
+        if site_slug not in _stores:
+            from database.ladybug.store import LadybugGraphStore
+            _stores[site_slug] = LadybugGraphStore(site=site_slug, directory=db_dir)
+        return _stores[site_slug]
+
+    def get_available_sites() -> List[str]:
+        # Glob *.lbdb under db_dir
+        return sorted([path.stem for path in Path(db_dir).glob("*.lbdb")])
 
     @app.route("/")
     def index():
-        return pages.page(f"{site} - Interactive Dashboard", pages.landing_page(where))
+        return redirect("/index.html")
 
-    @app.route("/document/<filename>.<extension>")
-    def view_document(filename: str, extension: str):
-        ref = DocumentRef(filename=filename, extension=extension)
-        content = effective_content(where, ref)
-        if content is None:
-            return pages.page("Not found", f"<p>No document named {filename}.{extension} for {site}.</p>"), 404
-        from pathlib import Path
-        is_customized = Path(customized_path(where, ref)).exists()
-        original = original_content(where, ref) if is_customized else None
-        state = pages.DocumentViewState(content=content, original=original)
-        body = pages.document_view_page(ref, state, renderer_for(filename))
-        return pages.page(f"{filename}.{extension} - {site}", body)
+    @app.route("/api/sites")
+    def api_sites():
+        return jsonify(get_available_sites())
 
-    @app.route("/document/<filename>.<extension>/edit", methods=["GET", "POST"])
-    def edit_document(filename: str, extension: str):
-        ref = DocumentRef(filename=filename, extension=extension)
-        failure = None
-        if request.method == "POST":
-            content = request.form["content"]
-            try:
-                save_customized(where, ref, content)
-            except (jsonschema.ValidationError, ValueError, yaml.YAMLError) as exc:
-                path = list(exc.absolute_path) if isinstance(exc, jsonschema.ValidationError) else []
-                failure = pages.ValidationFailure(message=pages.validation_error_message(exc), path=path)
-            else:
-                return redirect(url_for("view_document", filename=filename, extension=extension))
-        else:
-            content = effective_content(where, ref)
-            if content is None:
-                return pages.page("Not found", f"<p>No document named {filename}.{extension} for {site}.</p>"), 404
-        original = original_content(where, ref) or content
-        history = chat_history.get((filename, extension), [])
-        color_form = pages.color_token_form(where) if filename == "tokens" else ""
-        generic_form_html = pages.generic_form_panel(where, ref)
-        state = pages.DocumentEditState(content=content, original=original, failure=failure)
-        body = color_form + generic_form_html + pages.document_page(ref, state) + pages.chat_panel(ref, history, None)
-        return pages.page(f"{filename}.{extension} - {site}", body)
-
-    @app.route("/document/<filename>.<extension>/fields", methods=["POST"])
-    def save_fields(filename: str, extension: str):
-        ref = DocumentRef(filename=filename, extension=extension)
-        save_generic_form(where, ref, _parse_entry_updates(request.form))
-        return redirect(url_for("edit_document", filename=filename, extension=extension))
-
-    @app.route("/document/tokens.json/colors", methods=["POST"])
-    def save_colors():
-        new_values = {
-            key[len(pages.COLOR_FIELD_PREFIX):]: value
-            for key, value in request.form.items()
-            if key.startswith(pages.COLOR_FIELD_PREFIX)
-        }
-        save_color_tokens(where, new_values)
-        return redirect(url_for("edit_document", filename="tokens", extension="json"))
-
-    @app.route("/document/<filename>.<extension>/chat", methods=["POST"])
-    def chat(filename: str, extension: str):
-        ref = DocumentRef(filename=filename, extension=extension)
-        history = chat_history.setdefault((filename, extension), [])
-        history.append({"role": "user", "content": request.form["message"]})
-
-        chat_error = None
+    @app.route("/api/<site>/graph")
+    def api_site_graph(site):
+        from core.documents import DocumentRequest
+        from generators.graph_export import build_export_graph
         try:
-            facts = grounding_for(where, ref)
-            reply = agent.converse(history, system_instruction=system_instruction_for(ref, facts))
-        except Exception as exc:  # the local model backend is out of this app's control
-            chat_error = f"Could not reach the model: {exc}"
-            history.pop()  # the unanswered user turn doesn't count as part of the conversation
-        else:
-            history.append({"role": "assistant", "content": reply})
+            site_store = get_store_for_site(site)
+            site_store.connect()
+            doc_request = DocumentRequest(
+                graph_store=site_store,
+                site=site,
+                agent=agent,
+                settings={"target": site},
+            )
+            graph_data = build_export_graph(doc_request)
+            return jsonify(graph_data)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
-        content = effective_content(where, ref) or ""
-        state = pages.DocumentEditState(content=content, original=original_content(where, ref) or content, failure=None)
-        body = pages.document_page(ref, state) + pages.chat_panel(ref, history, chat_error)
-        return pages.page(f"{filename}.{extension} - {site}", body)
+    @app.route("/api/<site>/documents")
+    def api_documents(site):
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        docs = []
+        for ref in available_documents(site_where):
+            docs.append({
+                "filename": ref.filename,
+                "extension": ref.extension,
+                "customized": os.path.exists(customized_path(site_where, ref)),
+                "has_schema": bool(schema_path_for(ref.filename))
+            })
+        return jsonify(docs)
+
+    @app.route("/api/<site>/documents/<filename>.<extension>")
+    def api_document_detail(site, filename, extension):
+        ref = DocumentRef(filename=filename, extension=extension)
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        
+        orig = original_content(site_where, ref)
+        eff = effective_content(site_where, ref)
+        
+        if orig is None and eff is None:
+            return jsonify({"error": f"Document {filename}.{extension} not found"}), 404
+            
+        renderer = renderer_for(f"{ref.filename}.{ref.extension}")
+        return jsonify({
+            "filename": ref.filename,
+            "extension": ref.extension,
+            "content": eff,
+            "original": orig,
+            "customized": os.path.exists(customized_path(site_where, ref)),
+            "has_schema": bool(schema_path_for(ref.filename)),
+            "renderer": renderer
+        })
+
+    @app.route("/api/<site>/documents/<filename>.<extension>", methods=["POST"])
+    def api_save_document(site, filename, extension):
+        ref = DocumentRef(filename=filename, extension=extension)
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        
+        data = request.get_json()
+        if not data or "content" not in data:
+            return jsonify({"success": False, "error": "Missing content"}), 400
+            
+        content = data["content"]
+        
+        # Schema validation if applicable
+        schema_path = schema_path_for(ref.filename)
+        if schema_path:
+            import json
+            import jsonschema
+            try:
+                parsed = json.loads(content)
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema = json.load(f)
+                jsonschema.validate(instance=parsed, schema=schema)
+            except Exception as exc:
+                error_msg = validation_error_message(exc)
+                error_path = list(exc.absolute_path) if isinstance(exc, jsonschema.ValidationError) else []
+                return jsonify({
+                    "success": False,
+                    "error": error_msg,
+                    "error_path": error_path
+                }), 400
+                
+        try:
+            save_customized(site_where, ref, content)
+            return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/<site>/tokens/colors", methods=["POST"])
+    def api_save_colors(site):
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "Missing JSON body"}), 400
+        try:
+            save_color_tokens(site_where, data)
+            return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/<site>/documents/<filename>.<extension>/fields", methods=["POST"])
+    def api_save_fields(site, filename, extension):
+        ref = DocumentRef(filename=filename, extension=extension)
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "Missing JSON body"}), 400
+        try:
+            updates = _parse_entry_updates(data)
+            save_generic_form(site_where, ref, updates)
+            return jsonify({"success": True})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @app.route("/api/<site>/chat", methods=["POST"])
+    def api_chat(site):
+        site_where = SiteOutput(out_dir=out_dir, site=site)
+        data = request.get_json()
+        if not data or "message" not in data or "history" not in data:
+            return jsonify({"success": False, "error": "Missing parameters"}), 400
+            
+        message = data["message"]
+        history = list(data["history"])
+        context = data.get("context")
+        
+        # Append the new user turn
+        history.append({"role": "user", "content": message})
+        
+        try:
+            if context and "filename" in context and "extension" in context:
+                ref = DocumentRef(filename=context["filename"], extension=context["extension"])
+                facts = grounding_for(site_where, ref)
+                sys_instruction = system_instruction_for(ref, facts)
+            else:
+                selected_refs = select_grounding_documents(site_where, message)
+                sourced_facts = grounding_for_documents(site_where, selected_refs)
+                sys_instruction = system_instruction_for_global(selected_refs, sourced_facts)
+                
+            reply = agent.converse(history, system_instruction=sys_instruction)
+            return jsonify({"success": True, "reply": reply})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/finalizar", methods=["POST"])
     def finalizar():
         server_thread: "ServerThread" = current_app.config["SERVER_THREAD"]
         threading.Thread(target=server_thread.shutdown).start()
-        return pages.page("Finalizado", "<h1>Sesión finalizada.</h1><p>Podés cerrar esta pestaña.</p>")
-
-    @app.route("/api/graph")
-    def api_graph():
-        from core.documents import DocumentRequest
-        from generators.graph_export import build_export_graph
-        doc_request = DocumentRequest(
-            graph_store=store,
-            site=site,
-            agent=agent,
-            settings={"target": site},
-        )
-        try:
-            graph_data = build_export_graph(doc_request)
-            return jsonify(graph_data)
-        except Exception as exc:
-            return jsonify({"error": str(exc)}), 500
+        return simple_html_page("Finalizado", "<h1>Sesión finalizada.</h1><p>Podés cerrar esta pestaña.</p>")
 
     @app.route("/graph")
     def serve_graph_redirect():
@@ -284,7 +374,7 @@ class ServerThread(threading.Thread):
 
 
 def run_interactive_server(
-    out_dir: str, site: str, agent: Agent, host: str = "127.0.0.1", port: int = 5050
+    out_dir: str, site: Optional[str], agent: Agent, host: str = "127.0.0.1", port: int = 5050
 ) -> None:
     """Blocking entry point: start the server, print where it's
     listening, and return only once the "finalizar" route (or an
@@ -300,7 +390,8 @@ def run_interactive_server(
     app.config["SERVER_THREAD"] = server_thread
 
     server_thread.start()
-    print(f"Interactive dashboard for {site} running at http://{host}:{port}/ - Ctrl+C or the "
+    site_desc = f"site {site}" if site else "all crawled sites"
+    print(f"Interactive dashboard for {site_desc} running at http://{host}:{port}/ - Ctrl+C or the "
           "in-page \"Finalizar\" button to stop.")
     try:
         server_thread.join()
