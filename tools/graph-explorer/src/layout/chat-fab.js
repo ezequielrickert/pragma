@@ -111,14 +111,15 @@ function handleUserMessage(text) {
   // Try to send to the backend, or fallback to mock
   // Context-scoping logic: check if we are on a specific document
   const currentDoc = getActiveDocumentContext();
+  const activeSite = localStorage.getItem("pragma-active-site") || "default";
 
-  fetch("/api/chat", {
+  fetch(`/api/${activeSite}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       message: text,
       history: chatHistory.slice(0, -1), // previous history
-      context: currentDoc ? { filename: currentDoc } : null
+      context: currentDoc // { filename: x, extension: y } or null
     })
   })
     .then((res) => {
@@ -136,7 +137,7 @@ function handleUserMessage(text) {
         removeAssistantLoading();
         let reply = "";
         if (currentDoc) {
-          reply = `🤖 **[Prototype Mode]** for document \`${currentDoc}\`:\n\nOnce the backend is implemented, I will ground my response in the schema and contents of this document. Currently, I see you are editing/viewing \`${currentDoc}\`.`;
+          reply = `🤖 **[Prototype Mode]** for document \`${currentDoc.filename}.${currentDoc.extension}\`:\n\nOnce the backend is implemented, I will ground my response in the schema and contents of this document. Currently, I see you are editing/viewing \`${currentDoc.filename}.${currentDoc.extension}\`.`;
         } else {
           reply = `🤖 **[Prototype Mode]** (Global Context):\n\nI am the persistent FAB chat. When the backend REST endpoints are completed, I will query the live Kùzu graph database to answer queries about components, endpoints, and requirements across the entire session.`;
         }
@@ -195,14 +196,19 @@ function removeAssistantLoading() {
 }
 
 function getActiveDocumentContext() {
-  // Simple check based on URL hash or active page
   const hash = window.location.hash || "";
-  if (hash.startsWith("#/documents/")) {
-    return hash.replace("#/documents/", "");
+  // Check for #/site/:site/documents/:name
+  const match = hash.match(/^#\/site\/[^/]+\/documents\/([^/]+)$/);
+  if (match) {
+    const parts = match[1].split(".");
+    if (parts.length >= 2) {
+      return {
+        filename: parts.slice(0, -1).join("."),
+        extension: parts[parts.length - 1]
+      };
+    }
   }
-  // Fallback check if index.html?doc=xyz is used in query string
-  const urlParams = new URLSearchParams(window.location.search);
-  return urlParams.get("doc");
+  return null;
 }
 
 function escapeHtml(text) {
