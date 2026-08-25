@@ -40,7 +40,7 @@ class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
     # kept identical here as this override reproduces its loop body.
     _BATCH_SIZE = 10
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, max_session_permit: Optional[int] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         if self.url_scorer is None:
             # Default to route-shape novelty, reading the same
@@ -54,8 +54,16 @@ class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
         # matches how crawl4ai's own default dispatcher is scoped to a
         # single arun_many() call tree, and lets its memory/rate-limiting
         # state (see SessionAwareDispatcher's base, MemoryAdaptiveDispatcher)
-        # persist across levels.
-        self._dispatcher = SessionAwareDispatcher()
+        # persist across levels. `max_session_permit` threads
+        # `EngineCoreConfig.page_concurrency` (issue #249) into the one knob
+        # that actually bounds fetch concurrency now that this dispatcher
+        # replaces the retired manual worker pool - `None` keeps
+        # `MemoryAdaptiveDispatcher`'s own default (20) rather than forcing
+        # a value on every caller.
+        self._dispatcher = (
+            SessionAwareDispatcher() if max_session_permit is None
+            else SessionAwareDispatcher(max_session_permit=max_session_permit)
+        )
 
     async def _arun_best_first(
         self,

@@ -8,10 +8,16 @@ Drives the crawl through `CrawlEngineCore` (issue #241), not the retired
 unchanged, only its harness moved. `test_engine_core.py` covers the same
 mode's happy path; this file's own
 `test_interact_only_never_enqueues_start_url_beyond_what_was_scouted` is
-the one assertion not duplicated there.
+the one assertion not duplicated there. Issue #249 moved interact mode's
+flat pass onto `Crawl4AICrawler.discover_many` (`arun_many`+
+`SessionAwareDispatcher`, genuinely concurrent now - see
+`CrawlEngineCore._run_interact`'s own docstring), replacing the retired
+`_fetch_level`.
 """
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from crawl4ai import CrawlerRunConfig
 
 from core.interfaces import PageState
 from database.ladybug.store import LadybugGraphStore
@@ -28,12 +34,14 @@ class _FakeResult:
     """Just enough of crawl4ai's own `CrawlResult` for
     `PragmaDeepCrawlStrategy.link_discovery` to work against."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, success: bool = True) -> None:
         self.url = url
         self.redirected_url = None
-        self.success = True
+        self.success = success
+        self.error_message = "" if success else "URL must start with 'http://' or 'https://'"
         self.links: Dict[str, List[Dict[str, str]]] = {"internal": [], "external": []}
         self.metadata: Dict[str, Any] = {}
+        self.session_id: Optional[str] = None
 
 
 class _NoDiscoveryCrawler:
@@ -41,17 +49,32 @@ class _NoDiscoveryCrawler:
     that wrongly tried to discover start_url from scratch would still reach
     this fake, so the real assertion under test is which pages ended up
     Finished, not whether discovery itself would fail. Also refuses a
-    schemeless URL, the same way crawl4ai's own `arun()` does ("URL must
-    start with 'http://', 'https://', 'file://', or 'raw:'") - `get_scouted()`
-    hands back a bare `route_shape` key, not a navigable URL, so a caller
-    that forgot to restore its scheme would be caught here rather than
-    silently passing against a fake that doesn't care.
+    schemeless URL as a *failed* fetch, the same way crawl4ai's own
+    `arun()` does ("URL must start with 'http://', 'https://', 'file://',
+    or 'raw:'") - `get_scouted()` hands back a bare `route_shape` key, not
+    a navigable URL, so a caller that forgot to restore its scheme would be
+    caught here rather than silently passing against a fake that doesn't
+    care.
     """
 
-    async def discover_page_with_result(self, url: str, session_id: str = ""):
-        if not url.startswith(("http://", "https://")):
-            raise ValueError(f"URL must start with 'http://' or 'https://', got {url!r}")
-        return PageState(url=url, components=[], links=[]), _FakeResult(url)
+    async def arun_many(self, urls: List[str], config: CrawlerRunConfig, dispatcher: Any = None):
+        async def gen():
+            for url in urls:
+                ok = url.startswith(("http://", "https://"))
+                result = _FakeResult(url, success=ok)
+                result.session_id = f"session::{url}"
+                yield result
+        return gen()
+
+    async def discover_many(self, urls: List[str], dispatcher: Any = None):
+        stream = await self.arun_many(urls, CrawlerRunConfig(stream=True), dispatcher)
+        async for result in stream:
+            session_id = result.session_id or result.url
+            if not result.success:
+                yield result.url, None, result, session_id
+                continue
+            state = PageState(url=result.url, components=[], links=[])
+            yield result.url, state, result, session_id
 
     async def close_session(self, session_id: str) -> None:
         return None

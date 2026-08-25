@@ -11,10 +11,16 @@ URLs reach the frontier, not what happens once one is fetched. Drives the
 crawl through `CrawlEngineCore` (issue #241), not the retired
 `MechanicalCrawler` (issue #242) - `_resume_urls` was ported into it
 unchanged (its own docstring says so), so this file's coverage carries over
-one for one.
+one for one. Issue #249 moved discovery onto `PragmaBestFirstStrategy.arun()`
+(seeded with a `resume_state` built from `_resume_urls`, see
+`CrawlEngineCore._seed_resume_state`) - `_RecordingCrawler.arun_many` is the
+seam that strategy itself calls, same real-frontier-logic approach as
+test_engine_core.py's own fake.
 """
 import asyncio
 from typing import Any, Dict, List, Optional
+
+from crawl4ai import CrawlerRunConfig
 
 from core.interfaces import PageState
 from database.ladybug.store import LadybugGraphStore
@@ -27,26 +33,42 @@ START = "http://shop.example/"
 
 class _FakeResult:
     """Just enough of crawl4ai's own `CrawlResult` for
-    `PragmaDeepCrawlStrategy.link_discovery` to work against - no links,
+    `PragmaBestFirstStrategy.link_discovery` to work against - no links,
     since every URL here arrives via `_resume_urls`, not link discovery."""
 
     def __init__(self, url: str) -> None:
         self.url = url
         self.redirected_url = None
         self.success = True
+        self.error_message = ""
         self.links: Dict[str, List[Dict[str, str]]] = {"internal": [], "external": []}
         self.metadata: Dict[str, Any] = {}
+        self.session_id: Optional[str] = None
 
 
 class _RecordingCrawler:
-    """Answers every discovery with an empty page and remembers the order."""
+    """Answers every discovery with an empty page and remembers the order
+    URLs were actually fetched in - `arun_many` is the seam
+    `PragmaBestFirstStrategy._arun_best_first` itself calls."""
 
     def __init__(self) -> None:
         self.fetched: List[str] = []
 
-    async def discover_page_with_result(self, url: str, session_id: Optional[str] = None):
-        self.fetched.append(url)
-        return PageState(url=url, components=[], links=[]), _FakeResult(url)
+    async def arun_many(self, urls: List[str], config: CrawlerRunConfig, dispatcher: Any = None):
+        async def gen():
+            for url in urls:
+                self.fetched.append(url)
+                result = _FakeResult(url)
+                result.session_id = f"session::{url}"
+                yield result
+        return gen()
+
+    async def deep_crawl(self, start_url: str, strategy):
+        config = CrawlerRunConfig(deep_crawl_strategy=strategy, stream=True)
+        async for result in await strategy.arun(start_url, self, config):
+            session_id = result.session_id or result.url
+            state = None if not result.success else PageState(url=result.url, components=[], links=[])
+            yield state, result, session_id
 
     async def close_session(self, session_id: str) -> None:
         return None
