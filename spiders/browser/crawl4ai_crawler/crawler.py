@@ -45,6 +45,8 @@ class Crawl4AICrawler:
                 "--ignore-gpu-blocklist",
                 "--enable-unsafe-swiftshader",
             ]
+        self.scan_full_page = config.scan_full_page
+        self.flatten_shadow_dom = config.flatten_shadow_dom
         # Adaptive pacing/circuit-breaker against a straining target server -
         # a separate small class (not inline here) since it has its own,
         # unrelated reason to change from everything else in this file.
@@ -145,6 +147,9 @@ class Crawl4AICrawler:
             capture_network_requests=True,
             page_timeout=int(self.page_timeout_seconds * 1000),
             prefetch=self.prefetch,
+            # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#scan_full_page
+            scan_full_page=self.scan_full_page,
+            flatten_shadow_dom=self.flatten_shadow_dom,
         )
         await self._throttle.wait_before_navigation()
         start = asyncio.get_running_loop().time()
@@ -249,6 +254,11 @@ class Crawl4AICrawler:
             capture_network_requests=True,
             page_timeout=int(self.page_timeout_seconds * 1000),
             prefetch=self.prefetch,
+            # Same as discover_page() - a click/fill's resulting PageState
+            # deserves the same content completeness as a fresh navigation.
+            # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#scan_full_page
+            scan_full_page=self.scan_full_page,
+            flatten_shadow_dom=self.flatten_shadow_dom,
         )
         result = await self._run_with_watchdog(url, session_id, config)
 

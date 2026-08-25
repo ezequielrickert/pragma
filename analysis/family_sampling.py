@@ -1,12 +1,23 @@
-"""Family-aware interaction sampling for `pragma dynamic`.
+"""Family-aware component indexing for `pragma dynamic`.
 
 `pragma cluster` groups repeating components (navbar links, footer
-buttons, ...) into `ComponentFamily` patterns; `pragma dynamic` reads
-that grouping back to skip redundant interaction on components already
-known to belong to a repeating family, sampling only `max_samples`
-instances per family instead of clicking/filling every one - the whole
-point of resuming from `static` + `cluster` output instead of
-re-discovering the site from scratch.
+buttons, ...) into `ComponentFamily` patterns; `pragma dynamic` used to
+read that grouping back to skip redundant interaction, sampling only
+`max_samples` instances per family instead of clicking/filling every one.
+Issue #215 dropped the skip - the same shape of bug #214 found in
+`Frontier`'s content-identity dedup: a family groups components by
+structural/content similarity, and that similarity can't tell "the same
+repeating boilerplate control" apart from "a genuinely distinct sibling
+that happens to render the same way" (mapadeprofesionales.com's repeated
+professional cards each have their own "Conectar"/favorite/share button,
+clustered into one `button/button` family). Every component now gets a
+real interaction attempt regardless of family membership.
+
+The family index itself (`pragma cluster`'s own `ComponentFamily`
+records, and this module's membership lookup) is untouched - only the
+*interaction-skipping* use of it is gone, per the same standing
+direction as #214: keep building component relations/families, stop
+using them to skip a per-component interaction.
 Details: docs/dev/analysis/family_sampling.md#module
 """
 from __future__ import annotations
@@ -17,20 +28,20 @@ from typing import Any, Dict, List, Tuple
 from core.data_contracts import ComponentFamily
 from spiders.content.component_matching import component_identity
 
-# How many members of a family `pragma dynamic` actually interacts with
-# before it starts skipping the rest - the ticket's own "2-3 instances"
-# call; 3 rather than 2, since a family whose second sample happened to
-# be atypical (a disabled state, an empty search box) would otherwise
-# have nothing else to compare it against.
+# Kept for `FamilySampler.__init__`'s existing signature/callers
+# (`core/dynamic_engine.py`) - no longer read by `should_interact`, which
+# never skips. A future convergence signal (map #211's Not yet specified)
+# may reintroduce a use for this.
 # Details: docs/dev/analysis/family_sampling.md#default_max_samples_per_family
 DEFAULT_MAX_SAMPLES_PER_FAMILY = 3
 
 
 @dataclass
 class SkippedInstance:
-    """One component the sampler decided not to interact with - kept as
-    data, not just a print line, so a caller (a run summary, a test) can
-    inspect what got skipped without scraping stdout.
+    """One component the sampler would have skipped under the old
+    max-samples-per-family rule - kept as a type for
+    `FamilySampler.skipped`'s sake, though issue #215 means nothing ever
+    populates it now; `should_interact` always returns `True`.
     Details: docs/dev/analysis/family_sampling.md#skippedinstance
     """
 
@@ -41,10 +52,9 @@ class SkippedInstance:
 
 
 class FamilySampler:
-    """Caps how many members of each `ComponentFamily` a dynamic run
-    actually interacts with. Built once per run from `pragma cluster`'s
-    output; `should_interact` is called once per component the interact
-    sweep encounters live.
+    """Indexes each component's `pragma cluster` family membership. Built
+    once per run from `pragma cluster`'s output; `should_interact` is
+    called once per component the interact sweep encounters live.
     Details: docs/dev/analysis/family_sampling.md#familysampler
     """
 
@@ -60,30 +70,16 @@ class FamilySampler:
         self._member_family = _index_family_members(families, components)
 
     def should_interact(self, page_key: str, component: Dict[str, Any]) -> bool:
-        """Whether the live interact sweep should click/fill `component`,
-        or skip it as an already-sampled family member.
-
-        A component with no known family (never clustered, or clustering
-        never ran) always returns `True` - sampling only ever narrows a
-        crawl that already has a family to sample from, never blocks one
-        that doesn't.
+        """Always `True` - issue #215 dropped family-membership-based
+        skipping (see this module's own docstring for why). Still looks
+        up and counts family membership, purely as bookkeeping a future
+        convergence signal could build on; never gates the result on it.
         Details: docs/dev/analysis/family_sampling.md#should_interact
         """
         family_key = self._member_family.get((page_key, component_identity(component)))
-        if family_key is None:
-            return True
-        count = self._sample_counts.get(family_key, 0) + 1
-        self._sample_counts[family_key] = count
-        if count <= self.max_samples:
-            return True
-        path = component.get("path", "")
-        self.skipped.append(SkippedInstance(family_key, page_key, path, count))
-        tag, component_type = family_key
-        print(
-            f"  family-sampled: skipping {component_type!r} on {page_key} "
-            f"(instance #{count} of {tag}/{component_type}, already sampled {self.max_samples})"
-        )
-        return False
+        if family_key is not None:
+            self._sample_counts[family_key] = self._sample_counts.get(family_key, 0) + 1
+        return True
 
 
 def _index_family_members(
@@ -95,12 +91,12 @@ def _index_family_members(
     A family's own `member_paths` only carries `(page_key, path)` - `path`
     is a live DOM selector that churns across separate `discover_page()`
     reloads (see
-    docs/dev/spiders/orchestration/page_visitor/frontier.md#_navigation_trigger_identities),
-    so it can't be matched directly against a fresh interact-sweep
-    component. `component_identity` is what survives that reload; this
-    resolves each member's stored path back to the identity its ledger
-    record had at clustering time, via `components` (the same flat
-    ledger `pragma cluster` clustered from) - reconciled through each
+    docs/dev/spiders/orchestration/page_visitor/frontier.md#frontier's
+    "History" section), so it can't be matched directly against a fresh
+    interact-sweep component. `component_identity` is what survives that
+    reload; this resolves each member's stored path back to the identity
+    its ledger record had at clustering time, via `components` (the same
+    flat ledger `pragma cluster` clustered from) - reconciled through each
     member's canonical `id` (issue #140) rather than recomputed per
     `(page_url, path)` in isolation: descriptive fields live on the
     `Component` node itself since #136, so every location a given id

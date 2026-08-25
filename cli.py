@@ -189,8 +189,9 @@ def main() -> None:
     existing site DB with no crawl; `interactive` serves an already-documented
     site's own output as an editable local dashboard, no crawl or graph store
     connection either; `crawl` chains static -> cluster -> dynamic (never
-    `docs`/`interactive` - both stay separate, explicit invocations); flags
-    run the full crawl+analysis pipeline directly.
+    `docs`/`interactive` - both stay separate, explicit invocations); a bare
+    URL argument is accepted for backwards compatibility and redirected to
+    `crawl` with a deprecation notice.
     Details: docs/dev/cli.md#main
     """
     argv = sys.argv[1:]
@@ -226,41 +227,48 @@ def main() -> None:
         print("Error: URL must be provided (positional arg, --url, YAML config, or URL env var)")
         sys.exit(2)
 
+    # Bare `python cli.py <url> [flags]` - deprecated in favour of `pragma crawl <url>`.
+    # Parse the old flag surface, extract the common knobs, and delegate to run_crawl_command
+    # so both paths share one pipeline going forward.
+    print(
+        "Deprecation notice: `python cli.py <url>` is deprecated. "
+        "Use `python cli.py crawl <url>` instead.",
+        file=sys.stderr,
+    )
     args = parse_args(argv)
     url = args.url_flag or args.url
-    overrides = {
-        k: v
-        for k, v in vars(args).items()
-        if k not in ("url", "url_flag", "config_path", "budget_pages", "budget_minutes", "full_run")
-    }
-    if overrides.pop("headed", False):
-        overrides["headless"] = False
-    overrides["url"] = url
 
-    config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
-    apply_budget_flags(config, args)
+    # Build a crawl-compatible argv from the flags that overlap. Flags that only
+    # existed on the old Engine path (--out, --debug-logs-dir, --wait-seconds,
+    # --tree-ascii, --debug-logs-keep-last, --export-json) are silently dropped
+    # since CrawlEngine handles them through PragmaConfig defaults.
+    crawl_argv: list[str] = []
+    if url:
+        crawl_argv.append(url)
+    if args.config_path:
+        crawl_argv += ["--config", args.config_path]
+    if args.agent:
+        crawl_argv += ["--agent", args.agent]
+    if args.graph_store:
+        crawl_argv += ["--graph-store", args.graph_store]
+    if args.max_pages is not None:
+        crawl_argv += ["--max-pages", str(args.max_pages)]
+    if args.page_concurrency is not None:
+        crawl_argv += ["--page-concurrency", str(args.page_concurrency)]
+    if args.budget_pages is not None:
+        crawl_argv += ["--max-pages-per-run", str(args.budget_pages)]
+    if args.budget_minutes is not None:
+        crawl_argv += ["--max-minutes-per-run", str(args.budget_minutes)]
+    if args.full_run:
+        crawl_argv.append("--full")
+    if getattr(args, "headed", False):
+        crawl_argv.append("--headed")
+    if getattr(args, "fresh", None) is not None:
+        crawl_argv.append("--fresh" if args.fresh else "--no-fresh")
 
-    if not config.url:
-        if sys.stdin.isatty():
-            config.url = prompts.text("URL to analyze")
-        if not config.url:
-            print(
-                "Error: URL must be provided (positional arg, --url, YAML config, or URL env var)"
-            )
-            sys.exit(2)
+    run_crawl_command(crawl_argv)
 
-    try:
-        print(f"Starting autonomous archaeology for: {config.url}")
-        print(f"Wiring: agent={config.agent} graph_store={config.graph_store}")
-        engine = Engine.from_config(config)
-        result = engine.run(config.url)
-        _print_documents(result)
-        print(f"Run recorded in manifest: {result.manifest_path}")
-        print(f"Run index updated: {result.index_path}")
 
-    except Exception as exc:
-        print(f"Critical error during exploration: {exc}")
-        sys.exit(1)
 
 
 if __name__ == "__main__":

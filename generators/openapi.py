@@ -33,6 +33,7 @@ Details: docs/dev/generators/openapi.md#module
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Tuple
 
 import yaml
@@ -228,6 +229,22 @@ def _observed_description(request: InferredRequest) -> str:
     return " ".join(lines)
 
 
+_ILLEGAL_SCHEMA_NAME_CHARS = re.compile(r"[^a-zA-Z0-9._-]")
+
+
+def _sanitize_schema_name(name: str) -> str:
+    """`preferred_name` is built off an observed path segment, and OpenAPI
+    3.x component names are restricted to `^[a-zA-Z0-9._-]+$` - a segment
+    holding a query value inlined into the path (coordinates, an encoded
+    filter) can carry a comma or other character outside that set. Replace
+    each disallowed character with `_` rather than dropping it, so two
+    distinct raw names don't collide into the same sanitized one by
+    accident; fall back to a generic name if nothing legal survives.
+    """
+    sanitized = _ILLEGAL_SCHEMA_NAME_CHARS.sub("_", name)
+    return sanitized or "Schema"
+
+
 class _SchemaRegistry:
     """Collects response/request schemas, deduplicating identical ones into
     `components/schemas` so a shape shared by several operations is written
@@ -248,10 +265,11 @@ class _SchemaRegistry:
             return schema
         key = yaml.safe_dump(schema, sort_keys=True)
         if key not in self._by_key:
-            name = preferred_name
+            safe_name = _sanitize_schema_name(preferred_name)
+            name = safe_name
             suffix = 2
             while name in self.schemas:
-                name = f"{preferred_name}{suffix}"
+                name = f"{safe_name}{suffix}"
                 suffix += 1
             self._by_key[key] = name
             self.schemas[name] = schema

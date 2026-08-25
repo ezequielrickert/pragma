@@ -105,7 +105,20 @@ Three outcomes per remaining item:
   remounted) - kept as-is.
 - Its `path` doesn't, but a component with the same content identity
   (`component_identity`) does - very likely the same logical element
-  under a reassigned id; kept with `path` swapped to the fresh one.
+  under a reassigned id; kept with `path` swapped to a fresh one carrying
+  that identity.
 - Neither - genuinely gone (removed from the page, or no longer visible
   in a way this snapshot would show); dropped, and its path returned
   separately so the caller can record it as `stale`, not silently lose it.
+
+Each content identity keeps its own pool of fresh paths (one per matching
+`fresh_components` entry, in discovery order), not a single collapsed
+path (issue #225): several stale items sharing a generic identity - e.g.
+every card's identically-labelled "Conectar" button in a repeated-card
+layout - each draw a distinct fresh instance instead of all remapping
+onto whichever one instance happened to be recorded first. A path kept
+as-is (first bullet) removes its own entry from that identity's pool so a
+remap never hands out a fresh path some other still-live item already
+occupies. Once an identity's pool runs dry, further same-identity items
+are dropped (third bullet) rather than doubling up on an already-claimed
+path.
