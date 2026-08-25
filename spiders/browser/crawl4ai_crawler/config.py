@@ -71,3 +71,15 @@ class Crawl4AICrawlerConfig:
     # until that handler lands.
     # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#mode
     mode: str = "stateful"
+    # crawl4ai never sets either on its own `CrawlerRunConfig` default
+    # (confirmed against async_configs.py while designing issue #236) - a
+    # real content-completeness gap this project's own code has zero
+    # coverage for either (no scroll/shadow-DOM handling anywhere in
+    # spiders/). `scroll_delay`/`max_scroll_steps` (crawl4ai's own scan
+    # pacing knobs) are deliberately left at their crawl4ai defaults, not
+    # re-tuned. `process_iframes` is deliberately not enabled alongside
+    # these two - cross-frame component/interaction tracking is untested
+    # territory this project has never exercised.
+    # Details: docs/dev/spiders/browser/crawl4ai_crawler/config.md#scan_full_page
+    scan_full_page: bool = True
+    flatten_shadow_dom: bool = True
