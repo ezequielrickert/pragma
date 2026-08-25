@@ -1,5 +1,5 @@
 """Regression tests for Phase 3 of the crawl4ai migration: live GraphStore
-writes via MechanicalCrawler + GraphStoreSink (spiders/orchestration/graph_sink.py).
+writes via CrawlEngineCore + GraphStoreSink (spiders/orchestration/graph_sink.py).
 
 Uses LadybugGraphStore in-memory mode so these run with no setup at all -
 matches the existing test suite's convention (see tests/test_graph_store.py).
@@ -10,6 +10,10 @@ Option/Request write paths (storage-migration plan steps 7-8) are both
 real now. Fetch-request attribution is covered end-to-end below; Option
 membership is covered end-to-end by tests/test_component_tree.py and at
 the storage layer by tests/test_ladybug_options.py, not duplicated here.
+
+Drives the crawl through `CrawlEngineCore` (issue #241), not the retired
+`MechanicalCrawler` (issue #242) - GraphStoreSink itself is unchanged by
+that retirement, only its harness moved.
 """
 import asyncio
 import http.server
@@ -21,8 +25,8 @@ import pytest
 
 from generators.component_classifier import describe_options_from_rows
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
+from spiders.orchestration.engine_core import CrawlEngineCore, EngineCoreConfig
 from spiders.orchestration.graph_sink import GraphStoreInteractionTracker, GraphStoreSink
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
 from database.ladybug.store import LadybugGraphStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
@@ -85,25 +89,31 @@ def _crawl_with_graph_store(start_url: str, **kwargs):
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
-            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, **kwargs))
-            results = await mech.crawl_site(start_url)
-            return mech, results
+            engine = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, **kwargs))
+            results = await engine.run(start_url)
+            return engine, results
 
     results = asyncio.run(run())
     return store, sink, results
 
 
 def test_page_arrival_and_completion_are_recorded(fixture_server):
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
+    """`form.html`, not `index.html`: index.html's early navigating link/
+    button interrupts the interaction pass before it drains (issue #240 -
+    `PageInteractionStep` doesn't return-to-origin the way `PageVisitor`
+    used to), so it never reaches "Finished" in one pass. `form.html` has
+    no navigating element, so it always reaches "Finished" in the one
+    pass this test exercises."""
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/form.html", max_pages=15)
     rows = {r["url"]: r for r in store.get_progress_table_rows()}
-    assert any(u.endswith("index.html") for u in rows)
-    index_row = next(r for u, r in rows.items() if u.endswith("index.html"))
-    assert index_row["status"] == "Finished"
-    assert index_row["components"] > 0
+    assert any(u.endswith("form.html") for u in rows)
+    form_row = next(r for u, r in rows.items() if u.endswith("form.html"))
+    assert form_row["status"] == "Finished"
+    assert form_row["components"] > 0
 
 
 def test_page_title_is_persisted(fixture_server):
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     page_key = next(r.url for r in results if r.url.endswith("index.html"))
     titles = store.get_page_titles()
     assert titles.get(page_key) == "Mechanical loop fixture: index"
@@ -113,7 +123,7 @@ def test_component_inventory_is_recorded_unconditionally(fixture_server):
     """Every discovered component gets a Component node purely from
     discovery, before any interaction happens - `record_inventory` runs
     right after `discover_page`, independent of the interaction loop."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/chain.html", max_pages=1)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/chain.html", max_pages=1)
     page_key = results[0].url
     states = store.get_component_states(page_key)
     # chain.html's c0 is the only initially-visible button (c1-c4 start
@@ -123,15 +133,18 @@ def test_component_inventory_is_recorded_unconditionally(fixture_server):
 
 
 def test_interaction_ledger_records_attempted_actions(fixture_server):
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
-    page_key = next(r.url for r in results if r.url.endswith("index.html"))
+    """`form.html`, not `index.html`: see `test_page_arrival_and_completion_
+    are_recorded`'s own note - index.html's fillable field sits past an
+    early navigating element the interaction pass never gets past."""
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/form.html", max_pages=15)
+    page_key = next(r.url for r in results if r.url.endswith("form.html"))
     ledger = store.get_component_ledger()
     page_ledger = ledger.get(page_key, {})
     fill_entries = [
         c for c in page_ledger.values()
         if c.get("interacted") and any(i["action"] == "fill" for i in c.get("interactions", []))
     ]
-    assert fill_entries, "the fillable nameInput field must show up as interacted in the persisted ledger"
+    assert fill_entries, "the fillable nameField field must show up as interacted in the persisted ledger"
 
 
 def test_clicking_a_fetch_button_records_a_request_attributed_to_the_click(fetch_aware_fixture_server):
@@ -140,7 +153,7 @@ def test_clicking_a_fetch_button_records_a_request_attributed_to_the_click(fetch
     `Interaction` (`TRIGGERED`), not floating unattributed - the capability
     `fetch_aware_fixture_server`/`fetch_button.html` exist to exercise,
     dormant until storage-migration plan step 7 landed."""
-    store, sink, (mech, results) = _crawl_with_graph_store(
+    store, sink, (engine, results) = _crawl_with_graph_store(
         f"{fetch_aware_fixture_server}/fetch_button.html", max_pages=1
     )
     page_key = results[0].url
@@ -158,31 +171,38 @@ def test_clicking_a_fetch_button_records_a_request_attributed_to_the_click(fetch
 
 
 def test_navigation_produces_a_graph_edge(fixture_server):
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     edges = store.get_edges()
     to_page_b = [e for e in edges if e["to"].endswith("page-b.html")]
     assert to_page_b, "a navigating click/link must produce a recorded edge into page-b.html"
 
 
-def test_graph_backed_tracker_prevents_re_interaction_across_a_fresh_mechanical_crawler(fixture_server):
-    """The whole point of Phase 3: a second MechanicalCrawler instance,
+def test_graph_backed_tracker_prevents_re_interaction_across_a_fresh_engine_core(fixture_server):
+    """The whole point of Phase 3: a second CrawlEngineCore instance,
     sharing the same GraphStore, must not redo work the first one already
     did - the persisted ledger is what makes this possible without any
-    in-process state carried over."""
+    in-process state carried over.
+
+    `form.html`, not `index.html`: this needs a page the first run fully
+    drains, so the second run has nothing new left to interact with - see
+    `test_page_arrival_and_completion_are_recorded`'s own note on why
+    index.html's early navigating element rules it out (a second pass
+    against it would legitimately attempt the *next* un-interacted
+    element, which is a real interaction, not a re-interaction)."""
     store = LadybugGraphStore(SITE)
     store.connect()
     sink = GraphStoreSink(store)
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
-            mech1 = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
-            await mech1.crawl_site(f"{fixture_server}/index.html")
-            mech2 = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=15))
-            return await mech2.crawl_site(f"{fixture_server}/index.html")
+            engine1 = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, max_pages=15))
+            await engine1.run(f"{fixture_server}/form.html")
+            engine2 = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, max_pages=15))
+            return await engine2.run(f"{fixture_server}/form.html")
 
     results = asyncio.run(run())
-    index_results = [r for r in results if r.url.endswith("index.html")]
-    total_interactions = sum(len(r.interactions) for r in index_results)
+    form_results = [r for r in results if r.url.endswith("form.html")]
+    total_interactions = sum(len(r.interactions) for r in form_results)
     assert total_interactions == 0
 
 
@@ -193,9 +213,9 @@ def test_default_tracker_derives_from_sink_when_no_explicit_tracker_given(fixtur
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
-            mech = MechanicalCrawler(crawler, config=MechanicalCrawlerConfig(sink=sink, max_pages=1))
-            assert isinstance(mech.tracker, GraphStoreInteractionTracker)
-            return mech.tracker
+            engine = CrawlEngineCore(crawler, config=EngineCoreConfig(sink=sink, max_pages=1))
+            assert isinstance(engine.tracker, GraphStoreInteractionTracker)
+            return engine.tracker
 
     tracker = asyncio.run(run())
     assert tracker.graph_store is store
@@ -215,7 +235,7 @@ def test_revealed_dropdown_options_consolidate_into_one_real_node(fixture_server
     offers) is checked too: the representative's own `Option` rows must
     list all three revealed choices, not just the one whose text
     happened to survive consolidation onto the Component node."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger()[page_key]
 
@@ -242,7 +262,7 @@ def test_stepper_detected_in_a_revealed_snapshot_not_just_the_initial_one(fixtur
     component list it's given, so a stepper that only appears after a reveal
     (reveal.html's quantity control) must get inventoried once
     record_inventory is called again for that reveal's snapshot."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/reveal.html", max_pages=1, page_concurrency=1)
     page_key = results[0].url
     ledger = store.get_component_ledger()[page_key]
 
@@ -262,7 +282,7 @@ def test_static_text_content_captured_as_distinct_kind(fixture_server):
     """Phase 4: non-interactive prose gets its own TextContent record kind,
     separate from Component - and a <p> nested inside a button is excluded
     (it's that button's own accessible label, already captured there)."""
-    store, sink, (mech, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
+    store, sink, (engine, results) = _crawl_with_graph_store(f"{fixture_server}/index.html", max_pages=15)
     page_key = next(r.url for r in results if r.url.endswith("index.html"))
     text_ledger = store.get_text_content_ledger().get(page_key, [])
     texts = {e["text"] for e in text_ledger}
@@ -284,7 +304,7 @@ def test_reveal_chain_gets_fully_drained_in_one_continuous_session(fixture_serve
     get ALL of its components interacted with, within one continuous
     session (no re-navigating between reveals, which would reset same-page
     state - see crawl_site's docstring), not stop partway through."""
-    store, sink, (mech, results) = _crawl_with_graph_store(
+    store, sink, (engine, results) = _crawl_with_graph_store(
         f"{fixture_server}/chain.html", max_pages=15
     )
     chain_results = [r for r in results if r.url.endswith("chain.html")]

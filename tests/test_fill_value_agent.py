@@ -16,7 +16,7 @@ from spiders.content.fill_value_agent import (
     generate_fill_value,
     make_ai_fill_value_fn,
 )
-from spiders.orchestration.mechanical_loop import MechanicalCrawler, MechanicalCrawlerConfig
+from spiders.orchestration.engine_core import CrawlEngineCore, EngineCoreConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
 
@@ -88,31 +88,30 @@ def test_generate_fill_value_falls_back_to_placeholder_on_empty_response():
     assert value == "555-0100"
 
 
-def test_mechanical_crawler_fills_with_ai_generated_value_end_to_end(fixture_server):
-    """Full integration: MechanicalCrawler wired with an AI fill_value_fn
+def test_engine_core_fills_with_ai_generated_value_end_to_end(fixture_server):
+    """Full integration: `CrawlEngineCore` wired with an AI fill_value_fn
     (not the placeholder default) actually uses the agent's response for a
     real discovered field on a real crawl4ai-driven page.
 
-    max_pages=15, not 1: index.html has an early navigating link ahead of its
-    fillable field in DOM order, so (per mechanical_loop.py's own documented
-    behavior) reaching the field takes more than one visit-pass - see
-    test_mechanical_loop.py's module docstring for why."""
+    `form.html`, not `index.html`: index.html has an early navigating
+    element ahead of its fillable field in DOM order, which ends the
+    interaction pass before reaching it - `PageInteractionStep` has no
+    return-to-origin the way the retired `MechanicalCrawler` did (issue
+    #240/#242). `form.html` has no navigating element, so its field is
+    always reached in one pass."""
     agent = RecordingAgent(["Ada Lovelace"])
 
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
-            mech = MechanicalCrawler(
+            engine = CrawlEngineCore(
                 crawler,
-                config=MechanicalCrawlerConfig(
-                    max_pages=15,
-                    fill_value_fn=make_ai_fill_value_fn(agent),
-                ),
+                config=EngineCoreConfig(fill_value_fn=make_ai_fill_value_fn(agent)),
             )
-            return await mech.crawl_site(f"{fixture_server}/index.html")
+            return await engine.run(f"{fixture_server}/form.html")
 
     results = asyncio.run(run())
     fill = next(
-        i for r in results if r.url.endswith("index.html") for i in r.interactions if i.action == "fill"
+        i for r in results if r.url.endswith("form.html") for i in r.interactions if i.action == "fill"
     )
     assert fill.value == "Ada Lovelace"
     assert agent.calls  # the agent was actually consulted, not bypassed

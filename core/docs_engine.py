@@ -1,16 +1,17 @@
 """The `pragma docs` entry point: docs-only generation from an existing
 site DB, no re-crawl.
 
-Deliberately its own class, not a mode on `Engine` - `Engine._run_async`
-always drives a `MechanicalCrawler` crawl first, and `MechanicalCrawler.
-crawl_site` always navigates, even against a fully-crawled DB (there is
-no "just read what's there" mode). `pragma docs` sidesteps that gap
+Deliberately its own class, not a mode on the crawl engines - `pragma
+static`/`pragma dynamic` always drive a real crawl, and neither has a
+"just read what's there" mode. `pragma docs` sidesteps that gap
 entirely rather than fixing it: it never touches `Crawl4AICrawler` or
-`MechanicalCrawler` at all, only the graph store `pragma static` (and,
-if they ran, `pragma cluster`/`pragma dynamic`) already wrote. Absorbs
-`analysis/graph_projection_apply.py::apply_graph_projection` as its own
-first internal step, since nothing but doc generation consumes
-projection output.
+either phase command's engine at all, only the graph store `pragma
+static` (and, if they ran, `pragma cluster`/`pragma dynamic`) already
+wrote. Absorbs `analysis/graph_projection_apply.py::apply_graph_projection`
+and the semantic-tier derivation passes (`_apply_data_model`/
+`_apply_rules`/`_apply_screens`/`_apply_flows`, inherited from the
+retired Legacy Engine, issue #242) as its own internal steps, since
+nothing but doc generation consumes either's output.
 Details: docs/dev/core/docs_engine.md#module
 """
 from __future__ import annotations
@@ -21,7 +22,13 @@ from typing import Any, List, Optional, Tuple
 
 from analysis.graph_projection_apply import apply_graph_projection
 from dashboard.shell import DashboardRunContext, KpiContext, write_dashboard
+from generators.data_model import build_entities
+from generators.flows import build_flows
+from generators.ledger import flat_component_ledger
 from generators.pipeline import DocumentNaming, run_document_pipeline
+from generators.rules import build_rules
+from generators.screen_narrator import build_page_context, narrate_screens, screen_signature
+from generators.screens import build_screens
 from utils.io import generate_docs_index, record_run_manifest, write_output
 from utils.urls import slugify
 from .caching_graph_store import CachingGraphStore
@@ -33,6 +40,126 @@ from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _apply_data_model(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: deduce the semantic tier's `Entity`/`Field`
+    set from the forms the crawl found, and write it back with its provenance.
+
+    Whole-site rather than per-page for the same reason family clustering is:
+    the derivation groups components by the form they sit in, and a live
+    per-page write stream cannot see a form whose inputs arrived across two
+    visits.
+
+    Args:
+        graph_store: same store `run()` is already projecting/reading.
+        run_id: stamped onto every `DERIVED_FROM` edge, so a reader can tell
+            which run concluded what.
+
+    Returns:
+        None. `record_entities` refuses any node with no provenance, which is
+        why this pass has no error handling of its own: a raise here means the
+        derivation produced an unsupported assertion, and that is a bug to
+        fix rather than a document to degrade.
+    Details: docs/dev/core/docs_engine.md#_apply_data_model
+    """
+    entities = build_entities(flat_component_ledger(graph_store))
+    field_count = sum(len(entity.fields) for entity in entities)
+    print(f"Deduced {len(entities)} entity/entities with {field_count} field(s) from forms.")
+    graph_store.record_entities(entities, run_id=run_id)
+
+
+def _apply_rules(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Rule` per declared single-field
+    constraint, plus one per `<select>`'s declared option set
+    (`generators/rules.py::build_rules`) - the semantic tier's fourth
+    writer, alongside `_apply_data_model`/`_apply_screens`/`_apply_flows`.
+
+    Must run after `_apply_data_model`: `record_rules`'s `GOVERNS(Rule->
+    Field)` edge is resolved through the `Field`/`EDITS` data
+    `record_entities` writes, over the same component population - see
+    `database/ladybug/rule.py`'s own module docstring.
+
+    Args:
+        graph_store: same store `run()` is already projecting/reading.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`.
+
+    Returns:
+        None. `record_rules` refuses any rule with no `derived_from`,
+        which `build_rules` always sets from the constraint's own
+        source component - see `_apply_data_model`'s own docstring for
+        why that leaves this pass no error handling of its own.
+    Details: docs/dev/core/docs_engine.md#_apply_rules
+    """
+    rules = build_rules(flat_component_ledger(graph_store))
+    print(f"Deduced {len(rules)} rule(s) from the constraints forms declared.")
+    graph_store.record_rules(rules, run_id=run_id)
+
+
+def _apply_screens(graph_store: Any, agent: Agent, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Screen` per finished `Page`
+    (`generators/screens.py::build_screens`), narrated with a name/purpose
+    (`generators/screen_narrator.py::narrate_screens`), and written back
+    with its provenance - the semantic tier's second writer, alongside
+    `_apply_data_model` above.
+
+    Args:
+        graph_store: same store `run()` is already projecting/reading.
+        agent: shared across every narration step in a run, same instance
+            `apply_component_matching` narrates component families with
+            during `pragma cluster`.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`.
+
+    Returns:
+        None. `record_screens` refuses any screen with no `page_url`,
+        which `build_screens` always sets from a real `Page.url` - see
+        `_apply_data_model`'s own docstring for why that leaves this pass
+        no error handling of its own.
+    Details: docs/dev/core/docs_engine.md#_apply_screens
+    """
+    screens = build_screens(graph_store.get_progress_table_rows())
+    # Read before record_screens wipes them - a screen unchanged since the
+    # last run keeps its name/purpose rather than buying them again, same
+    # reasoning apply_component_matching's own narration cache follows.
+    known_purposes = {
+        screen_signature(existing): (existing.name, existing.purpose)
+        for existing in graph_store.get_screens()
+        if existing.name or existing.purpose
+    }
+    page_context = build_page_context(graph_store.get_page_titles(), graph_store.get_page_descriptions())
+    narrated = narrate_screens(agent, screens, page_context, known_purposes)
+    print(f"Deduced {len(narrated)} screen(s) from the pages the crawl finished.")
+    graph_store.record_screens(narrated, run_id=run_id)
+
+
+def _apply_flows(graph_store: Any, run_id: str) -> None:
+    """Post-hoc, whole-site pass: one `Flow` per trace the crawl walked
+    (`generators/flows.py::build_flows`), written back with its provenance
+    - the semantic tier's third writer, alongside `_apply_data_model` and
+    `_apply_screens` above.
+
+    No narration step, unlike `_apply_screens`: the derivation research
+    (issue #186) found `Flow.name`/`goal` fully templatable, so this pass
+    needs no `Agent`.
+
+    Args:
+        graph_store: same store `run()` is already projecting/reading.
+        run_id: stamped onto every `DERIVED_FROM` edge, same as
+            `_apply_data_model`/`_apply_screens`.
+
+    Returns:
+        None. `record_flows` refuses any flow with no `derived_from`,
+        which `build_flows` always sets from the trace's own steps - see
+        `_apply_data_model`'s own docstring for why that leaves this pass
+        no error handling of its own.
+    Details: docs/dev/core/docs_engine.md#_apply_flows
+    """
+    components = flat_component_ledger(graph_store)
+    flows = build_flows(components, graph_store.get_inferred_requests())
+    print(f"Deduced {len(flows)} flow(s) from the traces the crawl walked.")
+    graph_store.record_flows(flows, run_id=run_id)
 
 
 @dataclass
@@ -105,11 +232,12 @@ class DocsEngine:
         )
 
     def run(self) -> DocsRunResult:
-        """Project the navigation graph, then generate every configured
-        document from `site`'s existing graph store - no crawling.
-        Works against a `static`-only DB: nothing here reads component
-        families or the semantic tier, so `pragma cluster`/`pragma
-        dynamic` having run is a richer input, not a requirement.
+        """Project the navigation graph, derive the semantic tier, then
+        generate every configured document from `site`'s existing graph
+        store - no crawling. Works against a `static`-only DB: `pragma
+        cluster`/`pragma dynamic` having run is a richer input, not a
+        requirement - the semantic-tier passes below derive whatever the
+        store already holds, empty or not.
         Details: docs/dev/core/docs_engine.md#run
         """
         finished_pages, total_pages = self.graph_store.count_visited()
@@ -120,12 +248,26 @@ class DocsEngine:
             )
         unexplored_components, total_components = self.graph_store.count_unexplored_components()
 
-        # CachingGraphStore from here on, same discipline as Engine._run_async:
-        # every whole-site read below is safe to memoize per method once
-        # nothing is still writing. Details: docs/dev/core/engine.md#run
+        # CachingGraphStore from here on: every whole-site read below is
+        # safe to memoize per method once nothing is still writing.
+        # Details: docs/dev/core/docs_engine.md#run
         graph_store = CachingGraphStore(self.graph_store)
         print("Projecting the navigation graph into modules and metrics...")
         apply_graph_projection(graph_store, self.site)
+
+        # Stamped onto every DERIVED_FROM edge the semantic-tier passes
+        # below write, so a reader can tell which run concluded what - the
+        # same role Engine._run_async's own run_id played before it was
+        # inherited here (issue #242).
+        run_id = _timestamp()
+        print("Deducing the data model from the forms found...")
+        _apply_data_model(graph_store, run_id)
+        print("Deriving rules from the constraints forms declared...")
+        _apply_rules(graph_store, run_id)
+        print("Deriving screens from the pages the crawl finished...")
+        _apply_screens(graph_store, self.agent, run_id)
+        print("Deriving flows from the traces the crawl walked...")
+        _apply_flows(graph_store, run_id)
 
         run_timestamp = _timestamp()
         request = DocumentRequest(
@@ -181,7 +323,9 @@ class DocsEngine:
         )
 
     def _document_names(self) -> List[str]:
-        """Same contract as `Engine._document_names`.
+        """Which documents this run generates: the configured list, plus
+        `"export"` when the standalone `export_json` flag is on and the
+        list didn't already ask for it.
         Details: docs/dev/core/docs_engine.md#_document_names
         """
         names = list(self.documents)

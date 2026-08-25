@@ -1,5 +1,5 @@
-"""Regression coverage for `Frontier.canonicalize_inventory`
-(spiders/orchestration/page_visitor/frontier.py) - issue #170.
+"""Regression coverage for `PageInteractionStep.canonicalize_inventory`
+(spiders/orchestration/page_interaction/step.py) - issue #170.
 
 A component's own `path` is `nth-of-type`-derived, so it can differ
 between two same-page snapshots for what is really one physical DOM
@@ -8,20 +8,32 @@ this fix, every `record_inventory` call persisted a component's live
 path verbatim, so a drifted path for an already-known identity minted a
 spurious extra `HAS_COMPONENT` edge (`database/ladybug/component.py`'s
 `MERGE` is path-keyed) instead of being recognized as the same instance.
+
+Relocated from `spiders/orchestration/page_visitor/frontier.py::Frontier`
+(retired with the Legacy Engine, issue #242) onto `PageInteractionStep`,
+which carries this method unchanged - see its own docstring.
 """
 from typing import Any, Dict
 
-from spiders.orchestration.page_visitor.frontier import Frontier
+from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
+from spiders.orchestration.page_interaction import PageInteractionStep
 
 
 def _component(path: str, text: str = "Neurología", form: str = "sidebar-filters") -> Dict[str, Any]:
     return {"tag": "button", "role": "", "name": "", "form": form, "text": text, "path": path}
 
 
+def _step() -> PageInteractionStep:
+    async def _no_fill_value(component: Dict[str, Any], page_description: str) -> str:
+        return ""
+
+    return PageInteractionStep(None, InMemoryInteractionTracker(), _no_fill_value)
+
+
 def test_a_drifted_path_for_an_already_known_identity_collapses_to_the_first_seen_path():
-    frontier = Frontier()
-    first_pass = frontier.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(2) > button")])
-    second_pass = frontier.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(5) > button")])
+    step = _step()
+    first_pass = step.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(2) > button")])
+    second_pass = step.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(5) > button")])
 
     assert first_pass[0]["path"] == "aside > div:nth-of-type(2) > button"
     # Same identity, different live path - pinned back to the first one.
@@ -29,9 +41,9 @@ def test_a_drifted_path_for_an_already_known_identity_collapses_to_the_first_see
 
 
 def test_a_genuinely_different_identity_gets_its_own_canonical_path():
-    frontier = Frontier()
-    neurologia = frontier.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(2) > button")])
-    favoritos = frontier.canonicalize_inventory(
+    step = _step()
+    neurologia = step.canonicalize_inventory("page-1", [_component("aside > div:nth-of-type(2) > button")])
+    favoritos = step.canonicalize_inventory(
         "page-1", [_component("aside > div:nth-of-type(3) > button", text="Filtrar por favoritos")]
     )
 
@@ -39,9 +51,9 @@ def test_a_genuinely_different_identity_gets_its_own_canonical_path():
 
 
 def test_canonicalization_is_scoped_per_page_key_not_shared_site_wide():
-    frontier = Frontier()
-    on_page_one = frontier.canonicalize_inventory("page-1", [_component("path-a")])
-    on_page_two = frontier.canonicalize_inventory("page-2", [_component("path-b")])
+    step = _step()
+    on_page_one = step.canonicalize_inventory("page-1", [_component("path-a")])
+    on_page_two = step.canonicalize_inventory("page-2", [_component("path-b")])
 
     assert on_page_one[0]["path"] == "path-a"
     # A second page starts its own canonical-path map - no cross-page pinning.
@@ -49,10 +61,10 @@ def test_canonicalization_is_scoped_per_page_key_not_shared_site_wide():
 
 
 def test_the_original_component_dict_is_never_mutated():
-    frontier = Frontier()
+    step = _step()
     live_component = _component("aside > div:nth-of-type(2) > button")
-    frontier.canonicalize_inventory("page-1", [live_component])
-    frontier.canonicalize_inventory("page-1", [{**live_component, "path": "aside > div:nth-of-type(5) > button"}])
+    step.canonicalize_inventory("page-1", [live_component])
+    step.canonicalize_inventory("page-1", [{**live_component, "path": "aside > div:nth-of-type(5) > button"}])
 
     # The caller's own component dict still carries its live path - only
     # the copy handed to record_inventory gets pinned, since a frontier

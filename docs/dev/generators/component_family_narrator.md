@@ -74,8 +74,10 @@ the signature is derived from that.
 ## known_purposes
 
 The purposes carried over from a previous run, keyed by `family_signature`. Read
-by `Engine` before the rebuild wipes them, so an unchanged family is not
-re-narrated. See `docs/dev/core/engine.md#known-purposes`.
+by the caller (`analysis/component_matching_pipeline.py::apply_component_matching`)
+before the rebuild wipes them, so an unchanged family is not re-narrated.
+`core/docs_engine.py`'s own `_apply_screens` follows the identical pattern for
+Screens, one level up.
 
 ## narrate_family_purposes-progress
 
