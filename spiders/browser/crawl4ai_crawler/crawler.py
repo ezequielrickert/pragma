@@ -36,6 +36,15 @@ class Crawl4AICrawler:
         self.prefetch = config.prefetch
         self.viewport_width = config.viewport_width
         self.viewport_height = config.viewport_height
+        self.extra_args = config.extra_args
+        if self.extra_args is None:
+            self.extra_args = [
+                "--use-gl=angle",
+                "--use-angle=swiftshader",
+                "--enable-webgl",
+                "--ignore-gpu-blocklist",
+                "--enable-unsafe-swiftshader",
+            ]
         self.scan_full_page = config.scan_full_page
         self.flatten_shadow_dom = config.flatten_shadow_dom
         # Adaptive pacing/circuit-breaker against a straining target server -
@@ -68,6 +77,7 @@ class Crawl4AICrawler:
             viewport_width=self.viewport_width,
             viewport_height=self.viewport_height,
             storage_state=self.storage_state_path,
+            extra_args=self.extra_args,
         )
         # Own logger, not crawl4ai's default AsyncLogger - drops crawl4ai's
         # own noisy CAPTURE-tag warning without silencing anything else.

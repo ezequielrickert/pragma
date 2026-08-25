@@ -344,10 +344,10 @@ def test_stale_selector_after_remount_is_resynced_and_remapped():
 
     fake.discover_page = discover_with_d
 
-    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=1))
+    mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=1, state_transition_overlap_threshold=0.5))
     results = asyncio.run(mech.crawl_site(fake.url))
     interactions = results[0].interactions
-
+ 
     c_failure = next(i for i in interactions if i.path == fake.c_old_path)
     assert c_failure.error and not c_failure.stale
 
@@ -689,7 +689,7 @@ def test_separate_scout_only_then_interact_only_runs_visit_and_click_the_same_pa
     store_fused.connect()
     sink_fused = GraphStoreSink(store_fused, base_url=fake_fused.start_url)
     mech_fused = MechanicalCrawler(
-        fake_fused, config=MechanicalCrawlerConfig(sink=sink_fused, base_url=fake_fused.start_url),
+        fake_fused, config=MechanicalCrawlerConfig(sink=sink_fused, base_url=fake_fused.start_url, page_concurrency=1),
     )
     results_fused = asyncio.run(mech_fused.crawl_site(fake_fused.start_url))
 
@@ -699,12 +699,12 @@ def test_separate_scout_only_then_interact_only_runs_visit_and_click_the_same_pa
     sink = GraphStoreSink(store, base_url=fake_split.start_url)
 
     scout_mech = MechanicalCrawler(
-        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, scout_only=True),
+        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, scout_only=True, page_concurrency=1),
     )
     asyncio.run(scout_mech.crawl_site(fake_split.start_url))
 
     interact_mech = MechanicalCrawler(
-        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, interact_only=True),
+        fake_split, config=MechanicalCrawlerConfig(sink=sink, base_url=fake_split.start_url, interact_only=True, page_concurrency=1),
     )
     results_split = asyncio.run(interact_mech.crawl_site(fake_split.start_url))
 
@@ -2043,3 +2043,149 @@ def test_one_blocked_page_does_not_hang_the_rest_of_the_crawl():
     # ...and, critically, is not retried forever - the frontier still
     # drains and the crawl still returns.
     assert route_shape(fake.url_c) in visited_urls
+
+
+class _FakeToggleFilterCrawler:
+    def __init__(self) -> None:
+        self.url = "http://fixture/page"
+        self.toggle_path = "body > button.filter-favorites"
+        self.card_link_path = "body > a.card-detail-link"
+        self.clicked: List[str] = []
+
+    async def discover_page(self, url: str, session_id=None) -> PageState:
+        if url == self.url:
+            return PageState(
+                url=url,
+                components=[
+                    {
+                        "tag": "button",
+                        "text": "Filter favorites",
+                        "path": self.toggle_path,
+                        "attributes": {"class": "filter-favorites"},
+                        "visible": True,
+                    },
+                    {
+                        "tag": "a",
+                        "text": "Card Link",
+                        "path": self.card_link_path,
+                        "attributes": {"class": "card-detail-link"},
+                        "visible": True,
+                    }
+                ],
+                links=[]
+            )
+        else:
+            return PageState(url=url, components=[], links=[])
+
+    async def click(self, url: str, session_id: str, selector: str) -> PageState:
+        self.clicked.append(selector)
+        if selector == self.toggle_path:
+            # Clicking the toggle:
+            # If clicked odd times, we are toggled (favorites mode). In favorites mode, the list collapses, and we only have the filter button.
+            # If clicked even times, we untoggle and return back to normal.
+            is_toggled = len([c for c in self.clicked if c == self.toggle_path]) % 2 != 0
+            if is_toggled:
+                # Collapse state: only the toggle button remains
+                return PageState(
+                    url=url,
+                    components=[
+                        {
+                            "tag": "button",
+                            "text": "Filter favorites",
+                            "path": self.toggle_path,
+                            "attributes": {"class": "filter-favorites"},
+                            "visible": True,
+                        }
+                    ],
+                    links=[{"href": "http://fixture/favorites-page", "scheme": "http"}]
+                )
+            else:
+                # Reverted state: back to normal
+                return PageState(
+                    url=url,
+                    components=[
+                        {
+                            "tag": "button",
+                            "text": "Filter favorites",
+                            "path": self.toggle_path,
+                            "attributes": {"class": "filter-favorites"},
+                            "visible": True,
+                        },
+                        {
+                            "tag": "a",
+                            "text": "Card Link",
+                            "path": self.card_link_path,
+                            "attributes": {"class": "card-detail-link"},
+                            "visible": True,
+                        }
+                    ],
+                    links=[]
+                )
+        elif selector == self.card_link_path:
+            return PageState(
+                url="http://fixture/card-detail",
+                components=[],
+                links=[]
+            )
+        raise AssertionError(f"unexpected selector {selector}")
+
+    async def go_back(self, url: str, session_id: str) -> PageState:
+        return await self.discover_page(url, session_id)
+
+    async def fill(self, url: str, session_id: str, selector: str, value: str) -> PageState:
+        raise AssertionError("not exercised")
+
+    async def resync(self, url: str, session_id: str) -> PageState:
+        raise AssertionError("not exercised")
+
+
+def test_toggle_do_redo_strategy():
+    fake = _FakeToggleFilterCrawler()
+    import shutil
+    import tempfile
+    
+    db_dir = tempfile.mkdtemp()
+    try:
+        store = LadybugGraphStore("toggle-test", directory=db_dir)
+        store.connect()
+        sink = GraphStoreSink(store)
+        
+        mech = MechanicalCrawler(fake, config=MechanicalCrawlerConfig(max_pages=5, sink=sink))
+        results = asyncio.run(mech.crawl_site(fake.url))
+        
+        # Verify clicks executed
+        # It must click toggle twice (on then off), then click the card link!
+        assert fake.clicked == [fake.toggle_path, fake.toggle_path, fake.card_link_path]
+        
+        # Verify enqueued links: the favorites page link discovered during the toggled state must be enqueued
+        visited_urls = {r.resolved_url for r in results}
+        assert "http://fixture/favorites-page" in visited_urls
+        assert "http://fixture/card-detail" in visited_urls
+        
+        # Check transition edges recorded in the store
+        edges = store.get_edges()
+        
+        # The store should have navigation edges:
+        # 1. page -> toggled state
+        # 2. toggled state -> page
+        # 3. page -> card-detail
+        assert len(edges) >= 3
+        
+        has_toggle_on = False
+        has_toggle_off = False
+        has_card_nav = False
+        
+        for e in edges:
+            if e["from"] == "fixture/page" and "#state:" in e["to"]:
+                has_toggle_on = True
+            elif "#state:" in e["from"] and e["to"] == "fixture/page":
+                has_toggle_off = True
+            elif e["from"] == "fixture/page" and e["to"] == "fixture/card-detail":
+                has_card_nav = True
+                
+        assert has_toggle_on
+        assert has_toggle_off
+        assert has_card_nav
+    finally:
+        shutil.rmtree(db_dir)
+

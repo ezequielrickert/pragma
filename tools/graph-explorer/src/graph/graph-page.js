@@ -119,7 +119,7 @@ const CY_STYLE = [
  * Initialize the graph page — call once after DOM is ready.
  */
 export function initGraphPage() {
-  const container = document.getElementById("graph-content");
+  const container = document.getElementById("app-content");
   if (!container) return;
 
   // Show empty state initially

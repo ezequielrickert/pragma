@@ -10,17 +10,14 @@
 <body>
   <div class="app-layout">
     <aside class="sidebar" id="sidebar"></aside>
-    <main class="main-content" id="graph-content">
-      <!-- Graph page content rendered by graph-page.js -->
+    <main class="main-content" id="app-content">
+      <!-- Content injected dynamically by router.js -->
     </main>
   </div>
 
   <script type="module">
-    import { initShell } from "./src/layout/shell.js";
-    import { initGraphPage } from "./src/graph/graph-page.js";
-
-    initShell("graph");
-    initGraphPage();
+    import { initRouter } from "./src/router.js";
+    initRouter();
   </script>
 </body>
 </html>

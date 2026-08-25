@@ -104,34 +104,46 @@ class DocumentRef:
 
 def available_documents(where: SiteOutput) -> List[DocumentRef]:
     """Every distinct file already produced for `where.site`, newest
-    run only - found by globbing, not `runs.json` (see module
-    docstring).
+    run only - found by globbing run subdirectories, not `runs.json`
+    (see module docstring). Run subdirectories follow the pattern
+    `<slug>_<timestamp>/` introduced by DocumentNaming.run_dir.
     Details: docs/dev/interactive/customization.md#available_documents
     """
     slug = slugify(where.site)
     prefix = f"{slug}_"
     seen: Dict[tuple, DocumentRef] = {}
-    for path in Path(where.out_dir).glob(f"{slug}_*"):
-        if not path.name.startswith(prefix):
-            continue
-        match = _PRODUCED_FILENAME.match(path.name[len(prefix):])
-        if not match:
-            continue
-        key = (match["filename"], match["extension"])
-        seen[key] = DocumentRef(filename=match["filename"], extension=match["extension"])
+    # Search inside per-run subdirectories (<slug>_<timestamp>/) as well
+    # as the flat root (backwards compat with any old flat-layout runs).
+    search_dirs = list(Path(where.out_dir).glob(f"{slug}_*/"))
+    search_dirs.append(Path(where.out_dir))  # flat root fallback
+    for search_dir in search_dirs:
+        for path in search_dir.glob(f"{slug}_*"):
+            if not path.name.startswith(prefix):
+                continue
+            match = _PRODUCED_FILENAME.match(path.name[len(prefix):])
+            if not match:
+                continue
+            key = (match["filename"], match["extension"])
+            seen[key] = DocumentRef(filename=match["filename"], extension=match["extension"])
     return sorted(seen.values(), key=lambda ref: (ref.filename, ref.extension))
 
 
 def _original_path(where: SiteOutput, ref: DocumentRef) -> Optional[str]:
     """The most recent run's own file for `ref` - `None` if this site
-    never produced one. Sorted lexicographically, which sorts
-    correctly by time too: the embedded timestamp is
-    `YYYYMMDDTHHMMSSZ`.
+    never produced one. Searches per-run subdirectories first (newest
+    layout), then falls back to the flat root (older runs). Sorted
+    lexicographically, which sorts correctly by time too: the embedded
+    timestamp is `YYYYMMDDTHHMMSSZ`.
     Details: docs/dev/interactive/customization.md#_original_path
     """
     slug = slugify(where.site)
-    matches = sorted(Path(where.out_dir).glob(f"{slug}_{ref.filename}_*.{ref.extension}"))
-    return str(matches[-1]) if matches else None
+    # Collect matches from all per-run subdirs and the flat root.
+    matches: List[Path] = []
+    for run_dir in Path(where.out_dir).glob(f"{slug}_*/"):
+        matches.extend(run_dir.glob(f"{slug}_{ref.filename}_*.{ref.extension}"))
+    matches.extend(Path(where.out_dir).glob(f"{slug}_{ref.filename}_*.{ref.extension}"))
+    matches_sorted = sorted(matches)
+    return str(matches_sorted[-1]) if matches_sorted else None
 
 
 def original_content(where: SiteOutput, ref: DocumentRef) -> Optional[str]:

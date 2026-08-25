@@ -2,12 +2,26 @@
 
 Generated from `runs.json` - see `docs/README.md`.
 
+## www.empanad.app
+
+| Timestamp (UTC) | Pages (finished/total) | Components (total, unexplored) | PRD | Tree | JSON export |
+|---|---|---|---|---|---|
+| 20260824T180052Z | 1/5 | 22 (4 unexplored) | [PRD](www.empanad.app_prd_20260824T180052Z.md) | [Tree](www.empanad.app_tree.axtree_20260824T180052Z.json) | [JSON](www.empanad.app_export_20260824T180052Z.json) |
+| 20260824T010748Z | 1/5 | 22 (4 unexplored) | [PRD](www.empanad.app_prd_20260824T010748Z.md) | [Tree](www.empanad.app_tree.axtree_20260824T010748Z.json) | [JSON](www.empanad.app_export_20260824T010748Z.json) |
+
 ## www.grubi.com.ar
 
 | Timestamp (UTC) | Pages (finished/total) | Components (total, unexplored) | PRD | Tree | JSON export |
 |---|---|---|---|---|---|
 | 20260823T174436Z | 18/37 | 69 (23 unexplored) | [PRD](www.grubi.com.ar__prd_20260823T174436Z.md) | [Tree](www.grubi.com.ar__tree.axtree_20260823T174436Z.json) | [JSON](www.grubi.com.ar__export_20260823T174436Z.json) |
 | 20260822T210309Z | 18/39 | 31 (8 unexplored) | [PRD](www.grubi.com.ar__prd_20260822T210309Z.md) | [Tree](www.grubi.com.ar__tree.axtree_20260822T210309Z.json) | - |
+
+## www.mapadeprofesionales.com
+
+| Timestamp (UTC) | Pages (finished/total) | Components (total, unexplored) | PRD | Tree | JSON export |
+|---|---|---|---|---|---|
+| 20260824T193253Z | 3/5 | 45 (13 unexplored) | [PRD](www.mapadeprofesionales.com_prd_20260824T193253Z.md) | [Tree](www.mapadeprofesionales.com_tree.axtree_20260824T193253Z.json) | [JSON](www.mapadeprofesionales.com_export_20260824T193253Z.json) |
+| 20260824T002220Z | 3/5 | 42 (13 unexplored) | [PRD](www.mapadeprofesionales.com_prd_20260824T002220Z.md) | [Tree](www.mapadeprofesionales.com_tree.axtree_20260824T002220Z.json) | [JSON](www.mapadeprofesionales.com_export_20260824T002220Z.json) |
 
 ## www.stjohns.edu.ar
 

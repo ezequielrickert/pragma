@@ -23,6 +23,11 @@ from .master_document import MasterDocument
 @dataclass(frozen=True)
 class DocumentNaming:
     """Where one run's documents go and how they are named.
+
+    Each crawl run gets its own subdirectory under `out_dir`:
+    `<out_dir>/<slug>_<timestamp>/`. All documents for the run land
+    inside it, so `out_dir` itself never accumulates a flat pile of
+    files across many sites and dates.
     Details: docs/dev/generators/pipeline.md#documentnaming
     """
 
@@ -30,12 +35,17 @@ class DocumentNaming:
     slug: str
     timestamp: str
 
+    @property
+    def run_dir(self) -> str:
+        """The per-run subdirectory: `<out_dir>/<slug>_<timestamp>`."""
+        return f"{self.out_dir}/{self.slug}_{self.timestamp}"
+
     def path_for(self, name: str, extension: str) -> str:
         """The one place output filenames are built, so every document is
         named the same way and the master document's relative links always
         resolve. Details: docs/dev/generators/pipeline.md#path_for
         """
-        return f"{self.out_dir}/{self.slug}_{name}_{self.timestamp}.{extension}"
+        return f"{self.run_dir}/{self.slug}_{name}_{self.timestamp}.{extension}"
 
 
 def _with_banner(output: DocumentOutput, request: DocumentRequest) -> str:
