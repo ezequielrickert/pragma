@@ -10,16 +10,30 @@ Investigated against the actually-installed `crawl4ai==0.9.2` source in this rep
 cross-checked against docs.crawl4ai.com and docs.litellm.ai where the installed source was
 silent or ambiguous.
 
+**Correction (post-close, verified against this repo's actual `.env`):** the base URL/auth
+guidance below used `agents/local_agent.py`'s hardcoded LAN-IP fallback instead of this repo's
+actually configured endpoint. `.env` is gitignored, so whatever session produced this research
+never saw it. The real deployed endpoint is a Tailscale-tunneled, **auth-required** server
+(`LOCAL_API_URL` in `.env`; `pragma.yaml`'s own comment confirms the tunnel "requires
+`LOCAL_API_KEY` in `.env` for auth"). Applying this doc's own `base_url` rule (strip the
+trailing `/chat/completions`) to the real URL gives the tunnel host's `/v1` root, and
+`api_token` must be the real `LOCAL_API_KEY` value (read via `os.getenv` at call time — never
+hardcode it in code, a doc, or a ticket comment), not a placeholder. Every LAN-IP/placeholder
+reference below is the fallback case only (e.g. a bare LM Studio instance with no tunnel in
+front of it) — substitute the real tunnel URL + real key for this repo's actual pilot run
+(#254).
+
 ## Bottom line
 
 - **Provider string**: `"openai/google/gemma-4-e2b"` (LiteLLM's `openai/<model>` prefix — the
   part after the first `/` is passed through verbatim as the model name, so a slashy model id
-  is fine). **Always pass a non-empty `api_token`** (any placeholder string, e.g. `"not-needed"`)
-  — leaving it empty makes `LLMConfig` fall back to `os.getenv("OPENAI_API_KEY")`, which is
-  `None` in this repo's local setup, and litellm's OpenAI client raises rather than calling an
-  unauthenticated server. `base_url` should be the LM Studio server's `/v1` root
-  (`http://192.168.68.76:1234/v1` — no trailing `/chat/completions`); litellm's OpenAI-client
-  code path appends the endpoint path itself.
+  is fine). **Always pass a non-empty `api_token`** — for this repo's actual deployment that
+  means the real `LOCAL_API_KEY` (the tunnel requires it; see correction above), not a
+  placeholder — leaving it empty makes `LLMConfig` fall back to `os.getenv("OPENAI_API_KEY")`,
+  which is `None` in this repo's local setup, and litellm's OpenAI client raises rather than
+  calling an unauthenticated server. `base_url` should be the tunnel server's `/v1` root (see
+  correction above — no trailing `/chat/completions`); litellm's OpenAI-client code path
+  appends the endpoint path itself.
 - **Schema-based extraction, not instruction-only.** crawl4ai's instruction-only prompt
   (`PROMPT_EXTRACT_BLOCKS_WITH_INSTRUCTION`) hardcodes the output shape to
   `{"index": int, "tags": [...], "content": [str, ...]}` regardless of what the instruction
@@ -83,9 +97,10 @@ first `/`-delimited segment (`openai`) as the routing key and forwards the remai
 LiteLLM uses the openai-client to make these calls, and that automatically adds the relevant
 endpoints"), but the same page immediately caveats that some proxies need it back: "If you see
 `Not Found Error` when testing make sure your `api_base` has the `/v1` postfix. Example:
-`http://vllm-endpoint.xyz/v1`." Given `agents/local_agent.py`'s confirmed default URL is
-`http://192.168.68.76:1234/v1/chat/completions`, the safe, source-consistent choice is
-`base_url="http://192.168.68.76:1234/v1"` — litellm's OpenAI client appends
+`http://vllm-endpoint.xyz/v1`." The rule to apply: take whatever `LOCAL_API_URL` actually
+resolves to in this repo's `.env` (the deployed endpoint is the Tailscale tunnel, not
+`agents/local_agent.py`'s hardcoded LAN-IP fallback — see correction at the top of this doc) and
+strip its trailing `/chat/completions`, keeping the `/v1` root — litellm's OpenAI client appends
 `/chat/completions` itself, matching the same endpoint `local_agent.py` posts to directly.
 
 **`api_token`.** `LLMConfig.__init__` (`async_configs.py:2217-2289`, trusted/non-untrusted
@@ -96,26 +111,26 @@ the `"openai"` prefix in that dict, an empty `api_token` resolves to
 `PROVIDER_MODELS_PREFIXES["openai"]` = `os.getenv("OPENAI_API_KEY")` (`config.py:32-39`) rather
 than silently rewriting the provider back to `DEFAULT_PROVIDER` — but that's still `None` in an
 environment with no real OpenAI key configured, and litellm's OpenAI-compatible client path
-requires a truthy `api_key` (LiteLLM's own doc: "This library requires an API key for all
-requests, either through the `api_key` parameter or the `OPENAI_API_KEY` environment variable
-... For local servers that don't validate keys, use any placeholder value like `sk-1234`").
-crawl4ai's own `PROVIDER_MODELS` dict models exactly this LM-Studio/Ollama pattern for the
-`ollama` prefix — `"ollama/llama3": "no-token-needed"` (`config.py:12`) — confirming the
-project's own convention is a non-empty placeholder string, not `None` or `""`, whenever the
-target server doesn't check the key. Recommended: `api_token="not-needed"` (or reuse
-`LOCAL_API_KEY` from `agents/local_agent.py`'s env var if the server ever starts requiring a
-real bearer token).
+requires a truthy `api_key`. **Correction:** the analysis above (and the placeholder-token
+framing generally) only applies to an *unauthenticated* local server. This repo's actual
+deployment is not one — the Tailscale tunnel in front of it requires a real bearer token
+(`pragma.yaml`'s own comment: "requires `LOCAL_API_KEY` in `.env` for auth"). `agents/local_agent.py`'s
+own `_headers()` already sends this token as `Authorization: Bearer <LOCAL_API_KEY>`, and
+`LLMConfig.api_token` must carry that same real value, not `"not-needed"` or any other
+placeholder — a placeholder would reach the server but fail auth outright. Recommended:
+`api_token=os.getenv("LOCAL_API_KEY")` at call time.
 
 **Recommended `LLMConfig`:**
 
 ```python
+import os
 from crawl4ai import LLMConfig
 
 llm_config = LLMConfig(
     provider="openai/google/gemma-4-e2b",
-    api_token="not-needed",          # any non-empty placeholder; LM Studio-style servers ignore it
-    base_url="http://192.168.68.76:1234/v1",
-    temperature=0.7,                 # match agents/local_agent.py's hardcoded value
+    api_token=os.getenv("LOCAL_API_KEY"),   # real bearer token - the tunnel requires it, no placeholder
+    base_url=os.getenv("LOCAL_API_URL", "").removesuffix("/chat/completions"),
+    temperature=0.7,                        # match agents/local_agent.py's hardcoded value
 )
 ```
 
