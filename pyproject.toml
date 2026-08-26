@@ -1,0 +1,26 @@
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+exclude = '''(?x)(
+    ^\.venv/
+    | ^\.claude/
+    | ^\.agents/
+    | ^\.gemini/
+    | ^data/
+)'''
+
+[[tool.mypy.overrides]]
+# Third-party libraries in requirements.txt/requirements-dev.txt with no
+# type stubs published (checked against typeshed and PyPI py.typed markers
+# as of 2026-08-26).
+module = [
+    "crawl4ai.*",
+    "ladybug.*",
+    "questionary.*",
+    "igraph.*",
+    "leidenalg.*",
+    "gherkin.*",
+    "openapi_spec_validator.*",
+]
+ignore_missing_imports = true

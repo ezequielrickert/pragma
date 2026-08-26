@@ -85,7 +85,8 @@ def source_json(documents: Sequence[Tuple[ProducedDocument, str]], name: str) ->
     if content is None:
         return None
     try:
-        return json.loads(content)
+        parsed: Dict[str, Any] = json.loads(content)
+        return parsed
     except json.JSONDecodeError:
         return None
 

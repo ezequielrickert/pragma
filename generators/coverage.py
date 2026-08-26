@@ -77,7 +77,7 @@ def _saturation_curve(discovery_sequence: List[Tuple[int, str]]) -> Tuple[Dict[s
     size, and inventing one here would be an aggregation choice this
     generator has no basis to make.
     """
-    seen: set = set()
+    seen: set[str] = set()
     curve = []
     for interactions_so_far, (_, endpoint_id) in enumerate(discovery_sequence, 1):
         is_new = endpoint_id not in seen

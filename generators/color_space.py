@@ -10,6 +10,7 @@ Details: docs/dev/generators/color_space.md#module
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Optional, Tuple
 
@@ -73,7 +74,8 @@ def perceptual_distance(first: Tuple[int, int, int], second: Tuple[int, int, int
     overstates differences in saturated blues) does not apply.
     Details: docs/dev/generators/color_space.md#perceptual_distance
     """
-    return sum((a - b) ** 2 for a, b in zip(to_lab(first), to_lab(second))) ** 0.5
+    squared_diff_sum: float = sum((a - b) ** 2 for a, b in zip(to_lab(first), to_lab(second)))
+    return math.sqrt(squared_diff_sum)
 
 
 def to_hex(rgb: Tuple[int, int, int]) -> str:

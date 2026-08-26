@@ -5,11 +5,15 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict, deque
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # "type into" vs "click" target tags/input_types.
 # Details: docs/dev/spiders/content/component_matching.md#fillable_input_types
 FILLABLE_INPUT_TYPES = {"", "text", "email", "search", "tel", "url", "number", "password"}
+
+# `component_identity`'s content-based fingerprint: (tag, role, name, form, text).
+# Details: docs/dev/spiders/content/component_matching.md#componentidentity
+ComponentIdentity = Tuple[str, str, str, str, str]
 
 
 def is_element_not_found(exc: Exception) -> bool:
@@ -19,7 +23,7 @@ def is_element_not_found(exc: Exception) -> bool:
     return "element not found" in str(exc).lower()
 
 
-def component_identity(component: Dict[str, Any]) -> tuple:
+def component_identity(component: Dict[str, Any]) -> ComponentIdentity:
     """Content-based identity, stable across a DOM remount that reassigns ids.
 
     `form` is the ancestor `<form>`'s own name/id/accessible-label
@@ -71,15 +75,15 @@ def remap_stale_frontier(
     """Reconcile not-yet-attempted frontier items against a fresh DOM snapshot.
     Details: docs/dev/spiders/content/component_matching.md#remap_stale_frontier
     """
-    fresh_paths = {c.get("path") for c in fresh_components}
-    identity_pool: Dict[tuple, "deque[str]"] = defaultdict(deque)
+    fresh_paths = {c.get("path", "") for c in fresh_components}
+    identity_pool: Dict[ComponentIdentity, "deque[str]"] = defaultdict(deque)
     for c in fresh_components:
-        identity_pool[component_identity(c)].append(c.get("path"))
+        identity_pool[component_identity(c)].append(c.get("path", ""))
 
     remapped: List[Dict[str, Any]] = []
     dropped: List[str] = []
     for component in remaining:
-        path = component.get("path")
+        path = component.get("path", "")
         identity = component_identity(component)
         if path in fresh_paths:
             remapped.append(component)

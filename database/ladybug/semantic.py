@@ -28,10 +28,14 @@ Details: docs/dev/database/ladybug/semantic.md#module
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
+
+import ladybug as lb
 
 from core.interfaces import SemanticEntity, SemanticField
 from ._component_lookup import resolve_component_ids, stub_component_id
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 
 # Recorded on every `DERIVED_FROM` edge this module writes, so a reader can
 # tell which pass produced a node without joining anything.
@@ -42,7 +46,7 @@ _METHOD = "deterministic"
 _CONFIDENCE = 1.0
 
 
-class _LadybugSemanticMixin:
+class _LadybugSemanticMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/semantic.md#_ladybugsemanticmixin"""
 
     def record_entities(self, entities: Sequence[SemanticEntity], run_id: str = "") -> None:
@@ -70,7 +74,7 @@ class _LadybugSemanticMixin:
                         f"semantic field {field.name!r} of {entity.name!r} has no derived_from"
                     )
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # Edges first: Ladybug refuses to delete a node that still has
             # relationships attached. DERIVED_FROM is scoped to Entity/Field
             # sources, not a blanket delete - see this module's own
@@ -96,7 +100,10 @@ class _LadybugSemanticMixin:
 
         self._call(op)
 
-    def _link_provenance(self, conn, label: str, name: str, sources, run_id: str) -> None:
+    def _link_provenance(
+        self, conn: lb.Connection, label: str, name: str,
+        sources: Sequence[Tuple[str, str]], run_id: str,
+    ) -> None:
         """One `DERIVED_FROM` edge per supporting component.
 
         `MERGE` on the `Component` rather than `MATCH`: a `MATCH` that
@@ -126,7 +133,7 @@ class _LadybugSemanticMixin:
                 },
             )
 
-    def _write_field(self, conn, entity_name: str, field: SemanticField, run_id: str) -> None:
+    def _write_field(self, conn: lb.Connection, entity_name: str, field: SemanticField, run_id: str) -> None:
         """One `Field`, its `HAS_FIELD` edge, its `EDITS` edges and its
         provenance.
 
@@ -183,17 +190,17 @@ class _LadybugSemanticMixin:
         property `get_component_families` maintains for `ComponentFamily`.
         Details: docs/dev/database/ladybug/semantic.md#get_entities
         """
-        def op(conn) -> List[SemanticEntity]:
-            entity_rows = list(conn.execute(
+        def op(conn: lb.Connection) -> List[SemanticEntity]:
+            entity_rows = list(_rows(conn.execute(
                 "MATCH (e:Entity) RETURN e.name, e.description ORDER BY e.name"
-            ))
-            field_rows = list(conn.execute(
+            )))
+            field_rows = list(_rows(conn.execute(
                 """
                 MATCH (e:Entity)-[:HAS_FIELD]->(f:Field)
                 RETURN e.name, f.name, f.data_type, f.required, f.validation, f.observed_values
                 ORDER BY e.name, f.name
                 """
-            ))
+            )))
             provenance = self._provenance_by_node(conn)
 
             fields_by_entity: Dict[str, List[SemanticField]] = {}
@@ -218,7 +225,7 @@ class _LadybugSemanticMixin:
         return self._call(op)
 
     @staticmethod
-    def _provenance_by_node(conn) -> Dict[Any, List[Any]]:
+    def _provenance_by_node(conn: lb.Connection) -> Dict[Tuple[str, str], List[Tuple[str, str]]]:
         """`{(label, name): [(page_url, path)]}` for every semantic node.
 
         Read in one query per label rather than per node: an entity with
@@ -232,15 +239,15 @@ class _LadybugSemanticMixin:
         accurate than the single page the old encoded id could ever name.
         Details: docs/dev/database/ladybug/semantic.md#_provenance_by_node
         """
-        provenance: Dict[Any, List[Any]] = {}
+        provenance: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
         for label in ("Entity", "Field"):
-            rows = conn.execute(
+            label_rows = _rows(conn.execute(
                 f"""
                 MATCH (n:{label})-[:DERIVED_FROM]->(c:Component)
                 MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
                 RETURN DISTINCT n.name, page.url, e.path ORDER BY n.name, page.url, e.path
                 """
-            )
-            for name, page_url, path in rows:
+            ))
+            for name, page_url, path in label_rows:
                 provenance.setdefault((label, name), []).append((page_url, path))
         return provenance

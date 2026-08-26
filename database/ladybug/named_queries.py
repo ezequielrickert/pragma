@@ -16,8 +16,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+import ladybug as lb
 
-class _LadybugNamedQueriesMixin:
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
+
+
+class _LadybugNamedQueriesMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/named_queries.md#_ladybugnamedqueriesmixin"""
 
     def endpoint_contract(self, endpoint_id: str) -> Optional[Dict[str, Any]]:
@@ -38,18 +43,17 @@ class _LadybugNamedQueriesMixin:
             observations to aggregate).
         Details: docs/dev/database/ladybug/named_queries.md#endpoint_contract
         """
-        def op(conn) -> Optional[Dict[str, Any]]:
-            endpoint_rows = conn.execute(
+        def op(conn: lb.Connection) -> Optional[Dict[str, Any]]:
+            endpoint_rows = list(_rows(conn.execute(
                 "MATCH (e:Endpoint {id: $id}) RETURN e.method, e.host, e.path_pattern, "
                 "e.path_params, e.first_party, e.call_count",
                 {"id": endpoint_id},
-            )
-            endpoint_rows = list(endpoint_rows)
+            )))
             if not endpoint_rows:
                 return None
             method, host, path_pattern, path_params, first_party, call_count = endpoint_rows[0]
 
-            request_rows = conn.execute(
+            request_rows = _rows(conn.execute(
                 """
                 MATCH (r:Request)-[:CALLS]->(:Endpoint {id: $id})
                 RETURN collect(DISTINCT r.status), collect(DISTINCT r.auth_scheme),
@@ -57,7 +61,7 @@ class _LadybugNamedQueriesMixin:
                        collect(DISTINCT r.response_schema)
                 """,
                 {"id": endpoint_id},
-            )
+            ))
             status_codes, auth_schemes, media_types, request_schemas, response_schemas = next(
                 iter(request_rows), ([], [], [], [], [])
             )
@@ -84,8 +88,8 @@ class _LadybugNamedQueriesMixin:
         actually happened on.
         Details: docs/dev/database/ladybug/named_queries.md#callers_of
         """
-        def op(conn) -> List[Dict[str, str]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, str]]:
+            caller_rows = _rows(conn.execute(
                 """
                 MATCH (c:Component)-[:PERFORMED]->
                       (i:Interaction)-[:TRIGGERED]->(:Request)-[:CALLS]->(:Endpoint {id: $id})
@@ -94,9 +98,9 @@ class _LadybugNamedQueriesMixin:
                 RETURN DISTINCT p.url, e.path
                 """,
                 {"id": endpoint_id},
-            )
+            ))
             return sorted(
-                ({"page_url": page_url, "path": path} for page_url, path in rows),
+                ({"page_url": page_url, "path": path} for page_url, path in caller_rows),
                 key=lambda r: (r["page_url"], r["path"]),
             )
 
@@ -108,14 +112,14 @@ class _LadybugNamedQueriesMixin:
         `get_inferred_requests()`'s first-party-only contract.
         Details: docs/dev/database/ladybug/named_queries.md#integrations
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            integration_rows = _rows(conn.execute(
                 "MATCH (e:Endpoint {first_party: false}) RETURN e.host, e.method, "
                 "e.path_pattern, e.call_count ORDER BY e.call_count DESC"
-            )
+            ))
             return [
                 {"host": host, "method": method, "path_pattern": path_pattern, "call_count": call_count}
-                for host, method, path_pattern, call_count in rows
+                for host, method, path_pattern, call_count in integration_rows
             ]
 
         return self._call(op)
@@ -133,15 +137,15 @@ class _LadybugNamedQueriesMixin:
         """
         hops = max(1, min(int(max_hops), 10))
 
-        def op(conn) -> List[str]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[str]:
+            target_rows = _rows(conn.execute(
                 f"""
                 MATCH (:Page {{url: $page_url}})-[:NAVIGATES_TO*1..{hops}]->(target:Page)
                 RETURN DISTINCT target.url
                 """,
                 {"page_url": page_url},
-            )
-            return sorted(url for (url,) in rows)
+            ))
+            return sorted(url for (url,) in target_rows)
 
         return self._call(op)
 
@@ -159,8 +163,8 @@ class _LadybugNamedQueriesMixin:
         already relies on.
         Details: docs/dev/database/ladybug/named_queries.md#components_in
         """
-        def op(conn) -> List[Dict[str, str]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, str]]:
+            member_rows = _rows(conn.execute(
                 """
                 MATCH (:Container {id: $id})-[:CONTAINS*1..8]->(c:Component)
                 OPTIONAL MATCH (:Page)-[e:HAS_COMPONENT]->(c)
@@ -168,9 +172,9 @@ class _LadybugNamedQueriesMixin:
                 RETURN DISTINCT c.id, path
                 """,
                 {"id": container_id},
-            )
+            ))
             return sorted(
-                ({"id": cid, "path": path} for cid, path in rows), key=lambda r: r["path"]
+                ({"id": cid, "path": path} for cid, path in member_rows), key=lambda r: r["path"]
             )
 
         return self._call(op)
@@ -198,8 +202,8 @@ class _LadybugNamedQueriesMixin:
             Screen at all.
         Details: docs/dev/database/ladybug/named_queries.md#screen_shared_families
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            family_rows = _rows(conn.execute(
                 """
                 MATCH (:Screen)-[:RENDERS]->(:Page {url: $a})-[:HAS_COMPONENT]->
                       (:Component)-[:VARIANT_OF]->(fa:ComponentFamily)
@@ -210,15 +214,15 @@ class _LadybugNamedQueriesMixin:
                 ORDER BY fa.tag, fa.component_type
                 """,
                 {"a": screen_a, "b": screen_b},
-            )
+            ))
             return [
                 {"tag": tag, "component_type": component_type, "common_classes": common_classes, "purpose": purpose}
-                for tag, component_type, common_classes, purpose in rows
+                for tag, component_type, common_classes, purpose in family_rows
             ]
 
         return self._call(op)
 
-    def unexplored(self) -> List[Dict[str, Any]]:
+    def unexplored(self) -> List[str]:
         """Parity shim for `get_pending()` under the named-query surface -
         pages the frontier still owes a visit.
         Details: docs/dev/database/ladybug/named_queries.md#unexplored

@@ -1,6 +1,7 @@
 """Unit tests for the deterministic component classification/grouping helpers -
 no LLM, no scraper, pure functions over plain component dicts."""
 import json
+from typing import Any
 
 from generators.component_classifier import (
     choice_text_by_path,
@@ -35,7 +36,7 @@ def test_classify_component_type_flags_pointer_layer_as_custom_control():
 
 
 def test_find_revealed_options_returns_only_newly_appeared_option_role_elements():
-    before = [{"tag": "button", "text": "Tercera Docena", "path": "button#trigger"}]
+    before: list[dict[str, Any]] = [{"tag": "button", "text": "Tercera Docena", "path": "button#trigger"}]
     after = before + [
         {"tag": "div", "text": "Mi Gusto", "path": "div#opt1", "role": "option", "selected": True},
         {"tag": "div", "text": "Solo Empanadas", "path": "div#opt2", "role": "option", "selected": False},
@@ -172,6 +173,7 @@ def test_choice_text_by_path_keys_choices_by_their_own_path():
             {"path": "input#l", "text": "Large", "selected": False},
         ],
     }))
+    assert parsed is not None
     assert choice_text_by_path(parsed) == {"input#s": "Small", "input#l": "Large"}
 
 

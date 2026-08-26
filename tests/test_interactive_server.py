@@ -7,19 +7,20 @@ from unittest.mock import Mock
 
 from interactive.customization import DocumentRef, SiteOutput, save_customized
 from interactive.server import create_app
+from core.interfaces import Agent
 
 SITE = "example.com"
 
 
-class _StubAgent:
+class _StubAgent(Agent):
     """A minimal Agent double - `reply`/`error` are set per test to
     control what the chat route sees back from "the model"."""
 
     def __init__(self, reply="a reply", error=None):
         self.reply = reply
         self.error = error
-        self.seen_messages = None
-        self.seen_system_instruction = None
+        self.seen_messages: list[dict[str, str]] | None = None
+        self.seen_system_instruction: str | None = None
 
     def generate(self, prompt, system_instruction=None):
         return self.reply
@@ -205,6 +206,7 @@ def test_api_chat_returns_reply_and_uses_document_grounding(tmp_path):
     assert data["success"] is True
     assert data["reply"] == "Looks safe."
 
+    assert agent.seen_system_instruction is not None
     assert "core.color.surface-1" in agent.seen_system_instruction
     assert "example.com/|button.buy" in agent.seen_system_instruction
 

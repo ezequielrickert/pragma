@@ -1,6 +1,7 @@
 """Unit tests for generators/redaction_log.py - consolidating openapi's
 Overlay redaction events into redaction-log.jsonl (docs/adr/0021)."""
 import json
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ _SCHEMA_PATH = "schemas/redaction-log.schema.json"
 
 
 def _request(method="GET", endpoint="api.example.com/orders", **extra):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         query_params=(), body_shape="", response_shape="", triggered_by=(),
         loaded_by=(), status_codes=(200,), latencies_ms=(),
     )

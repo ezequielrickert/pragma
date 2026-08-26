@@ -164,4 +164,4 @@ def test_generate_raises_rather_than_returning_an_empty_document():
     """No partial document is worth reserving a field on (ADR-0018 point
     3) - unlike evidence-log's screenshot: kind, nothing here is real."""
     with pytest.raises(NotImplementedError):
-        AsyncAPIDocument().generate(request=None)
+        AsyncAPIDocument().generate(request=None)  # type: ignore[arg-type]  # generate() always raises before touching request

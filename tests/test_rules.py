@@ -145,7 +145,10 @@ def store():
 
 
 def test_the_store_refuses_a_rule_with_no_derived_from(store) -> None:
-    orphan = SemanticRule(statement="required", kind="declared", confidence=1.0, derived_from=())
+    orphan = SemanticRule(
+        statement="required", kind="declared", confidence=1.0,
+        derived_from=(),  # type: ignore[arg-type]  # deliberately malformed - exercises the store's own runtime refusal
+    )
     with pytest.raises(ValueError, match="no derived_from"):
         store.record_rules([orphan])
 

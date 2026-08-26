@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 from core.data_contracts import ComponentFamily
-from spiders.content.component_matching import component_identity
+from spiders.content.component_matching import ComponentIdentity, component_identity
 
 # Kept for `FamilySampler.__init__`'s existing signature/callers
 # (`core/dynamic_engine.py`) - no longer read by `should_interact`, which
@@ -84,7 +84,7 @@ class FamilySampler:
 
 def _index_family_members(
     families: List[ComponentFamily], components: List[Dict[str, Any]]
-) -> Dict[Tuple[str, tuple], Tuple[str, str]]:
+) -> Dict[Tuple[str, ComponentIdentity], Tuple[str, str]]:
     """`(page_key, component_identity) -> (tag, component_type)` for every
     family member - the lookup `should_interact` needs.
 
@@ -104,13 +104,13 @@ def _index_family_members(
     accident.
     Details: docs/dev/analysis/family_sampling.md#_index_family_members
     """
-    identity_by_id: Dict[str, tuple] = {}
+    identity_by_id: Dict[str, ComponentIdentity] = {}
     id_by_location: Dict[Tuple[str, str], str] = {}
     for c in components:
         identity_by_id.setdefault(c["id"], component_identity(c))
         id_by_location[(c["page_url"], c["path"])] = c["id"]
 
-    index: Dict[Tuple[str, tuple], Tuple[str, str]] = {}
+    index: Dict[Tuple[str, ComponentIdentity], Tuple[str, str]] = {}
     for fam in families:
         family_key = (fam.tag, fam.component_type)
         for page_key, path in fam.member_paths:

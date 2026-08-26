@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
+from playwright.async_api import Page
+
 _JS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "js")
 
 
@@ -23,7 +25,7 @@ EXTRACT_TEXT_CONTENT_JS = _load_js("extract_text_content.js")
 EXTRACT_PSEUDO_STYLES_JS = _load_js("extract_pseudo_styles.js")
 
 
-async def run_extraction(page) -> Dict[str, Any]:
+async def run_extraction(page: Page) -> Dict[str, Any]:
     """Run every read-only extraction pass against `page`, including iframes.
     Details: docs/dev/spiders/content/page_extraction.md#run_extraction
     """

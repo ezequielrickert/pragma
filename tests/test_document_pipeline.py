@@ -7,6 +7,7 @@ import pytest
 
 from core import bootstrap  # noqa: F401  (registers the document generators)
 from core.documents import DocumentGenerator, DocumentOutput, DocumentRequest
+from core.interfaces import Agent
 from core.registry import DOCUMENT_REGISTRY
 from generators.coverage import build_coverage, render_coverage_banner
 from generators.pipeline import DocumentNaming, run_document_pipeline
@@ -16,7 +17,7 @@ SITE = "pipeline-test-site"
 TIMESTAMP = "20260812T120000Z"
 
 
-class StubAgent:
+class StubAgent(Agent):
     """`generate()` returns a marker, so a document that reached the model
     is distinguishable from one that only read the graph."""
 

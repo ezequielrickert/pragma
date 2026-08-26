@@ -3,9 +3,10 @@ LadybugGraphStore in-memory mode, same convention as
 tests/test_document_pipeline.py (build_export_graph only touches the
 store's read surface)."""
 import json
+from typing import Any, Dict
 
 from core.documents import DocumentRequest
-from core.interfaces import SemanticFlow, VisitStep
+from core.interfaces import Agent, SemanticFlow, VisitStep
 from database.ladybug.store import LadybugGraphStore
 from generators.component_catalog import CatalogEntry, CatalogVariant
 from generators.graph_export import (
@@ -24,7 +25,7 @@ from utils.urls import route_shape
 SITE = "export-test-site"
 
 
-class StubAgent:
+class StubAgent(Agent):
     def generate(self, prompt, system_instruction=None):
         return "STUB"
 
@@ -241,7 +242,9 @@ def test_no_pantallas_means_no_modulo_nodes():
 
 
 def test_entidad_nodes_and_depende_de_edge_from_a_citing_endpoint():
-    endpoints = {"POST api.example.com/checkout": {"id": "POST api.example.com/checkout", "type": "Endpoint"}}
+    endpoints: Dict[str, Dict[str, Any]] = {
+        "POST api.example.com/checkout": {"id": "POST api.example.com/checkout", "type": "Endpoint"},
+    }
     data_model_document = {
         "entities": {
             "checkout": {
@@ -267,8 +270,10 @@ def test_entidad_nodes_with_no_citing_endpoint_is_still_a_node():
 
 
 def test_requisito_nodes_and_implementa_from_a_citing_pantalla_and_endpoint():
-    pantallas = {"example.com/": {"id": "example.com/", "type": "Pantalla"}}
-    endpoints = {"POST api.example.com/checkout": {"id": "POST api.example.com/checkout", "type": "Endpoint"}}
+    pantallas: Dict[str, Dict[str, Any]] = {"example.com/": {"id": "example.com/", "type": "Pantalla"}}
+    endpoints: Dict[str, Dict[str, Any]] = {
+        "POST api.example.com/checkout": {"id": "POST api.example.com/checkout", "type": "Endpoint"},
+    }
     requirements_document = {"requirements": [{
         "id": "REQ-abc", "syntax_text": "WHEN..., THE SYSTEM SHALL...",
         "links": {
@@ -367,7 +372,7 @@ def test_usa_token_edges_one_per_real_component_instance():
     """A pattern used twice on the same page gets two edges, one per
     member_paths entry - not one edge per pattern (used_on would collapse
     both instances into a single page)."""
-    componentes = {
+    componentes: Dict[str, Dict[str, Any]] = {
         "comp-buy": {"id": "comp-buy", "type": "Componente"},
         "comp-checkout": {"id": "comp-checkout", "type": "Componente"},
     }
@@ -385,9 +390,9 @@ def test_usa_token_edges_one_per_real_component_instance():
 
 
 def test_usa_token_stays_absent_when_no_variant_matches_a_color_token():
-    componentes = {"comp-buy": {"id": "comp-buy", "type": "Componente"}}
+    componentes: Dict[str, Dict[str, Any]] = {"comp-buy": {"id": "comp-buy", "type": "Componente"}}
     location_to_id = {("shop/", "button.buy"): "comp-buy"}
-    tokens_document = {"core": {"color": {}}, "semantic": {}}
+    tokens_document: Dict[str, Any] = {"core": {"color": {}}, "semantic": {}}
     entry = _catalog_entry(member_paths=(("shop/", "button.buy"),))
 
     _populate_usa_token(componentes, [entry], tokens_document, location_to_id)
@@ -399,7 +404,7 @@ def test_usa_token_edge_lands_once_even_when_two_locations_share_a_reused_compon
     """Two `member_paths` entries that resolve to the same reused
     Componente (issue #141) still produce one edge on it, via
     `_add_edge`'s own dedup - not two identical entries."""
-    componentes = {"comp-nav": {"id": "comp-nav", "type": "Componente"}}
+    componentes: Dict[str, Dict[str, Any]] = {"comp-nav": {"id": "comp-nav", "type": "Componente"}}
     location_to_id = {("shop/", "a.nav"): "comp-nav", ("shop/about", "a.nav2"): "comp-nav"}
     tokens_document = {"core": {"color": {"surface-1": {"$type": "color", "$value": "#2d7737"}}}, "semantic": {}}
     entry = _catalog_entry(

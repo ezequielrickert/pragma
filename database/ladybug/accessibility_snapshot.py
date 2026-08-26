@@ -22,8 +22,13 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import ladybug as lb
 
-class _LadybugAccessibilitySnapshotMixin:
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
+
+
+class _LadybugAccessibilitySnapshotMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/accessibility_snapshot.md#_ladybugaccessibilitysnapshotmixin"""
 
     def record_accessibility_snapshot(self, page_url: str, aria_snapshot_yaml: str, axtree_json: str) -> None:
@@ -39,7 +44,7 @@ class _LadybugAccessibilitySnapshotMixin:
         if not aria_snapshot_yaml and not axtree_json:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 MERGE (p:Page {url: $page_url})
@@ -57,14 +62,14 @@ class _LadybugAccessibilitySnapshotMixin:
         blank strings.
         Details: docs/dev/database/ladybug/accessibility_snapshot.md#get_accessibility_snapshots
         """
-        def op(conn) -> Dict[str, Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, Dict[str, Any]]:
+            page_rows = _rows(conn.execute(
                 "MATCH (p:Page) WHERE p.aria_snapshot_yaml <> '' "
                 "RETURN p.url, p.aria_snapshot_yaml, p.axtree_json"
-            )
+            ))
             return {
                 url: {"aria_snapshot_yaml": aria_snapshot_yaml, "axtree_json": axtree_json}
-                for url, aria_snapshot_yaml, axtree_json in rows
+                for url, aria_snapshot_yaml, axtree_json in page_rows
             }
 
         return self._call(op)

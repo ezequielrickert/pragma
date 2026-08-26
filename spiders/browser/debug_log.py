@@ -7,10 +7,10 @@ import asyncio
 import os
 import shutil
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
-def loggable_hook_details(args: tuple, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def loggable_hook_details(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Pull the small, markdown-friendly facts out of a raw hook call.
     Details: docs/dev/spiders/browser/debug_log.md#loggable_hook_details
     """
@@ -64,7 +64,7 @@ class CrawlDebugLog:
             self._fh.write(f"Started: {datetime.now(timezone.utc).isoformat()}\n")
         self._fh.flush()
         self._queue: asyncio.Queue[Callable[[], None]] = asyncio.Queue()
-        self._writer_task: Optional[asyncio.Task] = None
+        self._writer_task: Optional["asyncio.Task[None]"] = None
 
     def _ensure_writer(self) -> None:
         """Start the background drain task on first use, not at construction.
@@ -88,7 +88,7 @@ class CrawlDebugLog:
         self._ensure_writer()
         self._queue.put_nowait(job)
 
-    def log_hook_from_raw(self, hook_name: str, args: tuple, kwargs: Dict[str, Any]) -> None:
+    def log_hook_from_raw(self, hook_name: str, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> None:
         """`log_hook` for a hook registered purely for its logging side effect.
         Details: docs/dev/spiders/browser/debug_log.md#log_hook_from_raw
         """

@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
+
 # One full-text index per (node table, text column) the storage-migration
 # plan names - Page.description, Component.text, TextContent.text,
 # ComponentFamily.purpose. Rule.statement (the fifth column the plan
@@ -28,7 +33,7 @@ _FTS_TARGETS = (
 )
 
 
-class _LadybugSearchMixin:
+class _LadybugSearchMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/search.md#_ladybugsearchmixin"""
 
     def ensure_search_indexes(self) -> None:
@@ -45,7 +50,7 @@ class _LadybugSearchMixin:
         here.
         Details: docs/dev/database/ladybug/search.md#ensure_search_indexes
         """
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute("INSTALL FTS")
             conn.execute("LOAD FTS")
             for table, index_name, column in _FTS_TARGETS:
@@ -71,13 +76,13 @@ class _LadybugSearchMixin:
             raise ValueError(f"no FTS index defined for table {table!r}")
         _, index_name, column = target
 
-        def op(conn) -> List[Dict[str, Any]]:
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
             try:
-                rows = conn.execute(
+                fts_rows = _rows(conn.execute(
                     f'CALL QUERY_FTS_INDEX("{table}", "{index_name}", $query_text) '
                     f"RETURN node.{column}, score ORDER BY score DESC LIMIT {int(limit)}",
                     {"query_text": query_text},
-                )
+                ))
             except RuntimeError as exc:
                 # Confirmed against the real engine: "Table Page doesn't
                 # have an index with name ..." - the exact, only-ever-seen
@@ -85,6 +90,6 @@ class _LadybugSearchMixin:
                 if "doesn't have an index" in str(exc):
                     return []
                 raise
-            return [{"text": text, "score": score} for text, score in rows]
+            return [{"text": text, "score": score} for text, score in fts_rows]
 
         return self._call(op)

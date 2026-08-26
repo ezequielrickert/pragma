@@ -3,6 +3,7 @@ same convention as tests/test_component_family.py's inline component dicts.
 """
 from analysis.component_matching_config import ComponentMatchingConfig
 from analysis.composite_matching import (
+    CompositeMatchResult,
     ContainerNode,
     bucket_candidates,
     classify_composite_match,
@@ -85,7 +86,7 @@ def test_nested_composites_recurse_and_the_result_is_cached():
     outer_a = ContainerNode(id="outerA", tag="div", role="", landmark="", css_class="wrap", children=[inner_a])
     outer_b = ContainerNode(id="outerB", tag="div", role="", landmark="", css_class="wrap", children=[inner_b])
 
-    cache = {}
+    cache: dict[tuple[str, str], CompositeMatchResult] = {}
     result = composite_score(outer_a, outer_b, _BUCKETS, _CONFIG, _cache=cache)
 
     assert result.full_coverage is True

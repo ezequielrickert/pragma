@@ -12,7 +12,9 @@ Details: docs/dev/spiders/browser/login.md#module
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
+
+from core.interfaces import PageState
 
 from .crawl4ai_crawler.config import Crawl4AICrawlerConfig
 from .crawl4ai_crawler.crawler import Crawl4AICrawler
@@ -89,7 +91,9 @@ async def ensure_login_session(
     return candidate
 
 
-async def _click_login_trigger_if_any(precheck: Crawl4AICrawler, url: str, page_state):
+async def _click_login_trigger_if_any(
+    precheck: Crawl4AICrawler, url: str, page_state: PageState
+) -> Tuple[PageState, bool]:
     """One extra click, if `page_state` has a plausible login trigger and
     nothing resembling a login form yet - see `ensure_login_session` for
     why. Returns `(post_click_page_state, True)` when a trigger was

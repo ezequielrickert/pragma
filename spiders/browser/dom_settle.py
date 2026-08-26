@@ -6,6 +6,8 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
+from playwright.async_api import Page
+
 # How many times _wait_for_new_content will start over because the page
 # navigated under it. A redirect chain is real (a landing page bouncing
 # through auth, then to the app); an unbounded one is a trap, and each
@@ -56,7 +58,7 @@ def _is_navigation_context_error(exc: Exception) -> bool:
     return "context was destroyed" in msg and "navigation" in msg
 
 
-async def _wait_for_new_content(page, ceiling_seconds: float) -> None:
+async def _wait_for_new_content(page: Page, ceiling_seconds: float) -> None:
     """Poll a cheap DOM-change signal in short steps, returning once it has
     changed at least once AND held steady for `_STABLE_HOLD_SECONDS` -
     not on the first sign of change, and not after just one poll step of

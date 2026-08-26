@@ -303,7 +303,7 @@ def _flujo_and_estado_nodes(
                 "label": route_shape(page_url) if page_url else estado_id,
             }
             _add_edge(flujo, "contiene", estado_id)
-            pantalla = pantallas.get(page_url)
+            pantalla = pantallas.get(page_url) if page_url else None
             if pantalla is not None:
                 _add_edge(estados[estado_id], "deriva_de", pantalla["id"])
     return flujos, estados
@@ -347,7 +347,7 @@ def _populate_navega_a(
         if edge["to"] not in pantallas:
             continue
         if edge["component"]:
-            source = componentes.get(location_to_id.get((edge["from"], edge["component"])))
+            source = componentes.get(location_to_id.get((edge["from"], edge["component"]), ""))
         else:
             source = pantallas.get(edge["from"])
         if source is not None:
@@ -369,7 +369,7 @@ def _populate_dispara_and_consume(
     for request in inferred_requests:
         node_id = f"{request.method} {request.endpoint}"
         for page_url, path in request.triggered_by:
-            source = componentes.get(location_to_id.get((page_url, path)))
+            source = componentes.get(location_to_id.get((page_url, path), ""))
             if source is not None:
                 _add_edge(source, "dispara", node_id)
         for page_url in request.loaded_by:
@@ -403,7 +403,7 @@ def _populate_usa_token(
         if not token_ids:
             continue
         for page_url, path in entry.member_paths:
-            componente = componentes.get(location_to_id.get((page_url, path)))
+            componente = componentes.get(location_to_id.get((page_url, path), ""))
             if componente is None:
                 continue
             for token_id in token_ids:

@@ -117,7 +117,8 @@ def build_calm_document(request: DocumentRequest) -> Dict[str, Any]:
 
 
 def _pragma_metadata(node: Dict[str, Any]) -> Dict[str, Any]:
-    return node.get("metadata", {}).get("pragma", {})
+    metadata: Dict[str, Any] = node.get("metadata", {}).get("pragma", {})
+    return metadata
 
 
 def _modules_from_calm(calm_document: Dict[str, Any]) -> List[Dict[str, Any]]:

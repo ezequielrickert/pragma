@@ -13,7 +13,7 @@ class _CountingStore:
     DuckDB backend this replaces."""
 
     def __init__(self) -> None:
-        self.call_counts = {}
+        self.call_counts: dict[str, int] = {}
 
     def get_component_ledger(self):
         self.call_counts["get_component_ledger"] = self.call_counts.get("get_component_ledger", 0) + 1

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Blocks a commit that introduces a mypy strict-mode error. Installed by
+# scripts/install-hooks.sh (this repo has no pre-commit framework or CI
+# yet, so a plain git hook is the only automatic enforcement available).
+#
+# Runs the whole-repo check (scripts/typecheck.sh), not just staged files:
+# mypy needs the full package in view to resolve cross-module references
+# correctly (e.g. database/ladybug's mixins), so a partial check would both
+# miss real errors and produce false positives.
+set -uo pipefail
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.py$'; then
+    exit 0
+fi
+
+if [ ! -x .venv/bin/mypy ] && ! command -v mypy >/dev/null 2>&1; then
+    echo "pre-commit: mypy not found (expected in .venv or on PATH) - skipping type check." >&2
+    echo "Run 'pip install -r requirements-dev.txt' to enable it." >&2
+    exit 0
+fi
+
+if [ -x .venv/bin/activate ] || [ -f .venv/bin/activate ]; then
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+fi
+
+scripts/typecheck.sh
+status=$?
+
+if [ "$status" -ne 0 ]; then
+    echo >&2
+    echo "pre-commit: mypy failed - commit blocked. Fix the errors above, or" >&2
+    echo "'git commit --no-verify' to bypass (not recommended)." >&2
+fi
+
+exit "$status"

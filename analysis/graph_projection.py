@@ -130,13 +130,13 @@ def _module_label(urls: Sequence[str]) -> str:
     return " / ".join(seg.replace("-", " ").replace("_", " ").title() for seg in common)
 
 
-def _click_depths(graph: "nx.DiGraph", root: Optional[str]) -> Dict[str, Optional[int]]:
+def _click_depths(graph: "nx.DiGraph[str]", root: Optional[str]) -> Dict[str, Optional[int]]:
     if not root or root not in graph:
         return {}
     return dict(nx.single_source_shortest_path_length(graph, root))
 
 
-def _cycles(graph: "nx.DiGraph") -> Tuple[Tuple[str, ...], ...]:
+def _cycles(graph: "nx.DiGraph[str]") -> Tuple[Tuple[str, ...], ...]:
     found = []
     for cycle in nx.simple_cycles(graph, length_bound=_MAX_CYCLE_LENGTH):
         found.append(tuple(cycle))
@@ -162,7 +162,7 @@ def project_graph(edges: List[Dict[str, Any]], root: Optional[str] = None) -> Gr
         input - an unreachable/never-crawled site produces nothing to
         project, not an error.
     """
-    graph = nx.DiGraph()
+    graph: "nx.DiGraph[str]" = nx.DiGraph()
     for edge in edges:
         graph.add_edge(edge["from"], edge["to"])
 

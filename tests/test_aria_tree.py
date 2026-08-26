@@ -3,8 +3,10 @@ of this needs no live page: a captured aria_snapshot_yaml/axtree_json
 pair is a fixture, the same way tests/test_document_pipeline.py fixtures
 a graph store."""
 import json
+from typing import Any
 
 from core.documents import DocumentRequest
+from core.interfaces import Agent
 from generators.aria_tree import (
     _attach_axtree_refs,
     _axtree_preorder_node_indices,
@@ -34,7 +36,7 @@ _AXTREE_JSON = json.dumps({
 })
 
 
-class StubAgent:
+class StubAgent(Agent):
     def generate(self, prompt, system_instruction=None):
         return "STUB"
 
@@ -71,7 +73,7 @@ def test_walk_aria_yaml_builds_nested_role_name_children():
 def test_template_hash_ignores_name_but_not_role_or_hierarchy():
     """Two screens with the same roles/shape and different text collapse to
     one template; a screen with a different shape does not."""
-    same_shape = [
+    same_shape: list[dict[str, Any]] = [
         {"role": "heading", "name": "Different text entirely", "children": []},
         {"role": "list", "name": "", "children": [
             {"role": "listitem", "name": "x", "children": []},

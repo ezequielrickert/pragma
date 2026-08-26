@@ -16,6 +16,10 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from .schema import DDL
 
 # The result cap `raw()` truncates to when a query's own RETURN carries no
@@ -73,7 +77,7 @@ def _reject_reason(cypher: str) -> Optional[str]:
     return None
 
 
-class _LadybugRawQueryMixin:
+class _LadybugRawQueryMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/raw_query.md#_ladybugrawquerymixin"""
 
     def schema_card(self) -> str:
@@ -131,12 +135,12 @@ class _LadybugRawQueryMixin:
         if reason is not None:
             raise ValueError(f"raw() rejected the query: {reason}")
 
-        def op(conn) -> List[List[Any]]:
+        def op(conn: lb.Connection) -> List[List[Any]]:
             conn.set_query_timeout(timeout_s * 1000)
             try:
-                rows = list(conn.execute(cypher, params or {}))
+                result_rows = list(_rows(conn.execute(cypher, params or {})))
             finally:
                 conn.set_query_timeout(0)
-            return rows[:limit]
+            return result_rows[:limit]
 
         return self._call(op)

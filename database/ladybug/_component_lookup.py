@@ -32,6 +32,10 @@ from __future__ import annotations
 import hashlib
 from typing import Dict, Iterable
 
+import ladybug as lb
+
+from ._query_rows import rows as _rows
+
 
 def stub_component_id(page_url: str, path: str) -> str:
     """The id a `(page_url, path)` with no `HAS_COMPONENT` edge yet falls
@@ -44,7 +48,7 @@ def stub_component_id(page_url: str, path: str) -> str:
     return f"stub:{digest}"
 
 
-def resolve_component_ids(conn, page_url: str, paths: Iterable[str]) -> Dict[str, str]:
+def resolve_component_ids(conn: lb.Connection, page_url: str, paths: Iterable[str]) -> Dict[str, str]:
     """`{path: component_id}` for every given path with a `HAS_COMPONENT`
     edge on this page already. A path missing from the result has none
     yet - callers fall back to `stub_component_id(page_url, path)`
@@ -54,12 +58,12 @@ def resolve_component_ids(conn, page_url: str, paths: Iterable[str]) -> Dict[str
     paths = list(paths)
     if not paths:
         return {}
-    rows = conn.execute(
+    edge_rows = _rows(conn.execute(
         """
         MATCH (page:Page {url: $page_url})-[e:HAS_COMPONENT]->(c:Component)
         WHERE e.path IN $paths
         RETURN e.path, c.id
         """,
         {"page_url": page_url, "paths": paths},
-    )
-    return {path: component_id for path, component_id in rows}
+    ))
+    return {path: component_id for path, component_id in edge_rows}

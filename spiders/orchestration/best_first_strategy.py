@@ -8,7 +8,7 @@ Details: docs/dev/spiders/orchestration/best_first_strategy.md#module
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator, Dict, List, Optional, Set, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
 
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
 from crawl4ai.models import CrawlResult
@@ -19,7 +19,11 @@ from spiders.orchestration.deep_crawl_strategy import PragmaFrontierMixin
 from spiders.orchestration.route_shape_scorer import RouteShapeNoveltyScorer
 
 
-class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
+class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):  # type: ignore[misc]
+    # crawl4ai ships no py.typed marker (see pyproject.toml's
+    # ignore_missing_imports override), so `BestFirstCrawlingStrategy`
+    # resolves to `Any` and mypy strict refuses to subclass it without
+    # this ignore - there is no untyped base to fix here.
     """Same frontier rules as `PragmaDeepCrawlStrategy`, ordered by a
     `url_scorer` (see `spiders/orchestration/route_shape_scorer.py`)
     instead of level-by-level BFS. Also fixes the `session_id` bug
@@ -40,7 +44,13 @@ class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
     # kept identical here as this override reproduces its loop body.
     _BATCH_SIZE = 10
 
-    def __init__(self, *args, max_session_permit: Optional[int] = None, **kwargs) -> None:
+    # crawl4ai's `BestFirstCrawlingStrategy` (an Any-typed base, see the
+    # class-level ignore above) sets this in its own __init__; declared
+    # here so mypy strict can determine its type across the reassignment
+    # below and the `.score()` calls in `_arun_best_first`.
+    url_scorer: Any
+
+    def __init__(self, *args: Any, max_session_permit: Optional[int] = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if self.url_scorer is None:
             # Default to route-shape novelty, reading the same
@@ -79,8 +89,10 @@ class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
         """
         self._cancel_event = asyncio.Event()
 
-        queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        queue: "asyncio.PriorityQueue[Tuple[float, int, str, Optional[str]]]" = asyncio.PriorityQueue()
 
+        visited: Set[str]
+        depths: Dict[str, int]
         if self._resume_state:
             visited = set(self._resume_state.get("visited", []))
             depths = dict(self._resume_state.get("depths", {}))
@@ -96,8 +108,8 @@ class PragmaBestFirstStrategy(PragmaFrontierMixin, BestFirstCrawlingStrategy):
         else:
             initial_score = self.url_scorer.score(start_url) if self.url_scorer else 0
             await queue.put((-initial_score, 0, start_url, None))
-            visited: Set[str] = set()
-            depths: Dict[str, int] = {start_url: 0}
+            visited = set()
+            depths = {start_url: 0}
             if self._on_state_change:
                 self._queue_shadow = [(-initial_score, 0, start_url, None)]
 

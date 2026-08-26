@@ -6,6 +6,8 @@ Trace construction has its own tests in tests/test_traces.py. The
 store-dependent half of ADR-0013 (correlating a trace to
 requirements.py's extraction rules and to the graph's module/screen ids)
 has its own tests in tests/test_gherkin_tags.py."""
+from typing import Any
+
 from gherkin.parser import Parser
 from gherkin.token_scanner import TokenScanner
 
@@ -46,7 +48,7 @@ def _request(status=201, visit_id="v1", step_seq=1, failed=False, url=None):
 
 
 def _inferred_request(**overrides):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         method="POST", endpoint=ENDPOINT, query_params=(), body_shape="", response_shape="",
         triggered_by=(), loaded_by=(), status_codes=(),
     )

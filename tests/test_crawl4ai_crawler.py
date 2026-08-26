@@ -357,6 +357,7 @@ def test_navigation_watchdog_aborts_a_hang_page_timeout_never_sees(fixture_serve
         async with Crawl4AICrawler(
             Crawl4AICrawlerConfig(wait_seconds=0, page_timeout_seconds=30, navigation_watchdog_seconds=0.2)
         ) as crawler:
+            assert crawler._crawler is not None
             async def _hang(*args, **kwargs):
                 await asyncio.sleep(60)
 
@@ -375,16 +376,17 @@ def test_navigation_watchdog_attempts_to_close_the_wedged_session(fixture_server
         async with Crawl4AICrawler(
             Crawl4AICrawlerConfig(wait_seconds=0, navigation_watchdog_seconds=0.2)
         ) as crawler:
+            assert crawler._crawler is not None
             async def _hang(*args, **kwargs):
                 await asyncio.sleep(60)
 
-            closed_sessions = []
+            closed_sessions: list[str] = []
 
             async def _record_close(session_id):
                 closed_sessions.append(session_id)
 
             crawler._crawler.arun = _hang
-            crawler.close_session = _record_close
+            crawler.close_session = _record_close  # type: ignore[method-assign]
             try:
                 await crawler.discover_page(f"{fixture_server}/index.html", session_id="watchdog-test")
             except RuntimeError:
@@ -420,6 +422,7 @@ def test_close_session_watchdog_aborts_a_hang_kill_session_never_returns_from(fi
         async with Crawl4AICrawler(
             Crawl4AICrawlerConfig(wait_seconds=0, session_cleanup_timeout_seconds=0.2)
         ) as crawler:
+            assert crawler._crawler is not None
             async def _hang(*args, **kwargs):
                 await asyncio.sleep(60)
 
@@ -441,7 +444,8 @@ def test_close_session_waits_for_an_in_flight_arun_call(fixture_server):
     the gate's own isolated semantics."""
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0)) as crawler:
-            events = []
+            assert crawler._crawler is not None
+            events: list[str] = []
             real_arun = crawler._crawler.arun
 
             async def _slow_arun(*args, **kwargs):
@@ -483,8 +487,10 @@ def test_close_session_watchdog_generous_enough_still_succeeds(fixture_server):
 def test_extra_args_default_and_custom():
     # 1. Test defaults
     crawler_default = Crawl4AICrawler(Crawl4AICrawlerConfig())
-    assert "--use-gl=angle" in crawler_default.extra_args
-    assert "--use-angle=swiftshader" in crawler_default.extra_args
+    default_extra_args = crawler_default.extra_args
+    assert default_extra_args is not None
+    assert "--use-gl=angle" in default_extra_args
+    assert "--use-angle=swiftshader" in default_extra_args
 
     # 2. Test custom override
     custom_flags = ["--disable-extensions", "--no-sandbox"]
@@ -494,6 +500,7 @@ def test_extra_args_default_and_custom():
     # 3. Test context manager entry and propagation to AsyncWebCrawler
     async def run():
         async with Crawl4AICrawler(Crawl4AICrawlerConfig(extra_args=custom_flags)) as crawler:
+            assert crawler._crawler is not None
             assert crawler._crawler.browser_config.extra_args == custom_flags
     asyncio.run(run())
 

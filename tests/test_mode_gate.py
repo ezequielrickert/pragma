@@ -18,6 +18,7 @@ from typing import List, Tuple
 
 import pytest
 
+from core.data_contracts import PageState
 from spiders.browser.crawl4ai_crawler import Crawl4AICrawler, Crawl4AICrawlerConfig
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "mechanical"
@@ -77,7 +78,7 @@ def mutation_tracking_fixture_server():
     thread.join()
 
 
-async def _create_and_delete(base_url: str, mode: str) -> tuple:
+async def _create_and_delete(base_url: str, mode: str) -> Tuple[PageState, PageState]:
     url = f"{base_url}/mutation_response_handling.html"
     async with Crawl4AICrawler(Crawl4AICrawlerConfig(wait_seconds=0, mode=mode)) as crawler:
         await crawler.discover_page(url, session_id="s")

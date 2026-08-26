@@ -13,7 +13,7 @@ from .dynamic_engine import DynamicEngine, DynamicRunResult
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
-def parse_dynamic_args(argv: list) -> argparse.Namespace:
+def parse_dynamic_args(argv: list[str]) -> argparse.Namespace:
     """A URL, not a bare site: unlike `pragma cluster`, `pragma dynamic`
     still has to know where to start a fused crawl when there is nothing
     to resume - see `DynamicEngine.run`'s fallback.
@@ -55,7 +55,7 @@ def parse_dynamic_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_dynamic_command(argv: list) -> None:
+def run_dynamic_command(argv: list[str]) -> None:
     """`pragma dynamic <url>`: interact, don't scout or analyze - see
     `DynamicEngine` for what that means in practice.
     Details: docs/dev/core/dynamic_cli.md#run_dynamic_command
@@ -67,6 +67,9 @@ def run_dynamic_command(argv: list) -> None:
     overrides["url"] = args.url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
+    if config.url is None:
+        print("Critical error during dynamic interaction: no URL configured")
+        sys.exit(1)
 
     try:
         print(f"Starting dynamic interaction for: {config.url}")

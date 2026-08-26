@@ -14,14 +14,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from ._cypher import set_clause
+from ._query_rows import rows as _rows
 
 _FIELDS = ("tag", "text", "visible", "x", "y", "width", "height")
 _SET_CLAUSE = set_clause("t", _FIELDS)
 _SET_CLAUSE_UNWIND = set_clause("t", _FIELDS, row_alias="r.")
 
 
-class _LadybugTextContentMixin:
+class _LadybugTextContentMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/text_content.md#_ladybugtextcontentmixin"""
 
     def record_text_content(
@@ -44,7 +48,7 @@ class _LadybugTextContentMixin:
             "visible": visible, "x": x, "y": y, "width": width, "height": height,
         }
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             conn.execute(
                 f"""
@@ -77,7 +81,7 @@ class _LadybugTextContentMixin:
             for item in entries
         ]
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             # MATCH the page before UNWIND, not after via a WITH - a MATCH
             # following a WITH that itself follows an UNWIND raised "Cannot
@@ -104,15 +108,15 @@ class _LadybugTextContentMixin:
         "width", "height"}, ...]}` for the whole site.
         Details: docs/dev/database/ladybug/text_content.md#get_text_content_ledger
         """
-        def op(conn) -> Dict[str, List[Dict[str, Any]]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, List[Dict[str, Any]]]:
+            text_rows = _rows(conn.execute(
                 """
                 MATCH (p:Page)-[:HAS_TEXT]->(t:TextContent)
                 RETURN p.url, t.path, t.tag, t.text, t.visible, t.x, t.y, t.width, t.height
                 """
-            )
+            ))
             ledger: Dict[str, List[Dict[str, Any]]] = {}
-            for page_url, path, tag, text, visible, x, y, width, height in rows:
+            for page_url, path, tag, text, visible, x, y, width, height in text_rows:
                 ledger.setdefault(page_url, []).append(
                     {"path": path, "tag": tag, "text": text, "visible": visible, "x": x, "y": y, "width": width, "height": height}
                 )

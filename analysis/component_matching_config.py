@@ -20,9 +20,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type, TypeVar
 
 import yaml
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
 DEFAULT_CONFIG_PATH = "config/component_matching.yaml"
 
@@ -112,7 +115,10 @@ def _read_yaml(path: str) -> Dict[str, Any]:
     return yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
 
 
-def _merge_block(block_cls: type, values: Optional[Dict[str, Any]]):
+_BlockT = TypeVar("_BlockT", bound="DataclassInstance")
+
+
+def _merge_block(block_cls: Type[_BlockT], values: Optional[Dict[str, Any]]) -> _BlockT:
     """One nested block (`LeafWeights`, `MatchingThresholds`,
     `CompositeBucketing`) built from `block_cls`'s own defaults, overridden
     field-by-field by whichever keys `values` actually has - an absent

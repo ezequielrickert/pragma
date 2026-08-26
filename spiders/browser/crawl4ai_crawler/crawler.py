@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, AsyncGenerator, List, Optional, Tuple
+from types import TracebackType
+from typing import Any, AsyncGenerator, List, Optional, Tuple, Type
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from crawl4ai.async_configs import CacheMode
@@ -131,7 +132,12 @@ class Crawl4AICrawler:
         await self._crawler.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
         if self._crawler is not None:
             await self._crawler.__aexit__(exc_type, exc, tb)
             self._crawler = None
@@ -298,7 +304,7 @@ class Crawl4AICrawler:
             state, session_id = self._translate_result(result)
             yield result.url, state, result, session_id
 
-    async def _run_with_watchdog(self, url: str, session_id: str, config: CrawlerRunConfig):
+    async def _run_with_watchdog(self, url: str, session_id: str, config: CrawlerRunConfig) -> Any:
         """`self._crawler.arun(...)`, bounded by `navigation_watchdog_seconds` -
         an outer backstop independent of `page_timeout_seconds`, which only
         bounds crawl4ai's own internal navigation clock once a navigation has
@@ -325,6 +331,10 @@ class Crawl4AICrawler:
         browser context down while this is still in flight.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_run_with_watchdog
         """
+        if self._crawler is None:
+            raise RuntimeError(
+                "Crawl4AICrawler must be used as an async context manager"
+            )
         print(f"[arun] {session_id} -> {url}")
         try:
             async with self._session_gate.reader():
@@ -353,7 +363,7 @@ class Crawl4AICrawler:
         except Exception as exc:
             print(f"Warning: could not close wedged session {session_id!r} after watchdog timeout: {exc}")
 
-    def _save_markdown(self, session_id: str, result) -> None:
+    def _save_markdown(self, session_id: str, result: Any) -> None:
         """Save crawl4ai's markdown conversion of the page, if debug logging is on.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/crawler.md#_save_markdown
         """

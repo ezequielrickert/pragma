@@ -192,10 +192,10 @@ def test_narrate_family_purposes_notes_omitted_texts_past_the_cap():
     assert "5 more instance(s) not shown" in prompt
 
 
-class _CountingAgent:
+class _CountingAgent(Agent):
     def __init__(self) -> None:
         self.calls = 0
 
-    def generate(self, prompt: str, system_instruction: str = "") -> str:
+    def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         self.calls += 1
         return "freshly narrated"

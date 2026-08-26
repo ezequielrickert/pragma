@@ -7,6 +7,7 @@ running a real crawl - CrawlEngine's own job is the sequencing/stop-on-
 failure logic, not anything a real browser would exercise differently.
 """
 import asyncio
+from typing import Any, List, Tuple
 
 import pytest
 
@@ -61,26 +62,31 @@ def _wire_fakes(monkeypatch, calls, fail_phase=None):
 
 
 def test_crawl_runs_all_three_phases_in_order(monkeypatch):
-    calls = []
+    calls: List[Tuple[str, Any]] = []
     _wire_fakes(monkeypatch, calls)
 
-    config = PragmaConfig(url="https://shop.example/")
-    result = asyncio.run(CrawlEngine.from_config(config).run(config.url))
+    url = "https://shop.example/"
+    config = PragmaConfig(url=url)
+    result = asyncio.run(CrawlEngine.from_config(config).run(url))
 
     assert [name for name, _ in calls] == ["static", "cluster", "dynamic"]
     assert result.succeeded
     assert result.failed_phase is None
-    assert result.static == "static-result"
-    assert result.cluster == "cluster-result"
-    assert result.dynamic == "dynamic-result"
+    # The fakes above return plain strings, not real StaticRunResult/etc
+    # dataclasses - CrawlEngine.run() stores whatever a phase gave it back
+    # with no shape validation, so these compare the field verbatim.
+    assert result.static == "static-result"  # type: ignore[comparison-overlap]
+    assert result.cluster == "cluster-result"  # type: ignore[comparison-overlap]
+    assert result.dynamic == "dynamic-result"  # type: ignore[comparison-overlap]
 
 
 def test_crawl_stops_at_static_and_never_runs_cluster_or_dynamic(monkeypatch):
-    calls = []
+    calls: List[Tuple[str, Any]] = []
     _wire_fakes(monkeypatch, calls, fail_phase="static")
 
-    config = PragmaConfig(url="https://shop.example/")
-    result = asyncio.run(CrawlEngine.from_config(config).run(config.url))
+    url = "https://shop.example/"
+    config = PragmaConfig(url=url)
+    result = asyncio.run(CrawlEngine.from_config(config).run(url))
 
     assert [name for name, _ in calls] == ["static"]
     assert not result.succeeded
@@ -92,30 +98,32 @@ def test_crawl_stops_at_static_and_never_runs_cluster_or_dynamic(monkeypatch):
 
 
 def test_crawl_stops_at_cluster_but_keeps_statics_result(monkeypatch):
-    calls = []
+    calls: List[Tuple[str, Any]] = []
     _wire_fakes(monkeypatch, calls, fail_phase="cluster")
 
-    config = PragmaConfig(url="https://shop.example/")
-    result = asyncio.run(CrawlEngine.from_config(config).run(config.url))
+    url = "https://shop.example/"
+    config = PragmaConfig(url=url)
+    result = asyncio.run(CrawlEngine.from_config(config).run(url))
 
     assert [name for name, _ in calls] == ["static", "cluster"]
     assert result.failed_phase == "cluster"
-    assert result.static == "static-result"
+    assert result.static == "static-result"  # type: ignore[comparison-overlap]
     assert result.cluster is None
     assert result.dynamic is None
 
 
 def test_crawl_stops_at_dynamic_but_keeps_earlier_results(monkeypatch):
-    calls = []
+    calls: List[Tuple[str, Any]] = []
     _wire_fakes(monkeypatch, calls, fail_phase="dynamic")
 
-    config = PragmaConfig(url="https://shop.example/")
-    result = asyncio.run(CrawlEngine.from_config(config).run(config.url))
+    url = "https://shop.example/"
+    config = PragmaConfig(url=url)
+    result = asyncio.run(CrawlEngine.from_config(config).run(url))
 
     assert [name for name, _ in calls] == ["static", "cluster", "dynamic"]
     assert result.failed_phase == "dynamic"
-    assert result.static == "static-result"
-    assert result.cluster == "cluster-result"
+    assert result.static == "static-result"  # type: ignore[comparison-overlap]
+    assert result.cluster == "cluster-result"  # type: ignore[comparison-overlap]
     assert result.dynamic is None
 
 
@@ -130,10 +138,11 @@ def test_crawl_engine_never_imports_docs():
 
 @pytest.mark.parametrize("fail_phase", ["static", "cluster", "dynamic"])
 def test_crawl_engine_derives_site_from_the_url(monkeypatch, fail_phase):
-    calls = []
+    calls: List[Tuple[str, Any]] = []
     _wire_fakes(monkeypatch, calls, fail_phase=fail_phase)
 
-    config = PragmaConfig(url="https://shop.example/catalog")
-    result = asyncio.run(CrawlEngine.from_config(config).run(config.url))
+    url = "https://shop.example/catalog"
+    config = PragmaConfig(url=url)
+    result = asyncio.run(CrawlEngine.from_config(config).run(url))
 
     assert result.site == "shop.example"

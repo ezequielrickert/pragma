@@ -13,3 +13,10 @@ openapi-spec-validator==0.9.0
 # instead of asserting that the word "Given" appears in it. Test-only - the
 # generator writes plain text and never imports this.
 gherkin-official==42.0.1
+
+# mypy + types-PyYAML: the type checker (pyproject.toml's [tool.mypy],
+# strict mode) and the stub package for PyYAML, which ships without one.
+# Run via scripts/typecheck.sh; scripts/install-hooks.sh wires that into a
+# pre-commit hook that blocks a commit on a type error.
+mypy==2.3.1
+types-PyYAML==6.0.12.20260815

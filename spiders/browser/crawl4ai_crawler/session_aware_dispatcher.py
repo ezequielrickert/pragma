@@ -10,7 +10,11 @@ from crawl4ai import CrawlerRunConfig
 from crawl4ai.async_dispatcher import CrawlerTaskResult, MemoryAdaptiveDispatcher
 
 
-class SessionAwareDispatcher(MemoryAdaptiveDispatcher):
+class SessionAwareDispatcher(MemoryAdaptiveDispatcher):  # type: ignore[misc]
+    # crawl4ai ships no py.typed marker (see pyproject.toml's
+    # ignore_missing_imports override), so `MemoryAdaptiveDispatcher`
+    # resolves to `Any` and mypy strict refuses to subclass it without
+    # this ignore - there is no untyped base to fix here.
     """`MemoryAdaptiveDispatcher.crawl_url` passes `session_id=task_id` to
     `AsyncWebCrawler.arun()` as a bare keyword argument, which `arun()`
     never reads (it only ever consults `config.session_id` -

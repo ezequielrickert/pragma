@@ -35,6 +35,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from ._component_lookup import resolve_component_ids, stub_component_id
 
 
@@ -74,7 +77,7 @@ def _option_rows_and_group(options: Dict[str, Any]) -> Optional[Tuple[List[Dict[
     return None
 
 
-class _LadybugOptionsMixin:
+class _LadybugOptionsMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/options.md#_ladybugoptionsmixin"""
 
     def record_component_options(
@@ -94,7 +97,7 @@ class _LadybugOptionsMixin:
         """
         parsed = _option_rows_and_group(options)
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             resolved = resolve_component_ids(conn, page_url, [path])
             target_id = resolved.get(path) or stub_component_id(page_url, path)

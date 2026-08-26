@@ -31,6 +31,10 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from core.interfaces import SemanticFlow
 
 # Recorded on every `DERIVED_FROM` edge this module writes.
@@ -41,7 +45,7 @@ _METHOD = "deterministic"
 _CONFIDENCE = 1.0
 
 
-class _LadybugFlowMixin:
+class _LadybugFlowMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/flow.md#_ladybugflowmixin"""
 
     def record_flows(self, flows: Sequence[SemanticFlow], run_id: str = "") -> None:
@@ -62,7 +66,7 @@ class _LadybugFlowMixin:
             if not flow.derived_from:
                 raise ValueError(f"semantic flow {flow.visit_id!r} has no derived_from")
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # Edges first: Ladybug refuses to delete a node that still has
             # relationships attached. DERIVED_FROM scoped by source label -
             # see this module's own docstring for why.
@@ -108,17 +112,17 @@ class _LadybugFlowMixin:
         `SemanticScreen`.
         Details: docs/dev/database/ladybug/flow.md#get_flows
         """
-        def op(conn) -> List[SemanticFlow]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[SemanticFlow]:
+            flow_rows = _rows(conn.execute(
                 """
                 MATCH (i:Interaction)-[e:STEP_OF]->(fl:Flow)
                 RETURN i.visit_id, fl.name, fl.goal, fl.step_count, fl.outcome, e.seq
                 ORDER BY i.visit_id, e.seq
                 """
-            )
+            ))
             step_seqs_by_visit: Dict[str, List[int]] = {}
             flow_by_visit: Dict[str, Tuple[str, str, int, str]] = {}
-            for visit_id, name, goal, step_count, outcome, seq in rows:
+            for visit_id, name, goal, step_count, outcome, seq in flow_rows:
                 step_seqs_by_visit.setdefault(visit_id, []).append(seq)
                 flow_by_visit[visit_id] = (name, goal, step_count, outcome)
 

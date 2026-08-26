@@ -61,7 +61,8 @@ _DISCLOSURE_RULE = "information-disclosure-header"
 def _service_property(service: Dict[str, Any], name: str) -> str:
     for prop in service.get("properties", []):
         if prop.get("name") == name:
-            return prop.get("value", "")
+            value: str = prop.get("value", "")
+            return value
     return ""
 
 

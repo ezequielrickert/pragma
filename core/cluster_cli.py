@@ -11,7 +11,7 @@ from .config import PragmaConfig
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
-def parse_cluster_args(argv: list) -> argparse.Namespace:
+def parse_cluster_args(argv: list[str]) -> argparse.Namespace:
     """A site, not a URL: clustering resumes against a `pragma static` run
     already on disk, so there is nothing here to navigate to.
     Details: docs/dev/core/cluster_cli.md#parse_cluster_args
@@ -34,7 +34,7 @@ def parse_cluster_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_cluster_command(argv: list) -> None:
+def run_cluster_command(argv: list[str]) -> None:
     """`pragma cluster <site>`: read, group, narrate, write back - see
     `ClusterEngine` for what that means in practice.
     Details: docs/dev/core/cluster_cli.md#run_cluster_command

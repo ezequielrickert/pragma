@@ -47,7 +47,8 @@ from utils.io import write_output
 from .document_context import render_context_section
 from .generic_template import render_generic_page
 from .graph_renderer import render_graph_page
-from .kpi_section import KpiContext, kpi_section, source_content
+from .kpi_section import KpiContext as KpiContext
+from .kpi_section import kpi_section, source_content
 from .redoc_renderer import render_redoc_page
 from .renderer_audit import renderer_for
 

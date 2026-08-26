@@ -13,10 +13,13 @@ Relocated from `spiders/orchestration/page_visitor/frontier.py::Frontier`
 (retired with the Legacy Engine, issue #242) onto `PageInteractionStep`,
 which carries this method unchanged - see its own docstring.
 """
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, cast
 
 from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
 from spiders.orchestration.page_interaction import PageInteractionStep
+
+if TYPE_CHECKING:
+    from spiders.browser.crawl4ai_crawler import Crawl4AICrawler
 
 
 def _component(path: str, text: str = "Neurología", form: str = "sidebar-filters") -> Dict[str, Any]:
@@ -27,7 +30,7 @@ def _step() -> PageInteractionStep:
     async def _no_fill_value(component: Dict[str, Any], page_description: str) -> str:
         return ""
 
-    return PageInteractionStep(None, InMemoryInteractionTracker(), _no_fill_value)
+    return PageInteractionStep(cast("Crawl4AICrawler", None), InMemoryInteractionTracker(), _no_fill_value)
 
 
 def test_a_drifted_path_for_an_already_known_identity_collapses_to_the_first_seen_path():

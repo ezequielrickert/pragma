@@ -6,7 +6,7 @@ visit cap, `clean_url`-based dedup, and redirect-resolved identity
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from spiders.orchestration.deep_crawl_strategy import PragmaDeepCrawlStrategy
 
@@ -20,7 +20,7 @@ class _FakeCrawlResult:
     url: str
     links: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
     redirected_url: Optional[str] = None
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _links(*hrefs: str) -> Dict[str, List[Dict[str, str]]]:
@@ -28,8 +28,8 @@ def _links(*hrefs: str) -> Dict[str, List[Dict[str, str]]]:
 
 
 async def _discover(strategy: PragmaDeepCrawlStrategy, result: _FakeCrawlResult, depth: int = 0):
-    visited: set = set()
-    next_level: list = []
+    visited: set[str] = set()
+    next_level: List[Tuple[str, Optional[str]]] = []
     depths: Dict[str, int] = {}
     await strategy.link_discovery(result, result.url, depth, visited, next_level, depths)
     return next_level
@@ -93,8 +93,8 @@ def test_link_discovery_never_removes_an_earlier_calls_own_entries():
     """next_level accumulates across every result in a BFS level - a later
     call's own dedup pass must only touch what it itself appended."""
     strategy = PragmaDeepCrawlStrategy()
-    visited: set = set()
-    next_level: list = []
+    visited: set[str] = set()
+    next_level: List[Tuple[str, Optional[str]]] = []
     depths: Dict[str, int] = {}
 
     asyncio.run(strategy.link_discovery(

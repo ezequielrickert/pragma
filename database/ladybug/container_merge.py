@@ -10,8 +10,12 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+import ladybug as lb
 
-class _LadybugContainerMergeMixin:
+from ._mixin_base import _LadybugMixinBase
+
+
+class _LadybugContainerMergeMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/container_merge.md#_ladybugcontainermergemixin"""
 
     def merge_containers(self, groups: List[Tuple[str, List[str]]]) -> None:
@@ -38,7 +42,7 @@ class _LadybugContainerMergeMixin:
         rows = [{"canonical_id": c, "absorbed_id": a} for c, a in pairs]
         absorbed_ids = [a for _, a in pairs]
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 UNWIND $rows AS r

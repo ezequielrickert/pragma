@@ -20,10 +20,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.interfaces import ComponentFacts, VisitStep
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from core.data_contracts import ComponentFacts, VisitStep
 from utils.urls import route_shape
 from ._component_lookup import resolve_component_ids, stub_component_id
 from ._cypher import set_clause
+from ._query_rows import rows as _rows
 from .ids import component_content_id
 from .schema import DESCRIPTIVE_COMPONENT_FIELDS
 
@@ -75,7 +79,7 @@ def _component_params(path: str, item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-class _LadybugComponentMixin:
+class _LadybugComponentMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/component.md#_ladybugcomponentmixin"""
 
     def record_component(
@@ -117,7 +121,7 @@ class _LadybugComponentMixin:
         }
         params = _component_params(path, item)
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             resolved = resolve_component_ids(conn, page_url, [path])
             target_id = resolved.get(path) or component_content_id(_node_fields(item))
@@ -146,7 +150,7 @@ class _LadybugComponentMixin:
         if not components:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             # Same rediscovery-continuity rule as record_component: a path
             # already known on this page keeps its existing id even if its
@@ -239,7 +243,7 @@ class _LadybugComponentMixin:
             "blocked": blocked, "blocked_reason": blocked_reason,
         }
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             self._ensure_page(conn, target_url)
             resolved = resolve_component_ids(conn, page_url, [path])
@@ -291,16 +295,16 @@ class _LadybugComponentMixin:
         """
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
 
-        def op(conn) -> Dict[str, Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, Dict[str, Any]]:
+            component_rows = _rows(conn.execute(
                 f"""
                 MATCH (:Page {{url: $page_url}})-[e:HAS_COMPONENT]->(c:Component)
                 RETURN e.path, c.interacted, c.interaction_count, {fields}
                 """,
                 {"page_url": page_url},
-            )
+            ))
             result: Dict[str, Dict[str, Any]] = {}
-            for row in rows:
+            for row in component_rows:
                 path, interacted, interaction_count = row[0], row[1], row[2]
                 result[path] = {"interacted": interacted, "interaction_count": interaction_count}
                 result[path].update(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[3:]))
@@ -315,11 +319,11 @@ class _LadybugComponentMixin:
         """
         clause = "WHERE c.layer <> 'pointer'" if semantic_only else ""
 
-        def op(conn) -> Tuple[int, int]:
-            row = list(conn.execute(
+        def op(conn: lb.Connection) -> Tuple[int, int]:
+            row = list(_rows(conn.execute(
                 f"MATCH (c:Component) {clause} "
                 "RETURN sum(CASE WHEN c.interacted THEN 0 ELSE 1 END), count(*)"
-            ))[0]
+            )))[0]
             # int(), not the bare Decimal sum() returns - see page.py's
             # count_visited for why this matters.
             return (int(row[0] or 0), row[1])
@@ -334,8 +338,8 @@ class _LadybugComponentMixin:
         exist, whether or not each was ever exercised).
         Details: docs/dev/database/ladybug/component.md#count_interactions
         """
-        def op(conn) -> int:
-            row = list(conn.execute("MATCH (i:Interaction) RETURN count(*)"))[0]
+        def op(conn: lb.Connection) -> int:
+            row = list(_rows(conn.execute("MATCH (i:Interaction) RETURN count(*)")))[0]
             return int(row[0])
 
         return self._call(op)
@@ -354,18 +358,18 @@ class _LadybugComponentMixin:
         actually happened on.
         Details: docs/dev/database/ladybug/component.md#get_interaction_evidence
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            evidence_rows = _rows(conn.execute(
                 """
                 MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
                 MATCH (p)-[e:HAS_COMPONENT]->(c)
                 RETURN i.id, p.url, e.path, i.action, i.value
                 ORDER BY i.id
                 """
-            )
+            ))
             return [
                 {"id": row[0], "page_url": row[1], "path": row[2], "action": row[3], "value": row[4]}
-                for row in rows
+                for row in evidence_rows
             ]
 
         return self._call(op)
@@ -397,13 +401,13 @@ class _LadybugComponentMixin:
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
         edge_fields = ", ".join(f"e.{field}" for field in _EDGE_FIELDS)
 
-        def op(conn) -> Dict[str, Dict[str, Dict[str, Any]]]:
-            component_rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, Dict[str, Dict[str, Any]]]:
+            component_rows = _rows(conn.execute(
                 f"""
                 MATCH (p:Page)-[e:HAS_COMPONENT]->(c:Component)
                 RETURN p.url, e.path, c.id, c.interacted, c.interaction_count, {fields}, {edge_fields}
                 """
-            )
+            ))
             ledger: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for row in component_rows:
                 page_url, path, component_id, interacted, interaction_count = row[0], row[1], row[2], row[3], row[4]
@@ -425,7 +429,7 @@ class _LadybugComponentMixin:
                 record["options"] = ([], "")
                 ledger.setdefault(page_url, {})[path] = record
 
-            interaction_rows = conn.execute(
+            interaction_rows = _rows(conn.execute(
                 """
                 MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
                 MATCH (p)-[e:HAS_COMPONENT]->(c)
@@ -433,7 +437,7 @@ class _LadybugComponentMixin:
                 RETURN p.url, e.path, i.action, i.value, target.url, i.source_path, i.visit_id, i.step_seq
                 ORDER BY i.id
                 """
-            )
+            ))
             for page_url, path, action, value, target_url, source_path, visit_id, step_seq in interaction_rows:
                 page_components = ledger.get(page_url)
                 if page_components is None or path not in page_components:
@@ -454,7 +458,7 @@ class _LadybugComponentMixin:
                     }
                 )
 
-            request_rows = conn.execute(
+            request_rows = _rows(conn.execute(
                 """
                 MATCH (c:Component)-[:PERFORMED]->(i:Interaction)-[:OCCURRED_ON]->(p:Page)
                 MATCH (p)-[e:HAS_COMPONENT]->(c)
@@ -463,7 +467,7 @@ class _LadybugComponentMixin:
                        i.visit_id, i.step_seq
                 ORDER BY req.id
                 """
-            )
+            ))
             for page_url, path, method, req_path, status, failed, failure_text, visit_id, step_seq in request_rows:
                 page_components = ledger.get(page_url)
                 if page_components is None or path not in page_components:
@@ -476,13 +480,13 @@ class _LadybugComponentMixin:
                     }
                 )
 
-            option_rows = conn.execute(
+            option_rows = _rows(conn.execute(
                 """
                 MATCH (p:Page)-[e:HAS_COMPONENT]->(c:Component)-[hop:HAS_OPTION]->(o:Option)
                 RETURN p.url, e.path, o.group_name, o.path, o.text, o.selected, hop.seq
                 ORDER BY hop.seq
                 """
-            )
+            ))
             for page_url, path, group_name, opt_path, opt_text, opt_selected, _seq in option_rows:
                 page_components = ledger.get(page_url)
                 if page_components is None or path not in page_components:

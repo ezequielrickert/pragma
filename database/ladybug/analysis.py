@@ -29,6 +29,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
+
 # Every `Page` property `record_page_metrics`/`record_page_modules` write,
 # in the order `get_page_metrics` returns them. One list so the RETURN
 # clause and the dict it builds cannot drift apart - the same reason
@@ -40,7 +45,7 @@ _METRIC_FIELDS = (
 )
 
 
-class _LadybugAnalysisMixin:
+class _LadybugAnalysisMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/analysis.md#_ladybuganalysismixin"""
 
     def record_page_metrics(self, metrics: List[Dict[str, Any]]) -> None:
@@ -62,7 +67,7 @@ class _LadybugAnalysisMixin:
             for m in metrics
         ]
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # click_depth/betweenness/pagerank all explicitly CAST: an
             # UNWIND batch whose numeric column is None on every row (a
             # disconnected site's click_depth; a genuinely all-zero
@@ -100,7 +105,7 @@ class _LadybugAnalysisMixin:
             for m in modules
         ]
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 UNWIND $rows AS r
@@ -133,11 +138,11 @@ class _LadybugAnalysisMixin:
         """
         fields = ", ".join(f"p.{field}" for field in _METRIC_FIELDS)
 
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(f"MATCH (p:Page) RETURN p.url, {fields} ORDER BY p.url")
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            page_rows = _rows(conn.execute(f"MATCH (p:Page) RETURN p.url, {fields} ORDER BY p.url"))
             return [
                 {"url": row[0], **dict(zip(_METRIC_FIELDS, row[1:]))}
-                for row in rows
+                for row in page_rows
             ]
 
         return self._call(op)

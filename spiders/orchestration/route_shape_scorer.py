@@ -14,7 +14,11 @@ from crawl4ai.deep_crawling.scorers import URLScorer
 from utils.urls import route_shape
 
 
-class RouteShapeNoveltyScorer(URLScorer):
+class RouteShapeNoveltyScorer(URLScorer):  # type: ignore[misc]
+    # crawl4ai ships no py.typed marker (see pyproject.toml's
+    # ignore_missing_imports override), so `URLScorer` resolves to `Any`
+    # and mypy strict refuses to subclass it without this ignore - there
+    # is no untyped base to fix here.
     """Favors URLs whose route shape is furthest below
     `max_visits_per_route_shape` - the same route-shape-cap bookkeeping
     `PragmaFrontierMixin` already keeps in `_route_shape_visits`, read

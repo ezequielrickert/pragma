@@ -6,11 +6,16 @@ instead of a real-browser fixture.
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
 from core.interfaces import PageState
 from spiders.orchestration.interaction_tracker import InMemoryInteractionTracker
 from spiders.orchestration.page_interaction import PageInteractionStep
+
+if TYPE_CHECKING:
+    from analysis.exact_reuse_index import ExactReuseIndex
+    from analysis.family_sampling import FamilySampler
+    from spiders.browser.crawl4ai_crawler import Crawl4AICrawler
 
 
 def _fillable(path: str, text: str) -> Dict[str, Any]:
@@ -21,7 +26,7 @@ def _fillable(path: str, text: str) -> Dict[str, Any]:
 
 
 def _clickable(path: str, text: str = "", href: str = "") -> Dict[str, Any]:
-    component = {
+    component: Dict[str, Any] = {
         "tag": "a" if href else "button", "text": text, "path": path,
         "role": "", "form": "", "name": "", "visible": True, "attributes": {},
     }
@@ -66,7 +71,7 @@ def test_repeated_field_shape_reuses_cached_fill_value():
         calls.append(component["path"])
         return f"generated-for-{component['path']}"
 
-    step = PageInteractionStep(crawler, InMemoryInteractionTracker(), counting_fill_value_fn)
+    step = PageInteractionStep(cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), counting_fill_value_fn)
     state = PageState(url=url, components=[_fillable(path_a, "Email"), _fillable(path_b, "Email")])
     result = asyncio.run(step.interact(url, "s1", state))
 
@@ -91,7 +96,7 @@ def test_click_failure_is_recorded_and_the_pass_continues():
             return await super().click(url, session_id, selector)
 
     crawler = _BreaksOnOnePath(url, {ok_path: steady, broken_path: steady})
-    step = PageInteractionStep(crawler, InMemoryInteractionTracker(), _no_fill_value)
+    step = PageInteractionStep(cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value)
     state = PageState(url=url, components=[_clickable(ok_path), _clickable(broken_path)])
     result = asyncio.run(step.interact(url, "s1", state))
 
@@ -110,7 +115,7 @@ def test_physical_navigation_ends_the_pass_without_return_to_origin():
     first_path, second_path = "body > a#first", "body > a#second"
     elsewhere = PageState(url="http://fixture/elsewhere", components=[])
     crawler = _FakeCrawler(url, {first_path: elsewhere})
-    step = PageInteractionStep(crawler, InMemoryInteractionTracker(), _no_fill_value)
+    step = PageInteractionStep(cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value)
     state = PageState(url=url, components=[_clickable(first_path), _clickable(second_path)])
     result = asyncio.run(step.interact(url, "s1", state))
 
@@ -128,7 +133,7 @@ def test_same_url_reveal_extends_the_frontier_with_new_components():
     )
     steady = PageState(url=url, components=[_clickable(trigger_path), _fillable(revealed_path, "New field")])
     crawler = _FakeCrawler(url, {trigger_path: after_reveal, revealed_path: steady})
-    step = PageInteractionStep(crawler, InMemoryInteractionTracker(), _no_fill_value)
+    step = PageInteractionStep(cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value)
     state = PageState(url=url, components=[_clickable(trigger_path)])
     result = asyncio.run(step.interact(url, "s1", state))
 
@@ -160,7 +165,8 @@ def test_exact_reuse_already_interacted_skips_without_a_click():
     reuse_index = _FakeReuseIndex({path: _FakeReuseEntry(interacted=True)})
     crawler = _FakeCrawler(url, {})
     step = PageInteractionStep(
-        crawler, InMemoryInteractionTracker(), _no_fill_value, exact_reuse_index=reuse_index
+        cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value,
+        exact_reuse_index=cast("ExactReuseIndex", reuse_index),
     )
     state = PageState(url=url, components=[_clickable(path)])
     result = asyncio.run(step.interact(url, "s1", state))
@@ -183,7 +189,8 @@ def test_family_sampler_gate_can_skip_a_component():
     path = "body > button#gated"
     crawler = _FakeCrawler(url, {})
     step = PageInteractionStep(
-        crawler, InMemoryInteractionTracker(), _no_fill_value, family_sampler=_FakeFamilySampler(gate_open=False)
+        cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value,
+        family_sampler=cast("FamilySampler", _FakeFamilySampler(gate_open=False)),
     )
     state = PageState(url=url, components=[_clickable(path)])
     result = asyncio.run(step.interact(url, "s1", state))
@@ -197,7 +204,7 @@ def test_static_href_to_a_known_destination_is_skipped_without_clicking():
     path = "body > a#nav"
     crawler = _FakeCrawler(url, {})
     step = PageInteractionStep(
-        crawler, InMemoryInteractionTracker(), _no_fill_value,
+        cast("Crawl4AICrawler", crawler), InMemoryInteractionTracker(), _no_fill_value,
         is_known_url=lambda target: target == "http://fixture/known",
     )
     state = PageState(url=url, components=[_clickable(path, href="/known")])

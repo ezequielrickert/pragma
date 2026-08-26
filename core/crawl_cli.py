@@ -13,7 +13,7 @@ from .crawl_engine import CrawlEngine, CrawlRunResult
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
-def parse_crawl_args(argv: list) -> argparse.Namespace:
+def parse_crawl_args(argv: list[str]) -> argparse.Namespace:
     """A superset of `static`'s own flags - `cluster`/`dynamic` take no
     flags `static` doesn't already cover (`dynamic` reuses the same
     login/budget knobs; `cluster` takes none at all).
@@ -59,7 +59,7 @@ def parse_crawl_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_crawl_command(argv: list) -> None:
+def run_crawl_command(argv: list[str]) -> None:
     """`pragma crawl <url>`: static -> cluster -> dynamic - see
     `CrawlEngine` for what that means in practice.
     Details: docs/dev/core/crawl_cli.md#run_crawl_command
@@ -71,6 +71,9 @@ def run_crawl_command(argv: list) -> None:
     overrides["url"] = args.url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
+    if config.url is None:
+        print("Critical error before any phase could run: no URL configured")
+        sys.exit(1)
 
     try:
         print(f"Starting pragma crawl for: {config.url}")

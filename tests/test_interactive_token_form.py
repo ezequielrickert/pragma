@@ -61,6 +61,7 @@ def test_save_color_tokens_writes_a_schema_valid_document(tmp_path):
     save_color_tokens(_where(tmp_path), {"core.color.surface-1": "#0000ff"})
 
     written = effective_content(_where(tmp_path), DocumentRef("tokens", "json"))
+    assert written is not None
     parsed = json.loads(written)
     assert parsed["core"]["color"]["surface-1"]["$value"] == "#0000ff"
     assert parsed["core"]["color"]["surface-1"]["$type"] == "color"

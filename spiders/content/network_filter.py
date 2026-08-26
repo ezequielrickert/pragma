@@ -207,7 +207,7 @@ def _capture_payload(text: Optional[str]) -> Tuple[str, int, str]:
     return excerpt, len(text.encode("utf-8")), digest
 
 
-def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def filter_meaningful_requests(raw_events: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     """Reduce one `arun()` call's `result.network_requests` to the meaningful subset.
     Details: docs/dev/spiders/content/network_filter.md#filter_meaningful_requests
     """
@@ -226,7 +226,7 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
     for event in raw_events:
         event_type = event.get("event_type")
         if event_type == "response":
-            url = event.get("url")
+            url = event.get("url") or ""
             statuses_by_url[url] = event.get("status")
             status_text_by_url[url] = event.get("status_text") or ""
             media_type_by_url[url] = _media_type(event.get("headers") or {})
@@ -236,18 +236,18 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
                 response_body_by_url[url] = body_text
         elif event_type == "response_capture_error":
             # Body unreadable but the response did arrive - no status either way.
-            statuses_by_url.setdefault(event.get("url"), None)
+            statuses_by_url.setdefault(event.get("url") or "", None)
             _remember_timestamp(received_at_by_url, event)
         elif event_type == "request_failed":
-            failures_by_url[event.get("url")] = event.get("failure_text") or "request failed"
+            failures_by_url[event.get("url") or ""] = event.get("failure_text") or "request failed"
         elif event_type == "request":
             _remember_timestamp(sent_at_by_url, event)
             scheme = _auth_scheme(event.get("headers") or {})
             if scheme:
-                auth_scheme_by_url[event.get("url")] = scheme
+                auth_scheme_by_url[event.get("url") or ""] = scheme
             post_data = event.get("post_data")
             if post_data:
-                post_data_by_url[event.get("url")] = post_data
+                post_data_by_url[event.get("url") or ""] = post_data
 
     results = []
     for event in raw_events:
@@ -255,8 +255,8 @@ def filter_meaningful_requests(raw_events: List[Dict[str, Any]]) -> List[Dict[st
             continue
         if not _is_meaningful(event):
             continue
-        url = event.get("url")
-        host, path, query_params = _split_url(url or "")
+        url = event.get("url") or ""
+        host, path, query_params = _split_url(url)
         failed = url in failures_by_url
         request_excerpt, request_length, request_hash = _capture_payload(post_data_by_url.get(url))
         response_excerpt, response_length, response_hash = _capture_payload(response_body_by_url.get(url))

@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import getpass
 import sys
+from types import ModuleType
 from typing import List, Optional
 
+questionary: Optional[ModuleType]
 try:
     import questionary
 except ImportError:
@@ -20,12 +22,14 @@ def _interactive() -> bool:
 
 
 def _select_interactive(message: str, options: List[str], default: Optional[str]) -> str:
+    assert questionary is not None  # only called after _interactive() confirms this
     answer = questionary.select(message, choices=options, default=default).ask()
     if answer is None:
         raise KeyboardInterrupt("Prompt cancelled")
     if answer == CUSTOM_OPTION:
-        return (questionary.text("Enter value:").ask() or "").strip()
-    return answer
+        typed: str = (questionary.text("Enter value:").ask() or "").strip()
+        return typed
+    return str(answer)
 
 
 def _select_fallback(message: str, options: List[str], default: Optional[str]) -> str:
@@ -69,8 +73,10 @@ def select(
 def text(message: str, default: Optional[str] = None) -> str:
     """Prompt for free text, pre-filled with `default` when the terminal supports it."""
     if _interactive():
+        assert questionary is not None  # only reached after _interactive() confirms this
         answer = questionary.text(message, default=default or "").ask()
-        return (answer if answer is not None else (default or "")).strip()
+        typed: str = (answer if answer is not None else (default or "")).strip()
+        return typed
     raw = input(f"{message}" + (f" [{default}]" if default else "") + ": ").strip()
     return raw or (default or "")
 
@@ -78,13 +84,16 @@ def text(message: str, default: Optional[str] = None) -> str:
 def secret(message: str) -> str:
     """Prompt for a secret value (API key, credentials path), masked when possible."""
     if _interactive():
-        return (questionary.password(message).ask() or "").strip()
+        assert questionary is not None  # only reached after _interactive() confirms this
+        masked: str = (questionary.password(message).ask() or "").strip()
+        return masked
     return getpass.getpass(f"{message}: ").strip()
 
 
 def confirm(message: str, default: bool = True) -> bool:
     """Prompt for a yes/no answer."""
     if _interactive():
+        assert questionary is not None  # only reached after _interactive() confirms this
         return bool(questionary.confirm(message, default=default).ask())
     raw = input(f"{message} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
     if not raw:

@@ -22,13 +22,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from .clock import now
 
 
-class _LadybugPageMixin:
+class _LadybugPageMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/page.md#_ladybugpagemixin"""
 
-    def _ensure_page(self, conn, url: str) -> None:
+    def _ensure_page(self, conn: lb.Connection, url: str) -> None:
         """Create a bare Pending page if `url` doesn't exist yet - called
         by every method that references a page it doesn't own the full
         `upsert_page` contract for (links, edges, components, text
@@ -59,7 +63,7 @@ class _LadybugPageMixin:
             "caption": title or url, "visited_at": now() if status == "Finished" else None,
         }
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 MERGE (p:Page {url: $url})
@@ -85,7 +89,7 @@ class _LadybugPageMixin:
         """
         keys, values = list(metadata.keys()), list(metadata.values())
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             conn.execute(
                 "MATCH (p:Page {url: $url}) SET p.metadata = map($keys, $values)",
@@ -113,7 +117,7 @@ class _LadybugPageMixin:
             return
         rows = [{"to_url": link["to_url"], "label": link.get("label", "")} for link in links]
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, from_url)
             for row in rows:
                 self._ensure_page(conn, row["to_url"])
@@ -138,7 +142,7 @@ class _LadybugPageMixin:
         """
         now_value = now()
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, from_url)
             self._ensure_page(conn, to_url)
             conn.execute(
@@ -163,9 +167,9 @@ class _LadybugPageMixin:
         not be queued or visited again.
         Details: docs/dev/database/ladybug/page.md#is_visited
         """
-        def op(conn) -> bool:
-            rows = list(conn.execute("MATCH (p:Page {url: $url}) RETURN p.status", {"url": url}))
-            return bool(rows) and rows[0][0] in ("Finished", "Failed")
+        def op(conn: lb.Connection) -> bool:
+            result = list(_rows(conn.execute("MATCH (p:Page {url: $url}) RETURN p.status", {"url": url})))
+            return bool(result) and result[0][0] in ("Finished", "Failed")
 
         return self._call(op)
 
@@ -174,11 +178,11 @@ class _LadybugPageMixin:
         limit is None.
         Details: docs/dev/database/ladybug/page.md#get_pending
         """
-        def op(conn) -> List[str]:
+        def op(conn: lb.Connection) -> List[str]:
             query = "MATCH (p:Page) WHERE p.status = 'Pending' RETURN p.url ORDER BY p.url"
             if limit is not None:
                 query += f" LIMIT {int(limit)}"
-            return [row[0] for row in conn.execute(query)]
+            return [row[0] for row in _rows(conn.execute(query))]
 
         return self._call(op)
 
@@ -189,11 +193,11 @@ class _LadybugPageMixin:
         contract as `get_pending`.
         Details: docs/dev/database/ladybug/page.md#get_scouted
         """
-        def op(conn) -> List[str]:
+        def op(conn: lb.Connection) -> List[str]:
             query = "MATCH (p:Page) WHERE p.status = 'Scouted' RETURN p.url ORDER BY p.url"
             if limit is not None:
                 query += f" LIMIT {int(limit)}"
-            return [row[0] for row in conn.execute(query)]
+            return [row[0] for row in _rows(conn.execute(query))]
 
         return self._call(op)
 
@@ -204,12 +208,12 @@ class _LadybugPageMixin:
         docstring for why.
         Details: docs/dev/database/ladybug/page.md#get_progress_table_rows
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            page_rows = _rows(conn.execute(
                 "MATCH (p:Page) RETURN p.url, p.status, p.component_count "
                 "ORDER BY p.status <> 'Finished' DESC, p.url"
-            )
-            return [{"url": r[0], "status": r[1], "components": r[2]} for r in rows]
+            ))
+            return [{"url": r[0], "status": r[1], "components": r[2]} for r in page_rows]
 
         return self._call(op)
 
@@ -226,9 +230,9 @@ class _LadybugPageMixin:
         return self._nonempty_page_field("title")
 
     def _nonempty_page_field(self, field: str) -> Dict[str, str]:
-        def op(conn) -> Dict[str, str]:
-            rows = conn.execute(f"MATCH (p:Page) WHERE p.{field} <> '' RETURN p.url, p.{field}")
-            return {row[0]: row[1] for row in rows}
+        def op(conn: lb.Connection) -> Dict[str, str]:
+            field_rows = _rows(conn.execute(f"MATCH (p:Page) WHERE p.{field} <> '' RETURN p.url, p.{field}"))
+            return {row[0]: row[1] for row in field_rows}
 
         return self._call(op)
 
@@ -238,11 +242,11 @@ class _LadybugPageMixin:
         to, never counted as something it owed a visit.
         Details: docs/dev/database/ladybug/page.md#count_visited
         """
-        def op(conn) -> Tuple[int, int]:
-            row = list(conn.execute(
+        def op(conn: lb.Connection) -> Tuple[int, int]:
+            row = list(_rows(conn.execute(
                 "MATCH (p:Page) WHERE p.status <> 'External' "
                 "RETURN sum(CASE WHEN p.status = 'Finished' THEN 1 ELSE 0 END), count(*)"
-            ))[0]
+            )))[0]
             # sum(CASE WHEN ...) comes back as decimal.Decimal, not int -
             # confirmed against the real engine, unlike count(*) which is
             # already a plain int. Left unconverted, this silently broke
@@ -259,21 +263,21 @@ class _LadybugPageMixin:
         "last_seen_run"}`, in first-seen order.
         Details: docs/dev/database/ladybug/page.md#get_edges
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            edge_rows = _rows(conn.execute(
                 """
                 MATCH (from:Page)-[e:NAVIGATES_TO]->(to:Page)
                 RETURN from.url, e.component, e.action, to.url,
                        e.observation_count, e.first_seen_run, e.last_seen_run
                 ORDER BY e.created_at
                 """
-            )
+            ))
             return [
                 {
                     "from": r[0], "component": r[1], "action": r[2], "to": r[3],
                     "observation_count": r[4], "first_seen_run": r[5], "last_seen_run": r[6],
                 }
-                for r in rows
+                for r in edge_rows
             ]
 
         return self._call(op)
