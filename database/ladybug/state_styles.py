@@ -21,7 +21,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from ._component_lookup import resolve_component_ids, stub_component_id
+from ._query_rows import rows as _rows
 
 # Keyed by (page_url, path, state, property): a rediscovery overwrites one
 # value rather than appending a second, and a component whose hover colour
@@ -40,7 +44,7 @@ def state_style_id(page_url: str, path: str, state: str, css_property: str) -> s
     return _ID_SEPARATOR.join((page_url, path, state, css_property))
 
 
-class _LadybugStateStyleMixin:
+class _LadybugStateStyleMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/state_styles.md#_ladybugstatestylemixin"""
 
     def record_state_styles(self, page_url: str, entries: List[Dict[str, Any]]) -> None:
@@ -76,7 +80,7 @@ class _LadybugStateStyleMixin:
         if not rows:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             resolved = resolve_component_ids(conn, page_url, {row["path"] for row in rows})
             for row in rows:
@@ -122,17 +126,17 @@ class _LadybugStateStyleMixin:
         `tests/test_ladybug_state_styles.py::test_a_style_for_a_component_not_yet_written_still_lands`.
         Details: docs/dev/database/ladybug/state_styles.md#get_state_styles
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            style_rows = _rows(conn.execute(
                 """
                 MATCH (s:StateStyle)
                 RETURN s.page_url, s.path, s.state, s.property, s.value
                 ORDER BY s.page_url, s.path, s.state, s.property
                 """
-            )
+            ))
             return [
                 {"page_url": page_url, "path": path, "state": state, "property": css_property, "value": value}
-                for page_url, path, state, css_property, value in rows
+                for page_url, path, state, css_property, value in style_rows
             ]
 
         return self._call(op)

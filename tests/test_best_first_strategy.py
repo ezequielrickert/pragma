@@ -9,7 +9,7 @@ duplicated here.
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from crawl4ai import CrawlerRunConfig
 
@@ -23,7 +23,7 @@ class _FakeCrawlResult:
     url: str
     links: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
     redirected_url: Optional[str] = None
-    metadata: Optional[dict] = None
+    metadata: Optional[Dict[str, Any]] = None
     success: bool = True
 
 

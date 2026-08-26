@@ -26,7 +26,7 @@ class _RecordingCrawler:
     without needing a real browser."""
 
     def __init__(self) -> None:
-        self.seen_session_ids: list = []
+        self.seen_session_ids: list[str] = []
 
     async def arun(self, url: str, config: CrawlerRunConfig, **_ignored_kwargs) -> CrawlResult:
         # Overlap several calls before returning, so a shared/racing

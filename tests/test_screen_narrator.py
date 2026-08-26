@@ -145,10 +145,10 @@ def test_a_screen_whose_route_pattern_changed_is_narrated_again():
     assert result[0].name != "stale name"
 
 
-class _CountingAgent:
+class _CountingAgent(Agent):
     def __init__(self) -> None:
         self.calls = 0
 
-    def generate(self, prompt: str, system_instruction: str = "") -> str:
+    def generate(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         self.calls += 1
         return "NAME: Freshly narrated\nPURPOSE: Freshly narrated purpose."

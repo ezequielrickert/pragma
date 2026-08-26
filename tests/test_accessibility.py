@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.documents import DocumentRequest
 from database.ladybug.store import LadybugGraphStore
 from generators.accessibility import accessible_name, landmark_findings, name_findings
 
@@ -171,13 +172,10 @@ def test_an_empty_crawl_produces_no_findings_not_an_error():
         def get_page_landmarks(self):
             return {}
 
-    class _Request:
-        graph_store = _Store()
-        site = "shop.example"
-
     from generators.accessibility import build_findings
 
-    findings, skipped = build_findings(_Request())
+    request = DocumentRequest(graph_store=_Store(), site="shop.example", agent=None)
+    findings, skipped = build_findings(request)
 
     assert findings == []
     assert skipped == 0

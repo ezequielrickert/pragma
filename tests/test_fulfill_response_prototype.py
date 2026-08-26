@@ -13,6 +13,7 @@ are compared; the second test exists to document *why* the first shape was
 chosen, not to prove the second is safe to use.
 """
 import asyncio
+from typing import Any
 import http.server
 import threading
 from pathlib import Path
@@ -38,14 +39,14 @@ def fixture_server():
     thread.join()
 
 
-async def _run_against_fulfill_body(fixture_server, *, status: int, body: str) -> dict:
+async def _run_against_fulfill_body(fixture_server, *, status: int, body: str) -> dict[str, Any]:
     """Loads the fixture, fulfills every mutating request with `(status,
     body)`, drives both the create-form submit and the delete-button click,
     and returns each interaction's final status text plus any page errors
     (uncaught exceptions) the console surfaced - the two signals the ticket
     asks to watch for ("stuck spinners, toast errors, JS exceptions").
     """
-    page_errors = []
+    page_errors: list[str] = []
 
     async def fulfill_mutations(route):
         if route.request.method in _MUTATING_METHODS:

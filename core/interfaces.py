@@ -21,7 +21,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
-from .data_contracts import (  # noqa: F401 - re-exported, see module docstring below
+from .data_contracts import (
     ComponentFacts,
     ComponentFamily,
     CompositeFamily,
@@ -40,6 +40,23 @@ from .data_contracts import (  # noqa: F401 - re-exported, see module docstring 
 # existing `from core.interfaces import ComponentFacts` (etc.) import
 # site - the plain-data-contract split moved their real definitions to
 # `data_contracts.py`. See that file's own module docstring for why.
+# `__all__` makes that re-export explicit for mypy strict's
+# `implicit_reexport = False` (bare imports of these names would
+# otherwise mypy-error as "not explicitly exported").
+__all__ = [
+    "Agent",
+    "ComponentFacts",
+    "ComponentFamily",
+    "CompositeFamily",
+    "InferredRequest",
+    "PageState",
+    "SemanticEntity",
+    "SemanticField",
+    "SemanticFlow",
+    "SemanticRule",
+    "SemanticScreen",
+    "VisitStep",
+]
 
 
 class Agent(ABC):

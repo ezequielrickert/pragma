@@ -2,6 +2,7 @@
 InferredRequest/data-model.json shapes, no store needed except for the
 module-grouping view (a minimal stub store)."""
 import json
+from typing import Any
 
 from core.documents import DocumentRequest
 from core.interfaces import InferredRequest
@@ -19,7 +20,7 @@ from generators.requirements import (
 
 
 def _inferred_request(**overrides):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         method="POST", endpoint="api.example.com/checkout", query_params=(), body_shape="",
         response_shape="", triggered_by=(), loaded_by=(), status_codes=(),
     )

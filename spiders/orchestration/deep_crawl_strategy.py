@@ -13,7 +13,7 @@ Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#module
 from __future__ import annotations
 
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from crawl4ai.models import CrawlResult
@@ -39,7 +39,7 @@ class PragmaFrontierMixin:
         base_url: Optional[str] = None,
         allow_subdomains: bool = False,
         max_visits_per_route_shape: int = 1,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         # Pragma's own crawl has no depth ceiling - UrlFrontier never
         # tracked depth at all, only route shape and max_pages. sys.maxsize
@@ -65,7 +65,13 @@ class PragmaFrontierMixin:
 
     async def can_process_url(self, url: str, depth: int) -> bool:
         """Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#can_process_url"""
-        if not await super().can_process_url(url, depth):
+        # `PragmaFrontierMixin` has no explicit base of its own - it's
+        # designed to sit before a crawl4ai deep-crawl strategy in a
+        # subclass's MRO (see `PragmaDeepCrawlStrategy` below,
+        # `PragmaBestFirstStrategy` in best_first_strategy.py) so `super()`
+        # reaches that strategy's real `can_process_url` at runtime; mypy
+        # can only see the mixin's own (empty) base, hence this ignore.
+        if not await super().can_process_url(url, depth):  # type: ignore[misc]
             return False
         if self.base_url and not is_in_scope(url, self.base_url, self.allow_subdomains):
             return False
@@ -107,7 +113,8 @@ class PragmaFrontierMixin:
         URL, not the original request" fix.
         Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#_resolved_url
         """
-        return result.redirected_url or result.url
+        resolved: str = result.redirected_url or result.url
+        return resolved
 
     def _mark_seen_and_counted(self, url: str) -> bool:
         """Record `url`'s `clean_url` key as seen and, the first time only,
@@ -142,10 +149,19 @@ class PragmaFrontierMixin:
         # earlier calls' own entries the moment their key got marked seen.
         # Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#link_discovery-dedup
         before = len(next_level)
-        await super().link_discovery(result, source_url, current_depth, visited, next_level, depths)
+        # Same mixin-MRO reasoning as `can_process_url` above: this reaches
+        # the crawl4ai base's real `link_discovery` at runtime, invisible
+        # to mypy from this mixin's own (empty) base.
+        await super().link_discovery(  # type: ignore[misc]
+            result, source_url, current_depth, visited, next_level, depths
+        )
         kept = [(url, parent) for url, parent in next_level[before:] if not self._mark_seen_and_counted(url)]
         next_level[before:] = kept
 
 
-class PragmaDeepCrawlStrategy(PragmaFrontierMixin, BFSDeepCrawlStrategy):
+class PragmaDeepCrawlStrategy(PragmaFrontierMixin, BFSDeepCrawlStrategy):  # type: ignore[misc]
+    # crawl4ai ships no py.typed marker (see pyproject.toml's
+    # ignore_missing_imports override), so `BFSDeepCrawlStrategy` resolves
+    # to `Any` and mypy strict refuses to subclass it without this ignore -
+    # there is no untyped base to fix here.
     """Details: docs/dev/spiders/orchestration/deep_crawl_strategy.md#pragmadeepcrawlstrategy"""

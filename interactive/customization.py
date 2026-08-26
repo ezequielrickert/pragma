@@ -29,7 +29,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -111,7 +111,7 @@ def available_documents(where: SiteOutput) -> List[DocumentRef]:
     """
     slug = slugify(where.site)
     prefix = f"{slug}_"
-    seen: Dict[tuple, DocumentRef] = {}
+    seen: Dict[Tuple[str, str], DocumentRef] = {}
     # Search inside per-run subdirectories (<slug>_<timestamp>/) as well
     # as the flat root (backwards compat with any old flat-layout runs).
     search_dirs = list(Path(where.out_dir).glob(f"{slug}_*/"))

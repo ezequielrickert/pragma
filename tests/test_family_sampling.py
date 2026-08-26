@@ -10,7 +10,7 @@ from analysis.family_sampling import FamilySampler
 PAGE = "shop.example"
 
 
-def _button(text: str) -> dict:
+def _button(text: str) -> dict[str, str]:
     return {"tag": "button", "role": "", "name": "", "form": "", "text": text, "path": f"#{text}"}
 
 
@@ -21,7 +21,7 @@ def _family(paths) -> ComponentFamily:
     )
 
 
-def _components(*texts: str) -> list:
+def _components(*texts: str) -> list[dict[str, str]]:
     # `id` mirrors `flat_component_ledger`'s real shape post-#136 - one
     # distinct canonical id per distinct component here, since each of
     # these fixture buttons is a genuinely different Component row, not

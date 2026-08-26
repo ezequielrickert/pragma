@@ -39,8 +39,12 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from core.interfaces import SemanticRule
 from ._component_lookup import resolve_component_ids, stub_component_id
+from ._query_rows import rows as _rows
 
 # Recorded on every `DERIVED_FROM` edge this module writes.
 _GENERATOR = "rules.build_rules"
@@ -50,7 +54,7 @@ _METHOD = "deterministic"
 _CONFIDENCE = 1.0
 
 
-class _LadybugRuleMixin:
+class _LadybugRuleMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/rule.md#_ladybugrulemixin"""
 
     def record_rules(self, rules: Sequence[SemanticRule], run_id: str = "") -> None:
@@ -72,7 +76,7 @@ class _LadybugRuleMixin:
             if not rule.derived_from:
                 raise ValueError(f"semantic rule {rule.statement!r} has no derived_from")
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # Edges first: Ladybug refuses to delete a node that still has
             # relationships attached. DERIVED_FROM scoped by source label -
             # see this module's own docstring for why. GOVERNS stays
@@ -86,7 +90,7 @@ class _LadybugRuleMixin:
 
         self._call(op)
 
-    def _write_rule(self, conn, rule: SemanticRule, run_id: str) -> None:
+    def _write_rule(self, conn: lb.Connection, rule: SemanticRule, run_id: str) -> None:
         """One `Rule` node, its `DERIVED_FROM` edge, and (best-effort) its
         `GOVERNS` edge toward the `Field` its source `Component` edits.
         Details: docs/dev/database/ladybug/rule.md#_write_rule
@@ -135,8 +139,8 @@ class _LadybugRuleMixin:
         the same silent-absence stance the writer itself takes.
         Details: docs/dev/database/ladybug/rule.md#get_rule_field_entities
         """
-        def op(conn) -> List[Dict[str, str]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, str]]:
+            rule_rows = _rows(conn.execute(
                 """
                 MATCH (r:Rule)-[:GOVERNS]->(f:Field)<-[:HAS_FIELD]-(e:Entity)
                 MATCH (r)-[:DERIVED_FROM]->(c:Component)
@@ -144,10 +148,10 @@ class _LadybugRuleMixin:
                 RETURN DISTINCT page.url, edge.path, r.statement, f.name, e.name
                 ORDER BY page.url, edge.path, r.statement
                 """
-            )
+            ))
             return [
                 {"page_url": page_url, "path": path, "statement": statement, "field": field, "entity": entity}
-                for page_url, path, statement, field, entity in rows
+                for page_url, path, statement, field, entity in rule_rows
             ]
 
         return self._call(op)
@@ -161,18 +165,18 @@ class _LadybugRuleMixin:
         their own semantic types.
         Details: docs/dev/database/ladybug/rule.md#get_rules
         """
-        def op(conn) -> List[SemanticRule]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[SemanticRule]:
+            rule_rows = _rows(conn.execute(
                 """
                 MATCH (r:Rule)-[:DERIVED_FROM]->(c:Component)
                 MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
                 RETURN DISTINCT r.statement, r.kind, r.confidence, page.url, e.path
                 ORDER BY page.url, e.path, r.statement
                 """
-            )
+            ))
             return [
                 SemanticRule(statement=statement, kind=kind, confidence=confidence, derived_from=(page_url, path))
-                for statement, kind, confidence, page_url, path in rows
+                for statement, kind, confidence, page_url, path in rule_rows
             ]
 
         return self._call(op)

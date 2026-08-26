@@ -19,11 +19,15 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from core.interfaces import ComponentFamily
 from ._component_lookup import resolve_component_ids
+from ._query_rows import rows as _rows
 
 
-class _LadybugComponentFamilyMixin:
+class _LadybugComponentFamilyMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/component_family.md#_ladybugcomponentfamilymixin"""
 
     def record_component_families(self, families: List[ComponentFamily]) -> None:
@@ -49,7 +53,7 @@ class _LadybugComponentFamilyMixin:
         column's own default, `0`.
         Details: docs/dev/database/ladybug/component_family.md#record_component_families
         """
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # Full rebuild - clear every existing family before writing
             # the new set.
             conn.execute("MATCH (f:ComponentFamily) DETACH DELETE f")
@@ -128,17 +132,17 @@ class _LadybugComponentFamilyMixin:
         `STRING` columns (`page.url`, `e.path`).
         Details: docs/dev/database/ladybug/component_family.md#get_component_families
         """
-        def op(conn) -> List[ComponentFamily]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[ComponentFamily]:
+            family_rows = _rows(conn.execute(
                 """
                 MATCH (c:Component)-[v:VARIANT_OF]->(f:ComponentFamily)
                 MATCH (page:Page)-[e:HAS_COMPONENT]->(c)
                 WITH f, collect(DISTINCT [page.url, e.path, CAST(v.subgroup AS STRING)]) AS member_rows
                 RETURN f.tag, f.component_type, f.common_classes, f.purpose, member_rows
                 """
-            )
+            ))
             families = []
-            for tag, component_type, common_classes, purpose, member_rows in rows:
+            for tag, component_type, common_classes, purpose, member_rows in family_rows:
                 members = tuple(sorted((page_url, path) for page_url, path, _ in member_rows))
                 by_subgroup: Dict[int, List[Tuple[str, str]]] = {}
                 for page_url, path, subgroup in member_rows:

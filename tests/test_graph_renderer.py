@@ -14,6 +14,7 @@ well-formed HTML referencing Cytoscape's own real CDN bundle."""
 import json
 
 from core.documents import DocumentRequest
+from core.interfaces import Agent
 from dashboard.graph_renderer import render_graph_page
 from database.ladybug.store import LadybugGraphStore
 from generators.graph_export import build_export_graph
@@ -21,7 +22,7 @@ from generators.graph_export import build_export_graph
 SITE = "shop.example"
 
 
-class StubAgent:
+class StubAgent(Agent):
     def generate(self, prompt, system_instruction=None):
         return "STUB"
 

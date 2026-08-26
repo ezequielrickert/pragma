@@ -34,7 +34,7 @@ Details: docs/dev/generators/openapi.md#module
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Hashable, List, Mapping, Tuple, cast
 
 import yaml
 from openapi_spec_validator import validate as validate_openapi
@@ -469,11 +469,11 @@ class OpenAPIDocument(DocumentGenerator):
     def generate(self, request: DocumentRequest) -> Tuple[DocumentOutput, ...]:
         requests = request.graph_store.get_inferred_requests()
         raw_document = build_openapi_document(requests, request.site)
-        validate_openapi(raw_document)
+        validate_openapi(cast(Mapping[Hashable, Any], raw_document))
 
         overlay = load_overlay()
         public_document = apply_overlay(raw_document, overlay)
-        validate_openapi(public_document)
+        validate_openapi(cast(Mapping[Hashable, Any], public_document))
 
         for finding in lint_openapi_document(public_document):
             print(f"openapi lint: {finding}")

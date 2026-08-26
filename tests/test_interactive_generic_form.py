@@ -1,6 +1,7 @@
 """Unit tests for interactive/generic_form.py - ADR-0034's field-level
 HITL allowlist and its schema-driven widget resolution (ticket #158)."""
 import json
+from typing import Any
 
 from interactive.customization import DocumentRef, SiteOutput, effective_content
 from interactive.generic_form import (
@@ -15,6 +16,15 @@ from interactive.generic_form import (
 )
 
 SITE = "example.com"
+
+
+def _saved(where: SiteOutput, ref: DocumentRef) -> Any:
+    """`effective_content` returns `None` for a document never produced -
+    every caller here already wrote one, so a `None` here would itself
+    be the test failure worth seeing, not a value to silently swallow."""
+    content = effective_content(where, ref)
+    assert content is not None
+    return json.loads(content)
 
 
 def _where(tmp_path) -> SiteOutput:
@@ -167,7 +177,7 @@ def test_save_generic_form_patches_only_the_targeted_row_and_field(tmp_path):
 
     save_generic_form(where, ref, {1: {"hitl_status": "approved"}})
 
-    saved = json.loads(effective_content(where, ref))
+    saved = _saved(where, ref)
     assert saved["requirements"][0]["hitl_status"] == "unreviewed"
     assert saved["requirements"][1]["hitl_status"] == "approved"
 
@@ -179,7 +189,7 @@ def test_save_generic_form_splits_textarea_lines_and_drops_blanks(tmp_path):
 
     save_generic_form(where, ref, {0: {"open_questions": "first question?\n\nsecond question?\n"}})
 
-    saved = json.loads(effective_content(where, ref))
+    saved = _saved(where, ref)
     assert saved["requirements"][0]["open_questions"] == ["first question?", "second question?"]
 
 
@@ -190,7 +200,7 @@ def test_save_generic_form_ignores_a_stale_row_index(tmp_path):
 
     save_generic_form(where, ref, {5: {"hitl_status": "approved"}})
 
-    saved = json.loads(effective_content(where, ref))
+    saved = _saved(where, ref)
     assert saved["requirements"][0]["hitl_status"] == "unreviewed"
 
 
@@ -204,7 +214,7 @@ def test_save_generic_form_ignores_a_field_not_on_the_allowlist(tmp_path):
 
     save_generic_form(where, ref, {0: {"syntax_text": "tampered"}})
 
-    saved = json.loads(effective_content(where, ref))
+    saved = _saved(where, ref)
     assert saved["requirements"][0]["syntax_text"] == "original"
 
 
@@ -217,7 +227,7 @@ def test_save_generic_form_writes_a_schema_valid_document(tmp_path):
 
     save_generic_form(where, ref, {0: {"hitl_status": "approved"}})
 
-    saved = json.loads(effective_content(where, ref))
+    saved = _saved(where, ref)
     assert saved["requirements"][0]["hitl_status"] == "approved"
     assert saved["requirements"][0]["id"] == "REQ-a4f9000001"  # untouched fields survive
 

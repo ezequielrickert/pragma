@@ -14,7 +14,7 @@ from .config import PragmaConfig
 from .registry import AGENT_REGISTRY
 
 
-def parse_interactive_args(argv: list) -> argparse.Namespace:
+def parse_interactive_args(argv: list[str]) -> argparse.Namespace:
     """A site, not a URL - same convention `docs_cli.py`'s own
     `parse_docs_args` uses, for the same reason: there is nothing here
     to navigate to, only an existing run's files to serve.
@@ -41,7 +41,7 @@ def parse_interactive_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_interactive_command(argv: list) -> None:
+def run_interactive_command(argv: list[str]) -> None:
     """`pragma interactive <site>`: resolve `out_dir` and an `Agent` the
     same way every other subcommand does (`PragmaConfig.load`,
     `AGENT_REGISTRY` - the exact fallback-to-mock pattern

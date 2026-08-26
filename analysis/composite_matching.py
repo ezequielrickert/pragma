@@ -196,8 +196,9 @@ def _child_similarity(
     b_is_container = isinstance(child_b, ContainerNode)
     if a_is_container != b_is_container:
         return 0.0  # a leaf component can never match a composite root
-    if a_is_container:
+    if isinstance(child_a, ContainerNode) and isinstance(child_b, ContainerNode):
         return composite_score(child_a, child_b, geometry_buckets, config, cache).score
+    assert isinstance(child_a, dict) and isinstance(child_b, dict)
     return cosine_similarity(
         leaf_feature_vector(child_a, geometry_buckets, config),
         leaf_feature_vector(child_b, geometry_buckets, config),

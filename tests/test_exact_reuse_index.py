@@ -1,17 +1,19 @@
 """Regression tests for `analysis/exact_reuse_index.py::ExactReuseIndex` -
 `pragma dynamic`'s interact-once tracking for a `Component` reused across
 pages, issue #140."""
+from typing import Any
+
 from analysis.exact_reuse_index import ExactReuseIndex
 
 PAGE_A = "shop.example/a"
 PAGE_B = "shop.example/b"
 
 
-def _identity() -> dict:
+def _identity() -> dict[str, Any]:
     return {"tag": "button", "role": "", "name": "", "form": "", "text": "Buy now"}
 
 
-def _reused_button(page_url: str, path: str, interacted: bool = False) -> dict:
+def _reused_button(page_url: str, path: str, interacted: bool = False) -> dict[str, Any]:
     return {"id": "canonical-1", "page_url": page_url, "path": path, "interacted": interacted, **_identity()}
 
 
@@ -46,6 +48,7 @@ def test_interacted_starts_true_when_any_ledger_member_already_shows_it():
 
     entry = index.lookup(PAGE_A, _identity())
 
+    assert entry is not None
     assert entry.interacted is True
 
 
@@ -55,6 +58,7 @@ def test_interacted_starts_false_when_no_ledger_member_has_interacted_yet():
 
     entry = index.lookup(PAGE_A, _identity())
 
+    assert entry is not None
     assert entry.interacted is False
 
 
@@ -65,6 +69,7 @@ def test_siblings_of_excludes_the_given_location():
     index = ExactReuseIndex(components)
     entry = index.lookup(PAGE_A, _identity())
 
+    assert entry is not None
     assert entry.siblings_of((PAGE_A, "#buy")) == [(PAGE_B, "#buy2"), ("shop.example/c", "#buy3")]
 
 
@@ -76,6 +81,9 @@ def test_setting_interacted_is_visible_through_every_location_lookup():
     index = ExactReuseIndex(components)
     entry = index.lookup(PAGE_A, _identity())
 
+    assert entry is not None
     entry.interacted = True
 
-    assert index.lookup(PAGE_B, _identity()).interacted is True
+    other_entry = index.lookup(PAGE_B, _identity())
+    assert other_entry is not None
+    assert other_entry.interacted is True

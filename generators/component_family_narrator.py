@@ -37,8 +37,13 @@ PURPOSE_SYSTEM_INSTRUCTION = (
 # without ever truncating it.
 _MAX_TEXTS_PER_FAMILY = 20
 
+# `family_signature`'s stable-identity key: (tag, component_type,
+# sorted common_classes, sorted member_paths).
+# Details: docs/dev/generators/component_family_narrator.md#familysignature
+FamilySignature = Tuple[str, str, Tuple[str, ...], Tuple[Tuple[str, str], ...]]
 
-def family_signature(family: ComponentFamily) -> Tuple:
+
+def family_signature(family: ComponentFamily) -> FamilySignature:
     """A key for one family that survives re-clustering.
 
     Families are rebuilt from scratch every run (`record_component_families`
@@ -76,7 +81,7 @@ def narrate_family_purposes(
     agent: Agent,
     families: List[ComponentFamily],
     member_texts: Dict[Tuple[str, str], str],
-    known_purposes: Optional[Dict[Tuple, str]] = None,
+    known_purposes: Optional[Dict[FamilySignature, str]] = None,
 ) -> List[ComponentFamily]:
     """Fill in `purpose` for every family that has at least one member with
     visible text, via one `agent.generate()` call each.

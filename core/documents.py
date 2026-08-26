@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, Literal, Tuple, Union
+from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Union
 
 from .interfaces import Agent
 
@@ -81,7 +81,11 @@ class DocumentRequest:
 
     graph_store: Any
     site: str
-    agent: Agent
+    # Optional because `generators/gherkin.py::narrate_titles` is the only
+    # consumer that calls an agent at all - every other generator ignores
+    # this field, and a request built without one (most tests) must
+    # type-check.
+    agent: Optional[Agent]
     settings: Dict[str, Any] = field(default_factory=dict)
     # Empty for every ordinary generator; filled only for the master
     # document, which runs last and describes what the others produced.

@@ -173,6 +173,7 @@ class PragmaConfig:
         return next((p for p in (Path(c) for c in DEFAULT_CONFIG_PATHS) if p.exists()), None)
 
     def _apply_yaml(self, yaml_path: Optional[str]) -> None:
+        path: Optional[Path]
         if yaml_path:
             path = Path(yaml_path)
             if not path.exists():

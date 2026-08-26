@@ -114,4 +114,4 @@ def test_generate_raises_rather_than_returning_an_empty_document():
     the same posture asyncapi.json/i18n-inventory.json already
     established."""
     with pytest.raises(NotImplementedError):
-        BrowserSupportMatrixDocument().generate(request=None)
+        BrowserSupportMatrixDocument().generate(request=None)  # type: ignore[arg-type]  # generate() always raises before touching request

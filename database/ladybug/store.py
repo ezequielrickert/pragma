@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
+
+import ladybug as lb
 
 from core.registry import GRAPH_STORE_REGISTRY
 from utils.urls import slugify
+from ._query_rows import rows as _rows
 from .accessibility_snapshot import _LadybugAccessibilitySnapshotMixin
 from .analysis import _LadybugAnalysisMixin
 from .clock import now
@@ -52,6 +55,8 @@ from .schema import DDL
 from .text_content import _LadybugTextContentMixin
 from .writer import LadybugWriter
 
+_T = TypeVar("_T")
+
 # Where an on-disk site's database lives when config doesn't say
 # otherwise - config/pragma.example.yaml documents overriding this via
 # graph_stores.ladybug.directory.
@@ -73,7 +78,7 @@ _INTERACTION_BLOCKED_MIGRATION = (
 )
 
 
-def _migrate_interaction_blocked_columns(conn) -> None:
+def _migrate_interaction_blocked_columns(conn: lb.Connection) -> None:
     """Add `Interaction.blocked`/`blocked_reason` to a database opened
     before issue #62 - a no-op (confirmed against the real engine: re-
     adding an existing column raises a `RuntimeError` naming it, "already
@@ -95,7 +100,7 @@ _VARIANT_OF_SUBGROUP_MIGRATION = (
 )
 
 
-def _migrate_variant_of_subgroup_column(conn) -> None:
+def _migrate_variant_of_subgroup_column(conn: lb.Connection) -> None:
     """Add `VARIANT_OF.subgroup` to a database opened before issue #171.
     """
     for statement in _VARIANT_OF_SUBGROUP_MIGRATION:
@@ -106,17 +111,13 @@ def _migrate_variant_of_subgroup_column(conn) -> None:
                 raise
 
 
-def _migrate_component_table_columns(conn) -> None:
+def _migrate_component_table_columns(conn: lb.Connection) -> None:
     """Add any missing `ComponentFacts` columns to `Component` table dynamically,
     handling schemas from older .lbdb databases.
     """
-    from core.interfaces import ComponentFacts
+    from core.data_contracts import ComponentFacts
 
-    res = conn.execute("CALL table_info('Component') RETURN *")
-    existing = set()
-    while res.has_next():
-        row = res.get_next()
-        existing.add(row[1])
+    existing: set[str] = {row[1] for row in _rows(conn.execute("CALL table_info('Component') RETURN *"))}
 
     for name, field in ComponentFacts.__dataclass_fields__.items():
         if name == "element_id":
@@ -211,7 +212,7 @@ class LadybugGraphStore(
         """
         now_value = now()
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 MERGE (s:Site {name: $name})
@@ -250,9 +251,10 @@ class LadybugGraphStore(
                 os.remove(self.path)
         self.connect()
 
-    def _call(self, fn):
+    def _call(self, fn: Callable[[lb.Connection], _T]) -> _T:
         if self._writer is None:
             self.connect()
+        assert self._writer is not None
         return self._writer.call(fn)
 
 

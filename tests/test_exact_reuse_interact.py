@@ -33,7 +33,7 @@ CATALOG = "http://shop.example/catalog"
 SALE = "http://shop.example/sale"
 
 
-def _nav_link(path: str) -> dict:
+def _nav_link(path: str) -> Dict[str, Any]:
     return {
         "tag": "a", "role": "", "name": "", "form": "", "text": "Big Sale",
         "path": path, "visible": True, "attributes": {},

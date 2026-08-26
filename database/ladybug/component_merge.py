@@ -32,6 +32,10 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+
 # One row per (canonical_id, absorbed_id) - a merge that groups five
 # absorbed ids into one canonical id becomes five pairs here, so every
 # UNWIND-based copy query below runs once per merge pass, not once per
@@ -39,7 +43,7 @@ from typing import List, Tuple
 _MergePairs = List[Tuple[str, str]]
 
 
-class _LadybugComponentMergeMixin:
+class _LadybugComponentMergeMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/component_merge.md#_ladybugcomponentmergemixin"""
 
     def merge_components(self, groups: List[Tuple[str, List[str]]]) -> None:
@@ -71,7 +75,7 @@ class _LadybugComponentMergeMixin:
         absorbed_ids = [a for _, a in pairs]
         canonical_ids = sorted({c for c, _ in pairs})
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute(
                 """
                 UNWIND $rows AS r

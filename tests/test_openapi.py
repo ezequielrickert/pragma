@@ -1,10 +1,12 @@
 """Unit tests for the OpenAPI document (generators/openapi.py and
 json_schema.py). Fully deterministic - no model, no browser, no store."""
 import json
+from typing import Any
 
 import pytest
 import yaml
 
+from core.documents import DocumentRequest
 from core.interfaces import InferredRequest
 from generators.json_schema import schema_from_shape
 from generators.openapi import build_openapi_document, path_template
@@ -13,7 +15,7 @@ openapi_spec_validator = pytest.importorskip("openapi_spec_validator")
 
 
 def _request(method="GET", endpoint="api.example.com/orders", **extra):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         query_params=(), body_shape="", response_shape="", triggered_by=(),
         loaded_by=(), status_codes=(200,), latencies_ms=(),
     )
@@ -221,12 +223,8 @@ def test_generate_produces_the_raw_overlay_and_public_triple():
         def get_inferred_requests(self):
             return [_request(method="POST", status_codes=(201,))]
 
-    class _Request:
-        graph_store = _Store()
-        site = "example.com"
-        settings: dict = {}
-
-    outputs = OpenAPIDocument().generate(_Request())
+    request = DocumentRequest(graph_store=_Store(), site="example.com", agent=None, settings={})
+    outputs = OpenAPIDocument().generate(request)
 
     assert [o.filename for o in outputs] == ["openapi.raw", "redaction.overlay", "openapi"]
     assert [o.kind for o in outputs] == ["source", "rule-catalog", "source"]

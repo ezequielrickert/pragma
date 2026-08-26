@@ -33,10 +33,14 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from core.interfaces import InferredRequest
 from utils.urls import is_opaque_token
 from ._component_lookup import resolve_component_ids, stub_component_id
 from ._cypher import set_clause
+from ._query_rows import rows as _rows
 from .clock import now
 from .ids import endpoint_id as _endpoint_id
 
@@ -176,7 +180,7 @@ def _payload_clauses(params: Dict[str, Any]) -> str:
     return "".join(clauses)
 
 
-class _LadybugNetworkMixin:
+class _LadybugNetworkMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/network.md#_ladybugnetworkmixin"""
 
     def record_page_network(self, page_url: str, requests: List[Dict[str, Any]]) -> None:
@@ -187,7 +191,7 @@ class _LadybugNetworkMixin:
         if not requests:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             for item in requests:
                 if item.get("is_first_party", True):
@@ -224,7 +228,7 @@ class _LadybugNetworkMixin:
         if not requests:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             resolved = resolve_component_ids(conn, page_url, [path])
             component_id = resolved.get(path) or stub_component_id(page_url, path)
             for item in requests:
@@ -253,7 +257,7 @@ class _LadybugNetworkMixin:
 
         self._call(op)
 
-    def _merge_third_party_endpoint(self, conn, item: Dict[str, Any]) -> None:
+    def _merge_third_party_endpoint(self, conn: lb.Connection, item: Dict[str, Any]) -> None:
         """A tracker/ads/analytics call: bump `Endpoint.call_count`,
         create no `Request` at all - per-observation fidelity for traffic
         this application doesn't own is noise, not signal (96% of
@@ -282,8 +286,8 @@ class _LadybugNetworkMixin:
         reflects.
         Details: docs/dev/database/ladybug/network.md#get_inferred_requests
         """
-        def op(conn) -> List[InferredRequest]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[InferredRequest]:
+            request_rows = _rows(conn.execute(
                 """
                 MATCH (r:Request)-[:CALLS]->(e:Endpoint {first_party: true})
                 OPTIONAL MATCH (page:Page)-[:LOADED]->(r)
@@ -299,9 +303,9 @@ class _LadybugNetworkMixin:
                        page.url, comp_page.url, has_comp.path,
                        sent.content, received.content
                 """
-            )
+            ))
             buckets: Dict[str, Dict[str, Any]] = {}
-            for row in rows:
+            for row in request_rows:
                 (endpoint_id_value, method, host, path_pattern, query_params, request_schema,
                  response_schema, status, latency_ms, auth_scheme, media_type,
                  loaded_page, comp_page_url, comp_path, sent_body, received_body) = row
@@ -371,15 +375,15 @@ class _LadybugNetworkMixin:
         as the crawl progressed, not what it called out to.
         Details: docs/dev/database/ladybug/network.md#get_endpoint_discovery_sequence
         """
-        def op(conn) -> List[Tuple[int, str]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Tuple[int, str]]:
+            sequence_rows = _rows(conn.execute(
                 """
                 MATCH (i:Interaction)-[:TRIGGERED]->(r:Request)-[:CALLS]->(e:Endpoint {first_party: true})
                 RETURN i.step_seq, e.id
                 ORDER BY i.step_seq
                 """
-            )
-            return [(step_seq, endpoint_id) for step_seq, endpoint_id in rows]
+            ))
+            return [(step_seq, endpoint_id) for step_seq, endpoint_id in sequence_rows]
 
         return self._call(op)
 
@@ -399,12 +403,12 @@ class _LadybugNetworkMixin:
         one exception.
         Details: docs/dev/database/ladybug/network.md#get_request_latencies_by_page
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            loaded_rows = conn.execute("MATCH (p:Page)-[:LOADED]->(r:Request) RETURN p.url, r.latency_ms")
-            triggered_rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            loaded_rows = _rows(conn.execute("MATCH (p:Page)-[:LOADED]->(r:Request) RETURN p.url, r.latency_ms"))
+            triggered_rows = _rows(conn.execute(
                 "MATCH (p:Page)-[:HAS_COMPONENT]->(:Component)-[:PERFORMED]->(:Interaction)-[:TRIGGERED]->(r:Request) "
                 "RETURN p.url, r.latency_ms"
-            )
+            ))
             return [
                 {"page_url": page_url, "latency_ms": latency_ms}
                 for page_url, latency_ms in list(loaded_rows) + list(triggered_rows)
@@ -428,21 +432,21 @@ class _LadybugNetworkMixin:
         coincidence into a required join.
         Details: docs/dev/database/ladybug/network.md#get_request_evidence
         """
-        def op(conn) -> List[Dict[str, Any]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[Dict[str, Any]]:
+            request_rows = _rows(conn.execute(
                 """
                 MATCH (r:Request)
                 OPTIONAL MATCH (r)-[:CALLS]->(e:Endpoint)
                 RETURN r.id, r.method, r.path, r.status, e.host, e.path_pattern
                 ORDER BY r.id
                 """
-            )
+            ))
             return [
                 {
                     "id": row[0], "method": row[1], "path": row[2], "status": row[3],
                     "host": row[4], "path_pattern": row[5],
                 }
-                for row in rows
+                for row in request_rows
             ]
 
         return self._call(op)

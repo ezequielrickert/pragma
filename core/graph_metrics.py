@@ -116,8 +116,8 @@ class GraphMetrics:
     node_modules: Tuple[NodeModule, ...]
 
 
-def _build_digraph(graph_nodes: Sequence[Dict[str, Any]]) -> "nx.DiGraph":
-    graph = nx.DiGraph()
+def _build_digraph(graph_nodes: Sequence[Dict[str, Any]]) -> "nx.DiGraph[str]":
+    graph: "nx.DiGraph[str]" = nx.DiGraph()
     for node in graph_nodes:
         graph.add_node(node["id"], type=node.get("type", ""))
         for predicate in _EDGE_PREDICATES:
@@ -137,7 +137,7 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
     return ordered[index]
 
 
-def _node_metrics(graph: "nx.DiGraph", root: Optional[str]) -> Tuple[NodeMetrics, ...]:
+def _node_metrics(graph: "nx.DiGraph[str]", root: Optional[str]) -> Tuple[NodeMetrics, ...]:
     if graph.number_of_nodes() == 0:
         return ()
     betweenness = nx.betweenness_centrality(graph)
@@ -189,7 +189,7 @@ def _path_prefix_modules(pantalla_ids: Sequence[str]) -> Dict[str, str]:
     }
 
 
-def _leiden_modules(graph: "nx.DiGraph", remaining: Set[str]) -> List[List[str]]:
+def _leiden_modules(graph: "nx.DiGraph[str]", remaining: Set[str]) -> List[List[str]]:
     """Leiden community detection over just the screens
     `_path_prefix_modules` left unclustered - ADR-0007's second stage.
     Their connections to already-clustered screens carry no information
@@ -219,7 +219,7 @@ def _leiden_modules(graph: "nx.DiGraph", remaining: Set[str]) -> List[List[str]]
     return [sorted(members[i] for i in community) for community in partition]
 
 
-def _node_modules(graph: "nx.DiGraph") -> Tuple[NodeModule, ...]:
+def _node_modules(graph: "nx.DiGraph[str]") -> Tuple[NodeModule, ...]:
     """Every screen's module assignment - `MOD-<slug>` for a path-prefix
     cluster (readable, e.g. `MOD-admin`), `MOD-<hash>` for a Leiden
     community with no dominant prefix - the literal id format ADR-0013

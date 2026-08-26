@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from spiders.content.component_matching import component_identity
+from spiders.content.component_matching import ComponentIdentity, component_identity
 
 # A page-scoped location a canonical component renders at - `page_url` is
 # actually the route-shape `page_key` every Page node is keyed by, not a
@@ -80,7 +80,7 @@ class ExactReuseIndex:
         for component in components:
             by_id.setdefault(component["id"], []).append(component)
 
-        self._by_identity: Dict[Tuple[str, tuple], ReuseEntry] = {}
+        self._by_identity: Dict[Tuple[str, ComponentIdentity], ReuseEntry] = {}
         for component_id, members in by_id.items():
             locations = tuple(sorted({(m["page_url"], m["path"]) for m in members}))
             if len(locations) < 2:

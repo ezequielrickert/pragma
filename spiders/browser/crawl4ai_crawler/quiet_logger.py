@@ -16,12 +16,16 @@ from crawl4ai.async_logger import AsyncLogger
 _CAPTURE_TAG = "CAPTURE"
 
 
-class QuietCaptureLogger(AsyncLogger):
+class QuietCaptureLogger(AsyncLogger):  # type: ignore[misc]
+    # crawl4ai ships no py.typed marker (see pyproject.toml's
+    # ignore_missing_imports override), so `AsyncLogger` resolves to
+    # `Any` and mypy strict refuses to subclass it without this ignore -
+    # there is no untyped base to fix here.
     """AsyncLogger that drops crawl4ai's own CAPTURE-tagged warnings.
     Details: docs/dev/spiders/browser/crawl4ai_crawler/quiet_logger.md#quietcapturelogger
     """
 
-    def warning(self, message: str, tag: str = "WARNING", **kwargs) -> None:
+    def warning(self, message: str, tag: str = "WARNING", **kwargs: object) -> None:
         if tag == _CAPTURE_TAG:
             return
         super().warning(message, tag=tag, **kwargs)

@@ -1,5 +1,7 @@
 """Unit tests for generators/flows_arazzo.py - the Arazzo workflow half
 of docs/adr/0014 and the folded-in sequence diagrams (point 4)."""
+from typing import Any
+
 from core.documents import DocumentRequest
 from core.interfaces import InferredRequest, SemanticFlow
 from generators.flows_arazzo import build_arazzo_document, render_flows_sequence_diagrams
@@ -30,7 +32,7 @@ def _request(status=201, visit_id="v1", step_seq=1, failed=False):
 
 
 def _inferred_request(**overrides):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         method="POST", endpoint=ENDPOINT, query_params=(), body_shape="", response_shape="",
         triggered_by=(), loaded_by=(), status_codes=(),
     )

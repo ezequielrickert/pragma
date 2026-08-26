@@ -30,13 +30,13 @@ Details: docs/dev/spiders/orchestration/page_interaction/step.md#module
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Literal, Optional, Tuple, Union
 from uuid import uuid4
 
 from core.data_contracts import PageState, VisitStep
 from generators.component_classifier import find_revealed_options
 from utils.urls import clean_url, resolve_href, route_shape
-from ...content.component_matching import component_identity, is_fillable
+from ...content.component_matching import ComponentIdentity, component_identity, is_fillable
 from ..interaction_tracker import InteractionTracker
 from ..visit_result import ComponentInteraction, PageVisitResult
 
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 FillValueFn = Callable[[Dict[str, Any], str], Awaitable[str]]
 
 
-def _blocked_summary(blocked_mutations: List[Dict[str, str]]) -> tuple:
+def _blocked_summary(blocked_mutations: List[Dict[str, str]]) -> Tuple[bool, str]:
     """`(blocked, blocked_reason)` for `sink.record_interaction` - identical
     to `page_visitor/visitor.py::_blocked_summary`, kept as its own copy
     here rather than a shared import since the module it lived in is what
@@ -67,7 +67,7 @@ def _eligible(page_key: str, components: List[Dict[str, Any]], tracker: Interact
     step's own starting frontier, and what a same-URL reveal appends to.
     Details: docs/dev/spiders/orchestration/page_interaction/step.md#_eligible
     """
-    return [c for c in components if c.get("visible") and not tracker.is_interacted(page_key, c.get("path"))]
+    return [c for c in components if c.get("visible") and not tracker.is_interacted(page_key, c.get("path", ""))]
 
 
 class PageInteractionStep:
@@ -96,7 +96,7 @@ class PageInteractionStep:
         self._is_known = is_known_url
         # (page_key, component_identity) -> value already generated for that field.
         # Details: docs/dev/spiders/orchestration/page_interaction/step.md#_fill_value_cache
-        self._fill_value_cache: Dict[tuple, str] = {}
+        self._fill_value_cache: Dict[Tuple[str, ComponentIdentity], str] = {}
         # page_key -> {identity: the path it was first recorded under} - a
         # same-page reveal can compute a different nth-of-type path for a
         # component this page already recorded (issue #170); pinning it
@@ -104,7 +104,7 @@ class PageInteractionStep:
         # singular. Relocated unchanged from `page_visitor/frontier.py::
         # Frontier.canonicalize_inventory`.
         # Details: docs/dev/spiders/orchestration/page_interaction/step.md#_canonical_paths
-        self._canonical_paths: Dict[str, Dict[tuple, str]] = {}
+        self._canonical_paths: Dict[str, Dict[ComponentIdentity, str]] = {}
 
     def canonicalize_inventory(self, page_key: str, components: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """`components`, each pinned to its content identity's first-seen
@@ -136,7 +136,7 @@ class PageInteractionStep:
 
     def _reuse_gate(
         self, page_key: str, path: str, component: Dict[str, Any]
-    ) -> "Optional[ReuseEntry | str]":
+    ) -> 'Optional[Union[ReuseEntry, Literal["skip"]]]':
         """Exact-reuse-index check, relocated unchanged from `PageVisitor.
         _drain_interaction_frontier` - returns the `ReuseEntry` to claim
         (already flipped `interacted=True`, same synchronous-claim
@@ -283,7 +283,7 @@ class PageInteractionStep:
             await self._record_reveal(page_key, path, known_components, new_state)
             known_components = new_state.components
             for candidate in new_state.components:
-                cpath = candidate.get("path")
+                cpath = candidate.get("path", "")
                 if not candidate.get("visible") or cpath in seen_paths or self.tracker.is_interacted(page_key, cpath):
                     continue
                 seen_paths.add(cpath)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from spiders.content.component_matching import remap_stale_frontier
 
 
-def _button(path: str, name: str = "Conectar") -> dict:
+def _button(path: str, name: str = "Conectar") -> dict[str, str]:
     return {"tag": "button", "role": "button", "name": name, "form": "", "text": name, "path": path}
 
 

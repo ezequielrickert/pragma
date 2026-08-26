@@ -251,6 +251,7 @@ def test_an_email_field_is_flagged_as_pii():
 def test_a_password_field_is_flagged_high_sensitivity():
     privacy = _privacy_annotation("password")
 
+    assert privacy is not None
     assert privacy["sensitivity"] == "high"
 
 

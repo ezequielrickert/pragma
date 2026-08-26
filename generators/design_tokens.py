@@ -289,11 +289,13 @@ def build_tokens_document(graph_store: Any) -> Dict[str, Any]:
 
 
 def _is_system_candidate(token: Dict[str, Any]) -> bool:
-    return token["$extensions"]["pragma"]["usage_frequency"]["is_system_candidate"]
+    is_candidate: bool = token["$extensions"]["pragma"]["usage_frequency"]["is_system_candidate"]
+    return is_candidate
 
 
 def _usage_count(token: Dict[str, Any]) -> int:
-    return token["$extensions"]["pragma"]["usage_frequency"]["count"]
+    count: int = token["$extensions"]["pragma"]["usage_frequency"]["count"]
+    return count
 
 
 def _swatch(value: str) -> str:

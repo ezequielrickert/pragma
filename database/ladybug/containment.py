@@ -32,7 +32,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
 from ._component_lookup import resolve_component_ids, stub_component_id
+from ._query_rows import rows as _rows
 from .ids import container_content_id
 
 
@@ -43,7 +47,7 @@ def _container_fields(ancestor: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-class _LadybugContainmentMixin:
+class _LadybugContainmentMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/containment.md#_ladybugcontainmentmixin"""
 
     def record_component_ancestors(self, page_url: str, entries: List[Dict[str, Any]]) -> None:
@@ -101,7 +105,7 @@ class _LadybugContainmentMixin:
         if not containers:
             return
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             self._ensure_page(conn, page_url)
             conn.execute(
                 """
@@ -185,8 +189,8 @@ class _LadybugContainmentMixin:
             crawl from before containment capture existed reads back as.
         Details: docs/dev/database/ladybug/containment.md#get_component_regions
         """
-        def op(conn) -> Dict[str, Dict[str, str]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, Dict[str, str]]:
+            region_rows = _rows(conn.execute(
                 """
                 MATCH (p:Page)-[e:HAS_COMPONENT]->(comp:Component)
                 MATCH (region:Container)-[chain:CONTAINS*1..8]->(comp)
@@ -194,9 +198,9 @@ class _LadybugContainmentMixin:
                 RETURN p.url, e.path, region.landmark, length(chain) AS distance
                 ORDER BY p.url, e.path, distance
                 """
-            )
+            ))
             regions: Dict[str, Dict[str, str]] = {}
-            for page_url, path, landmark, _distance in rows:
+            for page_url, path, landmark, _distance in region_rows:
                 by_path = regions.setdefault(page_url, {})
                 if path not in by_path:
                     by_path[path] = landmark
@@ -230,8 +234,8 @@ class _LadybugContainmentMixin:
             site whose crawl recorded no ancestry at all.
         Details: docs/dev/database/ladybug/containment.md#get_page_landmarks
         """
-        def op(conn) -> Dict[str, Dict[str, int]]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> Dict[str, Dict[str, int]]:
+            landmark_rows = _rows(conn.execute(
                 """
                 MATCH (p:Page)-[:HAS_COMPONENT]->(comp:Component)
                 MATCH (region:Container)-[:CONTAINS*1..8]->(comp)
@@ -239,9 +243,9 @@ class _LadybugContainmentMixin:
                 RETURN p.url, region.landmark, count(DISTINCT region.id)
                 ORDER BY p.url, region.landmark
                 """
-            )
+            ))
             landmarks: Dict[str, Dict[str, int]] = {}
-            for page_url, landmark, count in rows:
+            for page_url, landmark, count in landmark_rows:
                 landmarks.setdefault(page_url, {})[landmark] = count
             return landmarks
 

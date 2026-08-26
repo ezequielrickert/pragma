@@ -18,7 +18,7 @@ class _SpyGraphStore(LadybugGraphStore):
 
     def __init__(self, site: str, directory: Optional[str] = None) -> None:
         super().__init__(site, directory=None)  # always in-memory, regardless of directory
-        self.reset_calls: list = []
+        self.reset_calls: list[str] = []
 
     def reset(self) -> None:
         self.reset_calls.append(self.site)

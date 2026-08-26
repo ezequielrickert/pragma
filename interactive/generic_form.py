@@ -127,11 +127,12 @@ def has_generic_form(filename: str) -> bool:
     return filename in GENERIC_FORM_SPECS
 
 
-def _load_schema(schema_path: str) -> dict:
-    return json.loads(Path(schema_path).read_text(encoding="utf-8"))
+def _load_schema(schema_path: str) -> Dict[str, Any]:
+    loaded: Dict[str, Any] = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+    return loaded
 
 
-def _entry_schema(schema: dict, spec: GenericFormSpec) -> dict:
+def _entry_schema(schema: Dict[str, Any], spec: GenericFormSpec) -> Dict[str, Any]:
     """The schema for one row of `spec`'s array - resolves the one
     level of `$ref` `requirements.schema.json`'s own `items` uses
     (`{"$ref": "#/$defs/requirement"}`); `browser-support-matrix.
@@ -142,14 +143,16 @@ def _entry_schema(schema: dict, spec: GenericFormSpec) -> dict:
     array_schema = schema["properties"][spec.array_path] if spec.array_path else schema
     items = array_schema["items"]
     ref = items.get("$ref")
-    return schema["$defs"][ref.removeprefix("#/$defs/")] if ref else items
+    resolved: Dict[str, Any] = schema["$defs"][ref.removeprefix("#/$defs/")] if ref else items
+    return resolved
 
 
-def _entries(document: Any, spec: GenericFormSpec) -> List[dict]:
-    return document[spec.array_path] if spec.array_path else document
+def _entries(document: Any, spec: GenericFormSpec) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = document[spec.array_path] if spec.array_path else document
+    return entries
 
 
-def _widget_for(field_schema: dict) -> Widget:
+def _widget_for(field_schema: Dict[str, Any]) -> Widget:
     if "enum" in field_schema:
         return Widget.SELECT
     field_type = field_schema.get("type")
@@ -159,24 +162,24 @@ def _widget_for(field_schema: dict) -> Widget:
     return Widget.TEXT
 
 
-def _is_nullable(field_schema: dict) -> bool:
+def _is_nullable(field_schema: Dict[str, Any]) -> bool:
     field_type = field_schema.get("type")
     types = field_type if isinstance(field_type, list) else [field_type]
     return "null" in types
 
 
-def _field_value(entry: dict, name: str, widget: Widget) -> str:
+def _field_value(entry: Dict[str, Any], name: str, widget: Widget) -> str:
     raw = entry.get(name)
     if widget is Widget.TEXTAREA:
         return "\n".join(raw or [])
     return raw or ""
 
 
-def _summary_for(entry: dict, spec: GenericFormSpec) -> str:
+def _summary_for(entry: Dict[str, Any], spec: GenericFormSpec) -> str:
     return " - ".join(str(entry[name]) for name in spec.summary_fields if entry.get(name))
 
 
-def _form_field(entry: dict, name: str, field_schema: dict) -> FormField:
+def _form_field(entry: Dict[str, Any], name: str, field_schema: Dict[str, Any]) -> FormField:
     widget = _widget_for(field_schema)
     return FormField(name=name, widget=widget, value=_field_value(entry, name, widget), options=field_schema.get("enum", []))
 
@@ -191,7 +194,7 @@ class _ResolvedForm:
 
     spec: GenericFormSpec
     document: Any
-    field_schemas: Dict[str, dict]
+    field_schemas: Dict[str, Dict[str, Any]]
 
 
 def _resolve(where: SiteOutput, ref: DocumentRef) -> Optional[_ResolvedForm]:

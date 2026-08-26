@@ -20,7 +20,7 @@ _FILLED_BLUE = "bg-blue-500 text-white rounded-md"
 _BORDERED_WHITE = "bg-white text-black border border-gray-300"
 
 
-def _component(path: str, css_class: str, page_url: str = "https://x/a") -> dict:
+def _component(path: str, css_class: str, page_url: str = "https://x/a") -> dict[str, str]:
     return {
         "id": f"component:{path}", "page_url": page_url, "path": path,
         "tag": "button", "component_type": "button", "css_class": css_class,

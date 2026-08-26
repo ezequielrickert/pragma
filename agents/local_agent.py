@@ -152,7 +152,7 @@ class LocalAgent(Agent):
                 raise RuntimeError(f"Unexpected API response format: {data}")
 
             self._raise_if_truncated(choices[0])
-            content = choices[0].get("message", {}).get("content", "")
+            content: str = choices[0].get("message", {}).get("content", "")
             return content.strip()
         except (KeyError, IndexError) as exc:
             raise RuntimeError(f"Failed to parse Local API response: {exc}") from exc

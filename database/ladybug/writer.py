@@ -19,11 +19,18 @@ import os
 import queue
 import threading
 from concurrent.futures import Future
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple, TypeVar
 
 import ladybug as lb
 
 from .site_lock import SiteLock
+
+_T = TypeVar("_T")
+
+# Either a sentinel `None` (shut down the writer thread) or a pending
+# call: the `Future` its result/exception lands on, paired with the
+# closure to run against the writer thread's one connection.
+_QueueItem = Optional[Tuple["Future[Any]", Callable[[lb.Connection], Any]]]
 
 # Ladybug's own docstring for `buffer_pool_size` names this: left at its
 # default (0), a `Database` reserves ~8TB of virtual address space via
@@ -65,7 +72,7 @@ class LadybugWriter:
         self._lock = SiteLock(path)
         self._lock.acquire()
 
-        self._queue: "queue.Queue" = queue.Queue()
+        self._queue: "queue.Queue[_QueueItem]" = queue.Queue()
         self._ready = threading.Event()
         self._connect_error: Optional[BaseException] = None
         self._thread = threading.Thread(
@@ -108,13 +115,13 @@ class LadybugWriter:
             except BaseException as exc:  # noqa: BLE001 - propagated to the caller, not swallowed
                 future.set_exception(exc)
 
-    def call(self, fn: Callable[[lb.Connection], Any]) -> Any:
+    def call(self, fn: Callable[[lb.Connection], _T]) -> _T:
         """Run `fn(connection)` on the writer thread and return its result.
         Blocks the calling thread - safe here because every call site
         already reaches this from inside `asyncio.to_thread` or a plain
         synchronous test, never from the event loop itself.
         """
-        future: "Future[Any]" = Future()
+        future: "Future[_T]" = Future()
         self._queue.put((future, fn))
         return future.result()
 

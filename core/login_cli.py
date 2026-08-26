@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from spiders.browser.login import force_login_session
 
 
-def parse_login_args(argv: list) -> argparse.Namespace:
+def parse_login_args(argv: list[str]) -> argparse.Namespace:
     """Its own small parser rather than a case in the main run parser,
     since it takes none of a crawl run's flags (budgets, output dir,
     agent/graph-store wiring) and adding it there would make every one
@@ -26,7 +26,7 @@ def parse_login_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_login_command(argv: list) -> None:
+def run_login_command(argv: list[str]) -> None:
     """`pragma login <url>`: always captures a fresh session, since running
     this command by hand is itself the explicit request to sign in. No
     `--headless` flag - there is no such thing as a headless interactive

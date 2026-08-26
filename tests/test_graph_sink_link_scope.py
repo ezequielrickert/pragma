@@ -13,6 +13,7 @@ test.
 """
 import asyncio
 
+from database.ladybug._query_rows import rows as _rows
 from database.ladybug.store import LadybugGraphStore
 from spiders.orchestration.graph_sink import GraphStoreSink
 
@@ -28,10 +29,10 @@ LINKS = [
 
 
 def _link_label(store: LadybugGraphStore, from_url: str, to_url: str):
-    rows = store._call(lambda conn: list(conn.execute(
+    rows = store._call(lambda conn: list(_rows(conn.execute(
         "MATCH (:Page {url: $from})-[l:LINKS_TO]->(:Page {url: $to}) RETURN l.label",
         {"from": from_url, "to": to_url},
-    )))
+    ))))
     return rows[0][0] if rows else None
 
 

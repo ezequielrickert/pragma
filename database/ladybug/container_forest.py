@@ -17,10 +17,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from .schema import DESCRIPTIVE_COMPONENT_FIELDS
 
 
-class _LadybugContainerForestMixin:
+class _LadybugContainerForestMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/container_forest.md#_ladybugcontainerforestmixin"""
 
     def get_container_forest(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -44,26 +48,26 @@ class _LadybugContainerForestMixin:
         """
         fields = ", ".join(f"c.{field}" for field in DESCRIPTIVE_COMPONENT_FIELDS)
 
-        def op(conn) -> Dict[str, List[Dict[str, Any]]]:
+        def op(conn: lb.Connection) -> Dict[str, List[Dict[str, Any]]]:
             containers = {
                 row[0]: {"id": row[0], "tag": row[1], "role": row[2], "landmark": row[3], "css_class": row[4]}
-                for row in conn.execute("MATCH (n:Container) RETURN n.id, n.tag, n.role, n.landmark, n.css_class")
+                for row in _rows(conn.execute("MATCH (n:Container) RETURN n.id, n.tag, n.role, n.landmark, n.css_class"))
             }
             components = {
                 row[0]: dict(zip(DESCRIPTIVE_COMPONENT_FIELDS, row[1:]))
-                for row in conn.execute(f"MATCH (c:Component) RETURN c.id, {fields}")
+                for row in _rows(conn.execute(f"MATCH (c:Component) RETURN c.id, {fields}"))
             }
             nested_containers: Dict[str, List[str]] = {}
-            for parent_id, child_id in conn.execute("MATCH (p:Container)-[:CONTAINS]->(c:Container) RETURN p.id, c.id"):
+            for parent_id, child_id in _rows(conn.execute("MATCH (p:Container)-[:CONTAINS]->(c:Container) RETURN p.id, c.id")):
                 nested_containers.setdefault(parent_id, []).append(child_id)
             nested_components: Dict[str, List[str]] = {}
-            for parent_id, child_id in conn.execute("MATCH (p:Container)-[:CONTAINS]->(c:Component) RETURN p.id, c.id"):
+            for parent_id, child_id in _rows(conn.execute("MATCH (p:Container)-[:CONTAINS]->(c:Component) RETURN p.id, c.id")):
                 nested_components.setdefault(parent_id, []).append(child_id)
             page_containers: Dict[str, List[str]] = {}
             root_path: Dict[Tuple[str, str], str] = {}
-            for page_url, path, container_id in conn.execute(
+            for page_url, path, container_id in _rows(conn.execute(
                 "MATCH (p:Page)-[e:HAS_CONTAINER]->(n:Container) RETURN p.url, e.path, n.id"
-            ):
+            )):
                 page_containers.setdefault(page_url, []).append(container_id)
                 root_path[(page_url, container_id)] = path
 
@@ -76,7 +80,9 @@ class _LadybugContainerForestMixin:
                 roots = [cid for cid in container_ids if cid not in nested_on_page]
                 page_roots = []
                 for root_id in roots:
-                    tree = _build_composite_tree(root_id, containers, nested_containers, nested_components, components, frozenset())
+                    tree = _build_composite_tree(
+                        root_id, containers, nested_containers, nested_components, components, frozenset[str]()
+                    )
                     # Only the root itself carries `path` - the literal
                     # selector a *page* renders it at, which only makes
                     # sense for the top of the tree the pipeline bucketed
@@ -96,7 +102,7 @@ def _build_composite_tree(
     nested_containers: Dict[str, List[str]],
     nested_components: Dict[str, List[str]],
     components: Dict[str, Dict[str, Any]],
-    ancestors: frozenset,
+    ancestors: "frozenset[str]",
 ) -> Dict[str, Any]:
     """One composite's tree, recursively. `ancestors` guards against a
     cycle a genuine DOM tree can never produce but a canonical, shared

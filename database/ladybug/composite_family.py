@@ -11,10 +11,14 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from core.interfaces import CompositeFamily
 
 
-def _resolve_container_ids(conn, page_url: str, paths: Iterable[str]) -> Dict[str, str]:
+def _resolve_container_ids(conn: lb.Connection, page_url: str, paths: Iterable[str]) -> Dict[str, str]:
     """`{path: container_id}` for every given path with a `HAS_CONTAINER`
     edge on this page already - `_component_lookup.py::resolve_component_ids`'s
     counterpart for `Container`, kept local rather than shared since this
@@ -24,18 +28,18 @@ def _resolve_container_ids(conn, page_url: str, paths: Iterable[str]) -> Dict[st
     paths = list(paths)
     if not paths:
         return {}
-    rows = conn.execute(
+    edge_rows = _rows(conn.execute(
         """
         MATCH (page:Page {url: $page_url})-[e:HAS_CONTAINER]->(n:Container)
         WHERE e.path IN $paths
         RETURN e.path, n.id
         """,
         {"page_url": page_url, "paths": paths},
-    )
-    return {path: container_id for path, container_id in rows}
+    ))
+    return {path: container_id for path, container_id in edge_rows}
 
 
-class _LadybugCompositeFamilyMixin:
+class _LadybugCompositeFamilyMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/composite_family.md#_ladybugcompositefamilymixin"""
 
     def record_composite_families(self, families: List[CompositeFamily]) -> None:
@@ -46,7 +50,7 @@ class _LadybugCompositeFamilyMixin:
         that doesn't resolve to a real `Container` is silently skipped.
         Details: docs/dev/database/ladybug/composite_family.md#record_composite_families
         """
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             conn.execute("MATCH (f:CompositeFamily) DETACH DELETE f")
             rows = []
             for family in families:
@@ -82,17 +86,17 @@ class _LadybugCompositeFamilyMixin:
         `VARIANT_OF`/`HAS_COMPONENT`.
         Details: docs/dev/database/ladybug/composite_family.md#get_composite_families
         """
-        def op(conn) -> List[CompositeFamily]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[CompositeFamily]:
+            family_rows = _rows(conn.execute(
                 """
                 MATCH (n:Container)-[:COMPOSITE_VARIANT_OF]->(f:CompositeFamily)
                 MATCH (page:Page)-[e:HAS_CONTAINER]->(n)
                 WITH f, collect(DISTINCT [page.url, e.path]) AS member_paths
                 RETURN f.root_tag, f.purpose, member_paths
                 """
-            )
+            ))
             families = []
-            for root_tag, purpose, member_paths in rows:
+            for root_tag, purpose, member_paths in family_rows:
                 members = tuple(sorted((page_url, path) for page_url, path in member_paths))
                 families.append(CompositeFamily(root_tag=root_tag, member_paths=members, purpose=purpose or ""))
             return families

@@ -63,7 +63,7 @@ def classify_component_type(comp: Dict[str, Any]) -> str:
     return "element"
 
 
-def find_revealed_options(before: List[dict], after: List[dict]) -> List[Dict[str, Any]]:
+def find_revealed_options(before: List[Dict[str, Any]], after: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Option-family components a trigger's click/fill just made available.
     Details: docs/dev/generators/component_classifier.md#find_revealed_options
     """
@@ -95,11 +95,11 @@ def _looks_numeric(text: str) -> bool:
     )
 
 
-def group_steppers(components: List[dict]) -> List[Dict[str, Any]]:
+def group_steppers(components: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Detect increment/decrement button pairs sharing a common parent container.
     Details: docs/dev/generators/component_classifier.md#group_steppers
     """
-    groups: Dict[str, List[dict]] = {}
+    groups: Dict[str, List[Dict[str, Any]]] = {}
     for comp in components:
         path = comp.get("path") or ""
         if not path:
@@ -136,11 +136,11 @@ def group_steppers(components: List[dict]) -> List[Dict[str, Any]]:
     return steppers
 
 
-def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
+def group_choice_sets(components: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     """Radio/checkbox components sharing the same `name` attribute.
     Details: docs/dev/generators/component_classifier.md#group_choice_sets
     """
-    groups: Dict[str, List[dict]] = {}
+    groups: Dict[str, List[Dict[str, Any]]] = {}
     for comp in components:
         role = (comp.get("role") or "").lower()
         input_type = (comp.get("input_type") or "").lower()
@@ -151,14 +151,14 @@ def group_choice_sets(components: List[dict]) -> Dict[str, List[dict]]:
     return {name: members for name, members in groups.items() if len(members) >= 2}
 
 
-def group_option_families(components: List[dict]) -> Dict[str, List[dict]]:
+def group_option_families(components: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     """Option/menu-item components sharing an immediate parent - the DOM shape
     of a single dropdown or menu's list of choices (a native `<select>`'s
     `<option>`s never reach here at all; discovery never treats them as their
     own components in the first place - see discover_components.js).
     Details: docs/dev/generators/component_classifier.md#group_option_families
     """
-    groups: Dict[str, List[dict]] = {}
+    groups: Dict[str, List[Dict[str, Any]]] = {}
     for comp in components:
         role = (comp.get("role") or "").lower()
         path = comp.get("path") or ""
@@ -168,7 +168,7 @@ def group_option_families(components: List[dict]) -> Dict[str, List[dict]]:
     return {parent: members for parent, members in groups.items() if len(members) >= 2 and parent}
 
 
-def describe_options(options_json: str) -> Optional[Dict[str, Any]]:
+def describe_options(options_json: Optional[str]) -> Optional[Dict[str, Any]]:
     """Parse a Component's raw `options` JSON blob into a normalized `{"kind", ...}` dict.
     Details: docs/dev/generators/component_classifier.md#describe_options
     """

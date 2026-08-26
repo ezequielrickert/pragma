@@ -64,4 +64,4 @@ def test_generate_raises_rather_than_returning_an_empty_document():
     """No partial document is worth reserving a field on here either -
     the same posture asyncapi.json already established (ADR-0018)."""
     with pytest.raises(NotImplementedError):
-        I18nInventoryDocument().generate(request=None)
+        I18nInventoryDocument().generate(request=None)  # type: ignore[arg-type]  # generate() always raises before touching request

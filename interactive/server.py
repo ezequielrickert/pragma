@@ -83,11 +83,12 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 import jsonschema
 import yaml
 from flask import Flask, current_app, redirect, request, url_for, jsonify, send_from_directory
+from flask.typing import ResponseReturnValue
 from werkzeug.serving import BaseWSGIServer, make_server
 
 from dashboard.renderer_audit import renderer_for
@@ -153,9 +154,9 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
                 db_dir = out_dir
 
     # Cache for LadybugGraphStore instances
-    _stores = {}
+    _stores: Dict[str, Any] = {}
 
-    def get_store_for_site(site_slug: str):
+    def get_store_for_site(site_slug: str) -> Any:
         if not site_slug:
             raise ValueError("No site slug provided")
         if site_slug not in _stores:
@@ -168,15 +169,15 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
         return sorted([path.stem for path in Path(db_dir).glob("*.lbdb")])
 
     @app.route("/")
-    def index():
+    def index() -> ResponseReturnValue:
         return redirect("/index.html")
 
     @app.route("/api/sites")
-    def api_sites():
+    def api_sites() -> ResponseReturnValue:
         return jsonify(get_available_sites())
 
     @app.route("/api/<site>/graph")
-    def api_site_graph(site):
+    def api_site_graph(site: str) -> ResponseReturnValue:
         from core.documents import DocumentRequest
         from generators.graph_export import build_export_graph
         try:
@@ -194,7 +195,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
             return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/<site>/documents")
-    def api_documents(site):
+    def api_documents(site: str) -> ResponseReturnValue:
         site_where = SiteOutput(out_dir=out_dir, site=site)
         docs = []
         for ref in available_documents(site_where):
@@ -207,7 +208,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
         return jsonify(docs)
 
     @app.route("/api/<site>/documents/<filename>.<extension>")
-    def api_document_detail(site, filename, extension):
+    def api_document_detail(site: str, filename: str, extension: str) -> ResponseReturnValue:
         ref = DocumentRef(filename=filename, extension=extension)
         site_where = SiteOutput(out_dir=out_dir, site=site)
         
@@ -229,7 +230,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
         })
 
     @app.route("/api/<site>/documents/<filename>.<extension>", methods=["POST"])
-    def api_save_document(site, filename, extension):
+    def api_save_document(site: str, filename: str, extension: str) -> ResponseReturnValue:
         ref = DocumentRef(filename=filename, extension=extension)
         site_where = SiteOutput(out_dir=out_dir, site=site)
         
@@ -265,7 +266,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/api/<site>/tokens/colors", methods=["POST"])
-    def api_save_colors(site):
+    def api_save_colors(site: str) -> ResponseReturnValue:
         site_where = SiteOutput(out_dir=out_dir, site=site)
         data = request.get_json()
         if not data:
@@ -277,7 +278,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/api/<site>/documents/<filename>.<extension>/fields", methods=["POST"])
-    def api_save_fields(site, filename, extension):
+    def api_save_fields(site: str, filename: str, extension: str) -> ResponseReturnValue:
         ref = DocumentRef(filename=filename, extension=extension)
         site_where = SiteOutput(out_dir=out_dir, site=site)
         data = request.get_json()
@@ -291,7 +292,7 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/api/<site>/chat", methods=["POST"])
-    def api_chat(site):
+    def api_chat(site: str) -> ResponseReturnValue:
         site_where = SiteOutput(out_dir=out_dir, site=site)
         data = request.get_json()
         if not data or "message" not in data or "history" not in data:
@@ -320,25 +321,25 @@ def create_app(out_dir: str, site: Optional[str], agent: Agent, db_dir: Optional
             return jsonify({"success": False, "error": str(exc)}), 500
 
     @app.route("/finalizar", methods=["POST"])
-    def finalizar():
+    def finalizar() -> ResponseReturnValue:
         server_thread: "ServerThread" = current_app.config["SERVER_THREAD"]
         threading.Thread(target=server_thread.shutdown).start()
         return simple_html_page("Finalizado", "<h1>Sesión finalizada.</h1><p>Podés cerrar esta pestaña.</p>")
 
     @app.route("/graph")
-    def serve_graph_redirect():
+    def serve_graph_redirect() -> ResponseReturnValue:
         return redirect("/index.html")
 
     @app.route("/index.html")
-    def serve_graph_index():
+    def serve_graph_index() -> ResponseReturnValue:
         return send_from_directory(explorer_dist, "index.html")
 
     @app.route("/lists.html")
-    def serve_graph_lists():
+    def serve_graph_lists() -> ResponseReturnValue:
         return send_from_directory(explorer_dist, "lists.html")
 
     @app.route("/assets/<path:filename>")
-    def serve_graph_assets(filename):
+    def serve_graph_assets(filename: str) -> ResponseReturnValue:
         return send_from_directory(os.path.join(explorer_dist, "assets"), filename)
 
     return app
@@ -361,7 +362,11 @@ class ServerThread(threading.Thread):
         # silent no-op otherwise (confirmed: measured 0.51s vs a genuine
         # 2.00s wait for a real in-flight request, same code, only this
         # flag differing). False is what makes the join in run() real.
-        self.server.daemon_threads = False
+        # Werkzeug's dev server doesn't type its own internals -
+        # `daemon_threads` is a real attribute (ThreadingMixIn's, inherited
+        # onto BaseWSGIServer at runtime) mypy's stub for BaseWSGIServer
+        # just doesn't declare.
+        self.server.daemon_threads = False  # type: ignore[attr-defined]
         self.host = host
         self.port = port
 

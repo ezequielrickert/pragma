@@ -1,6 +1,7 @@
 """Unit tests for filter_meaningful_requests (spiders/content/network_filter.py) -
 pure function, hand-built event dicts, no browser/crawl4ai dependency."""
 import json
+from typing import Any, Dict, List
 
 from spiders.content.network_filter import _json_shape, _shape_of_json_text, filter_meaningful_requests
 
@@ -11,7 +12,7 @@ def test_empty_or_none_input_returns_empty():
 
 
 def test_image_and_font_requests_are_dropped():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/logo.png", "method": "GET", "resource_type": "image"},
         {"event_type": "request", "url": "/font.woff2", "method": "GET", "resource_type": "font"},
         {"event_type": "request", "url": "/style.css", "method": "GET", "resource_type": "stylesheet"},
@@ -21,7 +22,7 @@ def test_image_and_font_requests_are_dropped():
 
 
 def test_xhr_and_fetch_requests_are_kept_with_joined_status():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/ping", "method": "GET", "resource_type": "fetch"},
         {"event_type": "response", "url": "/api/ping", "status": 200},
         {"event_type": "request", "url": "/api/legacy", "method": "POST", "resource_type": "xhr"},
@@ -49,7 +50,7 @@ def test_the_query_string_is_stripped_from_path_and_only_param_names_survive():
     """The redaction policy `InferredRequest.query_params` already stated:
     a live query string can carry an order id or a share token, so only
     the sorted, deduplicated parameter *names* may reach storage."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {
             "event_type": "request", "method": "GET", "resource_type": "fetch",
             "url": "https://x.supabase.co/rest/v1/orders?select=*&order_id=eq.8d206b72-secret",
@@ -65,7 +66,7 @@ def test_the_query_string_is_stripped_from_path_and_only_param_names_survive():
 
 
 def test_response_capture_error_leaves_status_none_not_a_crash():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/stream", "method": "GET", "resource_type": "fetch"},
         {"event_type": "response_capture_error", "url": "/api/stream", "error": "could not decode body"},
     ]
@@ -76,7 +77,7 @@ def test_response_capture_error_leaves_status_none_not_a_crash():
 
 
 def test_request_failed_is_surfaced():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/down", "method": "GET", "resource_type": "xhr"},
         {"event_type": "request_failed", "url": "/api/down", "failure_text": "net::ERR_CONNECTION_REFUSED"},
     ]
@@ -92,7 +93,7 @@ def test_response_body_is_captured_but_redacted_where_a_credential_pattern_match
     before - openapi.py and a future AI pass need real payload content,
     not just structural shapes), but redact_body() still strips anything
     that looks like a credential wherever it sits in the text."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/ping", "method": "GET", "resource_type": "fetch"},
         {
             "event_type": "response", "url": "/api/ping", "status": 200,
@@ -114,7 +115,7 @@ def test_response_body_excerpt_capped_and_original_length_preserved():
     from spiders.content.network_filter import _PAYLOAD_EXCERPT_BYTES
 
     huge_body = "x" * (_PAYLOAD_EXCERPT_BYTES * 3)
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/big", "method": "GET", "resource_type": "fetch"},
         {"event_type": "response", "url": "/api/big", "status": 200, "body": {"text": huge_body}},
     ]
@@ -156,7 +157,7 @@ def test_shape_of_json_text_real_secret_value_never_survives():
 
 
 def test_body_shape_and_response_shape_computed_from_post_data_and_response_body():
-    events = [
+    events: List[Dict[str, Any]] = [
         {
             "event_type": "request", "url": "/api/orders", "method": "POST", "resource_type": "fetch",
             "post_data": json.dumps({"order_id": "abc-123"}),
@@ -179,7 +180,7 @@ def test_body_shape_and_response_shape_computed_from_post_data_and_response_body
 
 
 def test_non_json_response_body_produces_empty_shape_not_an_error():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/ping", "method": "GET", "resource_type": "fetch"},
         {"event_type": "response", "url": "/api/ping", "status": 200, "body": {"text": "<html>not json</html>"}},
     ]
@@ -191,7 +192,7 @@ def test_capture_error_event_types_never_match_the_keep_filter():
     """request_capture_error/request_failed_capture_error carry no
     resource_type at all - they must never spuriously pass the xhr/fetch
     filter (they're not "request" event_type in the first place)."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request_capture_error", "url": "/api/x", "error": "boom"},
         {"event_type": "request_failed_capture_error", "url": "/api/y", "error": "boom"},
     ]
@@ -202,7 +203,7 @@ def test_a_classic_form_post_is_kept_even_though_it_is_a_document():
     """A server-rendered legacy app - this project's whole use case - submits
     data with <form method="post">, which navigates and is resource_type
     "document", not xhr/fetch. Dropping those left the API contract empty."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/orders/create", "method": "POST", "resource_type": "document"},
         {"event_type": "response", "url": "/orders/create", "status": 302},
     ]
@@ -217,7 +218,7 @@ def test_a_classic_form_post_is_kept_even_though_it_is_a_document():
 def test_a_plain_page_navigation_is_still_dropped():
     """The counterpart to the test above: a GET document is someone following
     a link, not an API call, and every crawled page would produce one."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/about", "method": "GET", "resource_type": "document"},
         {"event_type": "response", "url": "/about", "status": 200},
     ]
@@ -226,7 +227,7 @@ def test_a_plain_page_navigation_is_still_dropped():
 
 
 def test_latency_is_the_gap_between_request_and_response():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/slow", "method": "GET", "resource_type": "fetch",
          "timestamp": 1000.0},
         {"event_type": "response", "url": "/api/slow", "status": 200, "timestamp": 1002.5},
@@ -238,7 +239,7 @@ def test_latency_is_the_gap_between_request_and_response():
 def test_latency_is_none_when_no_response_ever_arrived():
     """A failed request has a send time and nothing else - reporting 0 ms
     would read as "instantaneous" rather than "never answered"."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/down", "method": "GET", "resource_type": "xhr",
          "timestamp": 1000.0},
         {"event_type": "request_failed", "url": "/api/down", "failure_text": "refused"},
@@ -250,7 +251,7 @@ def test_latency_is_none_when_no_response_ever_arrived():
 def test_an_authorization_header_yields_its_scheme_and_never_its_credential():
     """The whole point of reading headers at all: `bearer` is a scheme name,
     the token after it is a secret that must never reach the graph."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/x", "method": "POST", "resource_type": "fetch",
          "headers": {"Authorization": "Bearer eyJhbGciOi.REDACT-ME"}},
         {"event_type": "response", "url": "/api/x", "status": 201, "headers": {}},
@@ -263,7 +264,7 @@ def test_an_authorization_header_yields_its_scheme_and_never_its_credential():
 
 
 def test_an_api_key_header_is_identified_by_its_name():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
          "headers": {"X-API-Key": "secret-value-here"}},
     ]
@@ -275,7 +276,7 @@ def test_an_api_key_header_is_identified_by_its_name():
 
 
 def test_a_cookie_is_reported_as_a_scheme_without_its_contents():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
          "headers": {"Cookie": "session=abc123; user=real@person.com"}},
     ]
@@ -288,7 +289,7 @@ def test_a_cookie_is_reported_as_a_scheme_without_its_contents():
 
 
 def test_a_request_with_no_auth_headers_reports_no_scheme():
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch",
          "headers": {"Accept": "application/json"}},
     ]
@@ -299,7 +300,7 @@ def test_a_request_with_no_auth_headers_reports_no_scheme():
 def test_the_response_media_type_is_read_without_its_charset():
     """The contract assumed application/json for everything; an endpoint
     answering XML or a redirect was described wrongly."""
-    events = [
+    events: List[Dict[str, Any]] = [
         {"event_type": "request", "url": "/api/x", "method": "GET", "resource_type": "fetch"},
         {"event_type": "response", "url": "/api/x", "status": 200,
          "status_text": "OK", "headers": {"Content-Type": "application/xml; charset=utf-8"}},

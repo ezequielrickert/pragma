@@ -12,7 +12,7 @@ from .registry import GRAPH_STORE_REGISTRY
 from .static_engine import StaticEngine, StaticRunResult
 
 
-def parse_static_args(argv: list) -> argparse.Namespace:
+def parse_static_args(argv: list[str]) -> argparse.Namespace:
     """A content-capture crawl, not the full run: no agent, no output
     documents, so it takes only the flags that still mean something
     without either of those.
@@ -47,7 +47,7 @@ def parse_static_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_static_command(argv: list) -> None:
+def run_static_command(argv: list[str]) -> None:
     """`pragma static <url>`: crawl, don't analyze - see `StaticEngine` for
     what that means in practice. Details: docs/dev/core/static_cli.md#run_static_command
     """
@@ -58,6 +58,9 @@ def run_static_command(argv: list) -> None:
     overrides["url"] = args.url
 
     config = PragmaConfig.load(cli_overrides=overrides, yaml_path=args.config_path)
+    if config.url is None:
+        print("Critical error during static capture: no URL configured")
+        sys.exit(1)
 
     try:
         print(f"Starting static capture for: {config.url}")

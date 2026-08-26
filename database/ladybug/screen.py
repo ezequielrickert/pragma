@@ -25,6 +25,10 @@ from __future__ import annotations
 
 from typing import List, Sequence
 
+import ladybug as lb
+
+from ._mixin_base import _LadybugMixinBase
+from ._query_rows import rows as _rows
 from core.interfaces import SemanticScreen
 
 # Recorded on every `DERIVED_FROM` edge this module writes.
@@ -35,7 +39,7 @@ _METHOD = "deterministic"
 _CONFIDENCE = 1.0
 
 
-class _LadybugScreenMixin:
+class _LadybugScreenMixin(_LadybugMixinBase):
     """Details: docs/dev/database/ladybug/screen.md#_ladybugscreenmixin"""
 
     def record_screens(self, screens: Sequence[SemanticScreen], run_id: str = "") -> None:
@@ -57,7 +61,7 @@ class _LadybugScreenMixin:
             if not screen.page_url:
                 raise ValueError("semantic screen has no page_url derived_from")
 
-        def op(conn) -> None:
+        def op(conn: lb.Connection) -> None:
             # Edges first: Ladybug refuses to delete a node that still has
             # relationships attached. Scoped by source label - see this
             # module's own docstring for why DERIVED_FROM can't be a
@@ -94,17 +98,17 @@ class _LadybugScreenMixin:
         `get_entities` maintains for `SemanticEntity`.
         Details: docs/dev/database/ladybug/screen.md#get_screens
         """
-        def op(conn) -> List[SemanticScreen]:
-            rows = conn.execute(
+        def op(conn: lb.Connection) -> List[SemanticScreen]:
+            screen_rows = _rows(conn.execute(
                 """
                 MATCH (s:Screen)-[:RENDERS]->(page:Page)
                 RETURN page.url, s.route_pattern, s.name, s.purpose
                 ORDER BY page.url
                 """
-            )
+            ))
             return [
                 SemanticScreen(page_url=page_url, route_pattern=route_pattern, name=name, purpose=purpose)
-                for page_url, route_pattern, name, purpose in rows
+                for page_url, route_pattern, name, purpose in screen_rows
             ]
 
         return self._call(op)

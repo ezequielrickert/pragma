@@ -244,7 +244,7 @@ def _render_table(flow: FlowGraph) -> List[str]:
         if t.outcome == ERROR and t.status is None:
             status = "failed"
         else:
-            status = t.status if t.status is not None else "-"
+            status = str(t.status) if t.status is not None else "-"
         lines.append(
             f"| {t.from_state} | {t.trigger} | {t.action} | {t.endpoint or '-'} | {status} | {t.to_state} |"
         )

@@ -27,7 +27,7 @@ def test_scoring_reads_the_live_dict_not_a_snapshot_taken_at_construction():
     by reference so scores stay current as the crawl counts visits - a
     scorer that copied the dict at construction would score every URL as
     if nothing had been visited yet."""
-    visits = {}
+    visits: dict[str, int] = {}
     scorer = RouteShapeNoveltyScorer(visits, max_visits_per_route_shape=1)
     assert scorer.score("http://example.com/page") == 1.0
 

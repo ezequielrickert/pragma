@@ -90,7 +90,8 @@ def _load_rule_catalog_data() -> List[Dict[str, Any]]:
     axe-core 4.10.2.
     Details: docs/dev/generators/accessibility_act.md#_load_rule_catalog_data
     """
-    return json.loads(Path(_RULES_DATA_PATH).read_text(encoding="utf-8"))
+    rules: List[Dict[str, Any]] = json.loads(Path(_RULES_DATA_PATH).read_text(encoding="utf-8"))
+    return rules
 
 
 def build_rule_catalog() -> Dict[str, Any]:

@@ -5,6 +5,8 @@ test_screens.py.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from core.interfaces import InferredRequest, SemanticEntity, SemanticField, SemanticFlow, VisitStep
@@ -40,7 +42,7 @@ def _request(status=201, visit_id="v1", step_seq=1, failed=False, method="POST",
 
 
 def _inferred_request(**overrides):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         method="POST", endpoint=ENDPOINT, query_params=(), body_shape="", response_shape="",
         triggered_by=(), loaded_by=(), status_codes=(),
     )

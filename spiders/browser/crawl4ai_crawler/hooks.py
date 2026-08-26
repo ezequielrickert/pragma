@@ -8,7 +8,9 @@ Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#module
 from __future__ import annotations
 
 import functools
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
+
+from playwright.async_api import BrowserContext, Page, Route
 
 from ...content.accessibility_snapshot import capture_accessibility_snapshot
 from ...content.page_extraction import run_extraction
@@ -73,19 +75,22 @@ class HookHandlers:
         """
         return self._stash.pop(session_id, {})
 
-    def log_only_hook(self, hook_name: str):
+    def log_only_hook(self, hook_name: str) -> Callable[..., Any]:
         """Build a hook callback that only logs to `self.debug_log`.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#log_only_hook
         """
 
-        def hook(*args, **kwargs):
+        def hook(*args: Any, **kwargs: Any) -> Any:
             # Plain sync callable - crawl4ai's execute_hook calls either way.
-            self.debug_log.log_hook_from_raw(hook_name, args, kwargs)
+            if self.debug_log:
+                self.debug_log.log_hook_from_raw(hook_name, args, kwargs)
             return args[0] if args else None
 
         return hook
 
-    async def on_page_context_created(self, page, context, config, **kwargs):
+    async def on_page_context_created(
+        self, page: Page, context: BrowserContext, config: Any, **kwargs: Any
+    ) -> Page:
         """Installs the combined per-request route handler; fires on every
         `arun()` call. Always installed, regardless of `block_images`/`mode`
         - `_route_gate` is a no-op pass-through when both are off, but it's
@@ -104,7 +109,11 @@ class HookHandlers:
         if not getattr(page, "_pragma_route_gate_installed", False):
             session_id = config.session_id or "default"
             await page.route("**/*", functools.partial(self._route_gate, session_id=session_id))
-            page._pragma_route_gate_installed = True
+            # `Page` carries no such attribute of its own - `setattr`, not a
+            # plain assignment, since mypy strict rejects assigning an
+            # attribute the real `playwright.async_api.Page` class doesn't
+            # declare.
+            setattr(page, "_pragma_route_gate_installed", True)
         if self.interaction_timeout_seconds is not None:
             # Changes Playwright's own no-explicit-timeout fallback.
             # Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#on_page_context_created-timeout
@@ -117,7 +126,7 @@ class HookHandlers:
             )
         return page
 
-    async def _route_gate(self, route, session_id: str) -> None:
+    async def _route_gate(self, route: Route, session_id: str) -> None:
         """The one `page.route("**/*", ...)` handler this crawler installs,
         composing every per-request policy in priority order: media
         blocking first (an outright network-cost cut, independent of
@@ -136,10 +145,10 @@ class HookHandlers:
         else:
             await route.continue_()
 
-    def _is_blocked_media_request(self, route) -> bool:
+    def _is_blocked_media_request(self, route: Route) -> bool:
         return self.block_images and route.request.resource_type in _BLOCKED_RESOURCE_TYPES
 
-    def _is_blocked_mutation(self, route) -> bool:
+    def _is_blocked_mutation(self, route: Route) -> bool:
         if self.mode != "immutable":
             return False
         method = route.request.method
@@ -150,7 +159,7 @@ class HookHandlers:
             return looks_like_mutating_get(route.request.url, headers)
         return False
 
-    async def _retry_empty_extraction(self, page, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _retry_empty_extraction(self, page: Page, data: Dict[str, Any]) -> Dict[str, Any]:
         """Look again when discovery found nothing on a page that clearly has something.
 
         Zero components *and* zero links on a page with a real DOM is
@@ -183,7 +192,9 @@ class HookHandlers:
             self.debug_log.log_hook("empty_extraction_retry", found_on_retry=found)
         return retried if found else data
 
-    async def before_retrieve_html(self, page, context, config, **kwargs):
+    async def before_retrieve_html(
+        self, page: Page, context: BrowserContext, config: Any, **kwargs: Any
+    ) -> Page:
         """Discovery point for a plain navigation pass - crawl4ai fires this
         hook on every `arun()` call, `js_only` or not, so `config.js_only`
         (never set by `discover_page`, always set by `_interact`) is what
@@ -225,7 +236,9 @@ class HookHandlers:
             )
         return page
 
-    async def on_execution_ended(self, page, context, config, result, **kwargs):
+    async def on_execution_ended(
+        self, page: Page, context: BrowserContext, config: Any, result: Any, **kwargs: Any
+    ) -> Page:
         """Discovery point right after `config.js_code` runs; resolves action success.
         Details: docs/dev/spiders/browser/crawl4ai_crawler/hooks.md#on_execution_ended
         """

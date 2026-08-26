@@ -1,6 +1,7 @@
 """Unit tests for generators/test_plan.py - closing the loop from gherkin
 scenarios to a real staging run (docs/adr/0022)."""
 import json
+from typing import Any
 
 from core.documents import DocumentRequest
 from core.interfaces import InferredRequest
@@ -39,7 +40,7 @@ def _request(status=201, visit_id="v1", step_seq=1, failed=False, url=None):
 
 
 def _inferred_request(**overrides):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         method="POST", endpoint=ENDPOINT, query_params=(), body_shape="", response_shape="",
         triggered_by=(), loaded_by=(), status_codes=(),
     )

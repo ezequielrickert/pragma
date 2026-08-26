@@ -12,7 +12,7 @@ from .config import PragmaConfig
 from .registry import AGENT_REGISTRY, GRAPH_STORE_REGISTRY
 
 
-def parse_docs_args(argv: list) -> argparse.Namespace:
+def parse_docs_args(argv: list[str]) -> argparse.Namespace:
     """A site, not a URL: `pragma docs` reads a `pragma static` run
     already on disk, so there is nothing here to navigate to.
     Details: docs/dev/core/docs_cli.md#parse_docs_args
@@ -45,7 +45,7 @@ def parse_docs_args(argv: list) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_docs_command(argv: list) -> None:
+def run_docs_command(argv: list[str]) -> None:
     """`pragma docs <site>`: project, then generate - see `DocsEngine`
     for what that means in practice.
     Details: docs/dev/core/docs_cli.md#run_docs_command
